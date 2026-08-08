@@ -263,6 +263,38 @@ final class ProjectionColumnScanParityTest {
         assertEquals(expected[1], left[1] + right[1], "fused ranged agg sum seed=" + seed);
         assertEquals(expected[2], Math.min(left[2], right[2]), "fused ranged agg min seed=" + seed);
         assertEquals(expected[3], Math.max(left[3], right[3]), "fused ranged agg max seed=" + seed);
+        // Masked fold: count and sum must be bit-identical to the full fold, and the extrema
+        // slots must come back exactly as initialised. A sum-only fold that quietly disagreed on
+        // a count, or that wrote a partial extremum, would corrupt a chunked merge — the merge
+        // takes min/max across per-thread accumulators, so a stray write is indistinguishable
+        // from a real extremum.
+        final long[] sumOnly = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, sumOnly,
+            fx.fetcher(),
+            ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM);
+        assertEquals(expected[0], sumOnly[0], "masked fold count seed=" + seed);
+        assertEquals(expected[1], sumOnly[1], "masked fold sum seed=" + seed);
+        assertEquals(Long.MAX_VALUE, sumOnly[2], "masked fold wrote min seed=" + seed);
+        assertEquals(Long.MIN_VALUE, sumOnly[3], "masked fold wrote max seed=" + seed);
+        // Asking for the extrema must still take the full path.
+        final long[] withMin = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, withMin,
+            fx.fetcher(),
+            ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN);
+        for (int i = 0; i < 4; i++) {
+          assertEquals(expected[i], withMin[i], "min-masked fold agg[" + i + "] seed=" + seed);
+        }
+        // Ranged + masked, the shape the parallel dispatch actually uses.
+        final long[] mLeft = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        final long[] mRight = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        final int sumMask =
+            ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM;
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, mLeft, 0,
+            mid, fx.fetcher(), sumMask);
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(fx.store(), preds, 0, mRight,
+            mid, rowGroupCount, fx.fetcher(), sumMask);
+        assertEquals(expected[0], mLeft[0] + mRight[0], "masked ranged count seed=" + seed);
+        assertEquals(expected[1], mLeft[1] + mRight[1], "masked ranged sum seed=" + seed);
       }
     }
   }

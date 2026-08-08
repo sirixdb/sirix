@@ -224,21 +224,64 @@ public final class ProjectionColumnSegmentFoldScan {
     return total;
   }
 
+  /** {@code acc[0]}, the surviving row count — always folded; it is a popcount of the mask. */
+  public static final int AGG_COUNT = 1;
+  /** {@code acc[1]}, the sum over surviving rows. */
+  public static final int AGG_SUM = 1 << 1;
+  /** {@code acc[2]}, the minimum over surviving rows. */
+  public static final int AGG_MIN = 1 << 2;
+  /** {@code acc[3]}, the maximum over surviving rows. */
+  public static final int AGG_MAX = 1 << 3;
+  /** Every slot — the historical behaviour, and what the unmasked overloads request. */
+  public static final int AGG_ALL = AGG_COUNT | AGG_SUM | AGG_MIN | AGG_MAX;
+
+  /** Extremum slots. Their absence is what lets the fold skip the emulated 64-bit min/max. */
+  private static final int AGG_EXTREMA = AGG_MIN | AGG_MAX;
+
   /**
    * Conjunctive numeric-long aggregate folded straight from segment bytes —
    * {@code acc = [count, sum, min, max]}, initialised by the caller to
    * {@code {0, 0, Long.MAX_VALUE, Long.MIN_VALUE}}.
+   *
+   * <p>Folds every slot. Prefer the {@code aggMask} overload when the query wants only some of
+   * them: on an ISA without 64-bit SIMD min/max the extrema cost ~35-40 % of the fold.
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
       final ColumnSegmentFetcher fetcher) {
-    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.rowGroupCount(), fetcher);
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.rowGroupCount(),
+        fetcher, AGG_ALL);
+  }
+
+  /**
+   * Fold only the slots named by {@code aggMask} (see {@link #AGG_COUNT} and friends).
+   *
+   * <p>{@code count} and {@code sum} ride along free — a popcount and a masked lane add, both
+   * single instructions. The extrema do not: AVX2 has no {@code vpminsq}/{@code vpmaxsq}, so a
+   * masked 64-bit min/max compiles to a compare-and-blend emulation, and folding it for a query
+   * that asked for {@code sum} is pure waste. Slots outside the mask are left exactly as the
+   * caller initialised them, so a chunked merge over per-thread accumulators stays correct.
+   */
+  public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
+      final ColumnSegmentFetcher fetcher, final int aggMask) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, 0, store.rowGroupCount(),
+        fetcher, aggMask);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
       final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
+    conjunctiveAggregateNumeric(store, predicates, numericColumn, acc, fromRowGroup, toRowGroup,
+        fetcher, AGG_ALL);
+  }
+
+  /** Ranged variant for chunked parallel dispatch, folding only {@code aggMask}'s slots. */
+  public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc,
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher,
+      final int aggMask) {
     if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
@@ -265,7 +308,7 @@ public final class ProjectionColumnSegmentFoldScan {
           continue;
         }
         foldMaskedBlock(s.mask, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
-            acc);
+            acc, aggMask);
       }
     }
   }
@@ -295,7 +338,76 @@ public final class ProjectionColumnSegmentFoldScan {
    */
   private static void foldMaskedBlock(final long[] maskWords, final Stream aggStream, final Scratch s,
       final int blockStart, final int rows, final int words, final int wordBase, final int presWords,
-      final int rowCount, final long[] acc) {
+      final int rowCount, final long[] acc, final int aggMask) {
+    // Dispatched once per block, never per row: each arm is then a single fixed loop shape the JIT
+    // can vectorise without a per-word test on the mask.
+    if ((aggMask & AGG_EXTREMA) == 0) {
+      foldMaskedBlockSum(maskWords, aggStream, s, blockStart, rows, words, wordBase, presWords,
+          rowCount, acc);
+    } else {
+      foldMaskedBlockFull(maskWords, aggStream, s, blockStart, rows, words, wordBase, presWords,
+          rowCount, acc);
+    }
+  }
+
+  /**
+   * Count and sum only, leaving {@code acc[2]} and {@code acc[3]} untouched at the caller's
+   * identities.
+   *
+   * <p>Structurally identical to {@link #foldMaskedBlockFull} — same unpack-once guard, same three
+   * density arms — with the two extremum reductions removed. That is the whole optimisation: a
+   * masked lane add is one instruction, a masked 64-bit min or max is an emulation on any ISA
+   * without AVX-512, and {@code count}/{@code sum}/{@code avg} queries never needed them.
+   */
+  private static void foldMaskedBlockSum(final long[] maskWords, final Stream aggStream,
+      final Scratch s, final int blockStart, final int rows, final int words, final int wordBase,
+      final int presWords, final int rowCount, final long[] acc) {
+    final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
+    final int lanes = ProjectionVectorKernels.LANES;
+    long count = acc[0];
+    long sum = acc[1];
+    LongVector vsum = LongVector.zero(species);
+    boolean unpacked = false;
+    for (int w = 0; w < words; w++) {
+      long word = maskWords[w] & aggStream.presenceWord(wordBase + w, presWords, rowCount);
+      if (word == 0L) {
+        continue;
+      }
+      if (!unpacked) {
+        aggStream.unpackBlock(blockStart, rows, s.aggVals);
+        unpacked = true;
+      }
+      final int rowBase = w << 6;
+      if (word == -1L) {
+        for (int k = 0; k < 64; k += lanes) {
+          vsum = vsum.add(LongVector.fromArray(species, s.aggVals, rowBase + k));
+        }
+        count += 64;
+        continue;
+      }
+      if (Long.bitCount(word) > ProjectionVectorKernels.FOLD_WALK_MAX_BITS) {
+        for (int k = 0; k < 64; k += lanes) {
+          final VectorMask<Long> m = VectorMask.fromLong(species, word >>> k);
+          vsum = vsum.add(LongVector.fromArray(species, s.aggVals, rowBase + k), m);
+        }
+        count += Long.bitCount(word);
+        continue;
+      }
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        count++;
+        sum += s.aggVals[rowBase + bit];
+      }
+    }
+    sum += vsum.reduceLanes(VectorOperators.ADD);
+    acc[0] = count;
+    acc[1] = sum;
+  }
+
+  private static void foldMaskedBlockFull(final long[] maskWords, final Stream aggStream,
+      final Scratch s, final int blockStart, final int rows, final int words, final int wordBase,
+      final int presWords, final int rowCount, final long[] acc) {
     final VectorSpecies<Long> species = ProjectionVectorKernels.SPECIES;
     final int lanes = ProjectionVectorKernels.LANES;
     long count = acc[0];
@@ -421,13 +533,28 @@ public final class ProjectionColumnSegmentFoldScan {
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
       final PredicateTree tree, final int numericColumn, final long[] acc,
       final ColumnSegmentFetcher fetcher) {
-    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.rowGroupCount(), fetcher);
+    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.rowGroupCount(), fetcher, AGG_ALL);
+  }
+
+  /** Fold only {@code aggMask}'s slots — see the flat kernel's overload for why that pays. */
+  public static void treeAggregateNumeric(final ProjectionColumnStore store,
+      final PredicateTree tree, final int numericColumn, final long[] acc,
+      final ColumnSegmentFetcher fetcher, final int aggMask) {
+    treeAggregateNumeric(store, tree, numericColumn, acc, 0, store.rowGroupCount(), fetcher, aggMask);
   }
 
   /** Ranged variant for chunked parallel dispatch. */
   public static void treeAggregateNumeric(final ProjectionColumnStore store,
       final PredicateTree tree, final int numericColumn, final long[] acc,
       final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher) {
+    treeAggregateNumeric(store, tree, numericColumn, acc, fromRowGroup, toRowGroup, fetcher, AGG_ALL);
+  }
+
+  /** Ranged variant for chunked parallel dispatch, folding only {@code aggMask}'s slots. */
+  public static void treeAggregateNumeric(final ProjectionColumnStore store,
+      final PredicateTree tree, final int numericColumn, final long[] acc,
+      final int fromRowGroup, final int toRowGroup, final ColumnSegmentFetcher fetcher,
+      final int aggMask) {
     if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
     }
@@ -454,7 +581,7 @@ public final class ProjectionColumnSegmentFoldScan {
         final long[] root = evaluateTreeBlock(tree, streams, leafLive, leafNumeric, leaves, s,
             blockStart, rows, words, wordBase, presWords, rowCount);
         foldMaskedBlock(root, aggStream, s, blockStart, rows, words, wordBase, presWords, rowCount,
-            acc);
+            acc, aggMask);
       }
     }
   }

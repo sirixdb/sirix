@@ -469,6 +469,27 @@ public class ProjectionFoldKernelBenchmark {
 
   @Benchmark
   @OperationsPerInvocation(POOL_VALUES)
+  public long foldMaskedVectorSumOnly(final Values s, final Masks m) {
+    // Control for foldMaskedVector: identical loop with the two min/max lanewise ops removed.
+    // AVX2 has no vpminsq/vpmaxsq, so masked 64-bit min/max is emulated; this isolates that cost
+    // from the masked add, which does map to a single instruction.
+    LongVector vsum = LongVector.zero(SPECIES);
+    long count = 0;
+    int wi = 0;
+    for (int b = 0; b < POOL_VALUES; b += 64) {
+      final long word = m.candidates[wi++];
+      count += Long.bitCount(word);
+      for (int k = 0; k < 64; k += LANES) {
+        final VectorMask<Long> vm = VectorMask.fromLong(SPECIES, word >>> k);
+        final LongVector v = LongVector.fromArray(SPECIES, s.vals, b + k);
+        vsum = vsum.add(v, vm);
+      }
+    }
+    return count ^ vsum.reduceLanes(VectorOperators.ADD);
+  }
+
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
   public long foldMaskedVector(final Values s, final Masks m) {
     LongVector vsum = LongVector.zero(SPECIES);
     LongVector vmin = LongVector.broadcast(SPECIES, Long.MAX_VALUE);
@@ -687,6 +708,20 @@ public class ProjectionFoldKernelBenchmark {
   public long endToEndAggregateGt(final Store s, final WorkerScratch w) {
     resetAcc(w.acc);
     ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(s.store, s.gt, 0, w.acc, s.fetcher);
+    return w.acc[0] ^ w.acc[1];
+  }
+
+  /**
+   * The same aggregate as {@link #endToEndAggregateGt}, asking only for the slots a
+   * {@code count}/{@code sum}/{@code avg} query reads. The delta is the emulated 64-bit min/max
+   * this ISA has no instruction for.
+   */
+  @Benchmark
+  @OperationsPerInvocation(POOL_VALUES)
+  public long endToEndAggregateSumGt(final Store s, final WorkerScratch w) {
+    resetAcc(w.acc);
+    ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(s.store, s.gt, 0, w.acc, s.fetcher,
+        ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM);
     return w.acc[0] ^ w.acc[1];
   }
 
