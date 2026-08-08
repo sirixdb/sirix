@@ -23,6 +23,16 @@ import static java.util.Objects.requireNonNull;
 
 public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice> {
 
+  /**
+   * A slice is a positional window, not the array's whole child list, so the parent-key test a
+   * page-range split relies on would admit elements outside {@code [fromIndex, toIndex)}. Declining
+   * here makes such a sequence iterate serially rather than incorrectly.
+   */
+  @Override
+  protected boolean isWholeArray() {
+    return false;
+  }
+
   /** Sirix read-only transaction. */
   private final JsonNodeReadOnlyTrx rtx;
 

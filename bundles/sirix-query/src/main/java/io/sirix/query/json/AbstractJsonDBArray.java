@@ -8,6 +8,7 @@ import io.brackit.query.atomic.IntNumeric;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.json.Array;
+import io.brackit.query.jdm.json.SplittableMembers;
 import io.brackit.query.jdm.type.ArrayType;
 import io.brackit.query.jdm.type.ItemType;
 import io.brackit.query.jsonitem.array.AbstractArray;
@@ -21,6 +22,7 @@ import io.sirix.axis.temporal.LastAxis;
 import io.sirix.axis.temporal.NextAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.query.StructuredDBItem;
+import io.sirix.settings.Constants;
 
 import java.lang.ref.Cleaner;
 import java.lang.ref.Cleaner.Cleanable;
@@ -29,7 +31,8 @@ import java.util.List;
 import java.util.Objects;
 
 public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> extends AbstractArray
-    implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx> {
+    implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx>,
+               SplittableMembers {
   /**
    * The unique nodeKey of the current node.
    */
@@ -456,6 +459,68 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   @Override
   public boolean booleanValue() {
     throw new QueryException(ErrorCode.ERR_ITEM_HAS_NO_TYPED_VALUE, "The boolean value of array items is undefined");
+  }
+
+  /**
+   * Elements below which splitting is refused.
+   *
+   * <p>A split costs a read transaction and a storage reader per piece, and a page-range scan
+   * inspects every slot of every page it covers — including the ~14 non-element nodes per element
+   * on a typical JSON corpus. Under a large array that trade is overwhelmingly worth it; under a
+   * small one it is pure loss, and the serial sibling walk is simply better.
+   */
+  private static final long SPLIT_MIN_ELEMENTS = Long.getLong("sirix.morsel.minElements", 65_536L);
+
+  /** Record pages a split must cover to be worth its transaction; keeps pieces from being trivial. */
+  private static final long SPLIT_MIN_PAGES = Long.getLong("sirix.morsel.minPagesPerSplit", 64L);
+
+  /**
+   * Whether this array's elements are exactly "the children of {@link #nodeKey}".
+   *
+   * <p>That equivalence is what makes a parent-key test a correct membership test, and it is what a
+   * sub-range view breaks: a slice's elements are a positional window, which no per-node property
+   * can identify. Such views decline to split and fall back to serial iteration.
+   */
+  protected boolean isWholeArray() {
+    return true;
+  }
+
+  /** Record pages in this resource's document index — the space a split is carved out of. */
+  private long documentPageCount() {
+    moveRtx();
+    return (rtx.getMaxNodeKey() >> Constants.NDP_NODE_COUNT_EXPONENT) + 1;
+  }
+
+  @Override
+  public int memberSplitCount(final int preferred) {
+    if (preferred <= 1 || !isWholeArray() || rtx instanceof JsonNodeTrx) {
+      return 1;
+    }
+    moveRtx();
+    if (rtx.getChildCount() < SPLIT_MIN_ELEMENTS) {
+      return 1;
+    }
+    final long byPages = documentPageCount() / SPLIT_MIN_PAGES;
+    if (byPages <= 1) {
+      return 1;
+    }
+    return (int) Math.min(preferred, byPages);
+  }
+
+  @Override
+  public Sequence memberSplit(final int index, final int total) {
+    if (index < 0 || total <= 0 || index >= total) {
+      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE,
+                               "Invalid split %s of %s", index, total);
+    }
+    final long pages = documentPageCount();
+    final long pagesPerSplit = (pages + total - 1) / total;
+    final long from = (long) index * pagesPerSplit;
+    final long to = Math.min(from + pagesPerSplit, pages);
+    // Each piece opens its own transaction; nothing of this array's cursor state is shared, which
+    // is what makes concurrent iteration of the pieces safe.
+    return new ArrayPageRangeSequence(rtx.getResourceSession(), rtx.getRevisionNumber(), nodeKey,
+                                      collection, jsonItemFactory, from, Math.max(from, to));
   }
 
   @Override

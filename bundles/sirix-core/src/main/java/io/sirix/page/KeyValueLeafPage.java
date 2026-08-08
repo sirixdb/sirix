@@ -35,6 +35,7 @@ import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
+import io.sirix.settings.Fixed;
 import io.sirix.utils.WeakIdentitySet;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
@@ -1601,6 +1602,54 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return 0;
     }
     return PageLayout.getDirNodeKindId(slottedPage, slotNumber);
+  }
+
+  /**
+   * Read a slot's parent node key straight from the slot bytes, without binding a flyweight or
+   * moving a transaction cursor.
+   *
+   * <p>This is what lets a scan decide whether a record belongs to a given parent — the children of
+   * one JSON array, say — while inspecting every slot of a page. Doing it by materializing each
+   * node would cost far more than the scan it is filtering for: on a corpus with ~15 nodes per array
+   * element, the filter runs 15x more often than it succeeds.
+   *
+   * <p>Works for every node kind because PARENT_KEY is field index 0 in all of them (see the
+   * {@code *_PARENT_KEY} constants in {@link NodeFieldLayout}); only the offset table's length
+   * varies, and that comes from {@link NodeFieldLayout#fieldCountForKind(int)}.
+   *
+   * @param slotNumber the slot index (0-1023)
+   * @return the parent node key, or {@link Fixed#NULL_NODE_KEY} when the slot is unpopulated or the
+   *         page holds no slotted image
+   */
+  public long getSlotParentKey(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
+    if (fieldCount <= 0 || isParentless(kindId)) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJECT_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    // Parent keys are delta-encoded against the record's own node key.
+    final long nodeKey = (getPageKey() << PageLayout.SLOT_COUNT_EXPONENT) | slotNumber;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, nodeKey);
+  }
+
+  /**
+   * Whether a node kind has no PARENT_KEY at field index 0.
+   *
+   * <p>Only the document roots, and getting this wrong is quiet rather than loud: their field 0 is
+   * FIRST_CHILD_KEY, so reading it as a parent reports the root's own first child as its parent. On
+   * a JSON document that child is the top-level array, which makes the root look like a member of
+   * that array — a scan filtering "children of the array" then admits the document root and hands a
+   * consumer a node kind it has no case for.
+   */
+  private static boolean isParentless(final int kindId) {
+    return kindId == NodeKind.JSON_DOCUMENT.getId() || kindId == NodeKind.XML_DOCUMENT.getId();
   }
 
   /**

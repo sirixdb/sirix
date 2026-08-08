@@ -258,6 +258,36 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
+   * Create a compile chain whose scan-shaped pipelines fan out morsel-driven, over splits of the
+   * source itself.
+   *
+   * <p>Note this is <em>not</em> {@link #createParallelWithMorsel}, despite the name overlap, and
+   * the difference is why that method could never do what it claimed. Morsel wrapping lives in
+   * {@link SequentialPipelineStrategy}, but {@code createParallelWithMorsel} also asks for the
+   * parallel translator — and that installs {@code BlockPipelineStrategy}, which does not extend
+   * {@code SequentialPipelineStrategy}. The flag was therefore set and then never consulted: the
+   * chain it returns is the block-parallel chain, nothing more. This factory keeps the sequential
+   * translator, which is the one that knows how to split.
+   *
+   * <p>The fan-out replaces the pipeline expression itself, so each worker runs the whole chain —
+   * leaf scan, predicates and the return expression — over its own piece of the source. Pieces come
+   * from {@code SplittableSequence}; a source that cannot split iterates serially, so this is never
+   * slower than the ordinary chain by more than the check.
+   *
+   * <p><b>Results are unordered.</b> Morsel wrapping is a process-wide toggle on
+   * {@link SequentialPipelineStrategy}, so enabling it here affects every compile chain in the JVM
+   * until it is disabled.
+   *
+   * @param nodeStore the XML node store (or null)
+   * @param jsonStore the JSON item store (or null)
+   * @return a sequential compile chain with morsel fan-out enabled
+   */
+  public static SirixCompileChain createWithMorsel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
+    SequentialPipelineStrategy.setMorselEnabled(true);
+    return new SirixCompileChain(nodeStore, jsonStore);
+  }
+
+  /**
    * Constructor.
    *
    * @param nodeStore the Sirix {@link BasicXmlDBStore}

@@ -296,7 +296,12 @@ public final class PostgresBulkBench {
       // 78 s of CPU in 90 s of wall-clock, no completion. An aggregate is order-insensitive, so the
       // unordered chain is the meaningful parallel measurement.
       case "parallel-unordered" -> SirixCompileChain.createParallel(null, store, false);
-      case "morsel" -> SirixCompileChain.createParallelWithMorsel(null, store);
+      // The sequential translator with source splitting — the path that actually fans out.
+      case "morsel" -> SirixCompileChain.createWithMorsel(null, store);
+      // The legacy arrangement, kept so the difference stays measurable: it asks for morsels and
+      // gets the block-parallel chain, because the flag it sets belongs to a strategy the parallel
+      // translator replaces.
+      case "morsel-block" -> SirixCompileChain.createParallelWithMorsel(null, store);
       case "sequential" -> SirixCompileChain.createWithJsonStore(store);
       default -> throw new IllegalArgumentException("Unknown sirix.bench.chain: " + kind);
     };
