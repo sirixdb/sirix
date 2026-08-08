@@ -43,7 +43,14 @@ import java.util.Arrays;
  * the exact arithmetic the reader uses and keeps the integer only when the round-trip reproduces
  * the original bits. Values that fail — true irrationals, exotic exponents — are stored verbatim
  * in a small exception list, with a placeholder in the packed stream. A tag where exceptions
- * exceed a quarter of the values stays PLAIN; nothing is ever approximated.
+ * exceed a quarter of the values falls to {@link #ENC_ALP_RD}, and to {@link #ENC_PLAIN} when even
+ * the bit split does not pay; nothing is ever approximated.
+ *
+ * <p>ALP carries a value by its DOUBLE IMAGE, which is only sound for a value that IS a double —
+ * or a decimal that equals its own image. A tag of genuine decimals (prices: {@code 19.99},
+ * {@code 100.10}) takes {@link #ENC_DEC} instead and carries the unscaled integers themselves, so
+ * a comparison stays in decimal space; the encoder tries that domain FIRST and refuses the tag
+ * outright rather than stand a rounded double in for a decimal.
  *
  * <p>The scan benefit is the point of the exercise: decode is {@code I * 10^f / 10^e}, a
  * multiplication by a positive constant, so it is MONOTONIC in {@code I} — and a range predicate
@@ -70,12 +77,23 @@ import java.util.Arrays;
  *                                 // k-th slot) — true of every all-double field, which makes the
  *                                 // list free exactly where it would have been pure overhead
  * per tag:
- *   byte enc                     // ENC_PLAIN | ENC_ALP
+ *   byte enc                     // ENC_PLAIN | ENC_ALP | ENC_ALP_RD | ENC_DEC
  *   PLAIN: double[tagCount] values (LE)
  *   ALP:   byte e, byte f, long forBase, byte bitWidth, short exceptionCount,
  *          byte[ceil(tagCount*bitWidth/8)] packed (I - forBase), little-endian bit order,
  *          short[exceptionCount] positions (tag-local, ascending),
  *          long[exceptionCount]  raw IEEE bits
+ *   DEC:   the ALP layout byte for byte, with e = the common decimal scale, f = 0 and
+ *          exceptionCount REQUIRED to be 0 (an exact-decimal tag rounds nothing, so a block
+ *          claiming an exception is corrupt and the page keeps its record path). Only the
+ *          MEANING of the integers differs, and the kernels branch on enc to enforce it
+ *   RD:    byte rightWidth (48..56), byte dictSize (1..16), byte codeWidth (<= 4),
+ *          short exceptionCount,
+ *          long[dictSize] left-part dictionary,
+ *          byte[ceil(tagCount*codeWidth/8)] packed left-part codes,
+ *          byte[ceil(tagCount*rightWidth/8)] packed right parts, little-endian bit order,
+ *          short[exceptionCount] positions (tag-local, ascending),
+ *          short[exceptionCount] left parts (those whose left part missed the dictionary)
  *  * per tag, after every encoding block:
  *   short[tagCount] fieldOrdinals  // ascending: the value's ordinal among the FIELD's slots on
  *                                  // the page, counting BOTH numeric types — the projection a

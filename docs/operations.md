@@ -165,15 +165,23 @@ A bundled native LZ77 decoder for Linux x86_64. Embedded as a JAR resource at
 `/native/linux-x86_64/libsirix_lz77.so` and extracted to a temp file at the
 first decode call.
 
-- **If present:** ~2× decompression throughput versus the pure-Java fallback.
+- **If present:** ~1.8× decompression throughput versus the pure-Java fallback
+  (measured on a 29 KB string region: 5,637 MB/s native against 3,145 MB/s in
+  Java). Region decompression is the single largest term in a cold column scan.
 - **If absent or platform mismatch:** falls back to `SirixLZ77Codec` pure-Java
   decoder, which is correct but slower.
 - **Override:** `-Dsirix.lz77Codec.native.disable=true` forces pure-Java for A/B
   testing.
 
-To rebuild from source: `./gradlew :sirix-core:buildNativeLz77` (requires `gcc`
-on `PATH`). The build step is no-op when `gcc` is missing — the JAR ships only
-the prebuilt `.so`.
+The `.so` is **not** committed; the build compiles it **by default** into
+`src/main/resources/native/linux-x86_64/` so it lands in the JAR. It needs `gcc`
+on `PATH` and is skipped with a log line when `gcc` is missing (the Docker deploy
+image has none), so a build without a C toolchain still succeeds and simply ships
+a JAR whose runtime uses the pure-Java decoder. Opt out with
+`-Psirix.nativeLz77.skip`, or rebuild on demand with
+`./gradlew :sirix-core:buildNativeLz77`. It is compiled with portable `-O3` only:
+`-march=native` would let a JAR built on an AVX-512 host die of `SIGILL`
+elsewhere, which no runtime fallback can catch, and it measured within noise.
 
 ### LZ4 (FFM)
 

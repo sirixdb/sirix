@@ -17,8 +17,13 @@ import java.util.concurrent.atomic.LongAdder;
  * <p>Wire format:
  * <pre>
  * int regionCount
- * regionCount × { byte kind, int size, byte[size] payload }
+ * regionCount × { byte kind, byte codec,
+ *                 codec 0 (RAW):  int rawLen, byte[rawLen] payload
+ *                 codec 3 (LZ77): int rawLen, int encodedLen, byte[encodedLen] payload }
  * </pre>
+ *
+ * <p>Both codecs declare {@code rawLen} first, so a reader that does not want a region — or does
+ * not know its kind — steps over it from the header alone, without decoding anything.
  *
  * <p>Each region holds payload-type-segregated data (numeric values, string dictionary
  * entries, struct pointers, DeweyIDs) so scan operators can read a contiguous buffer
@@ -32,9 +37,10 @@ import java.util.concurrent.atomic.LongAdder;
  * boxing, no per-call allocation. The on-read allocation at {@link #read(BytesIn)} is
  * bounded by region count (≤ {@link #KIND_COUNT}) and is only paid once per page load.
  *
- * <p>This class is the Phase-1 scaffold: the table round-trips cleanly but is empty
- * on writes produced by the current codebase. Later tasks populate it with number,
- * string, struct, and DeweyID regions.
+ * <p>The kind ids below are the stable on-disk id space: a reader dispatches on the kind byte, and
+ * a kind it does not recognise is skipped by length rather than misparsed. {@code WRITE_ORDER}
+ * fixes only where each kind's bytes land in the tail — it is a permutation of the ids, checked at
+ * class load, not a second id space.
  */
 public final class RegionTable {
 

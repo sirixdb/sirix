@@ -130,9 +130,14 @@ import java.util.concurrent.atomic.LongAdder;
  * populated slots, and accumulates per-thread results that are merged
  * at the end.
  *
- * <p>Phase 1 (this commit): {@link #executeAggregate} for sum/avg/min/max
- * over a single numeric field. Filter-count and group-by-count to follow
- * once the abstraction is proven on aggregates.
+ * <p>Served shapes: {@link #executeAggregate} (sum/avg/min/max/count), filtered
+ * counts, single- and multi-key group-by-count, and count-distinct. A page whose
+ * PAX columns can answer a predicate never touches its record heap — a
+ * multi-leaf conjunction resolves its predicate tree once per scan and evaluates
+ * it as bitmap algebra over the encoded columns ({@link PredicateBitmapEvaluator}),
+ * with the hand-fused kernels kept for the pages that route declines. Every fast
+ * path is fail-closed: a shape, encoding or page it cannot serve returns no claim
+ * and the caller's generic pipeline answers.
  */
 public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
