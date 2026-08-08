@@ -6254,30 +6254,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Consume the fused kernel's pending boundary slot, if one is standing, and decide that one
-   * anchor occurrence through the records.
+   * Consume the column route's pending boundary slots, if any are standing, and decide those anchor
+   * occurrences through the records.
    *
-   * <p>The occurrence belongs to a record spanning in from the page before it, so its other values
-   * are out of every column's reach; the kernel served the rest of the page and handed this slot
-   * back. Semantics mirror the record fallback exactly — same path filter, same parent hop, same
-   * evaluator — because this IS the record fallback, narrowed to the one record that needs it.
+   * <p>At most one per page seam, and a page has two. The LEADING one belongs to a record spanning
+   * in from the page before it, whose other values are out of every column's reach. The TRAILING
+   * one belongs to the record this page leaves open, handed back only by a scattered leaf — the
+   * dense arm refuses a page whose field misses any record in the window, so it never has to ask
+   * whether the miss was a seam.
+   *
+   * <p>Semantics mirror the record fallback exactly — same path filter, same parent hop, same
+   * evaluator — because this IS the record fallback, narrowed to the records that need it.
    *
    * <p>The check-and-clear lives here, not at the call sites, so the pending-slot protocol has ONE
-   * consume point: a missed clear would leak the slot onto the next served page, and both worker
-   * arms would have to keep that ordering in step by hand. With no slot pending this is a single
-   * branch, so the call is unconditional in both arms — {@code evalScratch} may then be null for
-   * plans that can never set the slot.
+   * consume point: a missed clear would leak a slot onto the next served page, and both worker
+   * arms would have to keep that ordering in step by hand. With nothing pending this is two
+   * branches, so the call is unconditional in both arms — {@code evalScratch} may then be null for
+   * plans that can never set a slot.
    *
-   * @return {@code 1} when the pending record satisfies the predicate, else {@code 0}
+   * @return how many of the pending records satisfy the predicate
    */
   private static long patchBoundaryAnchor(final RegionHeaderScratch headerScratch,
       final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp, final EvalScratch evalScratch,
       final long pk, final long anchorPathNodeKey) {
-    final int patchSlot = headerScratch.pendingFusedAnchorSlot;
+    final int leading = headerScratch.pendingFusedAnchorSlot;
+    final int trailing = headerScratch.pendingTrailingAnchorSlot;
+    headerScratch.clearPendingBoundary();
+    return decideOneRecord(leading, rtx, cp, evalScratch, pk, anchorPathNodeKey)
+        + decideOneRecord(trailing, rtx, cp, evalScratch, pk, anchorPathNodeKey);
+  }
+
+  /**
+   * Decide the record at one anchor slot through the records, or {@code 0} for no slot.
+   *
+   * <p>Both seams come here: the record spanning IN from the page before, whose earlier values no
+   * column on this page holds, and the record still open at the page's end, whose later values sit
+   * on the next one. Same path filter, same parent hop, same evaluator as the record fallback,
+   * because this IS the record fallback narrowed to one record.
+   */
+  private static long decideOneRecord(final int patchSlot, final JsonNodeReadOnlyTrx rtx,
+      final CompiledPredicate cp, final EvalScratch evalScratch, final long pk,
+      final long anchorPathNodeKey) {
     if (patchSlot < 0) {
       return 0L;
     }
-    headerScratch.pendingFusedAnchorSlot = -1;
     final long anchorKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + patchSlot;
     if (!rtx.moveTo(anchorKey)) {
       return 0L;
@@ -10026,6 +10046,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Pages the tree route answered with at least one SCATTERED leaf — a field that does not sit on
+   * every record of the window and therefore has no positional image of it.
+   *
+   * <p>Its own counter for the same reason {@link #REGION_TREE_PAGES} has one: optional fields are
+   * the normal JSON shape, and a conjunction touching one used to send its whole page — column read
+   * included — to record reconstruction. A test asserting this moves asserts that the columnar
+   * route now serves the shape, not merely that it still agrees.
+   */
+  private static final LongAdder REGION_SCATTER_PAGES = new LongAdder();
+
+  public static long regionScatterPages() {
+    return REGION_SCATTER_PAGES.sum();
+  }
+
+  /**
    * Pages whose columns could not be read at all — a storage backend without the fast path, a
    * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
    * read, so nothing was wasted, but the fast path also never got a chance.
@@ -10048,6 +10083,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public static void resetRegionOnlyCounters() {
     REGION_ONLY_PAGES.reset();
     REGION_TREE_PAGES.reset();
+    REGION_SCATTER_PAGES.reset();
     REGION_ONLY_FALLBACKS.reset();
     REGION_ONLY_UNAVAILABLE.reset();
     REGION_SKETCH_SKIPS.reset();
@@ -10105,6 +10141,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int pendingFusedAnchorSlot = -1;
 
     /**
+     * Page-local slot of the anchor occurrence of the page's LAST record, when a scattered leaf
+     * made that record undecidable from this page's columns alone.
+     *
+     * <p>The mirror image of {@link #pendingFusedAnchorSlot}, and needed for the same reason at the
+     * other seam. A record's slots are contiguous, so the only record whose fields can continue on
+     * the NEXT page is the last one this page opens; a column that does not hold the field for it
+     * cannot tell "the record has no such field" from "the field sits over the seam". The dense
+     * certificate never has to ask — it refuses any field that misses a record inside the window —
+     * but the scatter arm serves exactly the fields that do miss records, so it hands this one
+     * record to the record path rather than reading absence into it.
+     */
+    int pendingTrailingAnchorSlot = -1;
+
+    /** Retract both boundary handoffs; a page nobody served owes the record path nothing extra. */
+    void clearPendingBoundary() {
+      pendingFusedAnchorSlot = -1;
+      pendingTrailingAnchorSlot = -1;
+    }
+
+    /**
      * Every fused field's nameKey and pathNodeKey, indexed by field, resolved once per scan.
      *
      * <p>Per page these would be a dictionary probe and a path-summary walk each, for an answer that
@@ -10123,6 +10179,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      */
     int[] numberBitmapIdx = new int[Constants.NDP_NODE_COUNT];
     int[] boolBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * The ANCHOR field's occurrence positions, held apart from {@link #numberBitmapIdx} because the
+     * scatter arm needs them while that buffer already holds the leaf's own field.
+     */
+    final int[] anchorBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Record ordinal to selection row, or {@code -1} for a record the anchor does not carry.
+     *
+     * <p>What lets a field be read positionally at all once it is NOT positional: a scattered leaf
+     * knows each value's record from the linkage column, and this turns that record into the row
+     * the bitmap algebra above is indexed by. Built from the anchor's own occurrences, so it is the
+     * identity on a page whose anchor enumerates the records in order — which is why the dense arm
+     * can ignore it entirely.
+     */
+    final int[] rowOfOrdinal = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * A scattered leaf's selection over its own OCCURRENCES, before the linkage turns occurrence
+     * positions into rows. Sized for a whole page's slots rather than for the window: a sparse
+     * field has more occurrences than the window has rows exactly when records past it carry it.
+     */
+    final long[] sparseOccRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
     /**
      * Row bitmap the fused kernel builds from the number column and the bit column is AND-ed into.
@@ -11940,8 +12020,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
     // A page that never reaches the fused kernel must not leave the previous page's pending
-    // boundary record standing — the caller would patch a record this page does not have.
-    scratch.pendingFusedAnchorSlot = -1;
+    // boundary records standing — the caller would patch records this page does not have.
+    scratch.clearPendingBoundary();
     final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
       return -1L;
@@ -12052,7 +12132,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (route == null) {
       return -1L;
     }
-    scratch.pendingFusedAnchorSlot = -1;
+    scratch.clearPendingBoundary();
     final MemorySegment nameKeys = page.nameKeyPayload();
     if (nameKeys == null) {
       return -1L;
@@ -12090,15 +12170,71 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (m == 0) {
       return 0L;
     }
+    // Whether a row IS a record ordinal on this page, which is the assumption every positional
+    // kernel makes and none of them states. It holds exactly when the anchor's own occurrences
+    // enumerate records 0..m-1 — and when they do not, a field that passes the alignment
+    // certificate is still being read against the wrong rows: with a sparse anchor, the dense
+    // field's occurrence i is record i while row i is the i-th record the ANCHOR carries. The
+    // anchor's leaf used to catch this by failing its own certificate and refusing the page;
+    // scattering it means the check has to be made where it is actually used.
+    final boolean identityRows = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
+                                                                 scratch.numberBitmapIdx,
+                                                                 anchorMatched, m) >= 0;
     final PageLeafSelector leaves = new PageLeafSelector(page, route, nameKeys, oh, m,
                                                         anchorNameKey, anchorPathNodeKey,
-                                                        anchorMatched, scratch, reader);
+                                                        anchorMatched, anchorLead, identityRows,
+                                                        scratch, reader);
     final long[] out = scratch.fusedRows;
     if (!new PredicateBitmapEvaluator(leaves).evaluate(route.tree(), out)) {
-      scratch.pendingFusedAnchorSlot = -1;  // the page is not ours after all; retract the handoff
+      scratch.clearPendingBoundary();  // the page is not ours after all; retract the handoffs
       return -1L;
     }
+    if (leaves.scattered()) {
+      REGION_SCATTER_PAGES.increment();
+      if (!handOffTrailingRecord(leaves, nameKeys, out, m, scratch)) {
+        scratch.clearPendingBoundary();
+        return -1L;
+      }
+    }
     return PredicateBitmapEvaluator.popcount(out, m);
+  }
+
+  /**
+   * Give the record path the one record a scattered leaf could not settle, and take its row out of
+   * the columnar answer.
+   *
+   * <p>Only ever the page's LAST record. Node keys are creation order and a record's subtree is a
+   * contiguous key range, so of the records this page opens exactly one can still be open when the
+   * page ends — the last — and only its fields can continue at the head of the next page. For a
+   * DENSE field that never has to be asked: a field missing from any record inside the window fails
+   * the alignment certificate and the whole page goes to the records. A scattered field is
+   * precisely one that misses records, so absence carries no information about the seam and the
+   * record has to be decided where its whole shape is visible. One reconstruction per page, against
+   * the two-hundred-odd this arm saves.
+   *
+   * <p>Nothing to do when the anchor does not carry that record (its row is {@code -1}: it is not
+   * counted here at all) or when some scattered leaf did hold a value for it — then the columns saw
+   * the field and the seam is irrelevant.
+   *
+   * @return {@code false} when the record could not be handed over, so the page must be refused
+   *         rather than answered with a row nobody decided
+   */
+  private static boolean handOffTrailingRecord(final PageLeafSelector leaves,
+      final MemorySegment nameKeys, final long[] out, final int m,
+      final RegionHeaderScratch scratch) {
+    final int row = leaves.openTrailingRow();
+    if (row < 0) {
+      return true;
+    }
+    final int anchorIdx = leaves.trailingAnchorBitmapIdx();
+    final int slot = anchorIdx < 0 ? -1 : ObjectKeyNameKeyRegion.slotAt(nameKeys, anchorIdx);
+    if (slot < 0 || row >= m) {
+      noteFusedDecline(FusedDecline.TRAILING_SLOT_UNRESOLVED);
+      return false;
+    }
+    out[row >>> 6] &= ~(1L << (row & 63));
+    scratch.pendingTrailingAnchorSlot = slot;
+    return true;
   }
 
   /**
@@ -12106,37 +12242,101 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * <p>All the page-specific knowledge the algebra must not have: field name to {@code nameKey},
    * record-ordinal alignment, per-column completeness, and which kernel a leaf's type needs.
+   *
+   * <h2>Two arms, and why the second one exists</h2>
+   *
+   * <p>The DENSE arm reads a column positionally: past the field's share of the skip prefix, its
+   * occurrences must enumerate the window's records in order, and then value {@code i} IS record
+   * {@code i} and every kernel here is a contiguous range over packed integers. That certificate is
+   * exact and it is what makes a served conjunction cost microseconds.
+   *
+   * <p>It also demands that every record carry the field, which optional JSON fields do not — and
+   * measured on a two-predicate conjunction over a movie corpus, ONE optional field declined 14,400
+   * pages for {@code FIELD_MISALIGNED}, every page paying its column read AND a full record
+   * reconstruction, which put the columnar route 22x behind the row pipeline it replaces. The
+   * linkage column already stores each occurrence's record ordinal, which is exactly what a field
+   * that skips records needs, so the SCATTER arm evaluates the predicate over the field's own
+   * occurrences and routes each result to its record's row. A record with no occurrence gets no
+   * bit — absent is false, which is what a comparison against an empty sequence means — and the one
+   * record whose absence could instead be a page seam is handed to the record path.
+   *
+   * <p>Dense first, always: the scatter arm's per-occurrence lookup is not what a column scan should
+   * cost when the geometry does not force it.
    */
   private static final class PageLeafSelector implements PredicateBitmapEvaluator.LeafSelector {
+
+    /** {@link #rowMapState} before the anchor's rows have been resolved. */
+    private static final byte ROW_MAP_UNBUILT = 0;
+    /** {@link #rowMapState} once {@code scratch.rowOfOrdinal} holds this page's mapping. */
+    private static final byte ROW_MAP_READY = 1;
+    /** {@link #rowMapState} for a page whose linkage cannot support scattering at all. */
+    private static final byte ROW_MAP_REFUSED = 2;
 
     private final RegionsOnlyPage page;
     private final TreeRoute route;
     private final MemorySegment nameKeys;
     private final RecordOrdinalRegion.Header oh;
     private final int m;
+    private final int anchorNameKey;
     private final long anchorPathNodeKey;
+    /** Whether row {@code i} of the window IS record ordinal {@code i}; see {@code countPageViaTree}. */
+    private final boolean identityRows;
+    /** The anchor's own share of the skip prefix, so its leaf does not re-derive it. */
+    private final int anchorLead;
     private final RegionHeaderScratch scratch;
     private final StorageEngineReader reader;
     /** The field whose occurrence indices currently fill {@code scratch.numberBitmapIdx}. */
     private int bitmapIdxNameKey;
     /** How many indices that field wrote, i.e. the valid prefix of the scratch. */
     private int bitmapIdxMatched;
+    /** Whether any leaf on this page took the scatter arm. */
+    private boolean scattered;
+    /** Whether {@code scratch.rowOfOrdinal} is built, unbuilt, or refused for this page. */
+    private byte rowMapState = ROW_MAP_UNBUILT;
+    /** Selection row of the page's LAST record, or {@code -1} when the anchor does not carry it. */
+    private int lastRecordRow = -1;
+    /** Bitmap position of that record's anchor occurrence, for the record-path handoff. */
+    private int lastRecordAnchorIdx = -1;
+    /** Whether some scattered leaf found no value of its own for the page's last record. */
+    private boolean lastRecordUncovered;
 
     PageLeafSelector(final RegionsOnlyPage page, final TreeRoute route, final MemorySegment nameKeys,
         final RecordOrdinalRegion.Header oh, final int m, final int anchorNameKey,
-        final long anchorPathNodeKey, final int anchorMatched, final RegionHeaderScratch scratch,
+        final long anchorPathNodeKey, final int anchorMatched, final int anchorLead,
+        final boolean identityRows, final RegionHeaderScratch scratch,
         final StorageEngineReader reader) {
       this.page = page;
       this.route = route;
       this.nameKeys = nameKeys;
       this.oh = oh;
       this.m = m;
+      this.anchorNameKey = anchorNameKey;
       this.anchorPathNodeKey = anchorPathNodeKey;
+      this.identityRows = identityRows;
+      this.anchorLead = anchorLead;
       this.scratch = scratch;
       this.reader = reader;
       // The geometry pass left the anchor's occurrence indices in the scratch.
       this.bitmapIdxNameKey = anchorNameKey;
       this.bitmapIdxMatched = anchorMatched;
+    }
+
+    /** Whether any leaf was answered by scattering rather than positionally. */
+    boolean scattered() {
+      return scattered;
+    }
+
+    /**
+     * The row of the page's last record when a scattered leaf leaves it undecidable here, else
+     * {@code -1}. See {@link #handOffTrailingRecord}.
+     */
+    int openTrailingRow() {
+      return lastRecordUncovered ? lastRecordRow : -1;
+    }
+
+    /** Bitmap position of that record's anchor occurrence. */
+    int trailingAnchorBitmapIdx() {
+      return lastRecordAnchorIdx;
     }
 
     @Override
@@ -12159,11 +12359,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (nameKey == -1) {
         return false;  // no record anywhere carries this field
       }
-      // Alignment, checked and never assumed: past this field's share of the skip prefix its
-      // occurrences must enumerate records 0..m-1 in order. The scratch holds ONE field's indices
-      // at a time and leaves arrive in tree order, which is not field order, so it is refilled
-      // whenever the field changes; a leaf repeating the field already there — including the
-      // anchor the geometry pass left behind — still skips the scan.
+      // Where this field sits in the page's field-name column. The scratch holds ONE field's
+      // indices at a time and leaves arrive in tree order, which is not field order, so it is
+      // refilled whenever the field changes; a leaf repeating the field already there — including
+      // the anchor the geometry pass left behind — still skips the scan.
       final int matched;
       if (nameKey == bitmapIdxNameKey) {
         matched = bitmapIdxMatched;
@@ -12173,24 +12372,249 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         bitmapIdxNameKey = nameKey;
         bitmapIdxMatched = matched;
       }
-      final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
-                                                       scratch.numberBitmapIdx, matched, m);
-      if (lead < 0) {
-        return false;
+      // Alignment, checked and never assumed: for the positional arm, this field's occurrences
+      // past its share of the skip prefix must enumerate records 0..m-1 in order. The ANCHOR's
+      // certificate is the page's `identityRows`, decided in the geometry pass over these very
+      // indices — running it again here would be the same walk for the same answer.
+      final int lead = nameKey == anchorNameKey
+          ? (identityRows ? anchorLead : -1)
+          : RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh, scratch.numberBitmapIdx,
+                                            matched, m);
+      if (identityRows && lead >= 0
+          && selectWindow(leaf, nameKey, pathNodeKey, matched, lead, m, out)) {
+        return true;
       }
+      // Either the field has no positional image of the window — it skips records, repeats inside
+      // one, or runs out of record order — or the window's rows are not record ordinals at all, or
+      // a kernel refused the window it was given while the field's own column would have served.
+      // Scatter through the linkage rather than send the page and its column read to record
+      // reconstruction.
+      return selectScattered(leaf, nameKey, pathNodeKey, matched, out);
+    }
+
+    /**
+     * Answer {@code leaf} from its column over {@code count} values starting {@code offset} past
+     * the field's tag, writing bits indexed relative to that start.
+     *
+     * <p>The dense arm passes the field's lead and the window's record count, so a bit IS a record.
+     * The scatter arm passes {@code (0, matched)} — the field's whole column — so a bit is an
+     * OCCURRENCE, which {@link #scatterIntoRows} then routes to its record. One set of kernels
+     * serves both because neither the encoding nor the comparison depends on what the index means.
+     */
+    private boolean selectWindow(final PredicateNode leaf, final int nameKey,
+        final long pathNodeKey, final int matched, final int offset, final int count,
+        final long[] out) {
       return switch (leaf) {
-        case PredicateNode.BoolRef b -> selectBool(pathNodeKey, nameKey, matched, lead, out, false);
-        case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, lead, e, out);
-        case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, lead,
+        case PredicateNode.BoolRef b -> selectBool(pathNodeKey, nameKey, matched, offset, count, out,
+                                                   false);
+        case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, offset, count, e,
+                                                   out);
+        case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, offset, count,
                                                     n.op(), n.value(), out);
         // A floating-point leaf's threshold IS a double, so its image is faithful by construction;
         // a decimal leaf's need not be, and the flag was decided once per scan.
-        case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, lead, f.op(),
-                                                   route.decimalOf(f), true, out);
-        case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, lead, d.op(),
-                                                    d.value(), route.imageIsExact(d), out);
+        case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, offset, count,
+                                                   f.op(), route.decimalOf(f), true, out);
+        case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, offset, count,
+                                                    d.op(), d.value(), route.imageIsExact(d), out);
         default -> false;
       };
+    }
+
+    /**
+     * Answer a leaf whose field has no positional image of the window, by evaluating it over the
+     * field's own occurrences and routing each one to its record's row.
+     *
+     * <p>Sound only where absence on this page really means the record lacks the field, which takes
+     * three things and refuses without any of them: the page's linkage must be run-wise (see
+     * {@link #recordsAreContiguous}), so that only the last record can continue past the seam; the
+     * field's own occurrences must name strictly increasing records, so no record is given two
+     * values and none is read out of order; and the window's rows must be resolvable from record
+     * ordinals ({@link #buildRowMap}). The last record, if this leaf holds nothing for it, goes to
+     * the record path — the only place its shape is fully visible.
+     */
+    private boolean selectScattered(final PredicateNode leaf, final int nameKey,
+        final long pathNodeKey, final int matched, final long[] out) {
+      // The occurrence bitmap is indexed by the field's own occurrences, not by the window's rows,
+      // so its capacity is the thing to check — a page whose column outgrew it must be refused
+      // rather than allocated for on a scan path.
+      if (matched <= 0 || matched > scratch.sparseOccRows.length << 6
+          || matched > scratch.anchorBitmapIdx.length || !recordsAreContiguous() || !buildRowMap()) {
+        return false;
+      }
+      final int[] idx = scratch.numberBitmapIdx;
+      final int lead = RecordOrdinalRegion.skipPrefixLead(oh, idx, matched);
+      final long[] occ = scratch.sparseOccRows;
+      if (!certifyOneValuePerRecord(idx, lead, matched)) {
+        return false;
+      }
+      // Zeroed HERE, not by the kernels: an arm that decides a leaf without reading a column —
+      // a literal absent from the page's dictionary, an unsatisfiable interval — answers "select
+      // nothing" by leaving the bitmap alone, which is only true of a bitmap that starts empty.
+      // The evaluator guarantees that for its own buffer; this one is a reused scratch.
+      Arrays.fill(occ, 0, (matched + 63) >>> 6, 0L);
+      // The whole column under this field's tag, not a window inside it: which occurrence belongs
+      // to which record is the linkage's answer, not an offset's.
+      if (!selectWindow(leaf, nameKey, pathNodeKey, matched, 0, matched, occ)) {
+        return false;
+      }
+      // A dense attempt that refused partway may have left its own bits behind, and the scatter
+      // below only ever sets them.
+      Arrays.fill(out, 0, (m + 63) >>> 6, 0L);
+      scatterIntoRows(occ, idx, lead, matched, out);
+      scattered = true;
+      return true;
+    }
+
+    /**
+     * Turn an occurrence-indexed selection into a row-indexed one.
+     *
+     * <p>Only set bits are visited — one trailing-zero count per surviving occurrence — because a
+     * scattered leaf's selectivity is the point: the records it says nothing about are the ones it
+     * costs nothing for.
+     */
+    private void scatterIntoRows(final long[] occ, final int[] idx, final int lead,
+        final int matched, final long[] out) {
+      final int skip = oh.skipCount;
+      final long[] ordinals = scratch.decodedOrdinals;
+      final int[] rowOf = scratch.rowOfOrdinal;
+      final int words = (matched + 63) >>> 6;
+      final int tail = matched & 63;
+      if (tail != 0) {
+        occ[words - 1] &= (1L << tail) - 1L;  // a kernel may write a whole word; rows past the
+      }                                       // field's occurrences are not its to select
+      for (int w = 0; w < words; w++) {
+        long bits = occ[w];
+        final int base = w << 6;
+        if (base < lead) {
+          // Occurrences inside the skip prefix: the spanning record's own values, decided by the
+          // record path with the rest of its shape. They carry no ordinal here, so scattering one
+          // would index the linkage below its own start.
+          final int drop = lead - base;
+          bits &= drop >= 64 ? 0L : ~0L << drop;
+        }
+        while (bits != 0L) {
+          final int j = base + Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1L;
+          final int row = rowOf[(int) ordinals[idx[j] - skip]];
+          if (row >= 0) {
+            out[row >>> 6] |= 1L << (row & 63);
+          }
+        }
+      }
+    }
+
+    /**
+     * Whether this field gives each record at most one value, in record order.
+     *
+     * <p>Strictly increasing ordinals say both at once, and both matter: two occurrences in one
+     * record would make "the record's value" a choice this arm has no right to make, and an
+     * out-of-order one means the field is interleaved with something the linkage cannot separate.
+     * Records the field skips are exactly what it is allowed to do — that is the whole point — so
+     * gaps are not checked for.
+     *
+     * <p>Records this page's window; a record the field misses at the very end is remembered rather
+     * than refused, because only there can absence be a page seam instead of an absent field.
+     */
+    private boolean certifyOneValuePerRecord(final int[] idx, final int lead, final int matched) {
+      final int skip = oh.skipCount;
+      final int okCount = oh.okCount;
+      final long[] ordinals = scratch.decodedOrdinals;
+      long previous = -1L;
+      boolean coversLastRecord = false;
+      for (int j = lead; j < matched; j++) {
+        final int i = idx[j];
+        if (i < skip || i >= okCount) {
+          noteFusedDecline(FusedDecline.SCATTER_INDEX_OUT_OF_RANGE);
+          return false;
+        }
+        final long ordinal = ordinals[i - skip];
+        if (ordinal <= previous || ordinal >= oh.recordCount) {
+          noteFusedDecline(FusedDecline.SCATTER_FIELD_REPEATS_A_RECORD);
+          return false;
+        }
+        previous = ordinal;
+        coversLastRecord |= ordinal == oh.recordCount - 1;
+      }
+      lastRecordUncovered |= !coversLastRecord;
+      return true;
+    }
+
+    /**
+     * Whether each record's OBJECT_KEY slots form ONE run, which makes the last record the only one
+     * that can still be open when the page ends.
+     *
+     * <p>A record holding a nested object breaks it — {@code {"a":{"p":1},"b":2}} lays its keys down
+     * as records {@code 0,1,0} — and then a record other than the last can have fields past the
+     * seam, which absence on this page would silently read as an absent field. One non-decreasing
+     * walk over the already-decoded linkage settles it for every leaf on the page.
+     */
+    private boolean recordsAreContiguous() {
+      if (rowMapState == ROW_MAP_REFUSED) {
+        return false;
+      }
+      final long[] ordinals = scratch.decodedOrdinals;
+      final int count = oh.okCount - oh.skipCount;
+      for (int i = 1; i < count; i++) {
+        if (ordinals[i] < ordinals[i - 1]) {
+          rowMapState = ROW_MAP_REFUSED;
+          noteFusedDecline(FusedDecline.SCATTER_RECORDS_INTERLEAVED);
+          return false;
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Map every record ordinal to its selection row, from the anchor's own occurrences.
+     *
+     * <p>The window's rows ARE the anchor's occurrences past the skip prefix — that is what the
+     * geometry pass established and what {@code popcount} counts — so a scattered leaf needs the
+     * inverse of it to place a value. Built once per page and only when a leaf actually scatters,
+     * because the dense arm never asks: on a page whose anchor enumerates the records in order this
+     * map is the identity, and computing an identity is not work a fast path should pay for.
+     *
+     * <p>The anchor's positions are re-scanned rather than kept: the shared index buffer holds
+     * whichever field's leaf is being resolved, and leaves arrive in tree order.
+     */
+    private boolean buildRowMap() {
+      if (rowMapState != ROW_MAP_UNBUILT) {
+        return rowMapState == ROW_MAP_READY;
+      }
+      rowMapState = ROW_MAP_REFUSED;
+      final int[] anchorIdx = scratch.anchorBitmapIdx;
+      final int matched =
+          ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+      final int lead = RecordOrdinalRegion.skipPrefixLead(oh, anchorIdx, matched);
+      if (matched - lead != m) {
+        noteFusedDecline(FusedDecline.SCATTER_ANCHOR_UNSTABLE);
+        return false;  // the geometry pass saw a different anchor column; refuse rather than guess
+      }
+      final int[] rowOf = scratch.rowOfOrdinal;
+      Arrays.fill(rowOf, 0, oh.recordCount, -1);
+      final int skip = oh.skipCount;
+      final long[] ordinals = scratch.decodedOrdinals;
+      long previous = -1L;
+      for (int j = lead; j < matched; j++) {
+        final int i = anchorIdx[j];
+        if (i < skip || i >= oh.okCount) {
+          noteFusedDecline(FusedDecline.SCATTER_INDEX_OUT_OF_RANGE);
+          return false;
+        }
+        final long ordinal = ordinals[i - skip];
+        if (ordinal <= previous || ordinal >= oh.recordCount) {
+          noteFusedDecline(FusedDecline.SCATTER_ANCHOR_UNSTABLE);
+          return false;  // one record with two anchor occurrences: which one is the row?
+        }
+        previous = ordinal;
+        rowOf[(int) ordinal] = j - lead;
+        if (ordinal == oh.recordCount - 1) {
+          lastRecordRow = j - lead;
+          lastRecordAnchorIdx = i;
+        }
+      }
+      rowMapState = ROW_MAP_READY;
+      return true;
     }
 
     private static @Nullable String fieldOf(final PredicateNode leaf) {
@@ -12205,7 +12629,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     private boolean selectBool(final long pathNodeKey, final int nameKey, final int matched,
-        final int lead, final long[] out, final boolean invert) {
+        final int offset, final int count, final long[] out, final boolean invert) {
       final MemorySegment bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
       if (bits == null || bits.byteSize() == 0) {
         return false;
@@ -12221,12 +12645,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (tag < 0 || bh.tagCount[tag] != matched) {
         return false;
       }
-      BooleanRegion.selectInto(bits, bh, bh.tagStart[tag] + lead, m, out, invert);
+      BooleanRegion.selectInto(bits, bh, bh.tagStart[tag] + offset, count, out, invert);
       return true;
     }
 
     private boolean selectString(final long pathNodeKey, final int nameKey, final int matched,
-        final int lead, final PredicateNode.StrEq leaf, final long[] out) {
+        final int offset, final int count, final PredicateNode.StrEq leaf, final long[] out) {
       final MemorySegment strings = page.stringPayload();
       if (strings == null || strings.byteSize() == 0) {
         return false;
@@ -12255,11 +12679,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dictId == StringRegion.DICT_ID_ABSENT) {
         return true;  // literal occurs nowhere on this page: an empty selection, not a refusal
       }
-      return StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m, dictId, out) >= 0;
+      return StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + offset, count, dictId,
+                                           out) >= 0;
     }
 
     private boolean selectNumber(final long pathNodeKey, final int nameKey, final int matched,
-        final int lead, final String op, final long value, final long[] out) {
+        final int offset, final int count, final String op, final long value, final long[] out) {
       final MemorySegment numbers = page.regionPayload(RegionTable.KIND_NUMBER);
       if (numbers == null || numbers.byteSize() == 0) {
         return false;
@@ -12278,7 +12703,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (lo > hi) {
         return true;  // unsatisfiable leaf: an empty selection
       }
-      return NumberRegionSimd.selectRangeInto(numbers, nh, nh.tagStart[tag] + lead, m,
+      return NumberRegionSimd.selectRangeInto(numbers, nh, nh.tagStart[tag] + offset, count,
                                               VectorOperators.GE, lo, VectorOperators.LE, hi,
                                               out) >= 0;
     }
@@ -12303,7 +12728,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      *     {@link TreeRoute#imageIsExact}
      */
     private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched,
-        final int lead, final String op, final @Nullable BigDecimal value,
+        final int offset, final int count, final String op, final @Nullable BigDecimal value,
         final boolean imageFaithful, final long[] out) {
       if (value == null) {
         return false;
@@ -12324,17 +12749,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (tag < 0 || dh.tagCount[tag] != matched) {
         return false;
       }
-      final int local = dh.tagStart[tag] + lead;
-      if (local != dh.tagStart[tag]) {
-        return false;  // the double kernels address a tag from its start; a lead would misalign
+      if (offset != 0 || count != matched) {
+        // These kernels select a tag WHOLE, from its start. A window shorter than the tag would
+        // both overrun the caller's bitmap and select values belonging to records outside it, so
+        // the geometry that produces one — a field carried by a record past the window, which is
+        // the shape at every page seam — belongs to the scatter arm, whose window IS the tag.
+        return false;
       }
-      if (dh.tagEnc[tag] == DoubleRegion.ENC_DEC) {
-        return selectDecimalTag(dbl, dh, tag, op, value, out);
+      final boolean selected = dh.tagEnc[tag] == DoubleRegion.ENC_DEC
+          ? selectDecimalTag(dbl, dh, tag, op, value, out)
+          // The tag recodes doubles and no double is this threshold: the records answer.
+          : imageFaithful && selectDoubleTag(dbl, dh, tag, op, value.doubleValue(), out);
+      if (!selected) {
+        return false;
       }
-      if (!imageFaithful) {
-        return false;  // the tag recodes doubles and no double is this threshold: the records answer
+      // These kernels select the WHOLE tag, which is longer than the window whenever a record past
+      // it also carries the field — the shape at every page seam. A match among those values sets a
+      // bit above the window that the caller's popcount would otherwise count as a row.
+      maskAbove(out, count);
+      return true;
+    }
+
+    /** Clear whatever a kernel selected at or above {@code count}, within the words it wrote. */
+    private static void maskAbove(final long[] bits, final int count) {
+      final int tail = count & 63;
+      if (tail != 0) {
+        bits[count >>> 6] &= (1L << tail) - 1L;
       }
-      return selectDoubleTag(dbl, dh, tag, op, value.doubleValue(), out);
     }
 
     /**
@@ -12449,11 +12890,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** A field's occurrences do not enumerate the records in order. */
     FIELD_MISALIGNED,
     /** The per-kind kernel refused: missing column, unsupported width, undecodable dictionary. */
-    ARM_REFUSED;
+    ARM_REFUSED,
+    /** A record's fields are split by another record's, so absence cannot be told from a seam. */
+    SCATTER_RECORDS_INTERLEAVED,
+    /** A field names one record twice, or out of record order; its value would be a coin toss. */
+    SCATTER_FIELD_REPEATS_A_RECORD,
+    /** A field-name position falls outside the linkage the page published. */
+    SCATTER_INDEX_OUT_OF_RANGE,
+    /** The anchor's occurrences no longer describe the window the geometry pass established. */
+    SCATTER_ANCHOR_UNSTABLE,
+    /** The last record's anchor occurrence would not resolve to a slot for the record path. */
+    TRAILING_SLOT_UNRESOLVED;
+  }
+
+  private static void noteFusedDecline(final FusedDecline reason) {
+    FUSED_DECLINES[reason.ordinal()].increment();
   }
 
   private static long declineFused(final FusedDecline reason) {
-    FUSED_DECLINES[reason.ordinal()].increment();
+    noteFusedDecline(reason);
     return -1L;
   }
 
@@ -12491,7 +12946,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static long countPageFromFusedRegions(final RegionsOnlyPage page,
       final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
       final RegionHeaderScratch scratch, final StorageEngineReader reader) {
-    scratch.pendingFusedAnchorSlot = -1;
+    scratch.clearPendingBoundary();
     scratch.fusedBits = null;
     scratch.fusedNumbers = null;
     scratch.fusedStrings = null;
@@ -13668,10 +14123,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                      regionDeferMask, regionCache, dictCache, anchorNameKey,
                                      anchorPathNodeKey, anchorSlotOut, headerScratch);
     if (c < 0L) {
-      // The whole page goes through the records, this page's spanning anchor occurrence with it.
-      // A kernel that set the slot before refusing further down must not leave it standing: the
-      // next page served columnar would patch a record that page does not hold and over-count.
-      headerScratch.pendingFusedAnchorSlot = -1;
+      // The whole page goes through the records, its boundary anchor occurrences with it. A
+      // kernel that set a slot before refusing further down must not leave it standing: the next
+      // page served columnar would patch a record that page does not hold and over-count.
+      headerScratch.clearPendingBoundary();
       return -1L;
     }
     if (recordBuf != null && anchorSlotOut[0] > 0) {

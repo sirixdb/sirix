@@ -470,9 +470,10 @@ public final class PostgresBulkBench {
     SirixVectorizedExecutor.resetFusedDeclineCounts();
     if (columnar + fellBack > 0) {
       System.out.printf(
-          "                   | region-only pages: %d served (%d by merging fragments), "
-              + "%d fell back, %d unavailable%n",
-          columnar, SirixVectorizedExecutor.regionMergedPages(), fellBack,
+          "                   | region-only pages: %d served (%d by merging fragments, "
+              + "%d by scattering an optional field), %d fell back, %d unavailable%n",
+          columnar, SirixVectorizedExecutor.regionMergedPages(),
+          SirixVectorizedExecutor.regionScatterPages(), fellBack,
           SirixVectorizedExecutor.regionOnlyPagesUnavailable());
     }
   }

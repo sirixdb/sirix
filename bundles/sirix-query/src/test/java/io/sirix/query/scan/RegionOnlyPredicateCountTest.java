@@ -746,24 +746,32 @@ public final class RegionOnlyPredicateCountTest {
   }
 
   /**
-   * The fused kernel must decline a page whose columns it cannot prove aligned.
+   * A field on only some records is served by SCATTERING it, never read positionally.
    *
-   * <p>{@code note} is present on only a quarter of the records, so on every page the note column
+   * <p>{@code note} is present on a quarter of the records, so on every page the note column
    * enumerates a subset of the records while {@code active} enumerates all of them — position
-   * {@code i} of one is not position {@code i} of the other. The alignment certificate fails, the
-   * page goes through the records, and the answer must still be right. Without the certificate this
-   * predicate would pair each note with whichever record's flag happened to sit at that offset.
+   * {@code i} of one is not position {@code i} of the other, and reading them against each other
+   * would pair each note with whichever record's flag happened to sit at that offset. The alignment
+   * certificate catches that and always did; what it used to do next was hand the page — column
+   * read already paid — to record reconstruction, which is the shape that put a two-predicate
+   * conjunction 22x behind the row pipeline on a corpus where optional fields are the norm.
+   *
+   * <p>Now the linkage column places each value on its own record instead, so the page is SERVED
+   * and the answer is the same one. Both halves are asserted: the count, because scattering to the
+   * wrong row is the natural bug, and the page count, because agreement alone is what the fallback
+   * already gave.
    */
   @Test
-  void sparseFieldBreaksTheAlignmentAndFallsBack() throws Exception {
+  void sparseFieldIsScatteredRatherThanRefused() throws Exception {
     final String predicate = "$u.note gt 50 and $u.active";
     final long expected = groundTruth(predicate);
     assertEquals(expected, count(predicate, false), "record path: " + predicate);
     SirixVectorizedExecutor.resetRegionOnlyCounters();
     assertEquals(expected, count(predicate, true), "column path: " + predicate);
-    assertEquals(0, SirixVectorizedExecutor.regionOnlyPagesServed(),
-                 "a sparse field cannot be positionally aligned with a dense one and must not be "
-                     + "served from the fused columns");
+    assertTrue(SirixVectorizedExecutor.regionScatterPages() > 0,
+               "a page with a sparse field was not served by the scatter arm (served="
+                   + SirixVectorizedExecutor.regionOnlyPagesServed() + ", fellBack="
+                   + SirixVectorizedExecutor.regionOnlyPageFallbacks() + ')');
     assertTrue(expected > 0, "predicate matches nothing, so it proves nothing");
   }
 
