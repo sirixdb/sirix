@@ -6738,7 +6738,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // CPU), and on a corpus whose array is each record's LAST field this seam falls on ~30 %
         // of pages. The columnar kernel that does the real work is 5 %.
         if ((matchedRecords[record >>> 6] & (1L << (record & 63))) == 0L) {
-          scratch.pendingTrailingAnchorSlot = trailingSlot;
+          // Nothing on THIS page settles it, so ask the next page's orphan elements before falling
+          // back to rebuilding a whole slotted page for this one record.
+          final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
+                                                        literalWrapper, scratch);
+          if (fromOrphans == ORPHANS_CONTAIN) {
+            matchedRecords[record >>> 6] |= 1L << (record & 63);
+          } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+            scratch.pendingTrailingAnchorSlot = trailingSlot;
+          }
+          // ORPHANS_ABSENT: settled as a non-match, bit stays clear, no record path.
         }
       }
       // A page holding ONE anchor occurrence that both spans in and runs to the page end is both
@@ -6748,11 +6757,70 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (leadingSlot >= 0 && leadingSlot == trailingSlot && !leadingMatched) {
       // Both seams at once: the array spans IN from the previous page AND runs to this page's end,
       // so its elements can continue on the next one. Undecided ONLY if nothing here matched — a
-      // witness on this page settles it just as it does for the trailing case above.
-      scratch.pendingFusedAnchorSlot = leadingSlot;
+      // witness on this page settles it just as it does for the trailing case above — and the next
+      // page's orphans get the same chance to settle it before the record path does.
+      final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
+                                                    literalWrapper, scratch);
+      if (fromOrphans == ORPHANS_CONTAIN) {
+        leadingMatched = true;
+      } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
+        scratch.pendingFusedAnchorSlot = leadingSlot;
+      }
     }
     return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount)
         + (leadingMatched ? 1L : 0L);
+  }
+
+  /** The next page's orphan elements hold the literal. */
+  private static final int ORPHANS_CONTAIN = 1;
+
+  /** The next page settled it: the array does not continue there, or does not hold the literal. */
+  private static final int ORPHANS_ABSENT = 0;
+
+  /** The next page cannot say; the record has to go through the records. */
+  private static final int ORPHANS_UNDECIDABLE = -1;
+
+  /**
+   * Settle an array that runs off the end of its page from the NEXT page's orphan elements.
+   *
+   * <p>This is the whole point of the orphan tag. Profiled cold at a 98.9 % serve rate, deciding
+   * these records through the records was 69 % of the query — one full slotted-page rebuild, ~800
+   * records reconstructed, to inspect ONE. A second REGIONS read costs ~3 % instead.
+   *
+   * <p>An absent orphan tag means "this array ended on the previous page" ONLY when the next page
+   * actually collected elements, which is what {@link StringRegion#ENC_DICT_BITPACKED_ZM_ELEMENTS}
+   * promises. Without that promise the two indistinguishable cases — no spill, versus nobody
+   * looked — would have to be treated as the worse one on every page.
+   */
+  private int orphanElementsContain(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long nextPageKey, final byte[] literal, final byte[][] literalWrapper,
+      final RegionHeaderScratch scratch) {
+    final RegionsOnlyPage next = reader.getRecordPageRegionsOnly(
+        reusableKey.setRecordPageKey(nextPageKey), 1 << RegionTable.KIND_STRING, 0);
+    if (next == null) {
+      return ORPHANS_UNDECIDABLE;   // no next page, or it published no regions
+    }
+    final MemorySegment strings = next.stringPayload();
+    if (strings == null) {
+      return ORPHANS_UNDECIDABLE;
+    }
+    final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
+    if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
+      return ORPHANS_UNDECIDABLE;   // written before the promise existed, or staging gave up
+    }
+    final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
+    if (tag < 0) {
+      return ORPHANS_ABSENT;        // it looked and found none: the array ended on the page before
+    }
+    final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
+                                               scratch.literalsFor(next.getFsstSymbolTableId(),
+                                                                   literalWrapper, reader)[0]);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      return ORPHANS_UNDECIDABLE;
+    }
+    // A per-tag dictionary holds only values that occur under that tag, so membership in it IS an
+    // occurrence — an existential needs no more than that.
+    return dictId == StringRegion.DICT_ID_ABSENT ? ORPHANS_ABSENT : ORPHANS_CONTAIN;
   }
 
   /**
@@ -11040,6 +11108,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final BooleanRegion.Header bool = new BooleanRegion.Header();
     final DoubleRegion.Header dbl = new DoubleRegion.Header();
     final StringRegion.Header string = new StringRegion.Header();
+
+    /**
+     * The NEXT page's string header, for settling an array that runs off the end of this one.
+     *
+     * <p>Its own object, not a second use of {@link #string}: the trailing decision is taken while
+     * this page's header is still live, and parsing over it would silently answer the rest of the
+     * page from the wrong tag table.
+     */
+    final StringRegion.Header stringNext = new StringRegion.Header();
 
     /** Slots already owned by a newer fragment during a versioned merge; 1024 bits. */
     final long[] ownedSlots = new long[Constants.NDP_NODE_COUNT >>> 6];

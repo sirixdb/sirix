@@ -2899,6 +2899,7 @@ public enum PageKind {
       int[] elemSlots = null;
       int elemCount = 0;
       boolean elemUsable = KeyValueLeafPage.ARRAY_ELEMENT_STRINGS_IN_REGION;
+      int orphanCount = 0;   // leading elements whose array opens on the previous page
 
       // BooleanRegion collection — mirrors NumberRegion's tagged-by-name OR
       // tagged-by-path layout. We populate two parallel int[] tag buffers and
@@ -3079,15 +3080,37 @@ public enum PageKind {
             } else if (parentSlotLong < 0 || parentSlotLong >= Constants.NDP_NODE_COUNT) {
               // An element whose array opens on the PREVIOUS page. Slot order is node-key order,
               // so those form a LEADING RUN at the head of the page and nowhere else — the same
-              // shape RecordOrdinalRegion records as its skip prefix rather than refusing. Skipped
-              // here, and the reader never looks for them: it segments the values by the page's
-              // object-key slots, and a leading orphan precedes the first of them.
+              // shape RecordOrdinalRegion records as its skip prefix rather than refusing.
               //
-              // Refusing them instead was measured on a corpus whose array field is the LAST field
-              // of each record — so nearly every page seam lands inside one — and it dropped the
-              // element column on ~70 % of pages.
-              if (elemCount > 0) {
-                elemUsable = false;  // an orphan PAST the leading run is a shape this does not model
+              // They used to be dropped, and that made the page holding the array unable to settle
+              // its own last record: profiled cold, deciding those records through the records was
+              // 69 % of an array-membership query, one full page rebuild each. They cannot be
+              // tagged by their array's path — it is off-page and unnameable from here — so they go
+              // under the reserved orphan tag, which is all the owning page needs, since only its
+              // last array can spill and every orphan here therefore belongs to it.
+              if (elemCount > orphanCount) {
+                // An orphan PAST the leading run — i.e. after an element this page's own array
+                // owns. Slot order makes that impossible in a well-formed page, so it is a shape
+                // this does not model.
+                elemUsable = false;
+              } else {
+                if (elemValues == null) {
+                  elemValues = new byte[64][];
+                  elemNameTags = new int[64];
+                  elemPathTags = new int[64];
+                  elemSlots = new int[64];
+                } else if (elemCount == elemValues.length) {
+                  elemValues = Arrays.copyOf(elemValues, elemCount << 1);
+                  elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
+                  elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
+                  elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
+                }
+                elemNameTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+                elemPathTags[elemCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+                elemValues[elemCount] = elementValue;
+                elemSlots[elemCount] = slot;
+                elemCount++;
+                orphanCount++;
               }
             } else {
               final int parentSlot = (int) parentSlotLong;
@@ -3214,7 +3237,10 @@ public enum PageKind {
           }
         }
         for (int e = 0; e < elemCount; e++) {
-          if (elemPathTags[e] < 0) {
+          // The orphan tag is deliberately negative and is NOT an unresolved path: treating it as
+          // one would push the whole page onto name tagging, which is exactly the tagging that
+          // cannot tell an array's elements from its siblings.
+          if (elemPathTags[e] < 0 && elemPathTags[e] != StringRegion.TAG_ORPHAN_ELEMENTS) {
             stringAllPathNodeKeysValid = false;
           }
         }
@@ -3232,8 +3258,8 @@ public enum PageKind {
       if (stringCount > 0) {
         final boolean pathTagged = stringAllPathNodeKeysValid && stringEncPath != null;
         final byte[] stringPayload = pathTagged
-            ? stringEncPath.finish(StringRegion.TAG_KIND_PATH_NODE)
-            : stringEncName.finish(StringRegion.TAG_KIND_NAME);
+            ? stringEncPath.finish(StringRegion.TAG_KIND_PATH_NODE, elemUsable)
+            : stringEncName.finish(StringRegion.TAG_KIND_NAME, elemUsable);
         if (stringPayload != null && stringPayload.length > 0) {
           table.set(RegionTable.KIND_STRING, stringPayload);
           // Membership sketch over the dictionary. Written next to the column it summarises so a

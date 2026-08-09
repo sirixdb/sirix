@@ -79,6 +79,21 @@ public final class StringRegion {
   public static final byte ENC_DICT_BITPACKED_ZM = 0;
 
   /**
+   * Identical layout to {@link #ENC_DICT_BITPACKED_ZM}, plus one guarantee: array-element staging
+   * RAN and was published for this page.
+   *
+   * <p>That guarantee is what makes an ABSENT {@link #TAG_ORPHAN_ELEMENTS} informative. The page
+   * holding an array that reaches its own last slot has to know whether the array continues onto
+   * the next page, and "the next page published no orphans" answers that — but only if the next
+   * page tried. Without the distinction, "no orphans" and "elements were never collected here" look
+   * identical, and a reader would have to assume the worse of the two on every page.
+   *
+   * <p>A byte in the same position with the same layout after it: a reader that does not know the
+   * value parses the region exactly as before.
+   */
+  public static final byte ENC_DICT_BITPACKED_ZM_ELEMENTS = 1;
+
+  /**
    * Tag dictionary classification; see {@link Header#tagKind}. Same semantics as
    * {@link NumberRegion#TAG_KIND_NAME}/{@link NumberRegion#TAG_KIND_PATH_NODE}:
    * {@link #TAG_KIND_NAME} tags are nameKeys (compression-safe only),
@@ -87,6 +102,22 @@ public final class StringRegion {
    */
   public static final byte TAG_KIND_NAME = 0;
   public static final byte TAG_KIND_PATH_NODE = 1;
+
+  /**
+   * Reserved tag for array elements whose enclosing array opens on the PREVIOUS page.
+   *
+   * <p>Such an element carries no path node key of its own and its array is off-page, so this page
+   * cannot name the tag it belongs to — which is why they used to be dropped from the column
+   * entirely. They do not need naming: slots are in node-key order and an array's elements are
+   * contiguous, so only the LAST array of a page can spill, and every orphan at the head of the
+   * next page therefore belongs to that one array. The page that owns the array knows which one it
+   * is; this page only has to keep the values where that page can find them.
+   *
+   * <p>Negative, so it cannot collide with a path node key (always positive) or a name key. It is a
+   * tag like any other to every existing reader: one it never looks up, and whose count therefore
+   * never enters a completeness check for a path.
+   */
+  public static final int TAG_ORPHAN_ELEMENTS = Integer.MIN_VALUE;
 
   private StringRegion() {
   }
@@ -626,6 +657,17 @@ public final class StringRegion {
      * passing the correct semantic values via {@link #addValue(int, byte[])}.
      */
     public byte[] finish(final byte tagKind) {
+      return finish(tagKind, false);
+    }
+
+    /**
+     * Serialize, recording whether array-element staging ran for this page.
+     *
+     * @param elementsStaged {@code true} to write {@link #ENC_DICT_BITPACKED_ZM_ELEMENTS}, which
+     *                       promises a reader that an absent {@link #TAG_ORPHAN_ELEMENTS} means
+     *                       "this page has no spilled elements" rather than "nobody looked"
+     */
+    public byte[] finish(final byte tagKind, final boolean elementsStaged) {
       final int ps = tagOrder.size();
       if (ps == 0) {
         return new byte[0];
@@ -648,7 +690,7 @@ public final class StringRegion {
       final int valueDictIdBytes = (count * bitWidth + 7) / 8;
       final byte[] out = new byte[headerSize + dictBytesSize + valueDictIdBytes];
       int pos = 0;
-      out[pos++] = ENC_DICT_BITPACKED_ZM;
+      out[pos++] = elementsStaged ? ENC_DICT_BITPACKED_ZM_ELEMENTS : ENC_DICT_BITPACKED_ZM;
       out[pos++] = tagKind;
       putInt(out, pos, count); pos += 4;
       out[pos++] = (byte) bitWidth;
