@@ -4666,12 +4666,47 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             rowGroupPayloads.subList(from, to), preds);
       });
     } catch (final Exception e) {
-      throw new RuntimeException("parallel projection conjunctiveCount failed", e);
+      throw projectionWorkerFailure("parallel projection conjunctiveCount failed", e);
     }
 
     long total = 0L;
     for (final long c : perThread) total += c;
     return total;
+  }
+
+  /**
+   * Rethrow what a projection worker threw, preserving a DECLINE as a decline.
+   *
+   * <p>The projection kernels signal "this leaf is not mine to serve" — a group column that is not
+   * a string dictionary, a malformed leaf, a width no plan covers — by throwing
+   * {@link IllegalStateException}, and every caller of these parallel drivers catches exactly that
+   * to fall back to the generic pipeline. A worker's throwable arrives here inside an
+   * {@link java.util.concurrent.ExecutionException}, and wrapping that in a plain
+   * {@link RuntimeException} put the decline where no caller looks: the fallback turned into a
+   * failed query.
+   *
+   * <p>And it did so only past the fan-out threshold. Below 64 row groups these drivers run the
+   * scan inline, where the same decline propagates unwrapped and is caught — so a projection that
+   * declines answers correctly on a small corpus and throws on a large one, which is the shape of
+   * bug that survives a test suite. Measured: {@code count(... group by $year)} over a 3.48M-record
+   * corpus with a projection on a numeric column failed outright, while the same query with the
+   * same projection over a few thousand records fell back and answered.
+   *
+   * <p>Anything that is not a decline keeps its wrapper: a genuine failure inside a worker must not
+   * be quietly downgraded into "the fast path passed on it".
+   *
+   * @return the exception to throw, when the cause was not a decline
+   */
+  private static RuntimeException projectionWorkerFailure(final String message, final Exception e) {
+    for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+      if (cause instanceof IllegalStateException decline) {
+        throw decline;
+      }
+      if (cause.getCause() == cause) {
+        break;  // self-referential cause chain; stop rather than spin
+      }
+    }
+    return new RuntimeException(message, e);
   }
 
   /**
@@ -4848,7 +4883,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         perThreadMissing[idx] = localMissing;
       });
     } catch (final Exception e) {
-      throw new RuntimeException("parallel projection conjunctiveCountByGroup failed", e);
+      throw projectionWorkerFailure("parallel projection conjunctiveCountByGroup failed", e);
     }
 
     for (final var m : perThread) {
@@ -4925,7 +4960,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         perThreadMissing[idx] = localMissing;
       });
     } catch (final Exception e) {
-      throw new RuntimeException("parallel projection conjunctiveCountByGroupDense failed", e);
+      throw projectionWorkerFailure("parallel projection conjunctiveCountByGroupDense failed", e);
     }
     if (missingOut != null) {
       for (final long[] lm : perThreadMissing) {

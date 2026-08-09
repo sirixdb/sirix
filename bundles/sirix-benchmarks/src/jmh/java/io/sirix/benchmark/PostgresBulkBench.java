@@ -391,6 +391,20 @@ public final class PostgresBulkBench {
 
       JsonResourceSession session = null;
       SirixVectorizedExecutor vec = null;
+      // Build the columnar projection before anything is timed, so the shapes it can serve are
+      // measured against it rather than against the storage scan. Its build cost is a full pass
+      // over the corpus and is printed, not hidden: paying it once is part of the honest total.
+      if (Boolean.getBoolean("sirix.bench.projection")) {
+        try (final JsonResourceSession projected =
+                 coll.getDatabase().beginResourceSession(RESOURCE)) {
+          final long t0 = System.nanoTime();
+          final ProjectionIndexBenchSetup.BuildResult built =
+              MoviesProjectionSetup.installWildcard(projected);
+          System.out.printf("# projection: %,d leaves, %,d rows, built in %,.1f s%n",
+                            built.rowGroupCount(), built.totalRows(),
+                            (System.nanoTime() - t0) / 1e9);
+        }
+      }
       if (Boolean.getBoolean("sirix.bench.vectorized")) {
         session = coll.getDatabase().beginResourceSession(RESOURCE);
         vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(),

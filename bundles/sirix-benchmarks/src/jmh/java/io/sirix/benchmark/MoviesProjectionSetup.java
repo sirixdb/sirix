@@ -36,7 +36,18 @@ import java.util.List;
  */
 public final class MoviesProjectionSetup {
 
-  private static final String[] FIELD_NAMES = {"year", "title"};
+  /**
+   * The columns the measured shapes read. {@code thumbnail_width}/{@code thumbnail_height} join
+   * {@code year}/{@code title} because the two-predicate conjunction and the product aggregate are
+   * exactly the shapes the storage scan is furthest behind DuckDB on, and a projection that does
+   * not carry their columns cannot serve them at all.
+   *
+   * <p>Every extra column is a full pass of build time, which is reported alongside the query
+   * times — declaring one the benchmark never reads would inflate the cost this comparison
+   * publishes.
+   */
+  private static final String[] FIELD_NAMES =
+      {"year", "title", "thumbnail_width", "thumbnail_height"};
 
   private MoviesProjectionSetup() {
   }
@@ -52,10 +63,14 @@ public final class MoviesProjectionSetup {
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
     final Path<QNm> yearPath = Path.parse("/[]/year", PathParser.Type.JSON);
     final Path<QNm> titlePath = Path.parse("/[]/title", PathParser.Type.JSON);
+    final Path<QNm> widthPath = Path.parse("/[]/thumbnail_width", PathParser.Type.JSON);
+    final Path<QNm> heightPath = Path.parse("/[]/thumbnail_height", PathParser.Type.JSON);
 
     final IndexDef def = IndexDefs.createProjectionIdxDef(rootPath,
-                                                          List.of(yearPath, titlePath),
-                                                          List.of(Type.LON, Type.STR),
+                                                          List.of(yearPath, titlePath, widthPath,
+                                                                  heightPath),
+                                                          List.of(Type.LON, Type.STR, Type.LON,
+                                                                  Type.LON),
                                                           0,
                                                           IndexDef.DbType.JSON);
 
