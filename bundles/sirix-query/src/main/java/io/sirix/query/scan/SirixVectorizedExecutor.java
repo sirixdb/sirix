@@ -6074,8 +6074,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // scan lands on F itself, so the record hop and the field walk have nothing left to find.
     final boolean singleArrayContains =
         cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
-    final String arrayContainsLiteral =
-        singleArrayContains ? cp.strLiterals[cp.strIdx[0]] : null;
     // The path key of the ARRAY LAYER beneath the field — `/[]/genres/[]`, which is what the
     // element values are tagged by. The field's own key names `/[]/genres` and finds nothing.
     final long arrayElementPathKey =
@@ -6376,7 +6374,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   // its elements may continue on the next page. Decided here, where the whole
                   // record is reachable.
                   final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + trailing;
-                  if (rtx.moveTo(arrayKey) && arrayContainsAt(rtx, arrayContainsLiteral)) {
+                  if (rtx.moveTo(arrayKey) && arrayContainsAt(rtx, arrayContainsLiteralBytes)) {
                     localCount++;
                   }
                 }
@@ -6413,7 +6411,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 // IS the array. Going up to the record and walking every one of its children to
                 // come back down to this same node is what the general loader must do; here it is
                 // pure overhead, paid once per record.
-                if (arrayContainsAt(rtx, arrayContainsLiteral)) localCount++;
+                if (arrayContainsAt(rtx, arrayContainsLiteralBytes)) localCount++;
                 continue;
               }
               if (!rtx.moveToParent()) continue;  // enclosing object
@@ -6705,13 +6703,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <p>Allocation-free and short-circuiting: no scratch, no element list, and it stops at the first
    * match — an existential needs nothing more. The cursor is left where it was found.
    */
-  private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final String literal) {
+  private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
     if (!rtx.moveToFirstChild()) {
       return false;  // an EMPTY array satisfies no existential
     }
     boolean found = false;
     do {
-      if (rtx.getKind() == NodeKind.STRING_VALUE && literal.equals(rtx.getValue())) {
+      // Compared as BYTES. rtx.getValue() builds a String per element and throws it away after the
+      // equals — measured with JMH's gc profiler at 394 MB allocated per query, ~72 % of it in
+      // getRawValue/decodeSigned/getValue for exactly this. getValueBytes hands back the node's own
+      // array for a STRING_VALUE, so the comparison allocates nothing at all.
+      if (rtx.getKind() == NodeKind.STRING_VALUE
+          && Arrays.equals(literal, rtx.getValueBytes())) {
         found = true;
         break;
       }
