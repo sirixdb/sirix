@@ -189,6 +189,132 @@ public final class JsonCASIndexBuildTest {
     }
   }
 
+  /**
+   * Every index now starts life as a {@link io.sirix.index.hot.HOTBulkBuilder}-produced trie rather
+   * than as the empty leaf the incremental path used to grow from, so the first update a resource
+   * takes after a build lands on a shape the incremental machinery had never been fed. This walks
+   * that transition: bulk-build, commit, then insert and delete through the change listener —
+   * merging into a key the bulk build already wrote, adding a key it never saw, and removing nodes
+   * of both — and checks the postings still describe the document.
+   */
+  @Test
+  public void incrementalInsertsAndDeletesAfterABulkBuild() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final Map<String, Integer> expected = new LinkedHashMap<>();
+    for (final String category : CATEGORIES) {
+      expected.put(category, RECORDS / CATEGORIES.length);
+    }
+    final String freshCategory = "zeta";
+    expected.put(freshCategory, 0);
+
+    try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+      shred(trx, duplicateHeavyDocument());
+      final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+      indexController.createIndexes(Set.of(categoryIndexDef(0)), trx);
+      trx.commit();
+
+      // Insert as first child, so the most recently inserted object is the array's first child —
+      // which is what the delete loop below then walks off the front.
+      final int inserts = 20;
+      trx.moveToDocumentRoot();
+      trx.moveToFirstChild();
+      final long arrayNodeKey = trx.getNodeKey();
+      for (int i = 0; i < inserts; i++) {
+        final String category = i % 2 == 0 ? CATEGORIES[0] : freshCategory;
+        trx.moveTo(arrayNodeKey);
+        trx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"category\":\"" + category + "\"}"), JsonNodeTrx.Commit.NO);
+        expected.merge(category, 1, Integer::sum);
+      }
+
+      final int deletes = 6;
+      for (int i = 0; i < deletes; i++) {
+        final String category = (inserts - 1 - i) % 2 == 0 ? CATEGORIES[0] : freshCategory;
+        trx.moveTo(arrayNodeKey);
+        trx.moveToFirstChild();
+        trx.remove();
+        expected.merge(category, -1, Integer::sum);
+      }
+      trx.commit();
+
+      final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+      long total = 0;
+      for (final Map.Entry<String, Integer> entry : expected.entrySet()) {
+        final TreeSet<Long> nodeKeys = new TreeSet<>();
+        final Iterator<NodeReferences> hits = indexController.openCASIndex(trx.getStorageEngineReader(), indexDef,
+            indexController.createCASFilter(Set.of(CATEGORY_PATH), new Str(entry.getKey()), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        while (hits.hasNext()) {
+          final LongIterator it = hits.next().getNodeKeys().getLongIterator();
+          while (it.hasNext()) {
+            nodeKeys.add(it.next());
+          }
+        }
+        assertEquals("postings for " + entry.getKey(), entry.getValue().intValue(), nodeKeys.size());
+        for (final long nodeKey : nodeKeys) {
+          assertTrue("index points at a live node", trx.moveTo(nodeKey));
+          assertEquals("indexed node still holds the value it was indexed under", entry.getKey(), trx.getValue());
+        }
+        total += nodeKeys.size();
+      }
+      assertEquals("every remaining record must be indexed exactly once", RECORDS + 20 - 6, total);
+    }
+  }
+
+  /**
+   * The loader keeps composite keys in fixed 1 MiB blocks, so sorting, grouping and the final key
+   * copy all have to address across block boundaries. Long values reach that in a few thousand
+   * records: 10 header bytes + a 200-byte value + the 4-byte chunkIdx trailer is 214 bytes a key,
+   * so this build spans two blocks. Values are near {@code MAX_STRING_VALUE_BYTES} but under it,
+   * so nothing is truncated and every value stays distinguishable.
+   */
+  @Test
+  public void buildsAnIndexWhoseKeysSpanSeveralBlocks() {
+    final int records = 6_000;
+    final int valueLength = 200;
+    final StringBuilder json = new StringBuilder(records * (valueLength + 24));
+    json.append('[');
+    for (int i = 0; i < records; i++) {
+      if (i > 0) {
+        json.append(',');
+      }
+      final String suffix = Integer.toString(i);
+      json.append("{\"category\":\"").append("v".repeat(valueLength - suffix.length())).append(suffix).append("\"}");
+    }
+    json.append(']');
+
+    final String probe = "v".repeat(valueLength - 4) + "4242";
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+      shred(trx, json.toString());
+      final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+      indexController.createIndexes(Set.of(categoryIndexDef(0)), trx);
+      trx.commit();
+
+      final IndexDef indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
+      assertEquals("every long value must be indexed", records,
+          count(indexController.openCASIndex(trx.getStorageEngineReader(), indexDef,
+              indexController.createCASFilter(Set.of(), null, SearchMode.EQUAL, new JsonPCRCollector(trx)))));
+
+      final Iterator<NodeReferences> hits = indexController.openCASIndex(trx.getStorageEngineReader(), indexDef,
+          indexController.createCASFilter(Set.of(CATEGORY_PATH), new Str(probe), SearchMode.EQUAL,
+              new JsonPCRCollector(trx)));
+      final TreeSet<Long> nodeKeys = new TreeSet<>();
+      while (hits.hasNext()) {
+        final LongIterator it = hits.next().getNodeKeys().getLongIterator();
+        while (it.hasNext()) {
+          nodeKeys.add(it.next());
+        }
+      }
+      assertEquals("exactly one node holds the probed value", 1, nodeKeys.size());
+      assertTrue(trx.moveTo(nodeKeys.first()));
+      assertEquals("the indexed node holds the probed value", probe, trx.getValue());
+    }
+  }
+
   @Test
   public void buildsStringAndNumericIndexesOverARealCorpus() {
     final var jsonPath = JSON.resolve("abc-location-stations.json");

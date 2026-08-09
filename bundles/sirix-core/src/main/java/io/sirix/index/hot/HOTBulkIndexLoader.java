@@ -29,9 +29,9 @@ public final class HOTBulkIndexLoader<K extends Comparable<? super K>> extends A
    */
   public void add(final K key, final long nodeKey) {
     requireNonNull(key, "key");
-    final byte[] arena = reserveKeySpace(nodeKey);
-    final int offset = arenaOffset();
-    final int length = keySerializer.serializeWithChunkIdx(key, (int) (nodeKey >>> 16), arena, offset);
+    final byte[] block = reserveKeySpace(nodeKey);
+    final int offset = blockOffset();
+    final int length = keySerializer.serializeWithChunkIdx(key, (int) (nodeKey >>> 16), block, offset);
     commitKey(length, nodeKey);
   }
 }

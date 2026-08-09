@@ -108,20 +108,35 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
 
     if (hasPrefix) {
       // Prefixed format: [0xFF][prefixLen:1][prefix:N][localName:M]
-      final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
-      if (prefixBytes.length > 255) {
-        throw new IllegalArgumentException("Namespace prefix too long: " + prefixBytes.length + " bytes (max 255)");
+      if (AsciiKeyBytes.isAsciiPrefix(prefix, prefix.length())) {
+        if (prefix.length() > 255) {
+          throw new IllegalArgumentException("Namespace prefix too long: " + prefix.length() + " bytes (max 255)");
+        }
+        dest[pos++] = PREFIX_SENTINEL;
+        dest[pos++] = (byte) prefix.length();
+        pos += AsciiKeyBytes.writeAsciiPrefix(prefix, prefix.length(), dest, pos);
+      } else {
+        final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
+        if (prefixBytes.length > 255) {
+          throw new IllegalArgumentException("Namespace prefix too long: " + prefixBytes.length + " bytes (max 255)");
+        }
+        dest[pos++] = PREFIX_SENTINEL;
+        dest[pos++] = (byte) prefixBytes.length;
+        System.arraycopy(prefixBytes, 0, dest, pos, prefixBytes.length);
+        pos += prefixBytes.length;
       }
-      dest[pos++] = PREFIX_SENTINEL;
-      dest[pos++] = (byte) prefixBytes.length;
-      System.arraycopy(prefixBytes, 0, dest, pos, prefixBytes.length);
-      pos += prefixBytes.length;
     }
 
-    // Local name: raw UTF-8 bytes
-    final byte[] localBytes = localName.getBytes(StandardCharsets.UTF_8);
-    System.arraycopy(localBytes, 0, dest, pos, localBytes.length);
-    pos += localBytes.length;
+    // Local name: raw UTF-8 bytes. A name is serialized once per indexed node, so the ASCII case —
+    // which is very nearly all of them — writes straight into dest instead of through a throwaway
+    // byte[] (see AsciiKeyBytes).
+    if (AsciiKeyBytes.isAsciiPrefix(localName, localName.length())) {
+      pos += AsciiKeyBytes.writeAsciiPrefix(localName, localName.length(), dest, pos);
+    } else {
+      final byte[] localBytes = localName.getBytes(StandardCharsets.UTF_8);
+      System.arraycopy(localBytes, 0, dest, pos, localBytes.length);
+      pos += localBytes.length;
+    }
 
     return pos - offset;
   }

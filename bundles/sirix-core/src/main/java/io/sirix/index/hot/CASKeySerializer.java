@@ -178,11 +178,19 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return 1;
     } else {
       // String: UTF-8 is already lexicographically ordered
-      String str = value.stringValue();
-      byte[] utf8 = str.getBytes(StandardCharsets.UTF_8);
+      final String str = value.stringValue();
       // Truncate to fit buffer (preserves lexicographic ordering for prefixes)
-      int maxLen = Math.min(utf8.length, dest.length - offset);
-      maxLen = Math.min(maxLen, MAX_STRING_VALUE_BYTES);
+      final int cap = Math.min(dest.length - offset, MAX_STRING_VALUE_BYTES);
+      // A value is serialized once per indexed node, so the ASCII case — which is very nearly all
+      // of them — writes straight into dest instead of through a throwaway byte[]. One ASCII char
+      // is one UTF-8 byte, so the bytes and the truncation point are identical either way; only
+      // the leading `cap` chars have to be ASCII, since anything beyond them is truncated away.
+      final int asciiLen = Math.min(str.length(), cap);
+      if (AsciiKeyBytes.isAsciiPrefix(str, asciiLen)) {
+        return AsciiKeyBytes.writeAsciiPrefix(str, asciiLen, dest, offset);
+      }
+      final byte[] utf8 = str.getBytes(StandardCharsets.UTF_8);
+      final int maxLen = Math.min(utf8.length, cap);
       System.arraycopy(utf8, 0, dest, offset, maxLen);
       return maxLen;
     }

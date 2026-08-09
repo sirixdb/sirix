@@ -114,6 +114,60 @@ public final class NodeReferencesSerializer {
   }
 
   /**
+   * Serializes an already-sorted, duplicate-free run of node keys, without materialising a
+   * {@link NodeReferences} or (below {@link #PACKED_THRESHOLD}) a {@link Roaring64Bitmap}.
+   *
+   * <p>For the bulk index build this is the difference between a handful of objects per indexed
+   * value and none: the builder already has the run sorted ascending in a reusable array, which is
+   * exactly what the packed format wants, so the bitmap round-trip
+   * {@code add-all → iterate → write} buys nothing. The output is byte-identical to
+   * {@link #serialize(NodeReferences)} over a bitmap holding the same keys.</p>
+   *
+   * @param nodeKeys the backing array
+   * @param from index of the first key, inclusive
+   * @param to index one past the last key, exclusive
+   * @param scratch a bitmap the method may clear and reuse for runs above the packed threshold;
+   *        never retained
+   * @return the serialized payload
+   * @throws IllegalArgumentException if the run is empty
+   */
+  public static byte[] serializeAscendingRun(final long[] nodeKeys, final int from, final int to,
+      final Roaring64Bitmap scratch) {
+    requireNonNull(nodeKeys, "nodeKeys cannot be null");
+    requireNonNull(scratch, "scratch cannot be null");
+    final int count = to - from;
+    if (count <= 0) {
+      throw new IllegalArgumentException("run must be non-empty: from=" + from + ", to=" + to);
+    }
+
+    if (count <= PACKED_THRESHOLD) {
+      final byte[] buf = new byte[2 + count * 8];
+      buf[0] = PACKED_FORMAT;
+      buf[1] = (byte) count;
+      int pos = 2;
+      for (int i = from; i < to; i++) {
+        final long key = nodeKeys[i];
+        buf[pos] = (byte) (key >>> 56);
+        buf[pos + 1] = (byte) (key >>> 48);
+        buf[pos + 2] = (byte) (key >>> 40);
+        buf[pos + 3] = (byte) (key >>> 32);
+        buf[pos + 4] = (byte) (key >>> 24);
+        buf[pos + 5] = (byte) (key >>> 16);
+        buf[pos + 6] = (byte) (key >>> 8);
+        buf[pos + 7] = (byte) key;
+        pos += 8;
+      }
+      return buf;
+    }
+
+    scratch.clear();
+    for (int i = from; i < to; i++) {
+      scratch.add(nodeKeys[i]);
+    }
+    return serializeRoaring(scratch);
+  }
+
+  /**
    * Serializes to a caller-provided buffer, returning bytes written.
    *
    * @param refs the node references to serialize
