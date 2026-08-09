@@ -40,6 +40,7 @@ public final class IndexBuilder {
         rtx.acceptVisitor(builder);
       }
     }
+    finish(builders);
     rtx.moveTo(nodeKey);
   }
 
@@ -65,7 +66,21 @@ public final class IndexBuilder {
         rtx.acceptVisitor(builder);
       }
     }
+    finish(builders);
     rtx.moveTo(nodeKey);
   }
 
+  /**
+   * Let every bulk-loading builder materialise what the traversal collected. Runs after the last
+   * visit and before the cursor is restored, so a finalizer still sees the revision it indexed.
+   *
+   * @param builders the index builders that took part in the traversal
+   */
+  private static void finish(final Set<?> builders) {
+    for (final Object builder : builders) {
+      if (builder instanceof IndexBuildFinalizer finalizer) {
+        finalizer.finishIndexBuild();
+      }
+    }
+  }
 }

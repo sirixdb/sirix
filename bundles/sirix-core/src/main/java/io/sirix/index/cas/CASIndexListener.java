@@ -133,14 +133,17 @@ public final class CASIndexListener {
     }
   }
 
+  /**
+   * Add {@code nodeKey} to {@code indexValue}'s posting list in the HOT backend.
+   *
+   * <p>A HOT slot write OR-merges the incoming bitmap into the stored one, so the references
+   * already recorded for {@code indexValue} need neither be read back nor re-inserted — doing so
+   * cost one range scan plus one full trie descent per already-stored node key, making a bulk
+   * insert of k nodes sharing a value quadratic in k.</p>
+   */
   private void insertHOT(final long nodeKey, final CASValue indexValue) {
     assert hotWriter != null;
-    NodeReferences existingRefs = hotWriter.get(indexValue, SearchMode.EQUAL);
-    if (existingRefs != null) {
-      setNodeReferencesHOT(nodeKey, new NodeReferences(existingRefs.getNodeKeys()), indexValue);
-    } else {
-      setNodeReferencesHOT(nodeKey, new NodeReferences(), indexValue);
-    }
+    hotWriter.indexNodeKey(indexValue, nodeKey);
   }
 
   private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final CASValue indexValue) {
@@ -148,8 +151,4 @@ public final class CASIndexListener {
     rbTreeWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final CASValue indexValue) {
-    assert hotWriter != null;
-    hotWriter.index(indexValue, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
-  }
 }

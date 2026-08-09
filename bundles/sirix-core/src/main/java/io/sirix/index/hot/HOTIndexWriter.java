@@ -177,6 +177,56 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
+   * Add a single nodeKey to {@code key}'s chunked bitmap.
+   *
+   * <p>Equivalent to {@link #index(Comparable, NodeReferences, RBTreeReader.MoveCursor)} with a
+   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot
+   * write is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to
+   * ADD one reference never has to materialise — let alone read back — the references already
+   * stored under {@code key}.</p>
+   *
+   * @param key the logical index key
+   * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
+   */
+  public void indexNodeKey(K key, long nodeKey) {
+    requireNonNull(key);
+    addNodeKeyToChunk(key, nodeKey);
+  }
+
+  /**
+   * Reject a node key the chunked-bitmap encoding cannot represent.
+   *
+   * @param nodeKey the node key to validate
+   * @throws IllegalArgumentException if {@code nodeKey} is negative or exceeds
+   *         {@link #MAX_NODE_KEY}
+   */
+  static void checkNodeKeyRange(final long nodeKey) {
+    if (nodeKey < 0L) {
+      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
+    }
+    if (nodeKey > MAX_NODE_KEY) {
+      throw new IllegalArgumentException(
+          "nodeKey " + nodeKey + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
+    }
+  }
+
+  /**
+   * A loader that collects {@code (key, nodeKey)} pairs and materialises the whole index in one
+   * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
+   * revision.
+   *
+   * <p>Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
+   * <em>replaces</em> the root rather than merging into it. Callers that may run against a
+   * populated tree must check first and fall back to
+   * {@link #indexNodeKey(Comparable, long)}.</p>
+   *
+   * @return a fresh bulk loader bound to this writer
+   */
+  public HOTBulkIndexLoader<K> createBulkLoader() {
+    return new HOTBulkIndexLoader<>(this, keySerializer);
+  }
+
+  /**
    * Add one nodeKey to its chunk slot. Chunked-bitmap write hot path.
    *
    * <p>Builds {@code prefix(key) ‖ chunkIdx_be4} where
@@ -186,13 +236,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * (OR-merge with any pre-existing chunk).</p>
    */
   private void addNodeKeyToChunk(K key, long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    checkNodeKeyRange(nodeKey);
 
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;

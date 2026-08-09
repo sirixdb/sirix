@@ -3,6 +3,7 @@ package io.sirix.index.cas.xml;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
+import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.cas.CASIndexBuilder;
 import io.sirix.node.immutable.xml.ImmutableAttributeNode;
 import io.sirix.node.immutable.xml.ImmutableText;
@@ -13,7 +14,7 @@ import io.sirix.node.immutable.xml.ImmutableText;
  * @author Johannes Lichtenberger
  *
  */
-final class XmlCASIndexBuilder extends AbstractXmlNodeVisitor {
+final class XmlCASIndexBuilder extends AbstractXmlNodeVisitor implements IndexBuildFinalizer {
 
   private final CASIndexBuilder mIndexBuilderDelegate;
 
@@ -41,6 +42,11 @@ final class XmlCASIndexBuilder extends AbstractXmlNodeVisitor {
         : mRtx.getNameNode().getPathNodeKey();
 
     return mIndexBuilderDelegate.process(node, PCR);
+  }
+
+  @Override
+  public void finishIndexBuild() {
+    mIndexBuilderDelegate.finish();
   }
 
 }

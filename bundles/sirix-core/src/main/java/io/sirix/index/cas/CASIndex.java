@@ -188,14 +188,18 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         : filter.getPCRCollector().getPCRsForPaths(indexDef.getPaths()).getPCRs();
 
     // Only one path indexed and requested. All PCRs are the same in each CASValue.
-    if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1 && filter != null) {
+    // A null probe key has nothing to seek to, so it falls through to the scan below.
+    if (pcrsAvailable.size() <= 1 && pcrsRequested.size() == 1 && filter != null && filter.getKey() != null) {
       final Atomic atomic = filter.getKey();
       final long pcr = pcrsRequested.iterator().next();
       final SearchMode mode = filter.getMode();
 
-      final CASValue value = new CASValue(atomic, atomic != null
-          ? atomic.type()
-          : null, pcr);
+      // The probe key must be typed like the entries the index stores, NOT like the atomic the
+      // caller happened to pass: a HOT key is a byte string that carries the type id, so probing
+      // an xs:decimal index with, say, an xs:double of the same numeric value produced a
+      // different key and the lookup silently found nothing. (The RBTree backend never had this
+      // problem — CASValue#compareTo coerces both sides with asType before comparing.)
+      final CASValue value = new CASValue(atomic, indexDef.getContentType(), pcr);
 
       if (mode == SearchMode.EQUAL) {
         // Direct lookup

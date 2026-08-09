@@ -612,6 +612,47 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Whether the index tree currently holds no entry at all.
+   *
+   * <p>True exactly for a freshly initialized index: its root reference resolves to the single
+   * empty leaf {@code createHOT*IndexTree} planted. An indirect root only exists once a leaf has
+   * split, so it always covers at least one entry.</p>
+   */
+  public final boolean isEmptyTree() {
+    if (rootReference == null) {
+      return false;
+    }
+    return resolveHOTPageForTraversal(rootReference) instanceof HOTLeafPage leaf && leaf.getEntryCount() == 0;
+  }
+
+  /**
+   * Replace the whole index tree with one bulk-built from {@code sortedEntries}.
+   *
+   * <p>Splices exactly like the scoped {@link #rebuildExistingSubtree} does, but at the root and
+   * from externally supplied entries: {@link HOTBulkBuilder} output is invariant-clean by
+   * construction (foundation Theorem 1), so no self-heal is needed afterwards. Registering the
+   * fresh subtree also re-puts the root reference, which closes the empty leaf it displaces.</p>
+   *
+   * @param sortedEntries entries sorted strictly ascending by unsigned key, with no duplicates
+   * @throws IllegalStateException if the tree is not empty — the bulk build replaces rather than
+   *         merges, so any pre-existing entry would be dropped
+   */
+  final void spliceBulkBuiltRoot(final List<HOTBulkBuilder.Entry> sortedEntries) {
+    requireNonNull(sortedEntries, "sortedEntries");
+    if (sortedEntries.isEmpty()) {
+      return;
+    }
+    if (!isEmptyTree()) {
+      throw new IllegalStateException(
+          "Bulk load requires an empty " + indexType + " index tree (index " + indexNumber + ')');
+    }
+    final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(sortedEntries,
+        storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+    rootReference.setPage(built.rootPage());
+    registerFreshSubtree(rootReference);
+  }
+
+  /**
    * Build immutable navigation result by trimming reusable path buffers.
    */
   private LeafNavigationResult buildNavigationResult(final HOTLeafPage leaf, final PageReference leafRef,

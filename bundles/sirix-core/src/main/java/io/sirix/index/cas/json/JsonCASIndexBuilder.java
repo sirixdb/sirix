@@ -3,6 +3,7 @@ package io.sirix.index.cas.json;
 import io.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.cas.CASIndexBuilder;
 import io.sirix.node.NodeKind;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
@@ -21,7 +22,7 @@ import io.sirix.node.json.ObjectNamedStringNode;
  *
  * @author Johannes Lichtenberger
  */
-final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
+final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor implements IndexBuildFinalizer {
 
   private final CASIndexBuilder indexBuilderDelegate;
 
@@ -70,6 +71,11 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   @Override
   public VisitResult visit(final ObjectNamedBooleanNode node) {
     return indexBuilderDelegate.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public void finishIndexBuild() {
+    indexBuilderDelegate.finish();
   }
 
   private long getPathClassRecord(ImmutableNode node) {
