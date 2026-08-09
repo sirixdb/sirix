@@ -1957,6 +1957,47 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return out;
   }
 
+  /**
+   * The UTF-8 bytes of a standalone {@code STRING_VALUE} slot — an ARRAY ELEMENT, the one string
+   * shape the PAX string column never held.
+   *
+   * <p>Same payload layout as the fused object-named string ({@code [isCompressed][len][bytes]}),
+   * a different field table: {@link NodeFieldLayout#STRING_VALUE_FIELD_COUNT} fields with the
+   * payload at {@link NodeFieldLayout#STRVAL_PAYLOAD}.
+   *
+   * @return the value, or {@code null} when the slot is unpopulated, empty, or FSST-compressed
+   *         with no symbol table resolved on this instance
+   */
+  public byte[] readStringValueBytes(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return null;
+    }
+    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+    final long payloadStart =
+        recordBase + 1 + NodeFieldLayout.STRING_VALUE_FIELD_COUNT + fieldOff;
+    final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0) {
+      return null;
+    }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final long dataOff = lenOff + lenBytes;
+    final byte[] stored = new byte[length];
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, stored, 0, length);
+    if (!compressed) {
+      return stored;
+    }
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      return null;
+    }
+    return FSSTCompressor.decode(stored, symbols);
+  }
+
   public byte[] readFusedObjectNamedStringBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return null;
@@ -4071,6 +4112,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final StringRegion.Encoder pathEnc = withPathSummary ? new StringRegion.Encoder() : null;
     boolean allPathNodeKeysValid = withPathSummary;
     int count = 0;
+    // Array-element values are staged rather than added straight through: they are published only
+    // if EVERY element on the page resolved its enclosing array, so the tag they land under is
+    // always the complete set of that path's values on this page.
+    int elementCount = 0;
+    int[] elementNameKeys = new int[16];
+    int[] elementPathKeys = new int[16];
+    byte[][] elementValues = new byte[16][];
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
       final int baseSlot = w << 6;
@@ -4082,6 +4130,37 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         final byte[] value;
         int parentNameKey = -1;
         int parentPathNodeKeyInt = -1;
+        if (kindId == STRING_VALUE_KIND_ID) {
+          // An ARRAY ELEMENT. It carries no path node key of its own — measured on the movie
+          // corpus, every one reads back as pathNodeKey -1 — which is exactly why the column
+          // never held them: a path-tagged region has nothing to tag them by. Its enclosing
+          // array DOES have one (the fused OBJECT_NAMED_ARRAY slot), and that is the right tag:
+          // it is the path a query names when it writes `$m.genres[]`.
+          if (!ARRAY_ELEMENT_STRINGS_IN_REGION) {
+            continue;
+          }
+          final byte[] elementValue = readStringValueBytes(slot);
+          final int parentSlot = onPageParentSlot(slot, pageKeyBase);
+          if (elementValue == null || parentSlot < 0) {
+            // Either undecodable, or an element whose array opens on the PREVIOUS page. Both
+            // make the element set for this page incomplete, and a tag that covers most of its
+            // values is worse than absent: every reader here treats tagCount as the complete
+            // count of that path's values on the page. Drop the element contribution for the
+            // whole page rather than publish a partial one.
+            elementCount = -1;
+            continue;
+          }
+          if (elementCount >= 0) {
+            elementNameKeys = grow(elementNameKeys, elementCount);
+            elementPathKeys = grow(elementPathKeys, elementCount);
+            elementValues = grow(elementValues, elementCount);
+            elementNameKeys[elementCount] = getFusedObjectNamedNameKeyFromSlot(parentSlot);
+            elementPathKeys[elementCount] = pathNodeKeyIntForSlot(parentSlot, pageKeyBase);
+            elementValues[elementCount] = elementValue;
+            elementCount++;
+          }
+          continue;
+        }
         if (kindId == FUSED_OBJECT_NAMED_STRING_KIND_ID) {
           value = readFusedObjectNamedStringBytes(slot);
           if (value == null) {
@@ -4108,12 +4187,65 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         count++;
       }
     }
+    // Array elements go in only when EVERY one of them resolved; see the branch above.
+    for (int i = 0; elementCount > 0 && i < elementCount; i++) {
+      if (elementPathKeys[i] < 0) {
+        allPathNodeKeysValid = false;
+      }
+      nameEnc.addValue(elementNameKeys[i], elementValues[i]);
+      if (pathEnc != null && allPathNodeKeysValid) {
+        pathEnc.addValue(elementPathKeys[i], elementValues[i]);
+      }
+      count++;
+    }
     if (count == 0) {
       return null;
     }
     return allPathNodeKeysValid && pathEnc != null
         ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE)
         : nameEnc.finish(StringRegion.TAG_KIND_NAME);
+  }
+
+  /**
+   * Whether array-element strings join the PAX string column.
+   *
+   * <p>Not final: the value is read once at class initialization, and a test that wants the other
+   * setting cannot arrange to load the class after setting the property. Tests flip it directly.
+   *
+   * <p>Off by default because it changes what a page WRITES: a resource built with it carries
+   * tags a resource built without it does not, so the two are not byte-comparable, and every
+   * benchmark corpus has to be re-ingested to get the new columns. Readers are unaffected either
+   * way — an absent tag is a state they all already handle.
+   */
+  static boolean ARRAY_ELEMENT_STRINGS_IN_REGION =
+      Boolean.getBoolean("sirix.page.arrayElementStrings");
+
+  /** This slot's parent slot when the parent lives on THIS page, else {@code -1}. */
+  private int onPageParentSlot(final int slot, final long pageKeyBase) {
+    final long parentKey = getSlotParentKey(slot);
+    if (parentKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return -1;
+    }
+    final long parentSlot = parentKey - pageKeyBase;
+    return parentSlot >= 0 && parentSlot < Constants.NDP_NODE_COUNT ? (int) parentSlot : -1;
+  }
+
+  private static int[] grow(final int[] buf, final int used) {
+    if (used < buf.length) {
+      return buf;
+    }
+    final int[] grown = new int[Math.max(16, buf.length << 1)];
+    System.arraycopy(buf, 0, grown, 0, used);
+    return grown;
+  }
+
+  private static byte[][] grow(final byte[][] buf, final int used) {
+    if (used < buf.length) {
+      return buf;
+    }
+    final byte[][] grown = new byte[Math.max(16, buf.length << 1)][];
+    System.arraycopy(buf, 0, grown, 0, used);
+    return grown;
   }
 
   /**
