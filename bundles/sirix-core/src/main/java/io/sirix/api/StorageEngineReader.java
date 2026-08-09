@@ -206,6 +206,7 @@ public interface StorageEngineReader extends AutoCloseable {
     return null;
   }
 
+
   /**
    * The per-fragment columns of a versioned record page, newest fragment first, or {@code null}
    * when the page is not multi-fragment (use {@link #getRecordPageRegionsOnly}) or cannot be served

@@ -126,6 +126,22 @@ final class ArrayContainsPredicateTest {
   @DisplayName("the column route answers exactly what the record route answers")
   void theColumnRouteAgreesWithTheRecordRoute() throws Exception {
     long servedAcrossShapes = 0;
+    // Every genre in the corpus, not just a common one. A page seam that the column route mishandles
+    // shows up ONLY for a literal rare enough to be absent from a page: the route once returned a
+    // bare zero for "the literal is on no element of this page", which is not the same as "no
+    // element anywhere", and lost the records whose array continued onto the next page. Measured on
+    // the 3.48M-record corpus, the common literal lost NOTHING and the rarest lost 11 — so a
+    // differential test that checks one popular value proves nothing about the seam.
+    final List<String> literals = List.of("Drama", "Comedy", "Short", "Nowhere");
+    for (final String literal : literals) {
+      final String shape = "some $g in $m.genres[] satisfies $g eq '" + literal + "'";
+      SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
+      final long viaRecords = count(shape, true);
+      SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = true;
+      assertEquals(viaRecords, count(shape, true),
+                   "the column route differs from the record route for literal '" + literal
+                       + "' — a literal absent from some page is what exposes a mishandled seam");
+    }
     for (final String predicate : SHAPES) {
       SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
       final long viaRecords = count(predicate, true);

@@ -6666,15 +6666,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (elementCount == 0) {
       // Arrays present, none of them holding a value ON THIS PAGE: nothing here satisfies an
-      // existential. The seams still do, though — a page ending just after an array node keeps
-      // every element of it on the NEXT page, and returning a bare zero here would drop that
-      // record instead of handing it on.
-      // Only the trailing one. A leading array that is not also trailing is whole on this page, so
-      // an empty tag proves it empty, and an empty array satisfies no existential.
-      if (trailingSlot >= 0) {
-        scratch.pendingTrailingAnchorSlot = trailingSlot;
-      }
-      return 0L;
+      // existential. The seam still can, though — a page ending just after an array node keeps
+      // every element of it on the NEXT page.
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal,
+                                    literalWrapper, scratch);
     }
     final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
                                                scratch.literalsFor(page.getFsstSymbolTableId(),
@@ -6683,7 +6678,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return declineArrayContains(ArrayContainsDecline.DICT_UNDECIDABLE);
     }
     if (dictId == StringRegion.DICT_ID_ABSENT) {
-      return 0L;  // the literal occurs nowhere on this page
+      // The literal is on no element THIS page holds — which says nothing about the array that
+      // runs off its end. Returning a bare zero here dropped exactly those records, and only for
+      // literals rare enough to be absent from a page at all: measured on the movies corpus,
+      // "Drama" (on nearly every page) lost none and "Short" lost 11. Validating against a common
+      // literal is what let it hide.
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal,
+                                    literalWrapper, scratch);
     }
     final long[] hits = scratch.sparseOccRows;
     if (elementCount > hits.length << 6) {
@@ -6769,6 +6770,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount)
         + (leadingMatched ? 1L : 0L);
+  }
+
+  /**
+   * Answer a page on which nothing matched, settling only the array that runs off its end.
+   *
+   * <p>Two paths reach this: no elements on the page at all, and the literal absent from the ones
+   * there are. Both used to return a bare zero, and both were wrong for the same reason — an array
+   * whose elements continue on the next page is not described by this page's columns, so "not here"
+   * is not "not anywhere". One of the two was fixed on its own and the other kept leaking, which is
+   * why they now share a single exit.
+   *
+   * @param trailingSlot page-local slot of the array running off the page end, or {@code -1}
+   * @return {@code 1} if the seam record matches, {@code 0} otherwise
+   */
+  private long settleTrailingSeamOnly(final StorageEngineReader reader,
+      final IndexLogKey reusableKey, final long pageKey, final int trailingSlot,
+      final byte[] literal, final byte[][] literalWrapper, final RegionHeaderScratch scratch) {
+    if (trailingSlot < 0) {
+      return 0L;
+    }
+    final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
+                                                  literalWrapper, scratch);
+    if (fromOrphans == ORPHANS_CONTAIN) {
+      return 1L;
+    }
+    if (fromOrphans == ORPHANS_UNDECIDABLE) {
+      scratch.pendingTrailingAnchorSlot = trailingSlot;
+    }
+    return 0L;
   }
 
   /** The next page's orphan elements hold the literal. */
