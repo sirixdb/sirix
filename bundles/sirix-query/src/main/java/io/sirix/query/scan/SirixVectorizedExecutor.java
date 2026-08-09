@@ -6578,6 +6578,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int trailingSegment = -1;
     int trailingSlot = -1;
     int leadingSlot = -1;
+    boolean leadingMatched = false;
     // ONE SIMD pass for the anchor's occurrences, rather than asking every object-key slot what it
     // is named. Both slotAt and nameKeyForSlot walk the region's bitmap to rank a position, so the
     // per-slot form was two bitmap walks times the page's ~800 object keys — measured, that alone
@@ -6644,7 +6645,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                       : ArrayContainsDecline.CERTIFICATE_VALUES_UNCLAIMED);
     }
     if (elementCount == 0) {
-      return 0L;  // arrays present, all empty: nothing satisfies an existential
+      // Arrays present, none of them holding a value ON THIS PAGE: nothing here satisfies an
+      // existential. The seams still do, though — a page ending just after an array node keeps
+      // every element of it on the NEXT page, and returning a bare zero here would drop that
+      // record instead of handing it on.
+      // Only the trailing one. A leading array that is not also trailing is whole on this page, so
+      // an empty tag proves it empty, and an empty array satisfies no existential.
+      if (trailingSlot >= 0) {
+        scratch.pendingTrailingAnchorSlot = trailingSlot;
+      }
+      return 0L;
     }
     final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
                                                scratch.literalsFor(page.getFsstSymbolTableId(),
@@ -6685,9 +6695,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int record = segmentRecord[segment];
         if (record >= 0) {
           matchedRecords[record >>> 6] |= 1L << (record & 63);
+        } else {
+          // The spanning-in record. It owns no bit here, but a COUNT does not need one: its array
+          // is whole on this page — that is exactly why the certificate above balances — so a
+          // match in its segment settles it, and the page before never sees an anchor for it, so
+          // counting it here counts it once. Deciding it through the records instead would rebuild
+          // this page's records for ONE record, which is the cost the whole route exists to avoid.
+          leadingMatched = true;
         }
-        // record < 0 is the spanning-in record: its values are here and its segment keeps the
-        // cursor honest, but it owns no bit on this page and is decided through the records below.
       }
     }
     if (trailingSegment >= 0) {
@@ -6701,10 +6716,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // seams at once. It is already handed off as the leading slot; handing the same slot off
       // twice would count that record twice.
     }
-    if (leadingSlot >= 0) {
+    if (leadingSlot >= 0 && leadingSlot == trailingSlot) {
+      // Both seams at once: the array spans IN from the previous page AND runs to this page's end,
+      // so its elements can continue on the next one and this page's columns cannot settle it.
       scratch.pendingFusedAnchorSlot = leadingSlot;
+      leadingMatched = false;
     }
-    return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount);
+    return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount)
+        + (leadingMatched ? 1L : 0L);
   }
 
   /**
