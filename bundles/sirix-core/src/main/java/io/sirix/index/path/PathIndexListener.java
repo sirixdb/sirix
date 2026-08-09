@@ -114,15 +114,18 @@ public final class PathIndexListener {
     }
   }
 
+  /**
+   * Add {@code nodeKey} to {@code pathNodeKey}'s posting list in the HOT backend.
+   *
+   * <p>A HOT slot write OR-merges the incoming bitmap into the stored one, so the references
+   * already recorded for {@code pathNodeKey} need neither be read back nor re-inserted — doing so
+   * cost one range scan plus one full trie descent per already-stored node key, and every node
+   * under an indexed path shares a single PATH key, so that grew with the whole index.</p>
+   */
   private void handleInsertHOT(final long nodeKey, final long pathNodeKey) {
     assert hotWriter != null;
     // HOT writer uses primitive long - no boxing!
-    NodeReferences existingRefs = hotWriter.get(pathNodeKey, SearchMode.EQUAL);
-    if (existingRefs != null) {
-      setNodeReferencesHOT(nodeKey, existingRefs, pathNodeKey);
-    } else {
-      setNodeReferencesHOT(nodeKey, new NodeReferences(), pathNodeKey);
-    }
+    hotWriter.indexNodeKey(pathNodeKey, nodeKey);
   }
 
   private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final long pathNodeKey) {
@@ -130,9 +133,4 @@ public final class PathIndexListener {
     rbTreeWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final long pathNodeKey) {
-    assert hotWriter != null;
-    // HOT writer uses primitive long - no boxing!
-    hotWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
-  }
 }

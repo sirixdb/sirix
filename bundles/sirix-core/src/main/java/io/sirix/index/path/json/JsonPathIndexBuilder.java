@@ -3,6 +3,7 @@ package io.sirix.index.path.json;
 import io.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
+import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.path.PathIndexBuilder;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.json.ObjectNamedArrayNode;
@@ -12,7 +13,7 @@ import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 
-public final class JsonPathIndexBuilder extends AbstractJsonNodeVisitor {
+public final class JsonPathIndexBuilder extends AbstractJsonNodeVisitor implements IndexBuildFinalizer {
 
   private final PathIndexBuilder pathIndexBuilder;
 
@@ -72,5 +73,10 @@ public final class JsonPathIndexBuilder extends AbstractJsonNodeVisitor {
       }
     }
     return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public void finishIndexBuild() {
+    pathIndexBuilder.finish();
   }
 }

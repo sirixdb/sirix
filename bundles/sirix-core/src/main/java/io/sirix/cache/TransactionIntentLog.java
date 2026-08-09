@@ -45,6 +45,29 @@ public final class TransactionIntentLog implements AutoCloseable {
   /** Number of active entries in the current arrays. */
   private int size;
 
+  // ============== HOT-LEAF ENTRY INDEX (sharing-check scan narrowing) ==============
+  // Two places have to answer "is this leaf page also held by another log entry?" before they may
+  // free its 64KB off-heap slot — releaseOrphanedHOTLeaves once per subtree rebuild, and put()'s
+  // CoW path once per replaced container — and both did it by walking all `size` entries. A
+  // transaction that shreds a document while maintaining HOT indexes runs those against a log of
+  // hundreds of thousands of entries, so the walks grew with the square of the transaction. Almost
+  // none of those entries hold a HOT leaf — the vast majority are node record pages — so the log
+  // records which indices have EVER held one and both walks visit only those.
+  //
+  // Deliberately a superset, never a refcount: `put` is the only writer of `entries`, so every
+  // index currently holding a HOT leaf is in here, and a stale index costs one re-read of
+  // `entries[i]`, which stays the authority. A drifting count could free a live page; a stale
+  // superset cannot.
+
+  /** Log indices that have ever held a {@link HOTLeafPage} in the current generation. */
+  private int[] hotLeafIndices = new int[16];
+
+  /** Number of valid entries in {@link #hotLeafIndices}. */
+  private int hotLeafIndexCount;
+
+  /** Membership bitset over log indices, so each index is appended at most once. */
+  private long[] hotLeafIndexBits = new long[8];
+
   // ==================== GENERATION COUNTER ====================
 
   /** Current generation. Incremented on each snapshot(). Used for O(1) epoch membership. */
@@ -294,6 +317,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       // the same logKey will resolve to the latest container.
       entries[existingKey] = value;
       entryRefs[existingKey] = ref;
+      noteHOTLeafEntry(existingKey, value);
       ref.setActiveTilGeneration(currentGeneration);
     } else {
       // A cross-generation re-put supersedes the frozen entry this reference used to identify:
@@ -312,6 +336,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       ref.setActiveTilGeneration(currentGeneration);
       entries[size] = value;
       entryRefs[size] = ref;
+      noteHOTLeafEntry(size, value);
 
       if (supersedesPriorEntry) {
         final long oldPacked = ((long) priorGeneration << 32) | (existingKey & 0xFFFFFFFFL);
@@ -354,6 +379,42 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (value.getModified() instanceof HOTLeafPage modified && modified != value.getComplete()) {
       hotLeafCache.removePage(modified);
     }
+  }
+
+  /**
+   * Note that log index {@code index} holds a HOT leaf page, so
+   * {@link #releaseOrphanedHOTLeaves(List)} will look at it. Idempotent and O(1).
+   *
+   * @param index the log index the container was stored at
+   * @param container the container just stored there
+   */
+  private void noteHOTLeafEntry(final int index, final PageContainer container) {
+    if (container == null
+        || (!(container.getComplete() instanceof HOTLeafPage) && !(container.getModified() instanceof HOTLeafPage))) {
+      return;
+    }
+    final int word = index >>> 6;
+    if (word >= hotLeafIndexBits.length) {
+      hotLeafIndexBits = Arrays.copyOf(hotLeafIndexBits, Math.max(hotLeafIndexBits.length << 1, word + 1));
+    }
+    final long bit = 1L << (index & 63);
+    if ((hotLeafIndexBits[word] & bit) != 0) {
+      return;
+    }
+    hotLeafIndexBits[word] |= bit;
+    if (hotLeafIndexCount == hotLeafIndices.length) {
+      hotLeafIndices = Arrays.copyOf(hotLeafIndices, hotLeafIndices.length << 1);
+    }
+    hotLeafIndices[hotLeafIndexCount++] = index;
+  }
+
+  /**
+   * Forget the HOT-leaf index; the log indices it holds no longer address the current arrays.
+   * Called wherever {@link #entries} is replaced or emptied.
+   */
+  private void resetHOTLeafIndex() {
+    hotLeafIndexCount = 0;
+    Arrays.fill(hotLeafIndexBits, 0L);
   }
 
   /**
@@ -425,6 +486,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     entries = new PageContainer[snapshotEntries.length];
     entryRefs = new PageReference[snapshotRefs.length];
     size = 0;
+    resetHOTLeafIndex();
 
     return snapshotSize;
   }
@@ -646,6 +708,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     size = 0;
+    resetHOTLeafIndex();
 
     // Close snapshot pages unconditionally (best-effort — no offset validation).
     // This handles the error/rollback path where bg thread may have failed mid-write.
@@ -677,6 +740,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     size = 0;
+    resetHOTLeafIndex();
 
     // Close snapshot pages unconditionally
     clearSnapshotPages();
@@ -795,9 +859,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     return false;
   }
 
+  /**
+   * Whether {@code page} is also held by a log entry other than {@code excludeIndex}. Walks only
+   * the entries that can hold a HOT leaf — {@link #hotLeafIndices}, a superset re-checked against
+   * {@code entries[i]} — because this runs on {@link #put}'s HOT-leaf CoW path, once per replaced
+   * container, and a full walk made that quadratic in the log size.
+   */
   private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {
-    for (int i = 0; i < size; i++) {
-      if (i == excludeIndex) continue;
+    for (int k = 0; k < hotLeafIndexCount; k++) {
+      final int i = hotLeafIndices[k];
+      if (i == excludeIndex || i >= size) {
+        continue;
+      }
       final PageContainer entry = entries[i];
       if (entry != null && (entry.getComplete() == page || entry.getModified() == page)) {
         return true;
@@ -853,9 +926,15 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (closeable.isEmpty()) {
       return;
     }
-    // One pass over the log: an orphan leaf that also appears at an entry other than its own is
-    // shared (a CoW reference copy) and is dropped from the closeable set.
-    for (int i = 0; i < size; i++) {
+    // One pass over the log entries that can hold a HOT leaf: an orphan leaf that also appears at
+    // an entry other than its own is shared (a CoW reference copy) and is dropped from the
+    // closeable set. hotLeafIndices is a superset of those entries (see its declaration), and
+    // entries[i] is re-checked here, so narrowing the walk cannot change any decision.
+    for (int k = 0; k < hotLeafIndexCount; k++) {
+      final int i = hotLeafIndices[k];
+      if (i >= size) {
+        continue;
+      }
       final PageContainer entry = entries[i];
       if (entry == null) {
         continue;

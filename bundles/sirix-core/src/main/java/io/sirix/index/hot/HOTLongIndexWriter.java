@@ -77,9 +77,6 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    */
   private static final ThreadLocal<NodeReferences> SINGLE_BIT_REFS = ThreadLocal.withInitial(NodeReferences::new);
 
-  /** Same chunked-bitmap nodeKey range cap as {@link HOTIndexWriter#MAX_NODE_KEY}. */
-  private static final long MAX_NODE_KEY = (1L << 48) - 1L;
-
   private final HOTLongKeySerializer keySerializer;
 
   /** Lazy reader for chunked reassembly. */
@@ -138,14 +135,39 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     return value;
   }
 
+  /**
+   * Add a single nodeKey to {@code key}'s chunked bitmap.
+   *
+   * <p>Equivalent to {@link #index(long, NodeReferences, RBTreeReader.MoveCursor)} with a
+   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot
+   * write is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to
+   * ADD one reference never has to materialise — let alone read back — the references already
+   * stored under {@code key}.</p>
+   *
+   * @param key the logical index key (a path-class record)
+   * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
+   */
+  public void indexNodeKey(long key, long nodeKey) {
+    addNodeKeyToChunk(key, nodeKey);
+  }
+
+  /**
+   * A loader that collects {@code (key, nodeKey)} pairs and materialises the whole index in one
+   * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
+   * revision.
+   *
+   * <p>Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
+   * <em>replaces</em> the root rather than merging into it. Callers that may run against a
+   * populated tree must check first and fall back to {@link #indexNodeKey(long, long)}.</p>
+   *
+   * @return a fresh bulk loader bound to this writer
+   */
+  public HOTLongBulkIndexLoader createBulkLoader() {
+    return new HOTLongBulkIndexLoader(this, keySerializer);
+  }
+
   private void addNodeKeyToChunk(long key, long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 
@@ -230,13 +252,7 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * {@link HOTIndexWriter#remove}.
    */
   public boolean remove(long key, long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 

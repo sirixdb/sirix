@@ -6,17 +6,18 @@ package io.sirix.index.hot;
 import static java.util.Objects.requireNonNull;
 
 /**
- * {@link AbstractHOTBulkIndexLoader} for indexes with object keys — a {@code CASValue} for CAS, a
- * {@code QNm} for NAME.
+ * {@link AbstractHOTBulkIndexLoader} for the PATH index's primitive {@code long} keys.
  *
- * @param <K> the logical index key type
+ * <p>Separate from {@link HOTBulkIndexLoader} purely to keep the key primitive: a PATH build adds
+ * one entry per indexed node, so a {@code Long} key would be one box per node.</p>
+ *
  * @author Johannes Lichtenberger
  */
-public final class HOTBulkIndexLoader<K extends Comparable<? super K>> extends AbstractHOTBulkIndexLoader {
+public final class HOTLongBulkIndexLoader extends AbstractHOTBulkIndexLoader {
 
-  private final HOTKeySerializer<K> keySerializer;
+  private final HOTLongKeySerializer keySerializer;
 
-  HOTBulkIndexLoader(final HOTIndexWriter<K> writer, final HOTKeySerializer<K> keySerializer) {
+  HOTLongBulkIndexLoader(final HOTLongIndexWriter writer, final HOTLongKeySerializer keySerializer) {
     super(writer);
     this.keySerializer = requireNonNull(keySerializer, "keySerializer");
   }
@@ -24,11 +25,10 @@ public final class HOTBulkIndexLoader<K extends Comparable<? super K>> extends A
   /**
    * Record that {@code nodeKey} belongs to {@code key}'s posting list.
    *
-   * @param key the logical index key
+   * @param key the logical index key (a path-class record for the PATH index)
    * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
    */
-  public void add(final K key, final long nodeKey) {
-    requireNonNull(key, "key");
+  public void add(final long key, final long nodeKey) {
     final byte[] arena = reserveKeySpace(nodeKey);
     final int offset = arenaOffset();
     final int length = keySerializer.serializeWithChunkIdx(key, (int) (nodeKey >>> 16), arena, offset);

@@ -81,13 +81,6 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    */
   private static final ThreadLocal<NodeReferences> SINGLE_BIT_REFS = ThreadLocal.withInitial(NodeReferences::new);
 
-  /**
-   * Cap on a permitted nodeKey for chunked-bitmap storage. The chunkIdx is stored as a 32-bit
-   * big-endian unsigned int trailer; with {@code chunkIdx = (int)(nodeKey >>> 16)} this gives a
-   * full 48-bit nodeKey range — well above any practical Sirix dataset.
-   */
-  private static final long MAX_NODE_KEY = (1L << 48) - 1L;
-
   private final HOTKeySerializer<K> keySerializer;
 
   /** Lazy reader for chunked-bitmap reassembly during {@link #get} / range scans. */
@@ -194,23 +187,6 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Reject a node key the chunked-bitmap encoding cannot represent.
-   *
-   * @param nodeKey the node key to validate
-   * @throws IllegalArgumentException if {@code nodeKey} is negative or exceeds
-   *         {@link #MAX_NODE_KEY}
-   */
-  static void checkNodeKeyRange(final long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException(
-          "nodeKey " + nodeKey + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
-  }
-
-  /**
    * A loader that collects {@code (key, nodeKey)} pairs and materialises the whole index in one
    * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
    * revision.
@@ -236,7 +212,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * (OR-merge with any pre-existing chunk).</p>
    */
   private void addNodeKeyToChunk(K key, long nodeKey) {
-    checkNodeKeyRange(nodeKey);
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
 
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
@@ -360,13 +336,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    */
   public boolean remove(K key, long nodeKey) {
     requireNonNull(key);
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
 
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;

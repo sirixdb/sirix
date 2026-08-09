@@ -612,6 +612,30 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Cap on a permitted nodeKey for chunked-bitmap storage. The chunkIdx is stored as a 32-bit
+   * big-endian unsigned int trailer; with {@code chunkIdx = (int)(nodeKey >>> 16)} this gives a
+   * full 48-bit nodeKey range — well above any practical Sirix dataset.
+   */
+  static final long MAX_NODE_KEY = (1L << 48) - 1L;
+
+  /**
+   * Reject a node key the chunked-bitmap encoding cannot represent.
+   *
+   * @param nodeKey the node key to validate
+   * @throws IllegalArgumentException if {@code nodeKey} is negative or exceeds
+   *         {@link #MAX_NODE_KEY}
+   */
+  static void checkNodeKeyRange(final long nodeKey) {
+    if (nodeKey < 0L) {
+      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
+    }
+    if (nodeKey > MAX_NODE_KEY) {
+      throw new IllegalArgumentException(
+          "nodeKey " + nodeKey + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
+    }
+  }
+
+  /**
    * Whether the index tree currently holds no entry at all.
    *
    * <p>True exactly for a freshly initialized index: its root reference resolves to the single
