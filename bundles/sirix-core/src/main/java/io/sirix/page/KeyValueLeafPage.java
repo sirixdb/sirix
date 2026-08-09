@@ -4143,6 +4143,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           }
           final byte[] elementValue = readStringValueBytes(slot);
           final int parentSlot = onPageParentSlot(slot, pageKeyBase);
+          if (elementValue != null && parentSlot < 0 && elementCount == 0) {
+            // The LEADING run of elements whose array opens on the previous page — the same shape
+            // RecordOrdinalRegion records as a skip prefix. Skipped, not fatal: the reader
+            // segments by this page's object-key slots and a leading orphan precedes all of them.
+            continue;
+          }
           if (elementValue == null || parentSlot < 0) {
             // Either undecodable, or an element whose array opens on the PREVIOUS page. Both
             // make the element set for this page incomplete, and a tag that covers most of its

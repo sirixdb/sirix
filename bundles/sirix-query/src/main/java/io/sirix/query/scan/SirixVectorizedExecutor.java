@@ -3963,6 +3963,49 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * The path node key of the anonymous ARRAY layer beneath {@code field}, or {@code -1}.
+   *
+   * <p>A fused OBJECT_NAMED_ARRAY slot, and therefore the element values tagged by it, carries THAT
+   * key rather than the field's own — `/[]/genres/[]`, not `/[]/genres`. Resolved once per scan.
+   */
+  private long arrayLayerPathNodeKey(final String[] sourcePath, final String field) {
+    if (field == null || !session.getResourceConfig().withPathSummary) {
+      return -1L;
+    }
+    final String cacheKey = "arr\u0000" + pathCacheKey(sourcePath, field);
+    final Long cached = pathNodeKeyCache.get(cacheKey);
+    if (cached != null) {
+      return cached.longValue();
+    }
+    long resolved = -1L;
+    try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
+      try {
+        for (final PathNode candidate : summary.findPathsByLocalName(field)) {
+          if (!summary.moveTo(candidate.getNodeKey()) || !summary.moveToFirstChild()) {
+            continue;
+          }
+          do {
+            if (resolvedLocalName(summary, summary.getPathNode()) == null) {
+              if (resolved != -1L) {
+                resolved = -1L;   // two array layers under this name: ambiguous, fail closed
+                break;
+              }
+              resolved = summary.getNodeKey();
+            }
+          } while (summary.moveToRightSibling());
+        }
+      } finally {
+        summary.close();
+      }
+    } catch (final RuntimeException e) {
+      resolved = -1L;
+    }
+    pathNodeKeyCache.putIfAbsent(cacheKey, Long.valueOf(resolved));
+    return resolved;
+  }
+
+  /**
    * Whether the path-summary node at {@code pathNodeKey} has an anonymous ARRAY layer beneath it —
    * i.e. the field is array-valued somewhere in the resource.
    */
@@ -6033,6 +6076,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
     final String arrayContainsLiteral =
         singleArrayContains ? cp.strLiterals[cp.strIdx[0]] : null;
+    // The path key of the ARRAY LAYER beneath the field — `/[]/genres/[]`, which is what the
+    // element values are tagged by. The field's own key names `/[]/genres` and finds nothing.
+    final long arrayElementPathKey =
+        singleArrayContains && ARRAY_CONTAINS_COLUMNAR_ENABLED
+            ? arrayLayerPathNodeKey(sourcePath, cp.fieldNames[0])
+            : -1L;
+    final byte[] arrayContainsLiteralBytes =
+        singleArrayContains ? cp.strLiteralBytes[cp.strIdx[0]] : null;
+    // ONE wrapper for the whole scan: the FSST literal memo keys on this array's IDENTITY, so a
+    // per-page allocation would miss every time.
+    final byte[][] arrayContainsLiteralWrapper =
+        singleArrayContains ? new byte[][] { arrayContainsLiteralBytes } : null;
     // Fast-path: if a covering projection index is installed for this
     // (resource, sourcePath), convert the predicate tree to ColumnPredicate[]
     // and route the count to the zero-copy SIMD byte-scan — no OBJECT_KEY
@@ -6188,6 +6243,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Scratch for the column-only path; one set per worker, reused for every page it decodes.
       final int[] anchorSlotOut = new int[1];
       final RegionHeaderScratch headerScratch = new RegionHeaderScratch();
+      // Adaptive bail-out state for the array-membership column route, per worker.
+      int columnarAttempts = 0;
+      int columnarServed = 0;
+      boolean columnarWorthIt = true;
       if (fusedFieldNameKeys != null) {
         System.arraycopy(fusedFieldNameKeys, 0, headerScratch.fusedFieldNameKey, 0,
                          fusedFieldNameKeys.length);
@@ -6293,6 +6352,47 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 // This plan declines for this resource's pages — the rest of the scan will
                 // materialize records, so warm from here on.
                 prefetchWindow = prefetchWindowOrNull(reader);
+              }
+            }
+            if (singleArrayContains && arrayElementPathKey > 0 && columnarWorthIt) {
+              columnarAttempts++;
+              // Try the COLUMNS before touching the record page. This is the one-shot cost of the
+              // shape: getRecordPage below rebuilds the whole slotted page, which profiles at 78 %
+              // of a cold scan, and a membership count needs three columns and none of the records.
+              final long fromColumns = countArrayContainsFromRegions(reader, reusableKey, pk,
+                                                                     anchorNameKey,
+                                                                     arrayElementPathKey,
+                                                                     arrayContainsLiteralBytes,
+                                                                     arrayContainsLiteralWrapper,
+                                                                     headerScratch);
+              if (fromColumns >= 0L) {
+                REGION_ONLY_PAGES.increment();
+                columnarServed++;
+                localCount += fromColumns;
+                final int trailing = headerScratch.pendingTrailingAnchorSlot;
+                headerScratch.pendingTrailingAnchorSlot = -1;
+                if (trailing >= 0) {
+                  // The one record the columns could not decide: its array is the page's last, so
+                  // its elements may continue on the next page. Decided here, where the whole
+                  // record is reachable.
+                  final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + trailing;
+                  if (rtx.moveTo(arrayKey) && arrayContainsAt(rtx, arrayContainsLiteral)) {
+                    localCount++;
+                  }
+                }
+                if (recordBuf != null) recordBuf.add((int) pk);
+                continue;
+              }
+              // A decline here has already paid the column read AND is about to pay the record
+              // page. That is the shape of pessimisation this route must never become, so the
+              // worker STOPS trying once a probe of the first pages says the columns rarely serve
+              // this corpus: past the probe the cost is bounded by the probe itself.
+              REGION_ONLY_FALLBACKS.increment();
+              if (columnarAttempts >= ARRAY_CONTAINS_PROBE) {
+                // Re-checked on every decline past the probe, not once AT it: evaluating the rate
+                // at a single attempt leaves it to chance whether that attempt was a decline, and
+                // a probe that happens to end on a served page never bails out at all.
+                columnarWorthIt = columnarServed * 2 >= columnarAttempts;
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
@@ -6411,6 +6511,190 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
   }
+
+  /**
+   * Count records whose array-valued field holds {@code literal}, from the page's COLUMNS —
+   * without rebuilding a single record.
+   *
+   * <p>This is the shape's whole reason for being slow one-shot: the record route reconstructs
+   * every slotted page, which profiles at 78 % of a cold scan. Three columns answer it instead —
+   * the string column (the element values, tagged by their enclosing array's path), the field-name
+   * column (which slots are object-key-role) and the record-ordinal column (which record each of
+   * those belongs to).
+   *
+   * <h2>Element to record, without a column that stores it</h2>
+   *
+   * <p>The string column stores values per tag with no per-value slot, so occurrence {@code k}
+   * cannot be attributed directly. It does not need to be: object-key-role slots PARTITION the
+   * page, so the populated slots strictly between one and the next are that field's values — for a
+   * string array, its elements, in order. Walking the anchor's slots therefore segments the tag's
+   * values into one run per record, and the array's own record ordinal names the record.
+   *
+   * <p>Verified rather than assumed, per page: the segments must account for exactly the tag's
+   * value count. Measured over 275 pages of the movie corpus the segmentation reproduces it on
+   * 260; the other 15 decline here and go through the records, which costs the fast path and
+   * nothing else.
+   *
+   * @return the number of matching records on this page, or {@code -1} to fall back
+   */
+  private long countArrayContainsFromRegions(final StorageEngineReader reader,
+      final IndexLogKey reusableKey, final long pageKey, final int anchorNameKey,
+      final long elementPathTag, final byte[] literal, final byte[][] literalWrapper,
+      final RegionHeaderScratch scratch) {
+    if (elementPathTag <= 0L || elementPathTag > Integer.MAX_VALUE) {
+      return -1L;  // no array-layer path to look the values up by
+    }
+    final RegionsOnlyPage page = reader.getRecordPageRegionsOnly(
+        reusableKey.setRecordPageKey(pageKey), ARRAY_CONTAINS_REGION_MASK, 0);
+    if (page == null || !page.hasSlotBitmap()) {
+      return -1L;
+    }
+    final MemorySegment nameKeys = page.nameKeyPayload();
+    final MemorySegment strings = page.stringPayload();
+    if (nameKeys == null || strings == null) {
+      return -1L;
+    }
+    final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
+    if (oh == null || oh.recordCount == 0 || oh.recordCount > Constants.NDP_NODE_COUNT) {
+      return -1L;
+    }
+    final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
+    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
+      return -1L;
+    }
+    final StringRegion.Header sh = page.stringHeaderInto(scratch.string);
+    if (sh == null || sh.tagKind != StringRegion.TAG_KIND_PATH_NODE) {
+      return -1L;  // name-tagged pages cannot distinguish an array's elements from its siblings
+    }
+    final int tag = StringRegion.lookupTag(sh, (int) elementPathTag);
+    final int elementCount = tag < 0 ? 0 : sh.tagCount[tag];
+
+    // Segment the tag's values into one run per record, from the slot partition.
+    final int okCount = ObjectKeyNameKeyRegion.count(nameKeys);
+    if (okCount <= 0 || okCount > scratch.numberBitmapIdx.length) {
+      return -1L;
+    }
+    final int[] segmentRecord = scratch.numberBitmapIdx;   // record ordinal per segment
+    final int[] segmentEnd = scratch.boolBitmapIdx;        // exclusive value index per segment
+    int segments = 0;
+    int covered = 0;
+    int trailingSegment = -1;
+    int trailingSlot = -1;
+    // ONE SIMD pass for the anchor's occurrences, rather than asking every object-key slot what it
+    // is named. Both slotAt and nameKeyForSlot walk the region's bitmap to rank a position, so the
+    // per-slot form was two bitmap walks times the page's ~800 object keys — measured, that alone
+    // made a served page cost more than reconstructing its records.
+    final int[] anchorIdx = scratch.anchorBitmapIdx;
+    final int anchorMatches =
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+    for (int a = 0; a < anchorMatches; a++) {
+      final int i = anchorIdx[a];
+      final int from = ObjectKeyNameKeyRegion.slotAt(nameKeys, i);
+      // The page's LAST object-key slot may be one of ours, and then its elements can continue on
+      // the next page — where they carry an off-page parent, are not columnarized at all, and that
+      // page publishes no element tag. Neither page's columns can decide that ONE record. It is
+      // still counted here, so the certificate below stays exact; the record itself is handed to
+      // the record path, which is one reconstruction per page seam against refusing the page.
+      final boolean trailing = i + 1 >= okCount;
+      final int to = trailing ? Constants.NDP_NODE_COUNT
+                              : ObjectKeyNameKeyRegion.slotAt(nameKeys, i + 1);
+      if (trailing) {
+        trailingSegment = segments;
+        trailingSlot = from;
+      }
+      for (int slot = from + 1; slot < to; slot++) {
+        if (page.definesSlot(slot)) {
+          covered++;
+        }
+      }
+      final int ordinal = RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
+      if (ordinal < 0 || ordinal >= oh.recordCount) {
+        return -1L;  // the spanning record's tail, or a linkage this page does not describe
+      }
+      segmentRecord[segments] = ordinal;
+      segmentEnd[segments] = covered;
+      segments++;
+    }
+    if (covered != elementCount) {
+      // The certificate. A page whose slot partition does not account for exactly the tag's values
+      // holds something this segmentation does not model — a nested structure inside the array,
+      // say — and attributing values by it would credit them to the wrong record.
+      return -1L;
+    }
+    if (elementCount == 0) {
+      return 0L;  // arrays present, all empty: nothing satisfies an existential
+    }
+    final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
+                                               scratch.literalsFor(page.getFsstSymbolTableId(),
+                                                                   literalWrapper, reader)[0]);
+    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+      return -1L;
+    }
+    if (dictId == StringRegion.DICT_ID_ABSENT) {
+      return 0L;  // the literal occurs nowhere on this page
+    }
+    final long[] hits = scratch.sparseOccRows;
+    if (elementCount > hits.length << 6) {
+      return -1L;
+    }
+    if (StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag], elementCount, dictId, hits) < 0) {
+      return -1L;
+    }
+    // One walk over the set bits, advancing the segment cursor with them: both are ascending, so a
+    // matching element finds its record without a search.
+    final long[] matchedRecords = scratch.fusedRows;
+    Arrays.fill(matchedRecords, 0, (oh.recordCount + 63) >>> 6, 0L);
+    int segment = 0;
+    for (int w = 0, words = (elementCount + 63) >>> 6; w < words; w++) {
+      long bits = hits[w];
+      final int base = w << 6;
+      while (bits != 0L) {
+        final int value = base + Long.numberOfTrailingZeros(bits);
+        bits &= bits - 1L;
+        if (value >= elementCount) {
+          break;
+        }
+        while (segment < segments && value >= segmentEnd[segment]) {
+          segment++;
+        }
+        if (segment >= segments) {
+          return -1L;  // a value past every segment: the certificate should have caught it
+        }
+        final int record = segmentRecord[segment];
+        matchedRecords[record >>> 6] |= 1L << (record & 63);
+      }
+    }
+    if (trailingSegment >= 0) {
+      // Take the undecidable record out of the columnar answer and hand its array to the caller.
+      final int record = segmentRecord[trailingSegment];
+      matchedRecords[record >>> 6] &= ~(1L << (record & 63));
+      scratch.pendingTrailingAnchorSlot = trailingSlot;
+    }
+    return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount);
+  }
+
+  /**
+   * How many pages the array-membership column route probes before deciding whether it is worth
+   * continuing on this corpus. Small, because a decline pays the column read AND the record page.
+   */
+  private static final int ARRAY_CONTAINS_PROBE = 128;
+
+  /**
+   * Whether the array-membership COLUMN route is attempted at all.
+   *
+   * <p>Off by default. It is correct — its answers match the record path — but on the corpus it was
+   * built against it serves only ~43 % of pages, and a declining page pays the column read on top
+   * of the record page it still has to read. The adaptive bail-out bounds that cost, but "bounded"
+   * is not "a win", and a route that does not beat the one it replaces should not be the default.
+   * The remaining declines are not yet diagnosed; the flag is how the next round measures them.
+   */
+  private static final boolean ARRAY_CONTAINS_COLUMNAR_ENABLED =
+      Boolean.getBoolean("sirix.scan.arrayContainsColumnar");
+
+  /** The three columns an array-membership count reads, and nothing else. */
+  private static final int ARRAY_CONTAINS_REGION_MASK =
+      (1 << RegionTable.KIND_STRING) | (1 << RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+          | (1 << RegionTable.KIND_RECORD_ORDINAL);
 
   /**
    * Whether the array {@code rtx} is positioned on holds {@code literal} as a string element.

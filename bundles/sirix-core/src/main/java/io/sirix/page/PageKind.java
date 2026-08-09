@@ -3074,11 +3074,21 @@ public enum PageKind {
             final byte[] elementValue = page.readStringValueBytes(slot);
             final long parentKey = page.getSlotParentKey(slot);
             final long parentSlotLong = parentKey - pageKeyBase;
-            if (elementValue == null || parentSlotLong < 0
-                || parentSlotLong >= Constants.NDP_NODE_COUNT) {
-              // Undecodable, or an element whose array opens on the PREVIOUS page. Either way the
-              // element set for this page is incomplete; drop the whole contribution.
-              elemUsable = false;
+            if (elementValue == null) {
+              elemUsable = false;   // an undecodable value; the set would be silently short
+            } else if (parentSlotLong < 0 || parentSlotLong >= Constants.NDP_NODE_COUNT) {
+              // An element whose array opens on the PREVIOUS page. Slot order is node-key order,
+              // so those form a LEADING RUN at the head of the page and nowhere else — the same
+              // shape RecordOrdinalRegion records as its skip prefix rather than refusing. Skipped
+              // here, and the reader never looks for them: it segments the values by the page's
+              // object-key slots, and a leading orphan precedes the first of them.
+              //
+              // Refusing them instead was measured on a corpus whose array field is the LAST field
+              // of each record — so nearly every page seam lands inside one — and it dropped the
+              // element column on ~70 % of pages.
+              if (elemCount > 0) {
+                elemUsable = false;  // an orphan PAST the leading run is a shape this does not model
+              }
             } else {
               final int parentSlot = (int) parentSlotLong;
               if (elemValues == null) {
