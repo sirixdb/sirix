@@ -4,6 +4,8 @@ import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.Databases;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -53,6 +55,10 @@ final class ArrayContainsPredicateTest {
 
   @BeforeEach
   void setUp() throws Exception {
+    // Array-element strings have to be IN the string column for the column route to have anything
+    // to read; without this it silently declines every page and the columnar arm below would be
+    // testing the record path twice.
+    KeyValueLeafPage.ARRAY_ELEMENT_STRINGS_IN_REGION = true;
     dbDir = Files.createTempDirectory("sirix-array-contains-");
     final StringBuilder sb = new StringBuilder(N * 64);
     sb.append('[');
@@ -88,6 +94,8 @@ final class ArrayContainsPredicateTest {
   @AfterEach
   void tearDown() {
     SequentialPipelineStrategy.setVectorizedExecutor(null);
+    KeyValueLeafPage.ARRAY_ELEMENT_STRINGS_IN_REGION = false;
+    SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
     if (dbDir != null) {
       Databases.removeDatabase(dbDir.resolve(DB));
     }
@@ -102,6 +110,38 @@ final class ArrayContainsPredicateTest {
                        + " — a record with no such field, or an empty array, satisfies no "
                        + "existential, and a non-string element is not a string match");
     }
+  }
+
+  /**
+   * The COLUMN route must answer exactly what the record route answers.
+   *
+   * <p>It is a second implementation of the same predicate reading a different structure, so
+   * nothing but a differential test pins it down. The corpus is what makes this sharp: at ~3,000
+   * records a page boundary falls inside a record repeatedly, and a record whose object node ends
+   * one page while its array begins the next is decidable from NEITHER page's columns — the page
+   * before never sees an anchor for it. Getting that seam wrong loses or double-counts records
+   * rather than failing outright, and the totals here are what notice.
+   */
+  @Test
+  @DisplayName("the column route answers exactly what the record route answers")
+  void theColumnRouteAgreesWithTheRecordRoute() throws Exception {
+    long servedAcrossShapes = 0;
+    for (final String predicate : SHAPES) {
+      SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
+      final long viaRecords = count(predicate, true);
+      SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = true;
+      SirixVectorizedExecutor.resetRegionOnlyCounters();
+      final long viaColumns = count(predicate, true);
+      servedAcrossShapes += SirixVectorizedExecutor.regionOnlyPagesServed();
+      assertEquals(viaRecords, viaColumns,
+                   "the column route differs from the record route for: " + predicate
+                       + " — most likely a record straddling a page boundary, counted by both "
+                       + "pages or by neither");
+    }
+    // Agreement proves nothing if the column route declined every page and quietly ran the record
+    // route twice — which is exactly what happens when the element strings are not in the column.
+    assertTrue(servedAcrossShapes > 0,
+               "the column route served no page at all, so the agreement above is vacuous");
   }
 
   @Test

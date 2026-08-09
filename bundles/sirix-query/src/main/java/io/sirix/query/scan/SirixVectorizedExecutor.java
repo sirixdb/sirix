@@ -6367,17 +6367,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 REGION_ONLY_PAGES.increment();
                 columnarServed++;
                 localCount += fromColumns;
+                // BOTH seams. Trailing: an array that is the page's last, whose elements may
+                // continue on the next page. Leading: a record whose object node sits on the
+                // PREVIOUS page, so it has no ordinal here — the page before never sees an anchor
+                // for it, which makes this the only page that can count it. Each is at most one
+                // record, decided here where the whole record is reachable.
                 final int trailing = headerScratch.pendingTrailingAnchorSlot;
-                headerScratch.pendingTrailingAnchorSlot = -1;
-                if (trailing >= 0) {
-                  // The one record the columns could not decide: its array is the page's last, so
-                  // its elements may continue on the next page. Decided here, where the whole
-                  // record is reachable.
-                  final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + trailing;
-                  if (rtx.moveTo(arrayKey) && arrayContainsAt(rtx, arrayContainsLiteralBytes)) {
-                    localCount++;
-                  }
-                }
+                final int leading = headerScratch.pendingFusedAnchorSlot;
+                headerScratch.clearPendingBoundary();
+                localCount += decideOneArrayContains(leading, pk, rtx, arrayContainsLiteralBytes)
+                    + decideOneArrayContains(trailing, pk, rtx, arrayContainsLiteralBytes);
                 if (recordBuf != null) recordBuf.add((int) pk);
                 continue;
               }
@@ -6540,29 +6539,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long elementPathTag, final byte[] literal, final byte[][] literalWrapper,
       final RegionHeaderScratch scratch) {
     if (elementPathTag <= 0L || elementPathTag > Integer.MAX_VALUE) {
-      return -1L;  // no array-layer path to look the values up by
+      return declineArrayContains(ArrayContainsDecline.NO_ARRAY_PATH);
     }
     final RegionsOnlyPage page = reader.getRecordPageRegionsOnly(
         reusableKey.setRecordPageKey(pageKey), ARRAY_CONTAINS_REGION_MASK, 0);
     if (page == null || !page.hasSlotBitmap()) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.NO_REGIONS);
     }
     final MemorySegment nameKeys = page.nameKeyPayload();
     final MemorySegment strings = page.stringPayload();
     if (nameKeys == null || strings == null) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.NO_NAME_OR_STRING_COLUMN);
     }
     final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
     if (oh == null || oh.recordCount == 0 || oh.recordCount > Constants.NDP_NODE_COUNT) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.NO_RECORD_LINKAGE);
     }
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
     if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.ORDINALS_UNDECODABLE);
     }
     final StringRegion.Header sh = page.stringHeaderInto(scratch.string);
     if (sh == null || sh.tagKind != StringRegion.TAG_KIND_PATH_NODE) {
-      return -1L;  // name-tagged pages cannot distinguish an array's elements from its siblings
+      return declineArrayContains(ArrayContainsDecline.STRING_TAG_NOT_PATH);
     }
     final int tag = StringRegion.lookupTag(sh, (int) elementPathTag);
     final int elementCount = tag < 0 ? 0 : sh.tagCount[tag];
@@ -6570,7 +6569,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Segment the tag's values into one run per record, from the slot partition.
     final int okCount = ObjectKeyNameKeyRegion.count(nameKeys);
     if (okCount <= 0 || okCount > scratch.numberBitmapIdx.length) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.OBJECT_KEY_COUNT);
     }
     final int[] segmentRecord = scratch.numberBitmapIdx;   // record ordinal per segment
     final int[] segmentEnd = scratch.boolBitmapIdx;        // exclusive value index per segment
@@ -6578,6 +6577,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int covered = 0;
     int trailingSegment = -1;
     int trailingSlot = -1;
+    int leadingSlot = -1;
     // ONE SIMD pass for the anchor's occurrences, rather than asking every object-key slot what it
     // is named. Both slotAt and nameKeyForSlot walk the region's bitmap to rank a position, so the
     // per-slot form was two bitmap walks times the page's ~800 object keys — measured, that alone
@@ -6605,9 +6605,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           covered++;
         }
       }
-      final int ordinal = RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
-      if (ordinal < 0 || ordinal >= oh.recordCount) {
-        return -1L;  // the spanning record's tail, or a linkage this page does not describe
+      // The OTHER seam, and the one that was refusing most of the corpus. A record whose object
+      // node sits at the tail of the previous page keeps its fields at the head of this one, so its
+      // anchor lands in the record-ordinal region's SKIP PREFIX and has no ordinal here — the shape
+      // that region documents as "MOST pages" on multi-field records. Refusing the page for it threw
+      // away every OTHER record on the page too: 90 % of all declines measured on the movies corpus.
+      //
+      // Its elements are on this page and in the tag, so the segment is kept and counted, which is
+      // what holds the certificate exact; only its RECORD is missing, and that record is decided
+      // through the records at this slot. Neither page can decide it from columns alone — the page
+      // before never sees an anchor for it — so this is the one place it can be counted, and
+      // counting it here counts it exactly once.
+      final int ordinal;
+      if (i < oh.skipCount) {
+        if (leadingSlot >= 0) {
+          // Slots are in node-key order, so at most ONE record spans in and it carries the field at
+          // most once. A second occurrence is a page shape this segmentation does not model.
+          return declineArrayContains(ArrayContainsDecline.ORDINAL_OUT_OF_RANGE);
+        }
+        leadingSlot = from;
+        ordinal = SEGMENT_NO_RECORD;
+      } else {
+        ordinal = RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
+        if (ordinal < 0 || ordinal >= oh.recordCount) {
+          return declineArrayContains(ArrayContainsDecline.ORDINAL_OUT_OF_RANGE);
+        }
       }
       segmentRecord[segments] = ordinal;
       segmentEnd[segments] = covered;
@@ -6617,7 +6639,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // The certificate. A page whose slot partition does not account for exactly the tag's values
       // holds something this segmentation does not model — a nested structure inside the array,
       // say — and attributing values by it would credit them to the wrong record.
-      return -1L;
+      return declineArrayContains(covered > elementCount
+                                      ? ArrayContainsDecline.CERTIFICATE_GAPS_TOO_WIDE
+                                      : ArrayContainsDecline.CERTIFICATE_VALUES_UNCLAIMED);
     }
     if (elementCount == 0) {
       return 0L;  // arrays present, all empty: nothing satisfies an existential
@@ -6626,17 +6650,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                                scratch.literalsFor(page.getFsstSymbolTableId(),
                                                                    literalWrapper, reader)[0]);
     if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.DICT_UNDECIDABLE);
     }
     if (dictId == StringRegion.DICT_ID_ABSENT) {
       return 0L;  // the literal occurs nowhere on this page
     }
     final long[] hits = scratch.sparseOccRows;
     if (elementCount > hits.length << 6) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.ELEMENTS_EXCEED_SCRATCH);
     }
     if (StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag], elementCount, dictId, hits) < 0) {
-      return -1L;
+      return declineArrayContains(ArrayContainsDecline.SELECT_REFUSED);
     }
     // One walk over the set bits, advancing the segment cursor with them: both are ascending, so a
     // matching element finds its record without a search.
@@ -6656,20 +6680,58 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           segment++;
         }
         if (segment >= segments) {
-          return -1L;  // a value past every segment: the certificate should have caught it
+          return declineArrayContains(ArrayContainsDecline.VALUE_PAST_SEGMENTS);
         }
         final int record = segmentRecord[segment];
-        matchedRecords[record >>> 6] |= 1L << (record & 63);
+        if (record >= 0) {
+          matchedRecords[record >>> 6] |= 1L << (record & 63);
+        }
+        // record < 0 is the spanning-in record: its values are here and its segment keeps the
+        // cursor honest, but it owns no bit on this page and is decided through the records below.
       }
     }
     if (trailingSegment >= 0) {
       // Take the undecidable record out of the columnar answer and hand its array to the caller.
       final int record = segmentRecord[trailingSegment];
-      matchedRecords[record >>> 6] &= ~(1L << (record & 63));
-      scratch.pendingTrailingAnchorSlot = trailingSlot;
+      if (record >= 0) {
+        matchedRecords[record >>> 6] &= ~(1L << (record & 63));
+        scratch.pendingTrailingAnchorSlot = trailingSlot;
+      }
+      // A page holding ONE anchor occurrence that both spans in and runs to the page end is both
+      // seams at once. It is already handed off as the leading slot; handing the same slot off
+      // twice would count that record twice.
+    }
+    if (leadingSlot >= 0) {
+      scratch.pendingFusedAnchorSlot = leadingSlot;
     }
     return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount);
   }
+
+  /**
+   * Decide ONE record's array membership through the records, or {@code 0} for no slot.
+   *
+   * <p>Both page seams come here, for the same reason {@code decideOneRecord} exists for the fused
+   * kernel: a record whose slots straddle a page boundary cannot be decided from either page's
+   * columns alone, and reconstructing that one record is what buys the rest of the page.
+   *
+   * @param anchorSlot page-local slot of the array node, or {@code -1} for nothing pending
+   * @return {@code 1} if that record's array holds the literal, {@code 0} otherwise
+   */
+  private static long decideOneArrayContains(final int anchorSlot, final long pk,
+      final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
+    if (anchorSlot < 0) {
+      return 0L;
+    }
+    final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + anchorSlot;
+    return rtx.moveTo(arrayKey) && arrayContainsAt(rtx, literal) ? 1L : 0L;
+  }
+
+  /**
+   * Segment marker for the record spanning in from the previous page: its values sit on this page
+   * but it owns no record ordinal here, so it takes no bit in the columnar answer and is decided
+   * through the records instead.
+   */
+  private static final int SEGMENT_NO_RECORD = -1;
 
   /**
    * How many pages the array-membership column route probes before deciding whether it is worth
@@ -13684,12 +13746,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * it replaced. A single aggregate counter cannot say which of the eleven conditions did it, and
    * guessing between them is how two earlier hypotheses in this area turned out wrong.
    */
-  private static final java.util.concurrent.atomic.LongAdder[] FUSED_DECLINES =
-      new java.util.concurrent.atomic.LongAdder[FusedDecline.values().length];
+  private static final LongAdder[] FUSED_DECLINES =
+      new LongAdder[FusedDecline.values().length];
 
   static {
     for (int i = 0; i < FUSED_DECLINES.length; i++) {
-      FUSED_DECLINES[i] = new java.util.concurrent.atomic.LongAdder();
+      FUSED_DECLINES[i] = new LongAdder();
     }
   }
 
@@ -13750,6 +13812,84 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Reset the fused-plan decline counters. */
   public static void resetFusedDeclineCounts() {
     for (final var adder : FUSED_DECLINES) {
+      adder.reset();
+    }
+  }
+
+  /**
+   * Per-reason counts for the array-membership column route, for the same reason
+   * {@link #FUSED_DECLINES} exists.
+   *
+   * <p>That route serves ~43 % of the pages of the corpus it was built against, and a declining
+   * page pays the column read on top of the record page it still has to read. Which of the twelve
+   * conditions accounts for the other 57 % decides whether the route is fixable or structurally
+   * limited — and the two hypotheses guessed at before instrumenting the fused kernel were both
+   * wrong, which is what these counters are here to prevent repeating.
+   */
+  private static final LongAdder[] ARRAY_CONTAINS_DECLINES =
+      new LongAdder[ArrayContainsDecline.values().length];
+
+  static {
+    for (int i = 0; i < ARRAY_CONTAINS_DECLINES.length; i++) {
+      ARRAY_CONTAINS_DECLINES[i] = new LongAdder();
+    }
+  }
+
+  /** The conditions under which the array-membership column kernel hands a page back. */
+  public enum ArrayContainsDecline {
+    /** The predicate names no array layer, so its values have no tag to be looked up by. */
+    NO_ARRAY_PATH,
+    /** The page published no regions, or no slot bitmap to partition by. */
+    NO_REGIONS,
+    /** The page carries no field-name column, or no string column. */
+    NO_NAME_OR_STRING_COLUMN,
+    /** No record-linkage header, or one outside the geometry the scratch buffers were sized for. */
+    NO_RECORD_LINKAGE,
+    /** The record-ordinal column would not decode. */
+    ORDINALS_UNDECODABLE,
+    /** The string column is name-tagged, which cannot tell an array's elements from its siblings. */
+    STRING_TAG_NOT_PATH,
+    /** More object-key slots than the scratch buffers hold, or none at all. */
+    OBJECT_KEY_COUNT,
+    /** An anchor occurrence does not resolve to a record this page describes. */
+    ORDINAL_OUT_OF_RANGE,
+    /**
+     * The gaps hold MORE slots than the tag holds values: something that is not one of this
+     * array's element values sits between an anchor and the next object key.
+     */
+    CERTIFICATE_GAPS_TOO_WIDE,
+    /**
+     * The tag holds MORE values than the gaps hold slots: values on this page that no anchor
+     * occurrence of ours accounts for.
+     */
+    CERTIFICATE_VALUES_UNCLAIMED,
+    /** The literal's dictionary identity could not be settled against this page's encoding. */
+    DICT_UNDECIDABLE,
+    /** More element values than the occurrence bitmap holds. */
+    ELEMENTS_EXCEED_SCRATCH,
+    /** The dictionary-id selection kernel refused. */
+    SELECT_REFUSED,
+    /** A matching value fell past every segment, which the certificate should have caught. */
+    VALUE_PAST_SEGMENTS;
+  }
+
+  private static long declineArrayContains(final ArrayContainsDecline reason) {
+    ARRAY_CONTAINS_DECLINES[reason.ordinal()].increment();
+    return -1L;
+  }
+
+  /** Per-reason array-membership column-route decline counts, in {@link ArrayContainsDecline} order. */
+  public static long[] arrayContainsDeclineCounts() {
+    final long[] out = new long[ARRAY_CONTAINS_DECLINES.length];
+    for (int i = 0; i < out.length; i++) {
+      out[i] = ARRAY_CONTAINS_DECLINES[i].sum();
+    }
+    return out;
+  }
+
+  /** Reset the array-membership column-route decline counters. */
+  public static void resetArrayContainsDeclineCounts() {
+    for (final var adder : ARRAY_CONTAINS_DECLINES) {
       adder.reset();
     }
   }

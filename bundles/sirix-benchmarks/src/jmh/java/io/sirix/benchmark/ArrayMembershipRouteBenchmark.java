@@ -96,6 +96,9 @@ public class ArrayMembershipRouteBenchmark {
     SequentialPipelineStrategy.setVectorizedExecutor(executor);
     ctx.bind(DOC_VAR, (Sequence) coll.getDocument());
     run();  // fault the resource in; the first pass loads every page
+    // After the faulting pass, so the counts describe steady-state scans rather than a cold one.
+    SirixVectorizedExecutor.resetArrayContainsDeclineCounts();
+    SirixVectorizedExecutor.resetRegionOnlyCounters();
   }
 
   /** Every measured invocation must be a scan, not a memo hit — see MoviesShapesBenchmark. */
@@ -106,6 +109,29 @@ public class ArrayMembershipRouteBenchmark {
 
   @TearDown(Level.Trial)
   public void tearDown() {
+    // Which condition sent each page back. The route's cost is dominated by declines -- a declining
+    // page pays the column read AND the record page -- so the per-reason split is what says whether
+    // the remainder is fixable or structural. Printed only for the arm that actually runs it.
+    if (columnar) {
+      final long[] counts = SirixVectorizedExecutor.arrayContainsDeclineCounts();
+      final SirixVectorizedExecutor.ArrayContainsDecline[] reasons =
+          SirixVectorizedExecutor.ArrayContainsDecline.values();
+      long total = 0;
+      for (final long c : counts) {
+        total += c;
+      }
+      final StringBuilder sb = new StringBuilder(512);
+      sb.append("\n[array-contains] served=").append(SirixVectorizedExecutor.regionOnlyPagesServed())
+        .append(" fellBack=").append(SirixVectorizedExecutor.regionOnlyPageFallbacks()).append('\n');
+      sb.append("[array-contains declines] total=").append(total).append('\n');
+      for (int i = 0; i < counts.length; i++) {
+        if (counts[i] > 0) {
+          sb.append("  ").append(reasons[i]).append(" = ").append(counts[i])
+            .append(" (").append(total == 0 ? 0 : counts[i] * 100 / total).append(" %)\n");
+        }
+      }
+      System.out.println(sb);
+    }
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
     executor.close();

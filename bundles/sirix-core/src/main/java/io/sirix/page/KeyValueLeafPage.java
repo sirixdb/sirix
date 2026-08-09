@@ -4225,12 +4225,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * <p>Not final: the value is read once at class initialization, and a test that wants the other
    * setting cannot arrange to load the class after setting the property. Tests flip it directly.
    *
+   * <p>Public because the column it fills is read from {@code sirix-query} — the array-membership
+   * column route is the only reason it exists — so the differential test that holds that route to
+   * the record route's answers has to write it from another module.
+   *
    * <p>Off by default because it changes what a page WRITES: a resource built with it carries
    * tags a resource built without it does not, so the two are not byte-comparable, and every
    * benchmark corpus has to be re-ingested to get the new columns. Readers are unaffected either
    * way — an absent tag is a state they all already handle.
    */
-  static boolean ARRAY_ELEMENT_STRINGS_IN_REGION =
+  public static boolean ARRAY_ELEMENT_STRINGS_IN_REGION =
       Boolean.getBoolean("sirix.page.arrayElementStrings");
 
   /** This slot's parent slot when the parent lives on THIS page, else {@code -1}. */
