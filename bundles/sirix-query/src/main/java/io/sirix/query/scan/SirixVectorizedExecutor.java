@@ -68,6 +68,7 @@ import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
@@ -4697,7 +4698,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return the exception to throw, when the cause was not a decline
    */
-  private static RuntimeException projectionWorkerFailure(final String message, final Exception e) {
+  // Package-private rather than private so the decline-preservation contract can be stated
+  // directly: it is only observable past the fan-out threshold, and every query shape that reached
+  // it has since grown a route of its own, so an end-to-end test of it would silently stop biting.
+  static RuntimeException projectionWorkerFailure(final String message, final Exception e) {
     for (Throwable cause = e; cause != null; cause = cause.getCause()) {
       if (cause instanceof IllegalStateException decline) {
         throw decline;
@@ -7462,6 +7466,129 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * <p>Returns {@code null} when the projection isn't usable for this
    * field — caller falls back to the generic page-walk kernel.
    */
+  /**
+   * Distinct present values of a NUMERIC_LONG projection column, exactly.
+   *
+   * <p>Every other count-distinct route here needs a string dictionary, so a numeric column left
+   * the projection and rescanned the document. A column store already holds the values decoded and
+   * the presence bitmap beside them, which is all this needs.
+   *
+   * <p>Exact, not sketched: the values are read, not hashed, so there is no collision probability to
+   * reason about. Two representations, chosen per column from the zone map the store already
+   * carries — a bitset when the value RANGE is narrow (a year, a status, an enum: the shapes a
+   * count-distinct is asked about), a hash set otherwise. The bitset arm is what makes this cheap
+   * enough to beat the memo it replaces.
+   *
+   * @return the distinct count, or {@code null} when this column is not one it can serve
+   */
+  private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle,
+      final int column) {
+    if (handle.rowGroupCount() == 0
+        || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      return null;
+    }
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store == null) {
+      return null;  // whole-leaf tier would hydrate every column to read one
+    }
+    final ProjectionColumnStore.ColumnSlice[] slices;
+    try {
+      slices = store.column(column, columnFetcher());
+    } catch (final IllegalStateException corruptOrMissing) {
+      return null;
+    }
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    long presentRows = 0L;
+    for (final ProjectionColumnStore.ColumnSlice slice : slices) {
+      if (slice == null || slice.rowCount() == 0) {
+        continue;
+      }
+      if (slice.numericValues() == null || slice.presenceWords() == null) {
+        return null;
+      }
+      presentRows += slice.rowCount();
+      min = Math.min(min, slice.min());
+      max = Math.max(max, slice.max());
+    }
+    if (presentRows == 0L) {
+      return 0L;
+    }
+    // The zone map bounds the whole column, so a narrow range means a bitset indexed by
+    // (value - min) fits — and a wide one falls to the hash set rather than allocating for it.
+    final long span = max - min;
+    return span >= 0 && span < NUMERIC_DISTINCT_BITSET_SPAN
+        ? distinctViaBitset(slices, min, span)
+        : distinctViaHashSet(slices);
+  }
+
+  /**
+   * Widest value range served by the bitset arm: 4M values is 512 KB of bits, which stays inside a
+   * modern L2/L3 and is more than any enumerated column needs. Beyond it the hash set is both
+   * smaller and faster.
+   */
+  private static final long NUMERIC_DISTINCT_BITSET_SPAN = 1L << 22;
+
+  /** Distinct count over a narrow value range, one bit per representable value. */
+  private static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices,
+      final long min, final long span) {
+    final long[] seen = new long[(int) ((span >> 6) + 1)];
+    long distinct = 0L;
+    for (final ProjectionColumnStore.ColumnSlice slice : slices) {
+      if (slice == null || slice.rowCount() == 0) {
+        continue;
+      }
+      final long[] values = slice.numericValues();
+      final long[] presence = slice.presenceWords();
+      final int rows = slice.rowCount();
+      for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
+        long bits = presence[w];
+        final int base = w << 6;
+        while (bits != 0L) {
+          final int row = base + Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1L;
+          if (row >= rows) {
+            break;
+          }
+          final long slot = values[row] - min;
+          final int word = (int) (slot >>> 6);
+          final long mask = 1L << (slot & 63);
+          if ((seen[word] & mask) == 0L) {
+            seen[word] |= mask;
+            distinct++;
+          }
+        }
+      }
+    }
+    return distinct;
+  }
+
+  /** Distinct count over a wide value range, by exact membership rather than by hash sketch. */
+  private static long distinctViaHashSet(final ProjectionColumnStore.ColumnSlice[] slices) {
+    final LongOpenHashSet seen = new LongOpenHashSet();
+    for (final ProjectionColumnStore.ColumnSlice slice : slices) {
+      if (slice == null || slice.rowCount() == 0) {
+        continue;
+      }
+      final long[] values = slice.numericValues();
+      final long[] presence = slice.presenceWords();
+      final int rows = slice.rowCount();
+      for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
+        long bits = presence[w];
+        final int base = w << 6;
+        while (bits != 0L) {
+          final int row = base + Long.numberOfTrailingZeros(bits);
+          bits &= bits - 1L;
+          if (row >= rows) {
+            break;
+          }
+          seen.add(values[row]);
+        }
+      }
+    }
+    return seen.size();
+  }
+
   private Sequence tryProjectionIndexCountDistinct(final String[] sourcePath, final String field) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
@@ -7474,6 +7601,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // would contribute the "" default as a phantom distinct value.
     if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
+    }
+    // Numeric columns first: the string routes below all require a STRING_DICT column, so a
+    // count-distinct over a numeric one used to leave the projection entirely and rescan the
+    // corpus. Warm that was invisible — the answer came from a memo the warm-up filled — but ONE
+    // SHOT it was the whole document: 8.7 s against 20 ms for DuckDB on the same corpus.
+    final Long numericDistinct = projectionNumericDistinct(handle, groupColumn);
+    if (numericDistinct != null) {
+      return new Int64(numericDistinct);
     }
     // Dictionary-union fast path: with the column sparse-clean, every
     // non-empty dict entry was interned by a real present row, so the

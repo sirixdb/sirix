@@ -89,11 +89,23 @@ final class ProjectionDeclineAtScaleTest {
   }
 
   @Test
-  @DisplayName("a group-by the projection cannot serve falls back instead of failing the query")
-  void numericGroupByDeclinesRatherThanThrows() throws Exception {
-    // 120 distinct years by construction. The assertion that matters is that this RETURNS at all:
-    // before the fix the declining kernel's exception escaped the worker pool as a RuntimeException
-    // and the query died.
+  @DisplayName("a group-by emitting key/count pairs over a numeric column answers")
+  void numericGroupByAnswers() throws Exception {
+    // 120 distinct years by construction, so 120 groups. The decline-preservation contract this
+    // corpus was originally built for is stated directly in ProjectionWorkerFailureTest: every
+    // query shape that reached the throwing kernel has since grown a route of its own, so an
+    // end-to-end assertion of it would pass while proving nothing.
+    assertEquals(120L, countItems("for $m in jn:doc('" + DB + "','" + RES + "')[]"
+                                      + " let $y := $m.year group by $y"
+                                      + " return {\"year\": $y, \"n\": count($m)}"));
+  }
+
+  @Test
+  @DisplayName("count-distinct over a numeric column IS served, exactly")
+  void numericCountDistinctIsServedFromTheProjection() throws Exception {
+    // The other side of the same column kind. Every string route needs a dictionary, so this used
+    // to leave the projection and rescan the corpus — invisible warm, where a memo answered, and
+    // the whole document one-shot.
     assertEquals(120L, count("count(for $m in jn:doc('" + DB + "','" + RES + "')[]"
                                  + " let $y := $m.year group by $y return $y)"));
   }
@@ -106,6 +118,29 @@ final class ProjectionDeclineAtScaleTest {
     // records are 833 whole cycles plus a 40-record tail that contributes none.
     assertEquals(833L * 50L, count("count(for $m in jn:doc('" + DB + "','" + RES + "')[]"
                                        + " where $m.year > 1969 return $m)"));
+  }
+
+  /**
+   * How many ITEMS a query emits. The group-by shape above returns records rather than a scalar,
+   * and what it must not do is fail; counting the emitted groups is the cheapest way to say that
+   * while still checking the answer.
+   */
+  private long countItems(final String query) throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final var result = new Query(chain, query).evaluate(ctx);
+      if (result instanceof io.brackit.query.jdm.Sequence sequence) {
+        long items = 0;
+        try (final var iter = sequence.iterate()) {
+          while (iter.next() != null) {
+            items++;
+          }
+        }
+        return items;
+      }
+      return result == null ? 0 : 1;
+    }
   }
 
   private long count(final String query) throws Exception {
