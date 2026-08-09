@@ -13,10 +13,14 @@ import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.function.json.JSONFun;
+import io.brackit.query.jdm.Sequence;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.settings.Fixed;
 
 /**
  * Resolves the {@link SirixVectorizedExecutor} a query needs from the query itself, so a compile
@@ -241,6 +245,57 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       }
     }
     return null;
+  }
+
+  /**
+   * The document a {@link Sequence} IS, when it is a whole Sirix JSON document — the other way a
+   * query can name its input, and the one no AST walk can see.
+   *
+   * <p>{@code declare variable $doc external} with the document bound through the
+   * {@link io.brackit.query.QueryContext} is the ordinary embedding shape: bind once, run many
+   * queries. It puts no {@code jn:doc} in the tree, so {@link #firstDocumentSource} finds nothing
+   * and the whole auto-wiring declines — measured at 705 ms against 1.1 ms for the same query
+   * written with a literal {@code jn:doc}, same answer.
+   *
+   * <p>Only the document's TOP-LEVEL node qualifies, for the reason
+   * {@code SirixVectorizedExecutor.servesWholeDocument} spells out: a scan's source path is written
+   * relative to the binding and resolved absolutely, so a nested binding would aggregate rows
+   * outside it. The runtime source gate refuses one anyway; recognising it here would only spend a
+   * compile discovering that.
+   *
+   * <p>A binding at the resource's most recent revision is recorded as {@link #LATEST_REVISION}
+   * rather than as that number, so the executor tracks commits exactly as a bare {@code jn:doc}
+   * does — a caller that rebinds a fresh document after a commit without recompiling keeps the fast
+   * path. An explicitly older revision is recorded as itself: it names one immutable snapshot.
+   *
+   * @return the document source, or {@code null} for anything that is not a whole Sirix JSON
+   *         document
+   */
+  static DocumentSource boundDocumentSource(final Sequence sequence) {
+    if (!(sequence instanceof JsonDBItem item)) {
+      return null;
+    }
+    try {
+      final JsonNodeReadOnlyTrx trx = item.getTrx();
+      if (trx == null || trx.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+        return null;
+      }
+      final JsonDBCollection collection = item.getCollection();
+      final JsonResourceSession session = item.getResourceSession();
+      if (collection == null || session == null || collection.getName() == null) {
+        return null;
+      }
+      final int revision = trx.getRevisionNumber();
+      return new DocumentSource(collection.getName(),
+                                session.getResourceConfig().getResource().getFileName().toString(),
+                                revision == session.getMostRecentRevisionNumber()
+                                    ? LATEST_REVISION
+                                    : revision);
+    } catch (final RuntimeException e) {
+      // A closed transaction, a store shutting down: the binding simply does not name a document
+      // this cache can reach, and the query compiles the generic pipeline as it always did.
+      return null;
+    }
   }
 
   /**

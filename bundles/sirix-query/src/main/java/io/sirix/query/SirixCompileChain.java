@@ -458,7 +458,14 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (storeBoundExecutors == null || SequentialPipelineStrategy.getVectorizedExecutor() != null) {
       return ast;
     }
-    final StoreBoundExecutorCache.DocumentSource source = StoreBoundExecutorCache.firstDocumentSource(ast);
+    final StoreBoundExecutorCache.DocumentSource named = StoreBoundExecutorCache.firstDocumentSource(ast);
+    // No literal jn:doc does not mean no document: a query reading `declare variable $doc external`
+    // names its resource nowhere but in the binding the caller already made, which is the ordinary
+    // embedding shape and used to lose the fast path outright. See BoundDocumentHint, including why
+    // using a hint this query may not honour is safe — the runtime source gate re-checks the actual
+    // binding per evaluation and declines to the generic pipeline on any mismatch.
+    final StoreBoundExecutorCache.DocumentSource source =
+        named != null ? named : BoundDocumentHint.peek();
     if (source == null || storeBoundExecutors.resolve(source) == null) {
       // Nothing to bind, or the document cannot be opened — compile the generic pipeline.
       return ast;
