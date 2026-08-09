@@ -6706,21 +6706,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     if (trailingSegment >= 0) {
-      // Take the undecidable record out of the columnar answer and hand its array to the caller.
       final int record = segmentRecord[trailingSegment];
       if (record >= 0) {
-        matchedRecords[record >>> 6] &= ~(1L << (record & 63));
-        scratch.pendingTrailingAnchorSlot = trailingSlot;
+        // An EXISTENTIAL is settled by one witness. If the literal is already among the elements
+        // this page holds, whatever continues on the next page cannot unsettle it — so the bit
+        // stands and the record path is not called. Only an unmatched trailing array is genuinely
+        // undecided here, and only that one is handed on.
+        //
+        // This is worth the branch: profiled cold, the handoff is 48 % of the whole query, because
+        // deciding ONE record through the records rebuilds its entire slotted page (~3.8 ms of
+        // CPU), and on a corpus whose array is each record's LAST field this seam falls on ~30 %
+        // of pages. The columnar kernel that does the real work is 5 %.
+        if ((matchedRecords[record >>> 6] & (1L << (record & 63))) == 0L) {
+          scratch.pendingTrailingAnchorSlot = trailingSlot;
+        }
       }
       // A page holding ONE anchor occurrence that both spans in and runs to the page end is both
       // seams at once. It is already handed off as the leading slot; handing the same slot off
       // twice would count that record twice.
     }
-    if (leadingSlot >= 0 && leadingSlot == trailingSlot) {
+    if (leadingSlot >= 0 && leadingSlot == trailingSlot && !leadingMatched) {
       // Both seams at once: the array spans IN from the previous page AND runs to this page's end,
-      // so its elements can continue on the next one and this page's columns cannot settle it.
+      // so its elements can continue on the next one. Undecided ONLY if nothing here matched — a
+      // witness on this page settles it just as it does for the trailing case above.
       scratch.pendingFusedAnchorSlot = leadingSlot;
-      leadingMatched = false;
     }
     return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount)
         + (leadingMatched ? 1L : 0L);
