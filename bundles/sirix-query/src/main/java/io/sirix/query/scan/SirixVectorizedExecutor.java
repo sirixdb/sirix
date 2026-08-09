@@ -6709,12 +6709,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     boolean found = false;
     do {
-      // Compared as BYTES. rtx.getValue() builds a String per element and throws it away after the
-      // equals — measured with JMH's gc profiler at 394 MB allocated per query, ~72 % of it in
-      // getRawValue/decodeSigned/getValue for exactly this. getValueBytes hands back the node's own
-      // array for a STRING_VALUE, so the comparison allocates nothing at all.
-      if (rtx.getKind() == NodeKind.STRING_VALUE
-          && Arrays.equals(literal, rtx.getValueBytes())) {
+      // Compared IN PLACE against the page. rtx.getValue() built a String per element and threw it
+      // away after the equals — 394 MB allocated per query, ~72 % of the total. Comparing the raw
+      // bytes removed the String but still copied the payload out of the page (~50 % of what was
+      // left); valueEquals reads the length first, which settles most candidates without touching a
+      // value byte, and compares the rest against the segment directly.
+      if (rtx.getKind() == NodeKind.STRING_VALUE && rtx.valueEquals(literal)) {
         found = true;
         break;
       }

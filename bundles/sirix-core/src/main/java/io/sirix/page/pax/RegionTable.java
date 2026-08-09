@@ -256,11 +256,32 @@ public final class RegionTable {
     return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES).asSlice(0, rawLen);
   }
 
+  /**
+   * The whole allocation INCLUDING the decode slack, unsliced.
+   *
+   * <p>The slack exists so a decoder may overrun the logical payload; handing it out unsliced lets
+   * the caller write into it and slice ONCE at the end, instead of slicing here and widening the
+   * slice back out. Each of those wrappers is an object per region per page.
+   */
+  private MemorySegment allocateWithSlack(final int rawLen) {
+    Arena local = arena;
+    if (local == null) {
+      synchronized (this) {
+        local = arena;
+        if (local == null) {
+          local = Arena.ofAuto();
+          arena = local;
+        }
+      }
+    }
+    return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES);
+  }
+
   /** Copy {@code len} bytes of an array into a fresh native payload. */
   private MemorySegment copyIn(final byte[] src, final int off, final int len) {
-    final MemorySegment target = allocate(len);
-    MemorySegment.copy(src, off, target, ValueLayout.JAVA_BYTE, 0L, len);
-    return target;
+    final MemorySegment full = allocateWithSlack(len);
+    MemorySegment.copy(src, off, full, ValueLayout.JAVA_BYTE, 0L, len);
+    return full.asSlice(0, len);
   }
 
   /**
@@ -271,15 +292,18 @@ public final class RegionTable {
    */
   private MemorySegment decompressInto(final byte[] wire, final int encodedLen, final int rawLen,
       final byte kind) {
-    final MemorySegment target = allocate(rawLen);
-    // The slack lives past the slice, so hand the decoder the full allocation to write into.
-    final MemorySegment writable = target.reinterpret(rawLen + DECODE_TAIL_SLACK);
-    final int decoded = SirixLZ77Codec.decode(wire, 0, encodedLen, writable, 0L);
+    // Decode into the FULL allocation and slice once, rather than slicing first and widening the
+    // slice back out with reinterpret(). Both produced a fresh MemorySegment object per region on
+    // top of the one Arena.allocate already returns — three wrappers to hand back one payload, on
+    // every region of every page. Measured, NativeMemorySegmentImpl was the single largest
+    // allocated type left in an array-membership scan at 18.7 %.
+    final MemorySegment full = allocateWithSlack(rawLen);
+    final int decoded = SirixLZ77Codec.decode(wire, 0, encodedLen, full, 0L);
     if (decoded != rawLen) {
       throw new IllegalStateException("region kind " + kind + " decompressed to " + decoded
           + " bytes, expected " + rawLen);
     }
-    return target;
+    return full.asSlice(0, rawLen);
   }
 
   /**

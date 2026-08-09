@@ -50,6 +50,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.function.Consumer;
@@ -230,6 +231,17 @@ public final class JsonNodeReadOnlyTrxImpl extends
       case OBJECT_NAMED_NUMBER -> String.valueOf(((ObjectNamedNumberNode) getStructuralNodeView()).getValue());
       default -> "";
     };
+  }
+
+  @Override
+  public boolean valueEquals(final byte[] expected) {
+    assertNotClosed();
+    // Only the standalone string node has an in-place comparison today; everything else takes the
+    // interface default, which materializes exactly as before.
+    if (getKind() == NodeKind.STRING_VALUE) {
+      return ((StringNode) getStructuralNodeView()).rawValueEquals(expected);
+    }
+    return Arrays.equals(getValueBytes(), expected);
   }
 
   @Override

@@ -30,6 +30,7 @@ package io.sirix.node.json;
 
 import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
+import java.util.Arrays;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -293,6 +294,48 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   @Override
   public void setOwnerPage(final KeyValueLeafPage ownerPage) {
     this.ownerPage = ownerPage;
+  }
+
+  /**
+   * Whether this node's value equals {@code expected}, WITHOUT materializing it.
+   *
+   * <p>{@link #getRawValue()} allocates a {@code byte[]} and copies the payload out of the page on
+   * first touch. For a comparison that is pure waste: measured on an array-membership scan of a
+   * 3.48M-record corpus, that copy was ~50 % of everything the query allocated, and the value it
+   * built was discarded one {@code equals} later.
+   *
+   * <p>The length is read first and settles most candidates without touching a single value byte —
+   * a literal of a different length cannot match. A COMPRESSED payload falls back to the
+   * materializing path: its stored bytes are not the value, so comparing them against a plain
+   * literal would answer no to a match that exists.
+   *
+   * @param expected the raw UTF-8 bytes to compare against
+   * @return {@code true} if this node's value equals {@code expected}
+   */
+  public boolean rawValueEquals(final byte[] expected) {
+    if (expected == null) {
+      return false;
+    }
+    if (page != null && !valueParsed) {
+      final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+      final long payloadStart = dataRegionStart + payloadFieldOff;
+      if (page.get(ValueLayout.JAVA_BYTE, payloadStart) != 1) {
+        final long lenOffset = payloadStart + 1;
+        final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lenOffset);
+        if (length != expected.length) {
+          return false;
+        }
+        final long dataOffset = lenOffset + DeltaVarIntCodec.readSignedVarintWidth(page, lenOffset);
+        for (int i = 0; i < length; i++) {
+          if (page.get(ValueLayout.JAVA_BYTE, dataOffset + i) != expected[i]) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+    return Arrays.equals(getRawValue(), expected);
   }
 
   /**

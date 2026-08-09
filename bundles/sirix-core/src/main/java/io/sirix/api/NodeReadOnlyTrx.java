@@ -10,6 +10,7 @@ import io.brackit.query.atomic.QNm;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Optional;
 
 public interface NodeReadOnlyTrx extends AutoCloseable {
@@ -184,6 +185,18 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   default byte[] getValueBytes() {
     String value = getValue();
     return value != null ? value.getBytes(StandardCharsets.UTF_8) : null;
+  }
+
+  /**
+   * Whether the current node's value equals {@code expected}, without materializing it where the
+   * implementation can avoid it. Same answer as {@code Arrays.equals(getValueBytes(), expected)};
+   * the point is the allocation it does not make.
+   *
+   * @param expected the raw UTF-8 bytes to compare against
+   * @return {@code true} if the current node's value equals {@code expected}
+   */
+  default boolean valueEquals(final byte[] expected) {
+    return Arrays.equals(getValueBytes(), expected);
   }
 
   /**
