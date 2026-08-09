@@ -2168,6 +2168,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int NUMBER_VALUE_KIND_ID = 28;
   private static final int STRING_VALUE_KIND_ID = 30;
+  /** {@link #STRING_VALUE_KIND_ID}, for the serializer in {@code PageKind}. */
+  public static final int STRING_VALUE_KIND_ID_PUBLIC = STRING_VALUE_KIND_ID;
   /** Fused OBJECT_NAMED_* kind ids. Public so {@link PageKind} can dispatch on them. */
   public static final int FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID = 48;
   public static final int FUSED_OBJECT_NAMED_NUMBER_KIND_ID = 49;

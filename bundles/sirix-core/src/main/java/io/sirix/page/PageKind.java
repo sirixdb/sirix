@@ -2888,6 +2888,17 @@ public enum PageKind {
       StringRegion.Encoder stringEncName = null;
       StringRegion.Encoder stringEncPath = null;
       int stringCount = 0;
+      // Array-element strings are STAGED, not added as they are met: they are published only if
+      // EVERY element on the page resolved its enclosing array, because a tag holding most of a
+      // path's values is worse than no tag — every reader treats tagCount as the complete count of
+      // that path's values on the page. Staged after the named strings, which is harmless: they
+      // land under their OWN tag (the enclosing array's), so within-tag order stays slot order.
+      byte[][] elemValues = null;
+      int[] elemNameTags = null;
+      int[] elemPathTags = null;
+      int[] elemSlots = null;
+      int elemCount = 0;
+      boolean elemUsable = KeyValueLeafPage.ARRAY_ELEMENT_STRINGS_IN_REGION;
 
       // BooleanRegion collection — mirrors NumberRegion's tagged-by-name OR
       // tagged-by-path layout. We populate two parallel int[] tag buffers and
@@ -3056,6 +3067,43 @@ public enum PageKind {
               boolSlots[boolCount] = slot;
               boolCount++;
             }
+          } else if (elemUsable && kindId == KeyValueLeafPage.STRING_VALUE_KIND_ID_PUBLIC) {
+            // An ARRAY ELEMENT. It carries no path node key of its own — every one reads back as
+            // -1 — which is why a path-tagged string column never held them. Its enclosing array
+            // does have one, and that is the tag a query naming `$m.genres[]` looks under.
+            final byte[] elementValue = page.readStringValueBytes(slot);
+            final long parentKey = page.getSlotParentKey(slot);
+            final long parentSlotLong = parentKey - pageKeyBase;
+            if (elementValue == null || parentSlotLong < 0
+                || parentSlotLong >= Constants.NDP_NODE_COUNT) {
+              // Undecodable, or an element whose array opens on the PREVIOUS page. Either way the
+              // element set for this page is incomplete; drop the whole contribution.
+              elemUsable = false;
+            } else {
+              final int parentSlot = (int) parentSlotLong;
+              if (elemValues == null) {
+                elemValues = new byte[64][];
+                elemNameTags = new int[64];
+                elemPathTags = new int[64];
+                elemSlots = new int[64];
+              } else if (elemCount == elemValues.length) {
+                elemValues = java.util.Arrays.copyOf(elemValues, elemCount << 1);
+                elemNameTags = java.util.Arrays.copyOf(elemNameTags, elemCount << 1);
+                elemPathTags = java.util.Arrays.copyOf(elemPathTags, elemCount << 1);
+                elemSlots = java.util.Arrays.copyOf(elemSlots, elemCount << 1);
+              }
+              final int parentKind = PageLayout.getDirNodeKindId(slottedPage, parentSlot);
+              elemNameTags[elemCount] = KeyValueLeafPage.isFusedStructuralKindId(parentKind)
+                  ? page.getFusedStructuralNameKeyFromSlot(parentSlot)
+                  : page.getFusedObjectNamedNameKeyFromSlot(parentSlot);
+              final long parentPnk =
+                  page.getObjectKeyPathNodeKeyFromSlot(parentSlot, pageKeyBase + parentSlot);
+              elemPathTags[elemCount] =
+                  parentPnk > 0L && parentPnk <= (long) Integer.MAX_VALUE ? (int) parentPnk : -1;
+              elemValues[elemCount] = elementValue;
+              elemSlots[elemCount] = slot;
+              elemCount++;
+            }
           } else if (KeyValueLeafPage.isFusedStructuralKindId(kindId)) {
             // OBJECT- and ARRAY-valued fields play the OBJECT_KEY role too — they carry a field
             // name — but their VALUE is a sub-tree, so they join the name and parent columns only
@@ -3143,6 +3191,32 @@ public enum PageKind {
           if (ordinals != null) {
             table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
           }
+        }
+      }
+      // Publish the staged array elements, all or nothing (see the staging declaration).
+      if (elemUsable && elemCount > 0) {
+        if (stringEncName == null) {
+          stringEncName = STRING_REGION_ENCODER.get();
+          stringEncName.reset();
+          if (withPathSummary) {
+            stringEncPath = STRING_REGION_ENCODER_PATH.get();
+            stringEncPath.reset();
+          }
+        }
+        for (int e = 0; e < elemCount; e++) {
+          if (elemPathTags[e] < 0) {
+            stringAllPathNodeKeysValid = false;
+          }
+        }
+        for (int e = 0; e < elemCount; e++) {
+          stringEncName.addValue(elemNameTags[e], elemValues[e], false);
+          if (stringEncPath != null && stringAllPathNodeKeysValid) {
+            stringEncPath.addValue(elemPathTags[e], elemValues[e], false);
+          }
+          stringSlots[stringCount] = elemSlots[e];
+          stringNameTags[stringCount] = elemNameTags[e];
+          stringPathTags[stringCount] = elemPathTags[e];
+          stringCount++;
         }
       }
       if (stringCount > 0) {
