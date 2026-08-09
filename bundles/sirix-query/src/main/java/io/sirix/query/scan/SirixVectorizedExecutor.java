@@ -711,6 +711,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.FpCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.StrEq ignored -> { }
+      // Equality-shaped, like StrEq: no ordering, so nothing to collect.
+      case PredicateNode.ArrayContains ignored -> { }
       case PredicateNode.BoolRef ignored -> { }
       case PredicateNode.And n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
       case PredicateNode.Or n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
@@ -3417,7 +3419,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     @SuppressWarnings("unchecked")
     final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
 
-    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
+    // The batch holds ONE value per field per row, and an array-valued field is not that. Declined
+    // where the path is CHOSEN rather than where the opcode is met, because only here is the
+    // record-at-a-time evaluator — which does read the elements — still available.
+    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED && !cp.hasArrayContains;
     // Per-thread predicate-pass tally. Compared against the grouped total by the
     // caller: a passed row that contributed no group (non-string / null / missing
     // group value) means this string-only kernel was not authoritative.
@@ -3943,10 +3948,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           onlyMatch = candidate.getNodeKey();
         }
-        return onlyMatch;
+        // A field whose value is an ARRAY does not carry this path node key on its slots. The
+        // fused OBJECT_NAMED_ARRAY record plays the object-key role but its pathNodeKey names the
+        // anonymous ARRAY layer BELOW the field — `/[]/genres/[]`, not `/[]/genres` — so filtering
+        // anchor slots by the named key rejects every one of them, and an anchored scan over an
+        // array-valued field visits nothing at all. Answer "unscoped" instead: -1 is the state
+        // every caller here already handles (it is what a resource without a path summary gives),
+        // and it degrades to name-only matching rather than to a silent empty scan.
+        return onlyMatch != -1L && hasAnonymousArrayChild(summary, onlyMatch) ? -1L : onlyMatch;
       } finally {
         summary.close();
       }
+    }
+  }
+
+  /**
+   * Whether the path-summary node at {@code pathNodeKey} has an anonymous ARRAY layer beneath it —
+   * i.e. the field is array-valued somewhere in the resource.
+   */
+  private static boolean hasAnonymousArrayChild(final PathSummaryReader summary,
+      final long pathNodeKey) {
+    final long saved = summary.getNodeKey();
+    try {
+      if (!summary.moveTo(pathNodeKey) || !summary.moveToFirstChild()) {
+        return false;
+      }
+      do {
+        // An anonymous layer is exactly what resolvedLocalName answers null for — the same test
+        // computeTargetPathNodeKey uses when it skips array layers walking ancestors.
+        if (resolvedLocalName(summary, summary.getPathNode()) == null) {
+          return true;
+        }
+      } while (summary.moveToRightSibling());
+      return false;
+    } catch (final RuntimeException e) {
+      return false;  // an unreadable summary scopes nothing; never fail a scan over it
+    } finally {
+      summary.moveTo(saved);
     }
   }
 
@@ -4037,6 +4075,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.DecCmp dc -> sb.append('C').append(dc.field()).append(':').append(dc.op()).append(':')
                                         .append(dc.value().toPlainString()).append(';');
       case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
+      // A DISTINCT key from StrEq on purpose: the two ask different questions of the same field
+      // and value, so sharing a memo entry would answer one with the other's count.
+      case PredicateNode.ArrayContains ac -> sb.append('A').append(ac.field()).append(':')
+                                               .append(ac.value()).append(';');
       case PredicateNode.BoolRef br -> sb.append('B').append(br.field()).append(';');
       case PredicateNode.Not n -> { sb.append("!("); appendKey(sb, n.child()); sb.append(");"); }
       case PredicateNode.And a -> {
@@ -4092,6 +4134,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     static final byte OP_FP_CMP = 8;
     /** Exact decimal comparison — see {@link PredicateNode.DecCmp}'s semantics contract. */
     static final byte OP_DEC_CMP = 9;
+    /**
+     * Membership in an array-valued field: {@code some $g in $u.f[] satisfies $g eq "lit"}. Uses
+     * {@code fieldIdx} and {@code strIdx} like {@link #OP_STR_EQ}, but tests every ELEMENT the
+     * record's array holds rather than one value.
+     */
+    static final byte OP_ARRAY_CONTAINS = 10;
+
+    /**
+     * Whether any node is an {@link #OP_ARRAY_CONTAINS}. The column-batched evaluator and the
+     * bytecode kernel both hold ONE value per field per row, which an array-valued field is not;
+     * they decline on this rather than meet an opcode they cannot represent.
+     */
+    boolean hasArrayContains;
+
+    /** Per field, whether the loader must walk its array elements. */
+    boolean[] fieldNeedsElements;
 
     /** Long-row arm of a DEC_CMP node: provably false for every long. */
     static final byte DEC_ARM_FALSE = 0;
@@ -4231,6 +4289,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     cp.ops = new byte[ops.size()];
     for (int i = 0; i < ops.size(); i++) cp.ops[i] = ops.get(i);
+    // Which fields hold ELEMENT LISTS rather than one value, and whether any do. The loader walks
+    // a field's elements only when the predicate asked about them, and the batched/bytecode
+    // evaluators — one value per field per row — decline the whole predicate on the flag.
+    cp.fieldNeedsElements = new boolean[cp.fieldNames.length];
+    for (int i = 0; i < cp.ops.length; i++) {
+      if (cp.ops[i] == CompiledPredicate.OP_ARRAY_CONTAINS) {
+        cp.hasArrayContains = true;
+        final int fi = fieldIdx.get(i);
+        if (fi >= 0) {
+          cp.fieldNeedsElements[fi] = true;
+        }
+      }
+    }
     cp.children = new int[children.size()];
     for (int i = 0; i < children.size(); i++) cp.children[i] = children.get(i);
     cp.childStart = new int[childStart.size()];
@@ -4357,6 +4428,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.FpCmp fc -> fields.add(fc.field());
       case PredicateNode.DecCmp dc -> fields.add(dc.field());
       case PredicateNode.StrEq se -> { fields.add(se.field()); strs.add(se.value()); }
+      case PredicateNode.ArrayContains ac -> { fields.add(ac.field()); strs.add(ac.value()); }
       case PredicateNode.BoolRef br -> fields.add(br.field());
       case PredicateNode.Not nt -> collectLiterals(nt.child(), fields, strs);
       case PredicateNode.And a -> { for (PredicateNode c : a.children()) collectLiterals(c, fields, strs); }
@@ -4409,6 +4481,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ops.set(myIdx, CompiledPredicate.OP_STR_EQ);
         fieldIdx.set(myIdx, indexOf(fieldNames, se.field()));
         strIdx.set(myIdx, indexOf(strLits, se.value()));
+      }
+      case PredicateNode.ArrayContains ac -> {
+        ops.set(myIdx, CompiledPredicate.OP_ARRAY_CONTAINS);
+        fieldIdx.set(myIdx, indexOf(fieldNames, ac.field()));
+        strIdx.set(myIdx, indexOf(strLits, ac.value()));
       }
       case PredicateNode.BoolRef br -> {
         ops.set(myIdx, CompiledPredicate.OP_BOOL_REF);
@@ -4470,6 +4547,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     boolean[] boolVals;
     String[] strVals;
     byte[] fieldKind;  // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
+    /**
+     * Per field, the STRING ELEMENTS of an array-valued field, and how many are live.
+     *
+     * <p>Only filled for fields an {@code ArrayContains} actually tests — the loader walks a
+     * field's element list at all only when the predicate asked about it. The rows are grown and
+     * reused rather than reallocated, because this sits on the record fallback's per-record path.
+     */
+    String[][] arrayVals;
+    int[] arrayCounts;
     /** Work stack for iterative AND/OR short-circuit evaluation. */
     int[] stackNode;
     boolean[] stackRes;
@@ -4481,6 +4567,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       boolVals = new boolean[nFields];
       strVals = new String[nFields];
       fieldKind = new byte[nFields];
+      arrayVals = new String[nFields][];
+      arrayCounts = new int[nFields];
       stackNode = new int[Math.max(16, nNodes)];
       stackRes = new boolean[Math.max(16, nNodes)];
     }
@@ -5966,7 +6054,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
     final long[] perThread = new long[eff];
 
-    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
+    // The batch holds ONE value per field per row, and an array-valued field is not that. Declined
+    // where the path is CHOSEN rather than where the opcode is met, because only here is the
+    // record-at-a-time evaluator — which does read the elements — still available.
+    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED && !cp.hasArrayContains;
     // Resolve the generated BatchPredicate up-front (single compile for all
     // workers). Null = interpreter fallback. We include the field-layout hash
     // in the cache key so two predicates with identical structure but
@@ -6236,6 +6327,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static void loadFields(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
       final EvalScratch scratch) {
     for (int i = 0; i < scratch.fieldKind.length; i++) scratch.fieldKind[i] = 0;
+    if (cp.hasArrayContains) {
+      for (int i = 0; i < scratch.arrayCounts.length; i++) scratch.arrayCounts[i] = 0;
+    }
     if (!rtx.moveToFirstChild()) return;
     final int[] wantKeys = cp.fieldNameKeys;
     do {
@@ -6267,6 +6361,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Null never satisfies numeric/bool/string-eq ops — leave kind=0 (missing).
           continue;
         }
+        case OBJECT_NAMED_ARRAY -> {
+          // Fused: this node is both the key and the array, so its CHILDREN are the elements.
+          if (cp.fieldNeedsElements[fi]) {
+            loadArrayElements(rtx, scratch, fi);
+          }
+          continue;
+        }
         default -> { /* OBJECT_KEY — descend */ }
       }
       if (!rtx.moveToFirstChild()) { continue; }
@@ -6286,10 +6387,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           scratch.strVals[fi] = rtx.getValue();
           scratch.fieldKind[fi] = FK_STR;
         }
+        case ARRAY -> {
+          if (cp.fieldNeedsElements[fi]) {
+            loadArrayElements(rtx, scratch, fi);
+          }
+        }
         default -> { /* unsupported field type — leave kind=0 (missing) */ }
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
+  }
+
+  /**
+   * Collect the STRING elements of the array {@code rtx} is positioned on into
+   * {@code scratch.arrayVals[fi]}, leaving the cursor where it was.
+   *
+   * <p>Only string elements: the one shape {@code ArrayContains} tests. A non-string element is
+   * skipped rather than stringified — comparing {@code 3} against {@code "3"} is a match the
+   * interpreter does not make.
+   *
+   * <p>The row is grown and reused across records; this runs once per record on the fallback path.
+   */
+  private static void loadArrayElements(final JsonNodeReadOnlyTrx rtx, final EvalScratch scratch,
+      final int fi) {
+    if (!rtx.moveToFirstChild()) {
+      return;  // an EMPTY array satisfies no existential, which is what a count of 0 means here
+    }
+    String[] values = scratch.arrayVals[fi];
+    int count = 0;
+    do {
+      if (rtx.getKind() != NodeKind.STRING_VALUE) {
+        continue;
+      }
+      if (values == null || count == values.length) {
+        final String[] grown = new String[values == null ? 8 : values.length << 1];
+        if (values != null) {
+          System.arraycopy(values, 0, grown, 0, count);
+        }
+        values = grown;
+      }
+      values[count++] = rtx.getValue();
+    } while (rtx.moveToRightSibling());
+    scratch.arrayVals[fi] = values;
+    scratch.arrayCounts[fi] = count;
+    rtx.moveToParent();
   }
 
   /**
@@ -6450,6 +6591,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int fi = cp.fieldIdx[nodeIdx];
         if (scratch.fieldKind[fi] != 2) return false;
         return scratch.boolVals[fi];
+      }
+      case CompiledPredicate.OP_ARRAY_CONTAINS: {
+        // Existential over the field's elements. A record with no such field, or an empty array,
+        // has nothing to satisfy it — which is exactly why the shape can anchor on this field.
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String literal = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final String[] elements = scratch.arrayVals[fi];
+        final int count = scratch.arrayCounts[fi];
+        for (int i = 0; i < count; i++) {
+          if (literal.equals(elements[i])) {
+            return true;
+          }
+        }
+        return false;
       }
       default:
         throw new IllegalStateException("bad opcode " + op);

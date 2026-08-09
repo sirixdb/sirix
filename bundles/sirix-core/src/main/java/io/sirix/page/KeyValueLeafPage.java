@@ -4323,7 +4323,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       while (word != 0) {
         final int slot = baseSlot + Long.numberOfTrailingZeros(word);
         word &= word - 1;
-        if (!isFusedObjectNamedKindId(PageLayout.getDirNodeKindId(sp, slot))) {
+        // The ROLE predicate, not the LAYOUT one. isFusedObjectNamedKindId names the PRIMITIVE
+        // fused layout (9 fields, NAME_KEY at index 3); the structural kinds OBJECT/ARRAY are a
+        // 12-field layout with NAME_KEY at index 5, so widening that predicate would decode them
+        // with the wrong field table. What this column wants is every slot that CARRIES A FIELD
+        // NAME, which is what isFusedAnyObjectNamedKindId says — and the name is then read through
+        // the accessor that dispatches on layout.
+        //
+        // Leaving array- and object-valued fields out made them invisible to every anchored scan:
+        // `getObjectKeySlotsForNameKey("genres")` answered EMPTY, so a predicate over an array
+        // visited no records at all. It also kept them out of the record-ordinal linkage built in
+        // this same pass, which is what an element-to-record attribution needs.
+        final int slotKind = PageLayout.getDirNodeKindId(sp, slot);
+        if (!isFusedAnyObjectNamedKindId(slotKind)) {
           continue;
         }
         if (count == nameKeys.length) {
@@ -4331,7 +4343,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           slots = Arrays.copyOf(slots, count << 1);
           parentKeys = Arrays.copyOf(parentKeys, count << 1);
         }
-        nameKeys[count] = getFusedObjectNamedNameKeyFromSlot(slot);
+        // Not getObjectKeyNameKeyFromSlot: that one consults the very region this pass is
+        // building, and would answer from a stale payload (or none).
+        nameKeys[count] = isFusedStructuralKindId(slotKind)
+            ? getFusedStructuralNameKeyFromSlot(slot)
+            : getFusedObjectNamedNameKeyFromSlot(slot);
         slots[count] = slot;
         parentKeys[count] = getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
         count++;

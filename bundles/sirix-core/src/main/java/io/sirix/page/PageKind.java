@@ -3056,6 +3056,22 @@ public enum PageKind {
               boolSlots[boolCount] = slot;
               boolCount++;
             }
+          } else if (KeyValueLeafPage.isFusedStructuralKindId(kindId)) {
+            // OBJECT- and ARRAY-valued fields play the OBJECT_KEY role too — they carry a field
+            // name — but their VALUE is a sub-tree, so they join the name and parent columns only
+            // and feed no value region. Leaving them out made them invisible to every anchored
+            // scan: getObjectKeySlotsForNameKey("genres") answered EMPTY, so a predicate over an
+            // array visited no records at all, and the record-ordinal linkage built from this same
+            // column had no entry to attribute an array element to.
+            //
+            // The name is read through the STRUCTURAL accessor: these are a 12-field layout with
+            // NAME_KEY at index 5 against the primitive-fused 9-field layout with it at index 3,
+            // which is why widening isFusedObjectNamedKindId would decode them wrongly rather than
+            // include them.
+            okNameKeys[okCount] = page.getFusedStructuralNameKeyFromSlot(slot);
+            okSlots[okCount] = slot;
+            okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
+            okCount++;
           }
           word &= word - 1;
         }
