@@ -6027,6 +6027,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       throws Exception {
     final CompiledPredicate cp = compile(predicate);
     if (cp.fieldNames.length == 0) return 0L;
+    // A predicate that is nothing but `some $g in $u.F[] satisfies $g eq lit`, anchored on F: the
+    // scan lands on F itself, so the record hop and the field walk have nothing left to find.
+    final boolean singleArrayContains =
+        cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
+    final String arrayContainsLiteral =
+        singleArrayContains ? cp.strLiterals[cp.strIdx[0]] : null;
     // Fast-path: if a covering projection index is installed for this
     // (resource, sourcePath), convert the predicate tree to ColumnPredicate[]
     // and route the count to the zero-copy SIMD byte-scan — no OBJECT_KEY
@@ -6302,6 +6308,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 continue;
               }
               if (!rtx.moveTo(anchorObjectKey)) continue;
+              if (singleArrayContains) {
+                // The scan is ALREADY standing on the field the predicate asks about — the anchor
+                // IS the array. Going up to the record and walking every one of its children to
+                // come back down to this same node is what the general loader must do; here it is
+                // pure overhead, paid once per record.
+                if (arrayContainsAt(rtx, arrayContainsLiteral)) localCount++;
+                continue;
+              }
               if (!rtx.moveToParent()) continue;  // enclosing object
               loadFields(rtx, cp, scratch);
               if (evalCompiled(cp, 0, scratch)) localCount++;
@@ -6396,6 +6410,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
+  }
+
+  /**
+   * Whether the array {@code rtx} is positioned on holds {@code literal} as a string element.
+   *
+   * <p>Allocation-free and short-circuiting: no scratch, no element list, and it stops at the first
+   * match — an existential needs nothing more. The cursor is left where it was found.
+   */
+  private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final String literal) {
+    if (!rtx.moveToFirstChild()) {
+      return false;  // an EMPTY array satisfies no existential
+    }
+    boolean found = false;
+    do {
+      if (rtx.getKind() == NodeKind.STRING_VALUE && literal.equals(rtx.getValue())) {
+        found = true;
+        break;
+      }
+    } while (rtx.moveToRightSibling());
+    rtx.moveToParent();
+    return found;
   }
 
   /**
