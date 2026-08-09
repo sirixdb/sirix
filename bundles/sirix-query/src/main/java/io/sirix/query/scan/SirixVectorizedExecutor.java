@@ -6687,8 +6687,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * of the record page it still has to read. The adaptive bail-out bounds that cost, but "bounded"
    * is not "a win", and a route that does not beat the one it replaces should not be the default.
    * The remaining declines are not yet diagnosed; the flag is how the next round measures them.
+   *
+   * <p>Not final: a JMH {@code @Param} has to flip it BETWEEN forks to put both arms in one run
+   * with shared statistics, and a value read once at class initialisation cannot be flipped.
    */
-  private static final boolean ARRAY_CONTAINS_COLUMNAR_ENABLED =
+  public static boolean ARRAY_CONTAINS_COLUMNAR_ENABLED =
       Boolean.getBoolean("sirix.scan.arrayContainsColumnar");
 
   /** The three columns an array-membership count reads, and nothing else. */
