@@ -7779,6 +7779,168 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return h;
   }
 
+  /**
+   * Whether this executor implements {@code sum($m.a * $m.b)} — an aggregate over an ARITHMETIC
+   * expression rather than over one field.
+   *
+   * <p>Declared as "the shape is implemented", not "this query can be served": whether a columnar
+   * store actually covers both operand columns depends on the document the query is finally run
+   * against, which is not knowable when the translator asks. {@link #executeBinaryAggregate} answers
+   * {@code null} for the cases it cannot serve and brackit's {@code FallbackOnNullExpr} runs the
+   * generic pipeline instead — the same decline-is-free contract every other route here keeps.
+   *
+   * <p>Not in wtx mode, for {@link #supportsMultiKeyGroupBy()}'s reason: the columns are
+   * committed-revision truth and would miss the transaction's own writes.
+   */
+  @Override
+  public boolean supportsBinaryAggregate() {
+    return wtx == null;
+  }
+
+  /**
+   * {@code sum(for $m in ... return $m.a * $m.b)} from two projection columns.
+   *
+   * <p>The shape the storage scan is furthest behind a column store on, and the reason is structural
+   * rather than a missing kernel: the record pipeline materializes every record to reach two fields
+   * of it, which on a 3.48M-record corpus is ~150 ns per record against the ~3 ns a fused pass over
+   * two long columns costs. Measured there at 530 ms.
+   *
+   * <p>Serves from the SLICED projection tier only. The whole-leaf tier would hydrate every column
+   * of every row group — including the strings this aggregate never reads — which is how a
+   * projection ends up slower than the PAX regions it was meant to beat.
+   *
+   * <h2>What it refuses</h2>
+   *
+   * <p>Anything but {@code sum} over two integral, sparse-clean {@code NUMERIC_LONG} columns, and
+   * any accumulation that would overflow. A row missing EITHER operand contributes nothing, which is
+   * what the interpreter does with {@code () * 3}; the presence bitmaps say which those are, and
+   * without them a missing value would fold in as a phantom zero.
+   *
+   * @return the sum, or {@code null} when this executor cannot serve the shape
+   */
+  @Override
+  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath,
+      final String func, final String leftField, final String op, final String rightField)
+      throws QueryException {
+    if (wtx != null || !"sum".equals(func) || leftField == null || rightField == null) {
+      return null;
+    }
+    if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+      return null;
+    }
+    final ProjectionIndexRegistry.Handle handle =
+        lookupProjection(sourcePath, new String[] { leftField, rightField });
+    if (handle == null || handle.rowGroupCount() == 0) {
+      return null;
+    }
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store == null) {
+      return null;
+    }
+    final int leftCol = handle.columnOf(leftField);
+    final int rightCol = handle.columnOf(rightField);
+    if (leftCol < 0 || rightCol < 0 || !bothServableNumericColumns(handle, leftCol, rightCol)) {
+      return null;
+    }
+    final ProjectionColumnStore.ColumnSlice[] left;
+    final ProjectionColumnStore.ColumnSlice[] right;
+    try {
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      left = store.column(leftCol, fetcher);
+      right = store.column(rightCol, fetcher);
+    } catch (final IllegalStateException corruptOrMissing) {
+      return null;
+    }
+    final long sum = foldBinaryNumeric(left, right, op);
+    if (sum == BINARY_FOLD_DECLINED) {
+      return null;
+    }
+    BINARY_AGGREGATES_SERVED.increment();
+    return new Int64(sum);
+  }
+
+  /** Both columns integral {@code NUMERIC_LONG} with per-row presence — see the gates' rationale. */
+  private boolean bothServableNumericColumns(final ProjectionIndexRegistry.Handle handle,
+      final int leftCol, final int rightCol) {
+    if (handle.columnKindOf(leftCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || handle.columnKindOf(rightCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      return false;
+    }
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    // Value-exact: the builder truncates non-integral numbers into a NUMERIC_LONG column, so an
+    // unproven column would sum truncations of the values the query names.
+    return handle.numericColumnIsIntegral(leftCol, fetcher)
+        && handle.numericColumnIsIntegral(rightCol, fetcher)
+        && handle.columnSparseClean(leftCol, fetcher, materializer)
+        && handle.columnSparseClean(rightCol, fetcher, materializer);
+  }
+
+  /**
+   * Sentinel for a fold that cannot be served exactly — an operator outside the closed set, or an
+   * accumulation that left the range of a long. Distinct from a sum that happens to be this value
+   * only in the sense that {@link Long#MIN_VALUE} cannot be reached without overflowing first.
+   */
+  private static final long BINARY_FOLD_DECLINED = Long.MIN_VALUE;
+
+  /**
+   * Sum {@code left OP right} over rows where BOTH columns are present, exactly.
+   *
+   * <p>Exact arithmetic throughout: a silent wrap would be a wrong answer that looks like a fast
+   * one, and the generic pipeline behind this route promotes rather than wraps. On overflow the
+   * fold declines and that pipeline answers.
+   */
+  private long foldBinaryNumeric(final ProjectionColumnStore.ColumnSlice[] left,
+      final ProjectionColumnStore.ColumnSlice[] right, final String op) {
+    final int rowGroups = Math.min(left.length, right.length);
+    long total = 0L;
+    try {
+      for (int g = 0; g < rowGroups; g++) {
+        final ProjectionColumnStore.ColumnSlice l = left[g];
+        final ProjectionColumnStore.ColumnSlice r = right[g];
+        if (l == null || r == null || l.numericValues() == null || r.numericValues() == null) {
+          return BINARY_FOLD_DECLINED;
+        }
+        final int rows = Math.min(l.rowCount(), r.rowCount());
+        final long[] lv = l.numericValues();
+        final long[] rv = r.numericValues();
+        final long[] lp = l.presenceWords();
+        final long[] rp = r.presenceWords();
+        if (lp == null || rp == null) {
+          return BINARY_FOLD_DECLINED;
+        }
+        // Word at a time over the INTERSECTION of the two presence bitmaps: a record carrying only
+        // one of the two operands contributes nothing, and skipping it by word rather than by row
+        // is what keeps a sparse pair cheap.
+        for (int w = 0, words = (rows + 63) >>> 6; w < words; w++) {
+          long bits = lp[w] & rp[w];
+          final int base = w << 6;
+          while (bits != 0L) {
+            final int row = base + Long.numberOfTrailingZeros(bits);
+            bits &= bits - 1L;
+            if (row >= rows) {
+              break;
+            }
+            total = Math.addExact(total, applyBinaryOp(lv[row], rv[row], op));
+          }
+        }
+      }
+    } catch (final ArithmeticException overflow) {
+      return BINARY_FOLD_DECLINED;
+    }
+    return total == BINARY_FOLD_DECLINED ? BINARY_FOLD_DECLINED : total;
+  }
+
+  /** The closed set of operators whose column-at-a-time value is exactly its record-at-a-time one. */
+  private static long applyBinaryOp(final long left, final long right, final String op) {
+    return switch (op) {
+      case "*" -> Math.multiplyExact(left, right);
+      case "+" -> Math.addExact(left, right);
+      case "-" -> Math.subtractExact(left, right);
+      default -> throw new ArithmeticException("unsupported operator " + op);
+    };
+  }
+
   @Override
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
@@ -10096,6 +10258,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Aggregates over an arithmetic expression served from projection columns.
+   *
+   * <p>The route declines by answering {@code null}, and a decline is invisible in a result: the
+   * generic pipeline produces the same number. Without this counter a test asserting agreement
+   * passes just as well when nothing was ever served.
+   */
+  private static final LongAdder BINARY_AGGREGATES_SERVED = new LongAdder();
+
+  public static long binaryAggregatesServed() {
+    return BINARY_AGGREGATES_SERVED.sum();
+  }
+
+  /**
    * Pages whose columns could not be read at all — a storage backend without the fast path, a
    * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
    * read, so nothing was wasted, but the fast path also never got a chance.
@@ -10119,6 +10294,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     REGION_ONLY_PAGES.reset();
     REGION_TREE_PAGES.reset();
     REGION_SCATTER_PAGES.reset();
+    BINARY_AGGREGATES_SERVED.reset();
     REGION_ONLY_FALLBACKS.reset();
     REGION_ONLY_UNAVAILABLE.reset();
     REGION_SKETCH_SKIPS.reset();

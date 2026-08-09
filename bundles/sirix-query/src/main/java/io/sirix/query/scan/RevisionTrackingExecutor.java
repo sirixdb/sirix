@@ -277,6 +277,30 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
     return exec != null && exec.supportsSortedScan();
   }
 
+  /**
+   * Capability, not a promise about a particular query: {@code executeBinaryAggregate} answers
+   * {@code null} for shapes it cannot serve and the generic pipeline runs instead.
+   */
+  @Override
+  public boolean supportsBinaryAggregate() {
+    final SirixVectorizedExecutor exec = current();
+    return exec != null && exec.supportsBinaryAggregate();
+  }
+
+  @Override
+  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath,
+      final String func, final String leftField, final String op, final String rightField)
+      throws QueryException {
+    try {
+      final SirixVectorizedExecutor exec = current(ctx);
+      return exec == null
+          ? null
+          : exec.executeBinaryAggregate(ctx, sourcePath, func, leftField, op, rightField);
+    } finally {
+      unpin(ctx);
+    }
+  }
+
   @Override
   public boolean supportsMultiKeyGroupBy() {
     final SirixVectorizedExecutor exec = current();

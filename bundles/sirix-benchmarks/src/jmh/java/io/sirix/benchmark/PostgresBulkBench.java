@@ -418,8 +418,16 @@ public final class PostgresBulkBench {
           NodeStorageEngineReader.resetVersioningDiag();
           VersioningType.resetCombineDiag();
           final long[] ioBefore = procSelfIo();
+          final long hitsBefore = ShardedPageCache.getCacheHits();
+          final long missesBefore = ShardedPageCache.getCacheMisses();
           runQuery(chain, ctx, docSupplier, "q" + i, bodies[i].trim(), iters);
           printIoDelta(ioBefore, procSelfIo());
+          // A record-page MISS is a decode. Printed per query rather than per run: the question
+          // "does the second query reuse the first one's decoded pages" cannot be answered by a
+          // total, and a scan that re-decodes every page is the single largest CPU bucket there is.
+          System.out.printf("                   | page cache: %d hits, %d misses%n",
+                            ShardedPageCache.getCacheHits() - hitsBefore,
+                            ShardedPageCache.getCacheMisses() - missesBefore);
           printRegionCounters();
           printVersioningDiag();
           printRegionReadDiag();
