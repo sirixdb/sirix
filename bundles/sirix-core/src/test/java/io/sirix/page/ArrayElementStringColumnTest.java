@@ -88,16 +88,48 @@ final class ArrayElementStringColumnTest {
                        + "kernels read tagCount as the complete count for that path");
     }
 
-    // And the new tag holds every element the corpus put on the page: 3 records x 2 genres.
+    // And the new tag holds every element the corpus put on the page: 3 records x 2 genres, under
+    // the ENCLOSING ARRAY's key. Asserting the key and not just the count is what catches reading
+    // a structural record's name or path with the primitive layout's field index — which yields a
+    // plausible-looking number rather than a failure.
+    int addedTags = 0;
     int addedValues = 0;
+    int addedKey = Integer.MIN_VALUE;
     for (int i = 0; i < with.parentDictSize; i++) {
       if (StringRegion.lookupTag(without, with.parentDict[i]) < 0) {
+        addedTags++;
         addedValues += with.tagCount[i];
+        addedKey = with.parentDict[i];
       }
     }
+    assertEquals(1, addedTags, "the elements must land under ONE tag — their enclosing array's");
     assertEquals(6, addedValues,
                  "the added tag does not hold all six genre elements; a tag covering only some of "
                      + "a path's values is worse than none, because tagCount is read as complete");
+    assertEquals(genresPathNodeKey(), addedKey,
+                 "the elements are not tagged by their enclosing array's path node key — a query "
+                     + "naming $m.genres[] would look under that key and find nothing");
+  }
+
+  /**
+   * The path node key of {@code /[]/genres/[]} — the anonymous ARRAY layer, which is what a fused
+   * OBJECT_NAMED_ARRAY slot carries and therefore the tag its elements must land under.
+   */
+  private int genresPathNodeKey() throws Exception {
+    final var database = Databases.openJsonDatabase(dbDir);
+    try (final JsonResourceSession session = database.beginResourceSession("records");
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      final long pages = (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+      for (long pk = 0; pk < pages; pk++) {
+        for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+          final long nodeKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + slot;
+          if (rtx.moveTo(nodeKey) && rtx.getKind() == io.sirix.node.NodeKind.OBJECT_NAMED_ARRAY) {
+            return (int) rtx.getPathNodeKey();
+          }
+        }
+      }
+      throw new IllegalStateException("no array-valued field in the corpus");
+    }
   }
 
   /** Number of distinct tags in the page's string region. */

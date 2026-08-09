@@ -4154,7 +4154,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             elementNameKeys = grow(elementNameKeys, elementCount);
             elementPathKeys = grow(elementPathKeys, elementCount);
             elementValues = grow(elementValues, elementCount);
-            elementNameKeys[elementCount] = getFusedObjectNamedNameKeyFromSlot(parentSlot);
+            // The enclosing array is a STRUCTURAL fused record (12 fields, NAME_KEY at index 5);
+            // the primitive accessor would read index 3 of a layout that does not have it there.
+            elementNameKeys[elementCount] =
+                isFusedStructuralKindId(PageLayout.getDirNodeKindId(sp, parentSlot))
+                    ? getFusedStructuralNameKeyFromSlot(parentSlot)
+                    : getFusedObjectNamedNameKeyFromSlot(parentSlot);
             elementPathKeys[elementCount] = pathNodeKeyIntForSlot(parentSlot, pageKeyBase);
             elementValues[elementCount] = elementValue;
             elementCount++;
