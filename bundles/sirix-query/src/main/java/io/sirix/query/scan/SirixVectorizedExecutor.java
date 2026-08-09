@@ -6606,6 +6606,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           covered++;
         }
       }
+      // The gap runs to the next OBJECT KEY, which on an array that is its record's LAST field
+      // belongs to the NEXT record — so the next record's OBJECT node sits inside the gap and was
+      // being counted as though it were one of the array's values. That is the whole of
+      // CERTIFICATE_GAPS_TOO_WIDE, and it needs no new column to correct: the record-ordinal region
+      // already says which record each object key belongs to, so the number of record boundaries
+      // crossed by the gap IS the number of object nodes in it.
+      //
+      // Kept as an exact subtraction rather than a tolerance: the certificate is the only thing
+      // standing between this segmentation and values credited to the wrong record, so anything it
+      // cannot account for exactly must still refuse the page.
+      if (!trailing) {
+        final int here = i < oh.skipCount ? -1 : RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
+        final int next = i + 1 < oh.skipCount
+                             ? -1
+                             : RecordOrdinalRegion.ordinalAt(ordinals, oh, i + 1);
+        final int boundaries = next - here;
+        if (boundaries > 0) {
+          covered -= boundaries;
+        }
+      }
       // The OTHER seam, and the one that was refusing most of the corpus. A record whose object
       // node sits at the tail of the previous page keeps its fields at the head of this one, so its
       // anchor lands in the record-ordinal region's SKIP PREFIX and has no ordinal here — the shape
