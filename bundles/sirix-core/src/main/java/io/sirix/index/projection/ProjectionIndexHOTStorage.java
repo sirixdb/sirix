@@ -13,6 +13,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;

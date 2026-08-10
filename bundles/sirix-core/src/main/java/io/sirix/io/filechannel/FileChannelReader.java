@@ -22,6 +22,7 @@
 package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
+import it.unimi.dsi.fastutil.ints.IntArrays;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -43,6 +44,7 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.LongAdder;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
@@ -440,13 +442,8 @@ public final class FileChannelReader extends AbstractReader {
     for (int k = 0; k < n; k++) {
       order[k] = k;
     }
-    it.unimi.dsi.fastutil.Arrays.quickSort(0, n,
-        (a, b) -> Long.compare(keyOf(references[order[a]]), keyOf(references[order[b]])),
-        (a, b) -> {
-          final int tmp = order[a];
-          order[a] = order[b];
-          order[b] = tmp;
-        });
+    IntArrays.quickSort(order,
+        (a, b) -> Long.compare(keyOf(references[a]), keyOf(references[b])));
     int i = 0;
     while (i < n) {
       final long start = keyOf(references[order[i]]);
@@ -482,12 +479,9 @@ public final class FileChannelReader extends AbstractReader {
 
   /** One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page deserialize. */
   /** DIAGNOSTIC (-Dsirix.projDiag): span bytes read and per-page fallbacks across all runs. */
-  private static final java.util.concurrent.atomic.LongAdder RUN_SPAN_BYTES =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder RUN_FALLBACKS =
-      new java.util.concurrent.atomic.LongAdder();
-  private static final java.util.concurrent.atomic.LongAdder RUN_COUNT =
-      new java.util.concurrent.atomic.LongAdder();
+  private static final LongAdder RUN_SPAN_BYTES = new LongAdder();
+  private static final LongAdder RUN_FALLBACKS = new LongAdder();
+  private static final LongAdder RUN_COUNT = new LongAdder();
 
   public static String runDiagSummary() {
     return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum()
