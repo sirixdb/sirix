@@ -1668,8 +1668,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!store.columnSliceable(p.column)) {
         return false;
       }
-      final boolean stringColumn = store.columnKind(p.column)
-          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      // A SET column takes a string literal too — membership. Left out, it fell to the
+      // `stringLitBytes != null` guard below and the whole query dropped to the WHOLE-LEAF byte
+      // scan, which hydrates every column of every leaf; the sliced path reads this column alone.
+      final byte columnKind = store.columnKind(p.column);
+      final boolean stringColumn = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       if (stringColumn) {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
           return false;  // the sliced string kernel serves equality-with-literal, nothing else
@@ -4705,6 +4709,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * than silently mis-evaluate.
    */
   private Long tryProjectionIndexFastPath(final String[] sourcePath, final CompiledPredicate cp) {
+    final Long served = tryProjectionIndexFastPath0(sourcePath, cp);
+    if (served != null) {
+      PROJECTION_COUNTS_SERVED.increment();
+    }
+    return served;
+  }
+
+  private Long tryProjectionIndexFastPath0(final String[] sourcePath, final CompiledPredicate cp) {
     // Registry key is resolved once at executor construction — no
     // per-query toString() or try/catch on the hot path.
     final String resourceKey = projectionRegistryKey;
@@ -4745,11 +4757,57 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(rowGroupMaterializer(handle)));
     }
+    // Metadata-only count: the index-wide per-value ROW total, read from the slot-0 blob that was
+    // already fetched to resolve this handle. No segment, no leaf, no descriptor — one map probe.
+    // Same gate as the dictionary tier below, and a strict improvement on it, so it goes first.
+    if (DICT_COUNT_ENABLED && preds.length == 1 && preds[0].stringLitBytes != null
+        && preds[0].op == ProjectionIndexScan.Op.EQ && store != null
+        && store.columnKind(preds[0].column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      final Long fromMetadata = handle.setValueRowCount(
+          preds[0].column, new String(preds[0].stringLitBytes, java.nio.charset.StandardCharsets.UTF_8));
+      if (fromMetadata != null) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] metadata count SERVED: " + fromMetadata);
+        }
+        return fromMetadata;
+      }
+    }
+    // Dictionary-only count: ONE predicate, a set column, plain equality. Then the answer is the
+    // sum of the per-value row counts stored beside each leaf's dictionary, and neither the BODY
+    // segments nor a single element is read. Gated to exactly one predicate because a conjunction
+    // needs to know WHICH rows matched in order to narrow them, and a per-value total cannot say.
+    if (DICT_COUNT_ENABLED && store != null && preds.length == 1 && preds[0].stringLitBytes != null
+        && preds[0].op == ProjectionIndexScan.Op.EQ
+        && store.columnKind(preds[0].column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      try {
+        final long fromDict = ProjectionColumnScan.countSetMembership(store, preds[0].column,
+                                                                      preds[0].stringLitBytes,
+                                                                      fetcher);
+        if (fromDict >= 0) {
+          if (PROJ_DIAG) {
+            System.err.println("[proj] dictionary count SERVED: " + fromDict);
+          }
+          return fromDict;
+        }
+        if (PROJ_DIAG) {
+          System.err.println("[proj] dictionary count unavailable (a leaf carries no row counts)");
+        }
+      } catch (final IllegalStateException ise) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] dictionary count declined: " + ise);
+        }
+      }
+    }
     if (store != null && predsSliceable(store, preds)) {
       try {
         return sliceCountParallel(store, preds, fetcher);
       } catch (final IllegalStateException ise) {
-        // Corrupt/missing slices — eager path re-surfaces through fail-soft.
+        // Corrupt/missing slices — eager path re-surfaces through fail-soft. Silent by design, but
+        // silence here also hides a column kind the sliced path simply does not handle yet, which
+        // reads as "the fast path is working" while every query takes the whole-leaf scan.
+        if (PROJ_DIAG) {
+          System.err.println("[proj] sliced count declined: " + ise);
+        }
       }
     }
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
@@ -5216,6 +5274,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /**
+   * Whether a bare set-membership count may be answered from the dictionaries alone. On by default;
+   * a switch so the two routes can be INTERLEAVED in one build rather than compared across corpora.
+   */
+  private static final boolean DICT_COUNT_ENABLED =
+      !"false".equals(System.getProperty("sirix.projection.dictCount"));
+
+  /**
+   * Predicate counts answered from a PROJECTION INDEX rather than from storage.
+   *
+   * <p>A route that silently declines is indistinguishable from one that works, because the
+   * fallback returns the same answer — which makes a differential test pass while proving nothing.
+   * This is what lets a test assert the route was actually taken.
+   */
+  private static final LongAdder PROJECTION_COUNTS_SERVED = new LongAdder();
+
+  /** Predicate counts served from a projection index since the last reset. */
+  public static long projectionCountsServed() {
+    return PROJECTION_COUNTS_SERVED.sum();
+  }
+
+  /** Reset {@link #projectionCountsServed()}. */
+  public static void resetProjectionCountsServed() {
+    PROJECTION_COUNTS_SERVED.reset();
+  }
+
+  /**
    * Page-skip scan plan: decides whether to scan all pages or only a
    * cached subset, and whether to populate the page-skip bitmap as a
    * side-effect of this scan.
@@ -5366,7 +5450,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       } else if (op == CompiledPredicate.OP_NUM_CMP
           || op == CompiledPredicate.OP_FP_CMP
           || op == CompiledPredicate.OP_STR_EQ
-          || op == CompiledPredicate.OP_BOOL_REF) {
+          || op == CompiledPredicate.OP_BOOL_REF
+          || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
         leaves[predicateLeafCount++] = n;
       } else {
         // OR / NOT / ALWAYS_* / anything else — can't represent as a
@@ -5408,7 +5493,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // (null/object/array/kind mismatch) would evaluate against stored
       // DEFAULTS — e.g. `x < 40` matching every missing row via the phantom
       // 0. Fail closed; the scan-path kernels handle missing correctly.
-      if (!handle.columnSparseClean(column, fetcher, materializer)) return null;
+      if (!handle.columnSparseClean(column, fetcher, materializer)) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] leaf declined: column " + column + " not sparse-clean");
+        }
+        return null;
+      }
       // NUMERIC_DOUBLE columns store the order-preserving transform: literals must be
       // transformed at plan time (comparing untransformed literals against transformed cells
       // silently returns wrong rows), and only provably value-exact columns may serve
@@ -5432,6 +5522,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         case CompiledPredicate.OP_STR_EQ -> {
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_ARRAY_CONTAINS -> {
+          // Membership is only answerable from a column that actually holds the SET. Against a
+          // scalar STRING_DICT column the same literal would test the field's single value, which
+          // is a different question with a plausible-looking answer.
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
             return null;
           }
         }
@@ -5525,6 +5623,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
+          pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
+        }
+        case CompiledPredicate.OP_ARRAY_CONTAINS -> {
+          // Carried as an ordinary string-EQ predicate: the mask evaluator dispatches on the
+          // COLUMN's shape, and a slice with per-row counts is a set, so the same literal runs the
+          // membership kernel there and the single-value kernel on a scalar column. The kind gate
+          // above is what guarantees this one reaches the set.
           pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
         }
         case CompiledPredicate.OP_BOOL_REF -> {
@@ -6556,7 +6661,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return declineArrayContains(ArrayContainsDecline.NO_RECORD_LINKAGE);
     }
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
-    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
+    final long[] decodedOrdinals = scratch.decodedOrdinals;
+    if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, decodedOrdinals) < 0) {
       return declineArrayContains(ArrayContainsDecline.ORDINALS_UNDECODABLE);
     }
     final StringRegion.Header sh = page.stringHeaderInto(scratch.string);
@@ -6586,26 +6692,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] anchorIdx = scratch.anchorBitmapIdx;
     final int anchorMatches =
         ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+    // Expand the object-key bitmap ONCE. slotAt is a select-nth-set-bit, and the loop below wants
+    // both the anchor's slot and its successor's, so the per-call form paid ~140 rank scans over
+    // the same 128-byte bitmap on a page with ~70 anchors.
+    final int[] okSlots = scratch.objectKeySlots;
+    if (ObjectKeyNameKeyRegion.decodeSlotsInto(nameKeys, okSlots) != okCount) {
+      return declineArrayContains(ArrayContainsDecline.OBJECT_KEY_COUNT);
+    }
     for (int a = 0; a < anchorMatches; a++) {
       final int i = anchorIdx[a];
-      final int from = ObjectKeyNameKeyRegion.slotAt(nameKeys, i);
+      final int from = okSlots[i];
       // The page's LAST object-key slot may be one of ours, and then its elements can continue on
       // the next page — where they carry an off-page parent, are not columnarized at all, and that
       // page publishes no element tag. Neither page's columns can decide that ONE record. It is
       // still counted here, so the certificate below stays exact; the record itself is handed to
       // the record path, which is one reconstruction per page seam against refusing the page.
       final boolean trailing = i + 1 >= okCount;
-      final int to = trailing ? Constants.NDP_NODE_COUNT
-                              : ObjectKeyNameKeyRegion.slotAt(nameKeys, i + 1);
+      final int to = trailing ? Constants.NDP_NODE_COUNT : okSlots[i + 1];
       if (trailing) {
         trailingSegment = segments;
         trailingSlot = from;
       }
-      for (int slot = from + 1; slot < to; slot++) {
-        if (page.definesSlot(slot)) {
-          covered++;
-        }
-      }
+      covered += page.populatedInRange(from + 1, to);
       // The gap runs to the next OBJECT KEY, which on an array that is its record's LAST field
       // belongs to the NEXT record — so the next record's OBJECT node sits inside the gap and was
       // being counted as though it were one of the array's values. That is the whole of
@@ -6617,10 +6725,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // standing between this segmentation and values credited to the wrong record, so anything it
       // cannot account for exactly must still refuse the page.
       if (!trailing) {
-        final int here = i < oh.skipCount ? -1 : RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
-        final int next = i + 1 < oh.skipCount
-                             ? -1
-                             : RecordOrdinalRegion.ordinalAt(ordinals, oh, i + 1);
+        // From the array the SIMD pass above already filled, not by re-extracting each ordinal
+        // from the bit-packed column: decodeOrdinalsInto unpacks the whole page vectorized and its
+        // result was being discarded while this loop paid a scalar decode per lookup.
+        final int here = i < oh.skipCount ? -1 : (int) decodedOrdinals[i - oh.skipCount];
+        final int next = i + 1 < oh.skipCount ? -1 : (int) decodedOrdinals[i + 1 - oh.skipCount];
         final int boundaries = next - here;
         if (boundaries > 0) {
           covered -= boundaries;
@@ -6647,7 +6756,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         leadingSlot = from;
         ordinal = SEGMENT_NO_RECORD;
       } else {
-        ordinal = RecordOrdinalRegion.ordinalAt(ordinals, oh, i);
+        ordinal = (int) decodedOrdinals[i - oh.skipCount];
         if (ordinal < 0 || ordinal >= oh.recordCount) {
           return declineArrayContains(ArrayContainsDecline.ORDINAL_OUT_OF_RANGE);
         }
@@ -11228,6 +11337,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * scatter arm needs them while that buffer already holds the leaf's own field.
      */
     final int[] anchorBitmapIdx = new int[Constants.NDP_NODE_COUNT];
+
+    /**
+     * Every object-key slot of the page, expanded from the region's bitmap once per page so the
+     * anchor loop can index it instead of re-ranking the bitmap for each lookup.
+     */
+    final int[] objectKeySlots = new int[Constants.NDP_NODE_COUNT];
 
     /**
      * Record ordinal to selection row, or {@code -1} for a record the anchor does not carry.

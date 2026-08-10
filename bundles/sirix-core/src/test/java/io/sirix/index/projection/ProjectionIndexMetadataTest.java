@@ -10,6 +10,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -81,8 +82,17 @@ public final class ProjectionIndexMetadataTest {
     // shifted offsets. This is what makes a future format bump safe: the old blob degrades to
     // "no metadata" and its store rebuilds.
     final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
-    serialized[4] = 1; // any value that is not the current VERSION
-    assertNull(ProjectionIndexMetadata.parse(serialized));
+    // Derived from the byte the writer actually emitted rather than hard-coded: pinning a literal
+    // here makes the test fail the moment the version is bumped, for the wrong reason — it stops
+    // testing "an unknown version is rejected" and starts asserting which number is current.
+    final byte current = serialized[4];
+    for (final byte other : new byte[] {(byte) (current + 1), (byte) (current + 7), (byte) 0xFF}) {
+      serialized[4] = other;
+      assertNull(ProjectionIndexMetadata.parse(serialized),
+                 "version " + other + " parsed instead of being rejected");
+    }
+    serialized[4] = current;
+    assertNotNull(ProjectionIndexMetadata.parse(serialized), "the current version must parse");
   }
 
   @Test

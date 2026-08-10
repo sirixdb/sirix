@@ -88,6 +88,23 @@ public final class ProjectionIndexColumnSegmentCodec {
   public static final byte SEG_KIND_BODY = 1;
   public static final byte SEG_KIND_DICT = 2;
 
+  /**
+   * Per-value ROW COUNTS for a set column: the values, each with the number of rows on this leaf
+   * whose set contains it.
+   *
+   * <p>Its own segment kind rather than a section of {@link #SEG_KIND_DICT} for one reason: SIZE.
+   * The inline policy stores a segment's bytes in the descriptor itself when they are small enough,
+   * and the descriptor is metadata the reader already holds — so an inline segment costs NO page
+   * fetch. A dictionary of 41 genre strings runs past the 192-byte cap and lands on a page; the
+   * counts beside a compact value list fit under it. Splitting them is what turns a membership
+   * count from 110 MB of segment reads into zero.
+   *
+   * <p>Emitted only while the dictionary stays small enough to inline — past that the segment would
+   * be referenced, buy nothing, and cost a page of its own, so it is not written at all and the
+   * reader falls back to scanning.
+   */
+  public static final byte SEG_KIND_SET_COUNTS = 3;
+
   /** Fixed per-segment header size: magic + version + segKind. */
   public static final int SEGMENT_HEADER_BYTES = 6;
 
@@ -141,7 +158,7 @@ public final class ProjectionIndexColumnSegmentCodec {
    * Per-column segment slots in the id scheme; {@link RowGroupDescriptor#MAX_COLUMNS} is derived
    * from this and the 16-bit id space so the invariant lives in one place.
    */
-  public static final int SEGMENTS_PER_COLUMN = 3;
+  public static final int SEGMENTS_PER_COLUMN = 4;
 
   /** Segment id of the record-key segment. */
   public static int keysColumnSegmentId() {
@@ -156,6 +173,11 @@ public final class ProjectionIndexColumnSegmentCodec {
   /** Segment id of column {@code c}'s dictionary segment (STRING_DICT columns only). */
   public static int dictColumnSegmentId(final int column) {
     return SEGMENTS_PER_COLUMN * checkColumn(column) + 2;
+  }
+
+  /** Segment id of column {@code c}'s {@link #SEG_KIND_SET_COUNTS} segment. */
+  public static int setCountsColumnSegmentId(final int column) {
+    return SEGMENTS_PER_COLUMN * checkColumn(column) + 3;
   }
 
   private static int checkColumn(final int column) {
@@ -238,7 +260,10 @@ public final class ProjectionIndexColumnSegmentCodec {
           + RowGroupDescriptor.MAX_COLUMNS);
     }
 
-    final int maxColumnSegments = 1 + 2 * columnCount;
+    // KEYS once, then per column: BODY, an optional DICT, and an optional SET_COUNTS. Sized for
+    // the maximum a column can emit — under-sizing this overflows the parallel arrays below rather
+    // than dropping a segment, which is how the SET_COUNTS addition first showed up.
+    final int maxColumnSegments = 1 + 3 * columnCount;
     final int[] columnSegmentIds = new int[maxColumnSegments];
     final byte[][] segments = new byte[maxColumnSegments][];
     final byte[] entryFlags = new byte[maxColumnSegments];
@@ -293,6 +318,21 @@ public final class ProjectionIndexColumnSegmentCodec {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
               ProjectionIndexRowGroupCodec.encodeDictIds(body, page.stringDictionary(c),
                   page.stringDictIdColumn(c), rowCount);
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+            // Counts are ids in their own right — bit-packed to the widest count on the leaf — and
+            // the element run reuses the dictionary width. Two packed runs, no lengths beyond the
+            // counts themselves.
+            final int[] counts = page.stringSetCountColumn(c);
+            int maxCount = 0;
+            for (int r = 0; r < rowCount; r++) {
+              if (counts[r] > maxCount) {
+                maxCount = counts[r];
+              }
+            }
+            ProjectionIndexRowGroupCodec.encodePackedIds(body, counts, rowCount, maxCount);
+            ProjectionIndexRowGroupCodec.encodeDictIds(body, page.stringDictionary(c),
+                page.stringSetIdColumn(c), page.stringSetLength(c));
+          }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
       }
@@ -307,12 +347,29 @@ public final class ProjectionIndexColumnSegmentCodec {
       columnSegmentCount++;
 
       // DICT segment (string columns with rows only).
-      if (kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && rowCount > 0) {
+      if ((kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT || kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) && rowCount > 0) {
         final ByteArrayOutputStream dict = newColumnSegmentStream(SEG_KIND_DICT);
-        encodeDictColumnSegmentPayload(dict, page.stringDictionary(c));
+        encodeDictColumnSegmentPayload(dict, page.stringDictionary(c),
+            kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+                ? valueRowCounts(page.stringDictionary(c), page.stringSetCountColumn(c),
+                                 page.stringSetIdColumn(c), rowCount)
+                : null);
         columnSegmentIds[columnSegmentCount] = dictColumnSegmentId(c);
         segments[columnSegmentCount] = dict.toByteArray();
         columnSegmentCount++;
+
+        // SET_COUNTS segment: the values with their per-value ROW counts, small enough to ride
+        // inline in the descriptor so a membership count reads no page at all.
+        if (kinds[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+          final byte[] counts = encodeSetCountsPayload(page.stringDictionary(c),
+              valueRowCounts(page.stringDictionary(c), page.stringSetCountColumn(c),
+                             page.stringSetIdColumn(c), rowCount));
+          if (counts != null) {
+            columnSegmentIds[columnSegmentCount] = setCountsColumnSegmentId(c);
+            segments[columnSegmentCount] = counts;
+            columnSegmentCount++;
+          }
+        }
       }
     }
 
@@ -324,7 +381,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     }
     // null inline[] => every segment REFERENCED and no trailing inline region — see
     // encodeReferencedOnly for why the segment-slot writer must not pay for the classification.
-    final boolean[] inline = classifyInline ? classifyInline(byteLens, columnSegmentCount) : null;
+    final boolean[] inline =
+        classifyInline ? classifyInline(byteLens, columnSegmentCount, columnSegmentIds) : null;
     final byte[] descriptor = RowGroupDescriptor.serialize(rowCount, page.firstRecordKey(), page.lastRecordKey(),
         kinds, columnSegmentCount, columnSegmentIds, byteLens, hashes, entryFlags, entryMins, entryMaxs, inline, segments);
 
@@ -343,6 +401,28 @@ public final class ProjectionIndexColumnSegmentCodec {
    * smallest-first scan is free on the build path and needs no allocation beyond the result.
    */
   static boolean[] classifyInline(final int[] byteLens, final int columnSegmentCount) {
+    return classifyInline(byteLens, columnSegmentCount, null);
+  }
+
+  /**
+   * As above, but a {@link #SEG_KIND_SET_COUNTS} segment is inlined REGARDLESS of the size policy.
+   *
+   * <p>That segment exists solely so a membership count can be answered from the descriptor without
+   * touching a page. Letting the ordinary smallest-first budget decide would defeat it exactly when
+   * it matters — a dictionary with enough distinct values to be worth summarising is also the one
+   * whose counts run past the per-segment cap, so it would be referenced, cost a page, and leave
+   * the query no better off than scanning. Its size is instead bounded at write time
+   * ({@link #MAX_SET_COUNTS_BYTES}); past that the segment is not written at all.
+   *
+   * @param columnSegmentIds segment ids parallel to {@code byteLens}, or {@code null} to apply the
+   *                         size policy uniformly
+   */
+  static boolean[] classifyInline(final int[] byteLens, final int columnSegmentCount,
+      final int @Nullable [] columnSegmentIds) {
+    // No kind is force-inlined. The caps are not a preference: they bound a descriptor's size,
+    // which bounds how many descriptors fit in a 64 KB HOT leaf page. Forcing a 451-byte payload
+    // past them overflowed HOTLeafPage.rebuildForShorterPrefix during a projection build — the
+    // invariant is structural, and a segment that does not fit belongs on a page.
     final boolean[] inline = new boolean[columnSegmentCount];
     final int[] policy = INLINE_POLICY.get();
     final int maxColumnSegment = policy != null ? policy[0] : DEFAULT_INLINE_MAX_SEGMENT_BYTES;
@@ -350,6 +430,11 @@ public final class ProjectionIndexColumnSegmentCodec {
       return inline; // inlining disabled → all referenced (pre-hybrid layout)
     }
     int remaining = policy != null ? policy[1] : DEFAULT_INLINE_MAX_TOTAL_BYTES;
+    for (int i = 0; i < columnSegmentCount; i++) {
+      if (inline[i]) {
+        remaining -= byteLens[i];   // forced entries still consume the leaf's inline budget
+      }
+    }
     while (true) {
       int best = -1;
       for (int i = 0; i < columnSegmentCount; i++) {
@@ -410,6 +495,8 @@ public final class ProjectionIndexColumnSegmentCodec {
     final long[][] booleanCols = new long[columnCount][];
     final int[][] dictIdCols = new int[columnCount][];
     final byte[][][] dicts = new byte[columnCount][][];
+    final int[][] setCountCols = new int[columnCount][];
+    final int[][] setElemCols = new int[columnCount][];
     final byte[] columnFlags = new byte[columnCount];
     final long[][] presence = new long[columnCount][];
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
@@ -438,13 +525,27 @@ public final class ProjectionIndexColumnSegmentCodec {
           dicts[c] = decodeDictColumnSegmentPayload(dictCur);
           dictIdCols[c] = ProjectionIndexRowGroupCodec.decodePackedIds(body, rowCount);
         }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final ProjectionIndexRowGroupCodec.Cursor dictCur =
+              openColumnSegment(descriptor, resolver, dictColumnSegmentId(c), SEG_KIND_DICT, inlineOffsets);
+          dicts[c] = decodeDictColumnSegmentPayload(dictCur);
+          // Counts first, then the flat element run whose length is their sum — the same order the
+          // encoder writes, and the reason no separate total is stored.
+          final int[] counts = ProjectionIndexRowGroupCodec.decodePackedIds(body, rowCount);
+          int total = 0;
+          for (int r = 0; r < rowCount; r++) {
+            total += counts[r];
+          }
+          setCountCols[c] = counts;
+          setElemCols[c] = ProjectionIndexRowGroupCodec.decodePackedIds(body, total);
+        }
         default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
       }
     }
 
     final byte[] direct = writeRawDirect(rowCount, columnCount, kinds, firstRecordKey,
         lastRecordKey, recordKeys, columnMin, columnMax, numericCols, booleanCols, dictIdCols,
-        dicts, columnFlags, presence, presWords);
+        dicts, setCountCols, setElemCols, columnFlags, presence, presWords);
     if (verifyDirectAssembly) {
       final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount,
           firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
@@ -480,7 +581,8 @@ public final class ProjectionIndexColumnSegmentCodec {
       final byte[] kinds, final long firstRecordKey, final long lastRecordKey,
       final long[] recordKeys, final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols, final int[][] dictIdCols,
-      final byte[][][] dicts, final byte[] columnFlags, final long[][] presence,
+      final byte[][][] dicts, final int[][] setCountCols, final int[][] setElemCols,
+      final byte[] columnFlags, final long[][] presence,
       final int presWords) {
     // ---- exact size ----
     int size = 8 + 16 + columnCount;                      // header
@@ -501,6 +603,16 @@ public final class ProjectionIndexColumnSegmentCodec {
               dictSize++;
             }
             size += 4 + dictSize * 4 + dictBytes + rowCount * 4;
+          }
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+            final byte[][] dict = dicts[c];
+            int dictSize = 0;
+            int dictBytes = 0;
+            while (dictSize < dict.length && dict[dictSize] != null) {
+              dictBytes += dict[dictSize].length;
+              dictSize++;
+            }
+            size += 4 + dictSize * 4 + dictBytes + rowCount * 4 + setElemCols[c].length * 4;
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
@@ -542,6 +654,29 @@ public final class ProjectionIndexColumnSegmentCodec {
             final IntBuffer ib = bb.asIntBuffer();
             ib.put(dictIdCols[c], 0, rowCount);
             bb.position(bb.position() + rowCount * 4);
+          }
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+            final byte[][] dict = dicts[c];
+            int dictSize = 0;
+            while (dictSize < dict.length && dict[dictSize] != null) {
+              dictSize++;
+            }
+            bb.putInt(dictSize);
+            for (int i = 0; i < dictSize; i++) {
+              bb.putInt(dict[i].length);
+            }
+            for (int i = 0; i < dictSize; i++) {
+              bb.put(dict[i], 0, dict[i].length);
+            }
+            // Same order the page's own serialize writes: counts, then the flat element run.
+            final int[] counts = setCountCols[c];
+            final int[] elems = setElemCols[c];
+            final IntBuffer cb = bb.asIntBuffer();
+            cb.put(counts, 0, rowCount);
+            bb.position(bb.position() + rowCount * 4);
+            final IntBuffer eb = bb.asIntBuffer();
+            eb.put(elems, 0, elems.length);
+            bb.position(bb.position() + elems.length * 4);
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
@@ -654,6 +789,54 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
+   * Decode ONE {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET} column into a slice.
+   *
+   * <p>Same discipline as {@link #decodeStringSlice}, with the set's shape on top: per-row element
+   * COUNTS, then the flat element run whose length is their sum. The counts are what turn a flat
+   * run back into rows, and storing them rather than offsets keeps the packed width down — most
+   * rows hold a handful of elements while an offset grows with the leaf.
+   *
+   * @throws IllegalStateException on verification or parse failure
+   */
+  static ProjectionColumnStore.ColumnSlice decodeStringSetSlice(final byte[] descriptor,
+      final byte[] bodyColumnSegment, final byte @Nullable [] dictColumnSegment, final int col) {
+    final int rowCount = RowGroupDescriptor.rowCount(descriptor);
+    final byte kind = RowGroupDescriptor.kind(descriptor, col);
+    if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      throw new IllegalStateException("Column " + col + " (kind " + kind + ") is not STRING_SET");
+    }
+    final int bodyId = bodyColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor body =
+        openColumnSegment(descriptor, id -> id == bodyId ? bodyColumnSegment : null, bodyId,
+                          SEG_KIND_BODY, null);
+    final byte flags = body.readByte();
+    final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
+    final long[] presence = new long[presWords];
+    if (rowCount == 0) {
+      return new ProjectionColumnStore.ColumnSlice(0, flags, Long.MAX_VALUE, Long.MIN_VALUE,
+          presence, null, null, null, null);
+    }
+    if (dictColumnSegment == null) {
+      throw new IllegalStateException("Column " + col + " has rows but no DICT segment bytes");
+    }
+    final long min = body.readLong();
+    final long max = body.readLong();
+    ProjectionIndexRowGroupCodec.decodePresenceInto(body, presence, presWords, rowCount);
+    final int[] counts = ProjectionIndexRowGroupCodec.decodePackedIds(body, rowCount);
+    int total = 0;
+    for (int r = 0; r < rowCount; r++) {
+      total += counts[r];
+    }
+    final int[] elems = ProjectionIndexRowGroupCodec.decodePackedIds(body, total);
+    final int dictId = dictColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor dict =
+        openColumnSegment(descriptor, id -> id == dictId ? dictColumnSegment : null, dictId,
+                          SEG_KIND_DICT, null);
+    return new ProjectionColumnStore.ColumnSlice(rowCount, flags, min, max, presence, null, null,
+        elems, decodeDictColumnSegmentPayload(dict), counts);
+  }
+
+  /**
    * Decode one leaf's KEYS segment into its per-row record keys — the sorted collections'
    * substrate, verified against the descriptor like every other segment read. Empty for a
    * rowless leaf (whose KEYS segment carries only the first/last mirror).
@@ -753,6 +936,28 @@ public final class ProjectionIndexColumnSegmentCodec {
   private static final byte DICT_MODE_FSST = 1;
 
   /**
+   * A DICT segment carrying, beside each value, the number of ROWS on this leaf whose set contains
+   * it. Written only for {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET} columns.
+   *
+   * <p>This is what lets a bare {@code count(... satisfies $g eq lit)} skip the BODY segment
+   * entirely. The BODY holds a per-row cardinality and the flat element run — the bulk of the
+   * column — and the current path fetches all of it and visits every element. With a per-value row
+   * count the same answer is: find the literal in this leaf's dictionary, read its count, add it to
+   * the running total. Measured on the movies corpus the dictionary is 41 entries against 6.2M
+   * elements, so the counts cost a few hundred bytes per leaf and replace a scan of the whole
+   * column.
+   *
+   * <p>ROWS, not occurrences. A record listing the same genre twice must count once, and the
+   * encoder is the only place that can tell — it sees each row's whole element run, so it counts
+   * distinct values per row. Deriving this later from occurrence counts would be wrong for exactly
+   * the data that makes the optimisation attractive, and wrong in the direction of over-counting.
+   */
+  private static final byte DICT_MODE_RAW_ROW_COUNTS = 2;
+
+  /** {@link #DICT_MODE_RAW_ROW_COUNTS}, with the dictionary FSST-compressed. */
+  private static final byte DICT_MODE_FSST_ROW_COUNTS = 3;
+
+  /**
    * DICT segment payload (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.7): a mode byte, then
    * either the raw entry stream (count, lengths, concatenated UTF-8 — byte-compatible with
    * the monolithic codec's dictionary half) or, for high-cardinality dictionaries that pass
@@ -763,7 +968,43 @@ public final class ProjectionIndexColumnSegmentCodec {
    * (deterministic), so identical re-encodes hash identically — the carry-forward no-op
    * contract (5.2-n) holds.
    */
-  private static void encodeDictColumnSegmentPayload(final ByteArrayOutputStream out, final byte[][] dict) {
+  /**
+   * ROWS on this leaf whose set contains each dictionary value, indexed by dict id.
+   *
+   * <p>Rows, not occurrences: a record listing the same genre twice must count once. The encoder is
+   * the only place that can tell, because it is the only place that sees a row's whole element run
+   * — which is why this is computed here rather than derived later from occurrence counts, where
+   * the duplicate is already indistinguishable from two records.
+   *
+   * <p>The {@code lastRow} marker is the dedup: a value already credited to this row has the row's
+   * index parked in its slot, so a repeat is a comparison rather than a set lookup.
+   */
+  static long[] valueRowCounts(final byte[][] dict, final int[] setCounts, final int[] setElems,
+      final int rowCount) {
+    final int dictSize = ProjectionIndexRowGroupCodec.dictSizeOf(dict);
+    if (dictSize == 0 || setCounts == null || setElems == null) {
+      return null;
+    }
+    final long[] counts = new long[dictSize];
+    final int[] lastRow = new int[dictSize];
+    java.util.Arrays.fill(lastRow, -1);
+    int cursor = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int n = setCounts[row];
+      for (int k = 0; k < n; k++) {
+        final int id = setElems[cursor + k];
+        if (id >= 0 && id < dictSize && lastRow[id] != row) {
+          lastRow[id] = row;
+          counts[id]++;
+        }
+      }
+      cursor += n;
+    }
+    return counts;
+  }
+
+  private static void encodeDictColumnSegmentPayload(final ByteArrayOutputStream out,
+      final byte[][] dict, final long @Nullable [] rowCounts) {
     final int dictSize = ProjectionIndexRowGroupCodec.dictSizeOf(dict);
     int totalBytes = 0;
     for (int i = 0; i < dictSize; i++) {
@@ -781,7 +1022,7 @@ public final class ProjectionIndexColumnSegmentCodec {
         // same lazy-parsed-table discipline as KeyValueLeafPage's per-page FSST wiring; the
         // byte[]-table overloads re-parse per call, an O(dictSize × tableLen) waste.
         final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
-        out.write(DICT_MODE_FSST);
+        out.write(rowCounts == null ? DICT_MODE_FSST : DICT_MODE_FSST_ROW_COUNTS);
         ProjectionIndexRowGroupCodec.putIntLE(out, table.length);
         out.write(table, 0, table.length);
         ProjectionIndexRowGroupCodec.putIntLE(out, dictSize);
@@ -790,36 +1031,219 @@ public final class ProjectionIndexColumnSegmentCodec {
           ProjectionIndexRowGroupCodec.putIntLE(out, encoded.length);
           out.write(encoded, 0, encoded.length);
         }
+        writeRowCounts(out, rowCounts, dictSize);
         return;
       }
     }
-    out.write(DICT_MODE_RAW);
+    out.write(rowCounts == null ? DICT_MODE_RAW : DICT_MODE_RAW_ROW_COUNTS);
     ProjectionIndexRowGroupCodec.encodeDictEntries(out, dict);
+    writeRowCounts(out, rowCounts, dictSize);
+  }
+
+  /**
+   * Append the per-value row counts, bit-packed to the widest count on the leaf.
+   *
+   * <p>A leaf holds at most {@code MAX_ROWS} rows, so a count needs at most 10 bits and usually
+   * fewer — writing longs here would cost more than the dictionary it annotates.
+   */
+  private static void writeRowCounts(final ByteArrayOutputStream out, final long @Nullable [] counts,
+      final int dictSize) {
+    if (counts == null) {
+      return;
+    }
+    long max = 0;
+    for (int i = 0; i < dictSize; i++) {
+      if (counts[i] > max) {
+        max = counts[i];
+      }
+    }
+    final int width = max == 0 ? 0 : 64 - Long.numberOfLeadingZeros(max);
+    out.write(width);
+    if (width > 0) {
+      final ProjectionIndexRowGroupCodec.BitWriter bw = new ProjectionIndexRowGroupCodec.BitWriter(out);
+      for (int i = 0; i < dictSize; i++) {
+        bw.write(counts[i], width);
+      }
+      bw.flush();
+    }
+  }
+
+  /**
+   * Largest SET_COUNTS payload worth writing.
+   *
+   * <p>Tied to the inline cap, not chosen freely: past it the segment is REFERENCED, which means a
+   * page fetch — and a page fetch is exactly what this segment exists to avoid. A column whose
+   * values do not fit is better served by the scanning path, so nothing is written and the reader
+   * falls back.
+   */
+  private static final int MAX_SET_COUNTS_BYTES =
+      Integer.getInteger("sirix.projection.maxSetCountsBytes", DEFAULT_INLINE_MAX_SEGMENT_BYTES);
+
+  /**
+   * {@code [short valueCount] ( [short len][len bytes value][short rowCount] )*}
+   *
+   * <p>Values inline rather than hashed: a hash collision would over-count silently, and the whole
+   * point of this segment is to answer without reading anything else that could confirm it. At
+   * these sizes the bytes cost less than the doubt.
+   *
+   * @return the payload, or {@code null} when it would exceed {@link #MAX_SET_COUNTS_BYTES}
+   */
+  private static byte[] encodeSetCountsPayload(final byte[][] dict, final long @Nullable [] counts) {
+    if (dict == null || counts == null) {
+      return null;
+    }
+    final int dictSize = ProjectionIndexRowGroupCodec.dictSizeOf(dict);
+    if (dictSize == 0 || dictSize > 0xFFFF) {
+      return null;
+    }
+    int size = 2;
+    for (int i = 0; i < dictSize; i++) {
+      size += 2 + dict[i].length + 2;
+      if (size > MAX_SET_COUNTS_BYTES) {
+        return null;
+      }
+    }
+    final ByteArrayOutputStream out = newColumnSegmentStream(SEG_KIND_SET_COUNTS);
+    putShortLE(out, dictSize);
+    for (int i = 0; i < dictSize; i++) {
+      putShortLE(out, dict[i].length);
+      out.write(dict[i], 0, dict[i].length);
+      // A leaf holds at most MAX_ROWS rows, so a row count always fits a short.
+      putShortLE(out, (int) Math.min(counts[i], 0xFFFF));
+    }
+    return out.toByteArray();
+  }
+
+  private static void putShortLE(final ByteArrayOutputStream out, final int v) {
+    out.write(v & 0xFF);
+    out.write((v >>> 8) & 0xFF);
+  }
+
+  /** Read the counts {@link #writeRowCounts} wrote; {@code null} when the mode carries none. */
+  private static int[] readRowCounts(final ProjectionIndexRowGroupCodec.Cursor in,
+      final int dictSize) {
+    final int width = in.readByte() & 0xFF;
+    // int, not long: a leaf holds at most MAX_ROWS rows, so a per-value row count cannot exceed it
+    // and the existing int unpacker serves.
+    final int[] counts = new int[dictSize];
+    if (width > 0) {
+      ProjectionIndexRowGroupCodec.unpackIntsInto(in, dictSize, width, counts);
+    }
+    return counts;
   }
 
   /** Inverse of {@link #encodeDictColumnSegmentPayload}; restores plain UTF-8 dictionary bytes. */
+  /**
+   * Rows on this leaf whose set contains {@code literal}, from an inline SET_COUNTS payload.
+   *
+   * @return the count, or {@code -1} when the payload is absent or unreadable
+   */
+  public static long setCountFor(final byte[] descriptor, final byte @Nullable [] segment,
+      final int col, final byte[] literal) {
+    if (segment == null) {
+      return -1;
+    }
+    final int segId = setCountsColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor in =
+        openColumnSegment(descriptor, id -> id == segId ? segment : null, segId,
+                          SEG_KIND_SET_COUNTS, null);
+    final int values = readShortU(in);
+    for (int i = 0; i < values; i++) {
+      final int len = readShortU(in);
+      final byte[] value = in.readBytes(len);
+      final int count = readShortU(in);
+      if (java.util.Arrays.equals(value, literal)) {
+        return count;
+      }
+    }
+    return 0;   // the leaf lists its values exhaustively, so absence here is a real zero
+  }
+
+  /** Little-endian unsigned short, mirroring {@link #putShortLE}. */
+  private static int readShortU(final ProjectionIndexRowGroupCodec.Cursor in) {
+    final int lo = in.readByte() & 0xFF;
+    final int hi = in.readByte() & 0xFF;
+    return lo | (hi << 8);
+  }
+
+  /** A leaf's dictionary beside the per-value ROW counts, when the segment carries them. */
+  public record DictWithRowCounts(byte[][] dict, int @Nullable [] rowCounts) {
+  }
+
+  /**
+   * Decode a DICT segment INCLUDING its per-value row counts.
+   *
+   * <p>This is the whole point of putting the counts in the dictionary segment: a membership count
+   * needs the dictionary anyway (to resolve the literal to an id) and nothing else. The BODY
+   * segment — a per-row cardinality plus the flat element run, and the bulk of the column — is
+   * never fetched.
+   *
+   * @return dictionary and counts; {@code rowCounts} is {@code null} for a segment written before
+   *         the counts existed or for a scalar string column, and the caller falls back
+   */
+  static DictWithRowCounts decodeDictWithRowCounts(final byte[] descriptor,
+      final byte @Nullable [] dictColumnSegment, final int col) {
+    if (dictColumnSegment == null) {
+      return null;
+    }
+    final int dictId = dictColumnSegmentId(col);
+    final ProjectionIndexRowGroupCodec.Cursor in =
+        openColumnSegment(descriptor, id -> id == dictId ? dictColumnSegment : null, dictId,
+                          SEG_KIND_DICT, null);
+    final int mode = in.readByte() & 0xFF;
+    final byte[][] dict;
+    final boolean hasCounts;
+    switch (mode) {
+      case DICT_MODE_RAW -> {
+        dict = ProjectionIndexRowGroupCodec.decodeDictEntries(in);
+        hasCounts = false;
+      }
+      case DICT_MODE_RAW_ROW_COUNTS -> {
+        dict = ProjectionIndexRowGroupCodec.decodeDictEntries(in);
+        hasCounts = true;
+      }
+      case DICT_MODE_FSST, DICT_MODE_FSST_ROW_COUNTS -> {
+        dict = decodeFsstDictEntries(in);
+        hasCounts = mode == DICT_MODE_FSST_ROW_COUNTS;
+      }
+      default -> throw new IllegalStateException("Unknown DICT segment mode " + mode);
+    }
+    if (!hasCounts) {
+      return new DictWithRowCounts(dict, null);
+    }
+    return new DictWithRowCounts(dict,
+                                 readRowCounts(in, ProjectionIndexRowGroupCodec.dictSizeOf(dict)));
+  }
+
   private static byte[][] decodeDictColumnSegmentPayload(final ProjectionIndexRowGroupCodec.Cursor in) {
     final int mode = in.readByte() & 0xFF;
-    if (mode == DICT_MODE_RAW) {
-      return ProjectionIndexRowGroupCodec.decodeDictEntries(in);
-    }
-    if (mode != DICT_MODE_FSST) {
-      throw new IllegalStateException("Unknown DICT segment mode " + mode
-          + " — written by a newer version");
-    }
+    // The *_ROW_COUNTS modes are the same dictionary with a counts table appended. Readers that
+    // only want the entries accept them and simply stop before the counts — otherwise writing the
+    // counts would break every existing consumer of a set column's dictionary.
+    return switch (mode) {
+      case DICT_MODE_RAW, DICT_MODE_RAW_ROW_COUNTS ->
+          ProjectionIndexRowGroupCodec.decodeDictEntries(in);
+      case DICT_MODE_FSST, DICT_MODE_FSST_ROW_COUNTS -> decodeFsstDictEntries(in);
+      default -> throw new IllegalStateException("Unknown DICT segment mode " + mode
+                                                     + " — written by a newer version");
+    };
+  }
+
+  /** The FSST-compressed dictionary entries, with the symbol table parsed once. */
+  private static byte[][] decodeFsstDictEntries(final ProjectionIndexRowGroupCodec.Cursor in) {
     final int tableLen = in.readInt();
     final byte[] table = in.readBytes(tableLen);
-    // Parse once, decode all entries with the parsed symbols (KeyValueLeafPage discipline).
     final byte[][] parsedSymbols = FSSTCompressor.parsedFor(table);
     final int dictSize = in.readInt();
     final byte[][] dict = new byte[Math.max(16, dictSize)][];
     for (int i = 0; i < dictSize; i++) {
-      final int encLen = in.readInt();
-      final byte[] encoded = in.readBytes(encLen);
+      final int len = in.readInt();
+      final byte[] encoded = in.readBytes(len);
       dict[i] = FSSTCompressor.decode(encoded, parsedSymbols);
     }
     return dict;
   }
+
 
   private static void checkColumnSegmentHeader(final byte[] segment, final byte expectedKind) {
     if (segment.length < SEGMENT_HEADER_BYTES

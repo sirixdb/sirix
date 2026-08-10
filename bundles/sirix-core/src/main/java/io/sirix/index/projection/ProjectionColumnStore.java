@@ -64,7 +64,19 @@ public final class ProjectionColumnStore {
    */
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords,
-      int @Nullable [] stringDictIds, byte @Nullable [] @Nullable [] stringDict) {
+      int @Nullable [] stringDictIds, byte @Nullable [] @Nullable [] stringDict,
+      int @Nullable [] setCounts) {
+
+    /**
+     * Slice without a set column — every kind but
+     * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET}.
+     */
+    public ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
+        long @Nullable [] numericValues, long @Nullable [] boolWords,
+        int @Nullable [] stringDictIds, byte @Nullable [] @Nullable [] stringDict) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds,
+           stringDict, null);
+    }
   }
 
   private final List<RowGroupDirectory> directories;
@@ -137,6 +149,30 @@ public final class ProjectionColumnStore {
   }
 
   /** Row count of 0-based leaf {@code i}, straight from its descriptor. */
+  /**
+   * The column's flags byte on {@code leaf}, straight from the descriptor.
+   *
+   * <p>Identical to {@code ColumnSlice.flags()} — the encoder writes the one byte into both — but
+   * obtainable without decoding the slice, and therefore without fetching the column's segments.
+   *
+   * @return the flags, or {@code COLUMN_FLAG_UNREPRESENTABLE} when the entry is missing, which
+   *         fails closed exactly as an unreadable slice does
+   */
+  public byte columnFlags(final int leaf, final int col) {
+    final byte[] descriptor = directories.get(leaf).descriptor();
+    final int entry = RowGroupDescriptor.entryIndexOf(descriptor,
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col));
+    if (entry < 0) {
+      return ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE;
+    }
+    return RowGroupDescriptor.entryColFlags(descriptor, entry);
+  }
+
+  /** The leaf's descriptor — metadata this store already holds, needing no fetch. */
+  public byte[] descriptor(final int leaf) {
+    return directories.get(leaf).descriptor();
+  }
+
   public int rowCount(final int leaf) {
     return RowGroupDescriptor.rowCount(directories.get(leaf).descriptor());
   }
@@ -150,7 +186,8 @@ public final class ProjectionColumnStore {
     return col >= 0 && col < columnKinds.length
         && (ProjectionIndexRowGroupPage.isNumericKind(columnKinds[col])
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN
-            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
+            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET);
   }
 
   /**
@@ -195,7 +232,9 @@ public final class ProjectionColumnStore {
     final byte[][] segments = columnBytes(col, fetcher);
     // A string column needs its DICT chain beside the BODY chain — ids without the dictionary
     // are meaningless. The chain is OPTIONAL per leaf: a rowless leaf writes no DICT segment.
-    final boolean string = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+    final boolean string = set
+        || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     final byte[][] dictSegments = string
         ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
                             ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
@@ -205,16 +244,71 @@ public final class ProjectionColumnStore {
     try {
       for (int i = 0; i < n; i++) {
         final byte[] descriptor = directories.get(i).descriptor();
-        slices[i] = string
-            ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i],
-                                                                  dictSegments[i], col)
-            : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+        slices[i] = set
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i],
+                                                                     dictSegments[i], col)
+            : string
+                ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i],
+                                                                      dictSegments[i], col)
+                : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
       }
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
       throw corrupt;
     }
     return slices;
+  }
+
+  /**
+   * Per-leaf {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_SET_COUNTS} payloads.
+   *
+   * <p>These segments are forced INLINE, so their bytes live in the descriptors this store already
+   * holds and {@code fetchAll} is handed nothing to fetch — the whole chain resolves without a page
+   * read. That is the difference between this and {@link #dictRowCounts}, which needs the
+   * dictionary segment and therefore a page per leaf.
+   *
+   * @return one payload per leaf, or {@code null} when the column has none
+   */
+  public byte[][] setCountsSegments(final int col, final ColumnSegmentFetcher fetcher) {
+    if (!columnSliceable(col)
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      return null;
+    }
+    return fetchSegmentChain(col,
+                             ProjectionIndexColumnSegmentCodec.setCountsColumnSegmentId(col),
+                             ProjectionIndexColumnSegmentCodec.SEG_KIND_SET_COUNTS, true, fetcher);
+  }
+
+  /**
+   * Per-leaf dictionaries WITH their per-value row counts, fetching ONLY the DICT chain.
+   *
+   * <p>The point of the counts living in the dictionary: a bare membership count needs the
+   * dictionary to resolve its literal and nothing else, so this never touches the BODY segments —
+   * the per-row cardinalities and the flat element run, which are the bulk of the column. On the
+   * movies corpus that is a 41-entry dictionary per leaf instead of ~6.2M elements in total.
+   *
+   * @return one entry per leaf, ascending rowGroupId; an entry is {@code null} for a rowless leaf,
+   *         and its {@code rowCounts} is {@code null} when that leaf predates the counts
+   */
+  public ProjectionIndexColumnSegmentCodec.DictWithRowCounts[] dictRowCounts(final int col,
+      final ColumnSegmentFetcher fetcher) {
+    if (!columnSliceable(col)
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      return null;
+    }
+    final byte[][] dictSegments =
+        fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+                          ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher);
+    if (dictSegments == null) {
+      return null;
+    }
+    final int n = directories.size();
+    final var out = new ProjectionIndexColumnSegmentCodec.DictWithRowCounts[n];
+    for (int i = 0; i < n; i++) {
+      out[i] = ProjectionIndexColumnSegmentCodec.decodeDictWithRowCounts(
+          directories.get(i).descriptor(), dictSegments[i], col);
+    }
+    return out;
   }
 
   /**

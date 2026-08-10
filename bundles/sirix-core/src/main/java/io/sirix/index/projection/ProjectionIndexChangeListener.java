@@ -666,7 +666,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final byte[] defKinds = new byte[fieldTypes.size()];
     for (int i = 0; i < defPaths.length; i++) {
       defPaths[i] = fieldPaths.get(i).toString();
-      defKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i));
+      defKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i),
+                                                               fieldPaths.get(i));
     }
     if (!meta.matches(indexDef.getProjectionRootPath().toString(), defPaths, defKinds)) {
       return false;
@@ -955,7 +956,14 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final String[] names = new String[fieldPaths.size()];
     for (int i = 0; i < names.length; i++) {
-      final String path = fieldPaths.get(i).toString();
+      String path = fieldPaths.get(i).toString();
+      // A SET column is declared at the array layer (`/[]/genres/[]`) but is the column `genres`:
+      // its name is the field the elements belong to. Taking the literal last step would name it
+      // "[]", which no query ever asks for — the column would be present and permanently
+      // unreachable, and the query would fall back to the records without saying why.
+      while (path.endsWith("/[]")) {
+        path = path.substring(0, path.length() - 3);
+      }
       final int slash = path.lastIndexOf('/');
       names[i] = slash < 0 ? path : path.substring(slash + 1);
     }

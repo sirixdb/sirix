@@ -752,31 +752,38 @@ public final class HOTTrieReader implements AutoCloseable {
   public @Nullable HOTLeafPage advanceToNextLeaf() {
     // Pop back up the tree until we find an unvisited sibling
     while (pathDepth > 0) {
-      int parentIdx = pathDepth - 1;
-      HOTIndirectPage parent = pathNodes[parentIdx];
-      int currentChildIdx = pathChildIndices[parentIdx];
-      int numChildren = parent.getNumChildren();
+      final int parentIdx = pathDepth - 1;
+      final HOTIndirectPage parent = pathNodes[parentIdx];
+      final int numChildren = parent.getNumChildren();
 
-      // Check if there's a next sibling
-      if (currentChildIdx + 1 < numChildren) {
-        // Found next sibling - descend to its leftmost leaf
-        final int nextChildIdx = currentChildIdx + 1;
+      // Try EVERY remaining sibling at this level before popping. A child that cannot be
+      // descended (null reference, or a descent that bottoms out on an unresolvable page) must
+      // not end the level: its right-hand siblings are still live subtrees whose keys sort
+      // AFTER the current position, and skipping them silently drops every key they hold.
+      for (int nextChildIdx = pathChildIndices[parentIdx] + 1; nextChildIdx < numChildren;
+          nextChildIdx++) {
         pathChildIndices[parentIdx] = nextChildIdx;
 
         final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
-        if (nextChildRef != null) {
-          // Prefetch-batch: issue PREFETCH_WINDOW in-flight reads for the upcoming
-          // siblings. Deepens NVMe/io_uring queue depth — on FFM-io_uring storage
-          // these coalesce into a single submit; on FILE_CHANNEL each fires on
-          // a separate virtual thread and kernel I/O scheduler interleaves them.
-          prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren);
-
-          final HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
-          if (result != null) {
-            return result;
-          }
-          // If descend failed, continue to next sibling or pop up
+        if (nextChildRef == null) {
+          continue;
         }
+        // Prefetch-batch: issue PREFETCH_WINDOW in-flight reads for the upcoming
+        // siblings. Deepens NVMe/io_uring queue depth — on FFM-io_uring storage
+        // these coalesce into a single submit; on FILE_CHANNEL each fires on
+        // a separate virtual thread and kernel I/O scheduler interleaves them.
+        prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren);
+
+        final HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
+        if (result != null) {
+          return result;
+        }
+        // The failed descent pushed a path entry per level it got through, so the stack now
+        // describes a route that led nowhere. Truncate it back to THIS parent before trying the
+        // next sibling — otherwise the next iteration reads pathNodes/pathChildIndices from the
+        // abandoned route and resumes the walk from an unrelated subtree, which surfaces as
+        // leaves arriving out of key order (or twice).
+        pathDepth = parentIdx + 1;
       }
 
       // No more siblings at this level, pop up

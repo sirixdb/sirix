@@ -2218,6 +2218,20 @@ public final class ProjectionIndexByteScan {
           }
           cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
         }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          // Dict, then per-row counts, then the flat element run whose length is their sum.
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
         default -> throw new IllegalStateException("Unknown column kind " + kind);
       }
     }
@@ -2252,6 +2266,8 @@ public final class ProjectionIndexByteScan {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
+            payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> evalStringSetContainsBytes(
             payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
         default -> throw new IllegalStateException("Unknown column kind " + kind);
       }
@@ -2401,6 +2417,44 @@ public final class ProjectionIndexByteScan {
       }
       final int tail = rowCount & 63;
       if (tail != 0) out[stride - 1] &= (1L << tail) - 1L;
+    }
+  }
+
+  /**
+   * Set membership over the raw leaf bytes: mark rows whose set holds {@code literal}.
+   *
+   * <p>Mirror of {@link #evalStringEqBytes} for a variable-length column. The literal resolves
+   * against the leaf's dictionary once, and a literal the dictionary does not hold leaves the mask
+   * untouched — every row in the leaf is ruled out without reading one element.
+   */
+  private static void evalStringSetContainsBytes(final byte[] payload, final int baseOff,
+      final int rowCount, final byte[] literal, final long[] out) {
+    // [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] counts][int[total] elems]
+    final int dictSize = getIntLE(payload, baseOff);
+    int concatOff = baseOff + 4 + dictSize * 4;
+    int targetDictId = -1;
+    for (int i = 0; i < dictSize; i++) {
+      final int len = getIntLE(payload, baseOff + 4 + i * 4);
+      if (bytesEqualAt(payload, concatOff, len, literal)) {
+        targetDictId = i;
+      }
+      concatOff += len;   // must advance past every entry to reach the counts region
+    }
+    if (targetDictId < 0) {
+      return;
+    }
+    final int countsOff = concatOff;
+    final int elemsOff = countsOff + rowCount * 4;
+    int cursor = 0;
+    for (int r = 0; r < rowCount; r++) {
+      final int n = getIntLE(payload, countsOff + r * 4);
+      for (int k = 0; k < n; k++) {
+        if (getIntLE(payload, elemsOff + (cursor + k) * 4) == targetDictId) {
+          out[r >>> 6] |= 1L << (r & 63);
+          break;                       // an existential needs one witness
+        }
+      }
+      cursor += n;                     // advance regardless, or the run desynchronises
     }
   }
 

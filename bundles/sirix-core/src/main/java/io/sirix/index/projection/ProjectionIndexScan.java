@@ -284,6 +284,7 @@ public final class ProjectionIndexScan {
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> evalBoolean(
           leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringEq(leaf, p, rowCount, out);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> evalStringSetContains(leaf, p, rowCount, out);
       default -> throw new IllegalStateException("Unknown column kind " + kind);
     }
   }
@@ -373,6 +374,41 @@ public final class ProjectionIndexScan {
     final int[] ids = leaf.stringDictIdColumn(p.column);
     for (int i = 0; i < rowCount; i++) {
       if (ids[i] == targetDictId) out[i >>> 6] |= 1L << (i & 63);
+    }
+  }
+
+  /**
+   * Set membership over a hydrated leaf — the in-memory twin of the byte and sliced kernels.
+   *
+   * <p>Same shape as {@link #evalStringEq}, with the row's element run in place of its single id:
+   * the literal resolves against the leaf dictionary once, an absent literal leaves the mask
+   * untouched, and the cursor advances over every row's elements so the flat run stays aligned.
+   */
+  private static void evalStringSetContains(final ProjectionIndexRowGroupPage leaf,
+      final ColumnPredicate p, final int rowCount, final long[] out) {
+    final byte[][] dict = leaf.stringDictionary(p.column);
+    int targetDictId = -1;
+    for (int i = 0; i < dict.length && dict[i] != null; i++) {
+      if (Arrays.equals(dict[i], p.stringLitBytes)) {
+        targetDictId = i;
+        break;
+      }
+    }
+    if (targetDictId < 0) {
+      return;
+    }
+    final int[] counts = leaf.stringSetCountColumn(p.column);
+    final int[] elems = leaf.stringSetIdColumn(p.column);
+    int cursor = 0;
+    for (int r = 0; r < rowCount; r++) {
+      final int n = counts[r];
+      for (int k = 0; k < n; k++) {
+        if (elems[cursor + k] == targetDictId) {
+          out[r >>> 6] |= 1L << (r & 63);
+          break;
+        }
+      }
+      cursor += n;
     }
   }
 

@@ -191,6 +191,26 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_NUMERIC_DOUBLE = 3;
 
+  /**
+   * A SET of strings per row — the elements of an array-valued field, dictionary-encoded.
+   *
+   * <p>The four kinds above are all scalar, so an array-valued field declared as a projection
+   * column was recorded as present-but-{@code UNREPRESENTABLE} and the index could not answer
+   * anything about it. That left {@code some $g in $m.genres[] satisfies $g eq "..."} with no
+   * index to use and only the storage path to run on, which is where it stayed an order of
+   * magnitude behind a columnar engine.
+   *
+   * <p>Storage mirrors {@link #COLUMN_KIND_STRING_DICT} — one per-leaf dictionary, ids bit-packed —
+   * with one addition: a per-row ELEMENT COUNT, since a set is variable length. Rows are laid out
+   * consecutively, so row {@code r}'s elements are the {@code counts[r]} ids following the sum of
+   * the counts before it.
+   *
+   * <p>What makes this worth its own kind rather than a scan over the storage pages: a membership
+   * test resolves the literal against the leaf's dictionary ONCE, and a literal the dictionary does
+   * not hold rules out every row in the leaf without touching a single element.
+   */
+  public static final byte COLUMN_KIND_STRING_SET = 4;
+
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
     return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
@@ -274,6 +294,23 @@ public final class ProjectionIndexRowGroupPage {
   private final byte[][][] stringDicts;
 
   /**
+   * Per-column element counts for {@link #COLUMN_KIND_STRING_SET}: how many dict ids row {@code r}
+   * contributes. A set is variable length, so this is what turns the flat id run into rows.
+   * {@code int[MAX_ROWS]}.
+   */
+  private final int[][] stringSetCountCols;
+
+  /**
+   * Per-column FLAT dict ids for {@link #COLUMN_KIND_STRING_SET}, rows consecutive in append order.
+   * Grown amortised because a leaf's total element count is not known up front; the paired
+   * {@link #stringSetLen} is the live length, since the array is over-allocated.
+   */
+  private final int[][] stringSetIdCols;
+
+  /** Live length of {@link #stringSetIdCols}{@code [c]}. */
+  private final int[] stringSetLen;
+
+  /**
    * Per-column zone-map min / max. For numeric columns: inclusive value
    * range. For boolean: irrelevant ({@code 0} → has-false-only,
    * {@code 1} → has-true-only, {@code -1} → both). For dict columns:
@@ -330,6 +367,9 @@ public final class ProjectionIndexRowGroupPage {
     this.booleanCols = new long[columnCount][];
     this.stringDictIdCols = new int[columnCount][];
     this.stringDicts = new byte[columnCount][][];
+    this.stringSetCountCols = new int[columnCount][];
+    this.stringSetIdCols = new int[columnCount][];
+    this.stringSetLen = new int[columnCount];
     this.presenceCols = new long[columnCount][];
     this.columnUnrepresentable = new boolean[columnCount];
     this.columnNonIntegral = new boolean[columnCount];
@@ -398,6 +438,21 @@ public final class ProjectionIndexRowGroupPage {
     return stringDictIdCols[column];
   }
 
+  /** Per-row element counts of a {@link #COLUMN_KIND_STRING_SET} column. */
+  public int[] stringSetCountColumn(final int column) {
+    return stringSetCountCols[column];
+  }
+
+  /** Flat dict ids of a {@link #COLUMN_KIND_STRING_SET} column, rows consecutive. */
+  public int[] stringSetIdColumn(final int column) {
+    return stringSetIdCols[column];
+  }
+
+  /** Live number of elements in {@link #stringSetIdColumn}. */
+  public int stringSetLength(final int column) {
+    return stringSetLen[column];
+  }
+
   public byte[][] stringDictionary(final int column) {
     return stringDicts[column];
   }
@@ -442,6 +497,19 @@ public final class ProjectionIndexRowGroupPage {
       final long[][] numericCols, final long[][] booleanCols,
       final int[][] stringDictIdCols, final byte[][][] stringDicts,
       final long[][] presenceCols, final byte[] columnFlags) {
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, columnMin,
+                       columnMax, numericCols, booleanCols, stringDictIdCols, stringDicts, null,
+                       null, presenceCols, columnFlags);
+  }
+
+  /** As above, carrying {@link #COLUMN_KIND_STRING_SET} columns' counts and flat element runs. */
+  static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount,
+      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys,
+      final long[] columnMin, final long[] columnMax,
+      final long[][] numericCols, final long[][] booleanCols,
+      final int[][] stringDictIdCols, final byte[][][] stringDicts,
+      final int[][] setCountCols, final int[][] setElemCols,
+      final long[][] presenceCols, final byte[] columnFlags) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
@@ -453,6 +521,11 @@ public final class ProjectionIndexRowGroupPage {
       page.numericCols[c] = numericCols[c];
       page.booleanCols[c] = booleanCols[c];
       page.stringDictIdCols[c] = stringDictIdCols[c];
+      if (setCountCols != null && setCountCols[c] != null) {
+        page.stringSetCountCols[c] = setCountCols[c];
+        page.stringSetIdCols[c] = setElemCols[c];
+        page.stringSetLen[c] = setElemCols[c].length;
+      }
       page.stringDicts[c] = stringDicts[c];
       page.presenceCols[c] = presenceCols[c];
       // The decoders hand the persisted flag byte through VERBATIM — one parse site here
@@ -481,6 +554,11 @@ public final class ProjectionIndexRowGroupPage {
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
             stringDicts[c] = new byte[16][];  // grow on demand in appendString
+          }
+          case COLUMN_KIND_STRING_SET -> {
+            stringSetCountCols[c] = new int[MAX_ROWS];
+            stringSetIdCols[c] = new int[MAX_ROWS];   // one element per row to start; grows
+            stringDicts[c] = new byte[16][];
           }
           default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
         }
@@ -555,6 +633,20 @@ public final class ProjectionIndexRowGroupPage {
       final long[] longValues, final boolean[] boolValues, final String[] stringValues,
       final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
       final boolean[] nonDoubleSource) {
+    return appendRow(recordKey, longValues, boolValues, stringValues, null, present,
+                     unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /**
+   * Append one row, including the elements of any {@link #COLUMN_KIND_STRING_SET} column.
+   *
+   * @param stringSetValues per column, the row's set elements; {@code null} for none
+   */
+  public boolean appendRow(final long recordKey,
+      final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
     if (rowCount == MAX_ROWS) return false;
     ensureCapacity();
     final int row = rowCount;
@@ -599,6 +691,24 @@ public final class ProjectionIndexRowGroupPage {
         // count-distinct kernel depends on it), not a builder convention.
         case COLUMN_KIND_STRING_DICT ->
             stringDictIdCols[c][row] = appendString(c, clean ? stringValues[c] : "");
+        case COLUMN_KIND_STRING_SET -> {
+          // An absent or unrepresentable set contributes NO elements, which is exactly right for
+          // an existential: a record without the field, or with an empty array, satisfies nothing.
+          // It needs no "" placeholder the way a scalar dict column does, because a zero count
+          // already says the row has nothing to match.
+          final String[] elems = stringSetValues == null ? null : stringSetValues[c];
+          int n = 0;
+          if (clean && elems != null) {
+            for (final String e : elems) {
+              if (e == null) {
+                continue;
+              }
+              appendSetElement(c, appendString(c, e));
+              n++;
+            }
+          }
+          stringSetCountCols[c][row] = n;
+        }
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
       }
     }
@@ -612,6 +722,20 @@ public final class ProjectionIndexRowGroupPage {
    * amortised. Dict-id fits in the {@code dictIdBitWidth} computed at
    * serialize time.
    */
+  /** Append one dict id to column {@code c}'s flat element run, growing amortised. */
+  private void appendSetElement(final int c, final int dictId) {
+    int[] ids = stringSetIdCols[c];
+    final int len = stringSetLen[c];
+    if (len == ids.length) {
+      final int[] grown = new int[len << 1];
+      System.arraycopy(ids, 0, grown, 0, len);
+      stringSetIdCols[c] = grown;
+      ids = grown;
+    }
+    ids[len] = dictId;
+    stringSetLen[c] = len + 1;
+  }
+
   private int appendString(final int c, final String value) {
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
     final byte[][] dict = stringDicts[c];
@@ -689,6 +813,27 @@ public final class ProjectionIndexRowGroupPage {
             page.stringDicts[c] = dict;
             final int[] ids = page.stringDictIdCols[c];
             for (int i = 0; i < rowCount; i++) ids[i] = bb.getInt();
+          }
+          case COLUMN_KIND_STRING_SET -> {
+            final int dictSize = bb.getInt();
+            final int[] lengths = new int[dictSize];
+            for (int i = 0; i < dictSize; i++) lengths[i] = bb.getInt();
+            final byte[][] dict = new byte[Math.max(16, dictSize)][];
+            for (int i = 0; i < dictSize; i++) {
+              dict[i] = new byte[lengths[i]];
+              bb.get(dict[i]);
+            }
+            page.stringDicts[c] = dict;
+            final int[] counts = page.stringSetCountCols[c];
+            int total = 0;
+            for (int i = 0; i < rowCount; i++) {
+              counts[i] = bb.getInt();
+              total += counts[i];
+            }
+            final int[] elems = new int[Math.max(MAX_ROWS, total)];
+            for (int i = 0; i < total; i++) elems[i] = bb.getInt();
+            page.stringSetIdCols[c] = elems;
+            page.stringSetLen[c] = total;
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
@@ -800,6 +945,36 @@ public final class ProjectionIndexRowGroupPage {
           final int[] ids = stringDictIdCols[c];
           for (int i = 0; i < rowCount; i++) idBuf.putInt(ids[i]);
           baos.write(idBuf.array(), 0, idBuf.position());
+        }
+        case COLUMN_KIND_STRING_SET -> {
+          final byte[][] dict = stringDicts[c];
+          int dictSize = 0;
+          while (dictSize < dict.length && dict[dictSize] != null) dictSize++;
+          final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
+          baos.write(dh.array(), 0, dh.position());
+          final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
+          for (int i = 0; i < dictSize; i++) {
+            dl.putInt(dict[i].length);
+          }
+          baos.write(dl.array(), 0, dl.position());
+          for (int i = 0; i < dictSize; i++) {
+            baos.write(dict[i], 0, dict[i].length);
+          }
+          // Per-row counts, then the flat element run. The counts come first so a reader can size
+          // the run before reading it, and their sum IS the run length — no separate total.
+          final int[] counts = stringSetCountCols[c];
+          final ByteBuffer cb = ByteBuffer.allocate(rowCount * 4).order(ByteOrder.LITTLE_ENDIAN);
+          for (int i = 0; i < rowCount; i++) {
+            cb.putInt(counts[i]);
+          }
+          baos.write(cb.array(), 0, cb.position());
+          final int len = stringSetLen[c];
+          final ByteBuffer eb = ByteBuffer.allocate(len * 4).order(ByteOrder.LITTLE_ENDIAN);
+          final int[] elems = stringSetIdCols[c];
+          for (int i = 0; i < len; i++) {
+            eb.putInt(elems[i]);
+          }
+          baos.write(eb.array(), 0, eb.position());
         }
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
       }

@@ -101,7 +101,30 @@ public final class ProjectionIndexRowGroupCodec {
   private static final VarHandle LONG_LE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
+  /**
+   * Whether the little-endian accessors go through a {@link VarHandle} or assemble bytes by hand.
+   *
+   * <p>A byte-array-view VarHandle folds to one load once C2 has compiled the caller, which is why
+   * it wins every warm benchmark — the choice recorded above was made on one. A ONE-SHOT query
+   * never gets there: profiled cold, {@code checkAccessModeThenIsDirect}, {@code guard_LI_J},
+   * {@code VarForm.getMemberName} and {@code ArrayHandle.index} together were ~29 % of the query.
+   * Manual assembly has no access-mode check to elide, so it costs the same interpreted, in C1 and
+   * in C2.
+   */
+  private static final boolean MANUAL_LE =
+      !"false".equals(System.getProperty("sirix.projection.manualLE"));
+
   static long getLongLE(final byte[] b, final int off) {
+    if (MANUAL_LE) {
+      return (b[off] & 0xFFL)
+          | (b[off + 1] & 0xFFL) << 8
+          | (b[off + 2] & 0xFFL) << 16
+          | (b[off + 3] & 0xFFL) << 24
+          | (b[off + 4] & 0xFFL) << 32
+          | (b[off + 5] & 0xFFL) << 40
+          | (b[off + 6] & 0xFFL) << 48
+          | (b[off + 7] & 0xFFL) << 56;
+    }
     return (long) LONG_LE.get(b, off);
   }
 
@@ -149,6 +172,22 @@ public final class ProjectionIndexRowGroupCodec {
           }
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
               encodeStringDict(out, page.stringDictionary(c), page.stringDictIdColumn(c), rowCount);
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+            // Dictionary, then per-row counts, then the flat element run — the same order every
+            // other encoder of this column uses. A whole-leaf codec has to handle EVERY column on
+            // the leaf, so omitting this would throw for a query that never touches the set.
+            encodeDictEntries(out, page.stringDictionary(c));
+            final int[] counts = page.stringSetCountColumn(c);
+            int maxCount = 0;
+            for (int r = 0; r < rowCount; r++) {
+              if (counts[r] > maxCount) {
+                maxCount = counts[r];
+              }
+            }
+            encodePackedIds(out, counts, rowCount, maxCount);
+            encodeDictIds(out, page.stringDictionary(c), page.stringSetIdColumn(c),
+                          page.stringSetLength(c));
+          }
           default -> throw new IllegalStateException("Unknown column kind " + page.columnKind(c));
         }
       }
@@ -368,6 +407,8 @@ public final class ProjectionIndexRowGroupCodec {
     final long[][] numericCols = new long[columnCount][];
     final long[][] booleanCols = new long[columnCount][];
     final int[][] dictIdCols = new int[columnCount][];
+    final int[][] setCountCols = new int[columnCount][];
+    final int[][] setElemCols = new int[columnCount][];
     final byte[][][] dicts = new byte[columnCount][][];
     final int presWords = rowCount > 0 ? (rowCount + 63) >>> 6 : 0;
     if (rowCount > 0) {
@@ -382,6 +423,16 @@ public final class ProjectionIndexRowGroupCodec {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
             dicts[c] = decodeDictEntries(in);
             dictIdCols[c] = decodePackedIds(in, rowCount);
+          }
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+            dicts[c] = decodeDictEntries(in);
+            final int[] counts = decodePackedIds(in, rowCount);
+            int total = 0;
+            for (int r = 0; r < rowCount; r++) {
+              total += counts[r];
+            }
+            setCountCols[c] = counts;
+            setElemCols[c] = decodePackedIds(in, total);
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
@@ -400,7 +451,8 @@ public final class ProjectionIndexRowGroupCodec {
     }
     final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount,
         firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax,
-        numericCols, booleanCols, dictIdCols, dicts, presence, columnFlags);
+        numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols, presence,
+        columnFlags);
     return page.serialize();
   }
 
@@ -490,6 +542,27 @@ public final class ProjectionIndexRowGroupCodec {
   }
 
   /** Inverse of {@link #encodeDictIds}: width byte + packed ids. */
+  /**
+   * Bit-pack {@code count} non-negative values whose maximum is {@code maxValue}, in the same
+   * {@code [width][packed]} shape {@link #encodeDictIds} writes and {@link #decodePackedIds} reads.
+   *
+   * <p>Exists for the per-row element counts of a STRING_SET column, whose width comes from the
+   * largest set on the leaf rather than from a dictionary size. A leaf where every row holds the
+   * same number of elements packs those counts to zero bits.
+   */
+  static void encodePackedIds(final ByteArrayOutputStream out, final int[] values, final int count,
+      final int maxValue) {
+    final int width = maxValue <= 0 ? 0 : widthOf(maxValue);
+    out.write(width);
+    if (width > 0) {
+      final BitWriter bw = new BitWriter(out);
+      for (int i = 0; i < count; i++) {
+        bw.write(values[i], width);
+      }
+      bw.flush();
+    }
+  }
+
   static int[] decodePackedIds(final Cursor in, final int rowCount) {
     final int width = in.readByte() & 0xFF;
     final int[] ids = new int[rowCount];
@@ -563,6 +636,12 @@ public final class ProjectionIndexRowGroupCodec {
   }
 
   static int getIntLE(final byte[] b, final int off) {
+    if (MANUAL_LE) {
+      return (b[off] & 0xFF)
+          | (b[off + 1] & 0xFF) << 8
+          | (b[off + 2] & 0xFF) << 16
+          | (b[off + 3] & 0xFF) << 24;
+    }
     return (int) INT_LE.get(b, off);
   }
 

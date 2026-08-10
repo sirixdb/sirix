@@ -60,6 +60,16 @@ public final class ProjectionIndexRowExtractor {
   private final long[] rowLongs;
   private final boolean[] rowBools;
   private final String[] rowStrings;
+
+  /**
+   * Per-column set elements for {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET}.
+   * Reused across rows and refilled in place — a projection build walks millions of records, so a
+   * fresh list per row would be the dominant allocation of the build.
+   */
+  private final String[][] rowStringSets;
+
+  /** Live element count per set column for the row being built. */
+  private final int[] rowStringSetLen;
   /** Per-row presence: the field EXISTS on the record (even when unrepresentable). */
   private final boolean[] rowPresent;
   /** Per-row poison: present field whose value the column kind cannot hold (null / object / array / mismatch). */
@@ -112,13 +122,16 @@ public final class ProjectionIndexRowExtractor {
         pcrKeys.add(it.nextLong());
         pcrCols.add(i);
       }
-      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i));
+      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i),
+                                                                  fieldPaths.get(i));
     }
     this.fieldPcrKeys = pcrKeys.toLongArray();
     this.fieldPcrColumns = pcrCols.toIntArray();
     this.rowLongs = new long[fieldPaths.size()];
     this.rowBools = new boolean[fieldPaths.size()];
     this.rowStrings = new String[fieldPaths.size()];
+    this.rowStringSets = new String[fieldPaths.size()][];
+    this.rowStringSetLen = new int[fieldPaths.size()];
     this.rowPresent = new boolean[fieldPaths.size()];
     this.rowUnrepresentable = new boolean[fieldPaths.size()];
     this.rowNonIntegral = new boolean[fieldPaths.size()];
@@ -156,6 +169,72 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
+   * Read an array node's STRING elements into the row's set buffer for {@code col}.
+   *
+   * <p>Only a set of STRINGS is representable. A non-string element makes the whole cell
+   * unrepresentable rather than silently dropping it: a membership predicate that saw a partial set
+   * would answer "no" for a record whose array does hold the value, which is a wrong answer, not a
+   * slower one.
+   *
+   * @return {@code false} if any element is not a string
+   */
+  private boolean collectStringSet(final JsonNodeReadOnlyTrx rtx, final long arrayKey,
+      final int col) {
+    int n = 0;
+    boolean allStrings = true;
+    if (rtx.hasFirstChild()) {
+      rtx.moveToFirstChild();
+      do {
+        if (rtx.getKind() == NodeKind.STRING_VALUE) {
+          String[] buf = rowStringSets[col];
+          if (buf == null) {
+            buf = new String[8];
+            rowStringSets[col] = buf;
+          } else if (n == buf.length) {
+            final String[] grown = new String[n << 1];
+            System.arraycopy(buf, 0, grown, 0, n);
+            rowStringSets[col] = grown;
+            buf = grown;
+          }
+          buf[n++] = rtx.getValue();
+        } else {
+          allStrings = false;
+        }
+      } while (rtx.moveToRightSibling());
+    }
+    rowStringSetLen[col] = n;
+    rtx.moveTo(arrayKey);
+    return allStrings;
+  }
+
+  /**
+   * The row's set elements per column, trimmed to their live length, or {@code null} when no set
+   * column is declared. Allocates only when a set column exists, and only the outer array.
+   */
+  private String[][] stringSetsForAppend() {
+    String[][] out = null;
+    for (int c = 0; c < columnKinds.length; c++) {
+      if (columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        continue;
+      }
+      if (out == null) {
+        out = new String[columnKinds.length][];
+      }
+      final int n = rowStringSetLen[c];
+      if (n == 0) {
+        out[c] = EMPTY_SET;
+      } else {
+        final String[] trimmed = new String[n];
+        System.arraycopy(rowStringSets[c], 0, trimmed, 0, n);
+        out[c] = trimmed;
+      }
+    }
+    return out;
+  }
+
+  private static final String[] EMPTY_SET = new String[0];
+
+  /**
    * Append the buffers filled by the last {@link #extractInto}/{@link #extractAt}
    * call as one row of {@code leaf}.
    *
@@ -163,7 +242,8 @@ public final class ProjectionIndexRowExtractor {
    *         fresh leaf and retries)
    */
   public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey) {
-    return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent,
+    return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, stringSetsForAppend(),
+                          rowPresent,
         rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
   }
 
@@ -183,6 +263,7 @@ public final class ProjectionIndexRowExtractor {
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
       rowNonDoubleSource[i] = false;
+      rowStringSetLen[i] = 0;
     }
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -203,10 +284,21 @@ public final class ProjectionIndexRowExtractor {
           final long pk = rtx.getPathNodeKey();
           final int col = findField(pk);
           if (col >= 0) {
-            // Object/array-valued field declared as a primitive column: present
-            // but UNREPRESENTABLE.
-            rowPresent[col] = true;
-            rowUnrepresentable[col] = true;
+            if (kind == NodeKind.OBJECT_NAMED_ARRAY
+                && columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+              // An array-valued field declared as a SET column: its string elements ARE the value.
+              // Every other declared column kind is scalar, which is why this used to be recorded
+              // as present-but-unrepresentable and the index could say nothing about it.
+              rowPresent[col] = true;
+              if (!collectStringSet(rtx, cur, col)) {
+                rowUnrepresentable[col] = true;   // a non-string element: not a set of strings
+              }
+            } else {
+              // Object/array-valued field declared as a primitive column: present
+              // but UNREPRESENTABLE.
+              rowPresent[col] = true;
+              rowUnrepresentable[col] = true;
+            }
           }
           // Descend regardless — declared NESTED fields live below this node.
           pushFirstChild(rtx, cur);

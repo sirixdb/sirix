@@ -20,6 +20,8 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.path.summary.PathStats;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -117,10 +119,16 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final List<String> fieldNames = new ArrayList<>();
     final Set<String> seenNames = new HashSet<>();
     forEachString(args[2], value -> {
-      final String name = lastStep(Path.parse(value, PathParser.Type.JSON).toString());
+      // A path ending in an ARRAY step declares the field's ELEMENTS — a set column. Its column
+      // name is the field step before the array layer, so `/[]/genres/[]` is the column `genres`
+      // and collides with a scalar `/[]/genres` exactly as it should.
+      final String canonical = Path.parse(value, PathParser.Type.JSON).toString();
+      final String name = columnNameOf(canonical);
       if (name.isEmpty() || "[]".equals(name)) {
         throw new QueryException(new QNm(
-            "Projected field path '" + value + "' must end in an object-key step."));
+            "Projected field path '" + value + "' must end in an object-key step, or in an array "
+                + "step naming the elements of an array-valued field (for example "
+                + "'/[]/genres/[]')."));
       }
       if (!seenNames.add(name)) {
         throw new QueryException(new QNm(
@@ -141,8 +149,17 @@ public final class CreateProjectionIndex extends AbstractFunction {
             + " fields vs " + fieldTypes.size() + " types."));
       }
     } else {
-      for (int i = 0; i < fieldPaths.size(); i++) {
-        fieldTypes.add(Type.STR);
+      // INFER from the path summary rather than defaulting to string. Defaulting made every
+      // numeric column a string column, whereupon the extractor recorded each value as
+      // present-but-UNREPRESENTABLE and the sparse-clean gate — correctly, fail-closed — refused to
+      // serve it. The index then built, committed, reported success, and was never used by any
+      // numeric predicate, with nothing said unless the query ran with -Dsirix.projDiag=true.
+      // The summary already knows what these fields hold; asking it costs one open.
+      try (final PathSummaryReader summary =
+               session.openPathSummary(document.getTrx().getRevisionNumber())) {
+        for (final Path<QNm> fieldPath : fieldPaths) {
+          fieldTypes.add(inferFieldType(summary, fieldPath));
+        }
       }
     }
 
@@ -272,7 +289,17 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final LongSet rootPcrs = pathSummary.getPCRsForPaths(Set.of(rootPath));
     for (int i = 0; i < fieldPaths.size(); i++) {
       final String name = fieldNames.get(i);
-      final LongSet ownPcrs = pathSummary.getPCRsForPaths(Set.of(fieldPaths.get(i)));
+      // A set column is declared at the ARRAY LAYER (`/[]/genres/[]`) while the name resolves to
+      // the FIELD node (`/[]/genres`) — different path-summary nodes for one column. Both are
+      // "own", or declaring the elements of an array would always report itself as a second
+      // occurrence of its own field.
+      final Set<Path<QNm>> ownPaths = new HashSet<>();
+      ownPaths.add(fieldPaths.get(i));
+      final Path<QNm> fieldOfSet = withoutTrailingArraySteps(fieldPaths.get(i));
+      if (fieldOfSet != null) {
+        ownPaths.add(fieldOfSet);
+      }
+      final LongSet ownPcrs = pathSummary.getPCRsForPaths(ownPaths);
       final Path<QNm> anyWithName = new Path<QNm>().descendantObjectField(new QNm(name));
       final LongIterator byName = pathSummary.getPCRsForPaths(Set.of(anyWithName)).iterator();
       while (byName.hasNext()) {
@@ -285,6 +312,21 @@ public final class CreateProjectionIndex extends AbstractFunction {
         }
       }
     }
+  }
+
+  /**
+   * The declared path with its trailing array step(s) removed, or {@code null} when it had none.
+   *
+   * <p>{@code /[]/genres/[]} → {@code /[]/genres}: the field whose elements the column holds.
+   */
+  private static Path<QNm> withoutTrailingArraySteps(final Path<QNm> path) {
+    String text = path.toString();
+    boolean trimmed = false;
+    while (text.endsWith("/[]")) {
+      text = text.substring(0, text.length() - 3);
+      trimmed = true;
+    }
+    return trimmed && !text.isEmpty() ? Path.parse(text, PathParser.Type.JSON) : null;
   }
 
   /** Whether the path-summary node {@code pcr} has an ancestor in {@code rootPcrs}. */
@@ -315,10 +357,67 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
   }
 
+  /**
+   * Column name = the last OBJECT-KEY step, skipping any trailing array layers.
+   *
+   * <p>{@code /[]/genres} and {@code /[]/genres/[]} both name the column {@code genres}: the first
+   * declares the field, the second its elements. They are the same column from a query's point of
+   * view, and naming them alike is what makes the duplicate check catch declaring both.
+   */
+  private static String columnNameOf(final String fieldPath) {
+    String path = fieldPath;
+    while (path.endsWith("/[]")) {
+      path = path.substring(0, path.length() - 3);
+    }
+    return lastStep(path);
+  }
+
   /** Column name = the final object-key step of the (canonical) field path. */
   private static String lastStep(final String fieldPath) {
     final int slash = fieldPath.lastIndexOf('/');
     return slash < 0 ? fieldPath : fieldPath.substring(slash + 1);
+  }
+
+  /**
+   * The type a field's OBSERVED values imply, from the path summary's statistics.
+   *
+   * <p>Evidence, in the order it is decisive:
+   * <ul>
+   *   <li>{@code minBytes} set — string values were recorded at this path.</li>
+   *   <li>{@code doubleTyped} — a floating-point value was seen, so a long column would truncate.</li>
+   *   <li>a numeric range was recorded ({@code min <= max}) — integral values only.</li>
+   * </ul>
+   *
+   * <p>Falls back to string when the path carries no statistics at all, which is the previous
+   * behaviour and the safe direction: a string column holds anything, it just cannot be compared
+   * numerically.
+   */
+  private static Type inferFieldType(final PathSummaryReader summary, final Path<QNm> fieldPath) {
+    try {
+      final LongIterator pcrs = summary.getPCRsForPaths(Set.of(fieldPath)).iterator();
+      while (pcrs.hasNext()) {
+        if (!summary.moveTo(pcrs.nextLong())) {
+          continue;
+        }
+        final PathNode node = summary.getPathNode();
+        final PathStats stats = node == null ? null : node.getStats();
+        if (stats == null) {
+          continue;
+        }
+        if (stats.minBytes != null) {
+          return Type.STR;
+        }
+        if (stats.doubleTyped) {
+          return Type.DBL;
+        }
+        if (stats.min <= stats.max) {
+          return Type.LON;
+        }
+      }
+    } catch (final RuntimeException statsUnavailable) {
+      // A resource without path statistics answers nothing here; string is the safe default.
+    }
+    return Type.STR;
   }
 
   private static Type mapType(final String type) {

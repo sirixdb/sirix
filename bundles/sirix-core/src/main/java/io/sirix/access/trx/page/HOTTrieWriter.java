@@ -36,6 +36,7 @@ import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
+import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
 import java.util.TreeMap;
@@ -6636,6 +6637,36 @@ public final class HOTTrieWriter {
         newLeaves[i].close();
       }
       return indirect;
+    }
+
+    // Segment-reference side maps (projection index) ride whichever leaf holds their OWNING
+    // slot; the fresh leaves were filled from (key, value) pairs alone, so route each captured
+    // reference to the new leaf now holding its owner — the same owner-slot-residency contract
+    // HOTLeafPage.moveOverflowPageRefsAfterSplit applies on splits. Keys were re-bucketed 1:1,
+    // so a missing owner is data loss and fails loudly.
+    final byte[] refOwnerKey = new byte[8];
+    for (int i = 0; i < n; i++) {
+      final HOTLeafPage oldLeaf = (HOTLeafPage) phase7wResolvePage(indirect.getChildReference(i));
+      if (oldLeaf.segmentRefCount() == 0) {
+        continue;
+      }
+      for (final long refKey : oldLeaf.overflowPageRefKeysSorted()) {
+        final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(refKey);
+        PathKeySerializer.INSTANCE.serialize(ownerSlot, refOwnerKey, 0);
+        HOTLeafPage target = null;
+        for (int j = 0; j < n; j++) {
+          if (newLeaves[j].findEntry(refOwnerKey) >= 0) {
+            target = newLeaves[j];
+            break;
+          }
+        }
+        if (target == null) {
+          throw new IllegalStateException("Phase 7w redistribution: owning slot " + ownerSlot
+              + " (refKey=" + refKey + ") not found in any redistributed leaf — a segment"
+              + " reference would be orphaned.");
+        }
+        target.setPageReference(refKey, oldLeaf.getPageReference(refKey));
+      }
     }
 
     final TransactionIntentLog log = this.activeLog;

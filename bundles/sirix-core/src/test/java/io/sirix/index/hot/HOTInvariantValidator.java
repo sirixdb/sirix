@@ -197,6 +197,7 @@ public final class HOTInvariantValidator {
     }
 
     validateIndirect(indirect);
+    validateSubtreeRangesDisjoint(indirect);
 
     // Descend.
     final int n = indirect.getNumChildren();
@@ -233,6 +234,120 @@ public final class HOTInvariantValidator {
       }
       walk(child, depth + 1, nextAncestors);
     }
+  }
+
+  /**
+   * I12 — subtree-ranges-disjoint. Each child's subtree must own a CONTIGUOUS, non-overlapping
+   * span of key space, and those spans must ascend with the child slot.
+   *
+   * <p>This is the trie property itself, stated in terms a walk can check: in Binna's HOT a node's
+   * discriminative bits are exactly the bits on which its subtree's keys differ, so a partial key
+   * is an ORDER-PRESERVING encoding and each child owns one interval. The moment the mask misses a
+   * discriminating bit, two keys that differ only on the missing bit collapse to the same partial
+   * key and land in the same child — and a third key that sorts BETWEEN them routes elsewhere. The
+   * child's range then straddles another child's.
+   *
+   * <p>Why the existing invariants do not catch it: I7 (partials ascending) and I8 (children sorted
+   * by first key) are the SAME invariant under a complete mask, and diverge only under an
+   * incomplete one. {@code HOTTrieWriter.redistributeLeafKeysIfMisrouted} resolves that divergence
+   * in favour of I7 ("a firstKey sort would then break I7"), which keeps I7 green while I8's
+   * premise is already gone. I6 also stays green, because PEXT routing remains self-consistent —
+   * every key is still findable by point lookup. What breaks is ORDER, so only a range scan
+   * notices.
+   *
+   * <p>Observed violation this check was written for: a 196-row-group projection index whose leaf
+   * held row groups {@code 128..159} AND {@code 192..196} while the NEXT child held
+   * {@code 160..191} — the node discriminated on bit 5 while ignoring the more significant bit 6.
+   */
+  private void validateSubtreeRangesDisjoint(final HOTIndirectPage indirect) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) {
+      return;
+    }
+    byte[] previousMax = null;
+    int previousSlot = -1;
+    for (int i = 0; i < n; i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) {
+        continue;
+      }
+      final Page child = loadPage(childRef);
+      if (child == null) {
+        continue;
+      }
+      final byte[][] range = subtreeKeyRange(child, 0);
+      if (range == null) {
+        continue;
+      }
+      if (previousMax != null && Arrays.compareUnsigned(previousMax, range[0]) >= 0) {
+        addViolation("I12-subtree-ranges-disjoint",
+            "indirect " + indirect.getPageKey() + ": child[" + previousSlot + "] spans up to "
+                + hex(previousMax) + " but child[" + i + "] starts at " + hex(range[0])
+                + " — the two subtrees interleave, so the node's mask is missing a discriminating"
+                + " bit. Point lookups still work; range scans silently return keys out of order.",
+            indirect);
+      }
+      previousMax = range[1];
+      previousSlot = i;
+    }
+  }
+
+  /**
+   * Smallest and largest key stored anywhere beneath {@code page}, as {@code {min, max}}, or
+   * {@code null} when the subtree holds no keys.
+   *
+   * <p>Deliberately takes the min/max over ALL descendants rather than the leftmost/rightmost leaf:
+   * assuming the leftmost leaf holds the minimum would assume the very ordering property this
+   * check exists to test.
+   */
+  private byte[] @Nullable [] subtreeKeyRange(final Page page, final int depth) {
+    if (depth > maxHeight) {
+      return null; // depth is reported separately by I9; do not recurse forever on a cyclic trie
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      final int entryCount = leaf.getEntryCount();
+      if (entryCount == 0) {
+        return null;
+      }
+      // Leaf entries are lex-sorted (I2, checked separately), so the ends are the extremes.
+      final byte[] first = leaf.getKey(0);
+      final byte[] last = leaf.getKey(entryCount - 1);
+      return first == null || last == null ? null : new byte[][] {first, last};
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      return null;
+    }
+    byte[] min = null;
+    byte[] max = null;
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) {
+        continue;
+      }
+      final Page child = loadPage(childRef);
+      if (child == null) {
+        continue;
+      }
+      final byte[][] childRange = subtreeKeyRange(child, depth + 1);
+      if (childRange == null) {
+        continue;
+      }
+      if (min == null || Arrays.compareUnsigned(childRange[0], min) < 0) {
+        min = childRange[0];
+      }
+      if (max == null || Arrays.compareUnsigned(childRange[1], max) > 0) {
+        max = childRange[1];
+      }
+    }
+    return min == null ? null : new byte[][] {min, max};
+  }
+
+  private static String hex(final byte[] key) {
+    final StringBuilder sb = new StringBuilder(key.length * 2);
+    for (final byte b : key) {
+      sb.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+    }
+    return sb.toString();
   }
 
   /**

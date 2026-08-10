@@ -974,6 +974,48 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Branch-escape guard for subclasses that run their own merge path (multi-entry slot stores
+   * such as the projection index, whose slot semantics are replace-not-OR-merge): decide whether
+   * {@code (keySlice, value)} may be MERGED into the routed leaf, and if not, perform the branch
+   * insert here.
+   *
+   * <p>This is the merge-vs-branch dispatch of {@link #dispatchInsert} made available to callers
+   * that bypass {@link #doIndex}. Skipping it is not an optimisation but a correctness bug:
+   * subset-match routing ({@link HOTIndirectPage#findChildIndex}) can land a key in a leaf whose
+   * {@code R(S)}-subtree it does not belong to (mismatch bit β at or above an ancestor's
+   * discriminative bit). Absorbing there makes the leaf's key range NON-CONTIGUOUS — point
+   * lookups keep working (routing stays self-consistent), but leaves stop being lex-ordered, and
+   * every bounded range scan that ends at the first key past its upper bound silently truncates.
+   * Measured on a 196-row-group projection index: one absorbed boundary key left a leaf holding
+   * row groups {@code 128..159} AND {@code 192..196} while its right sibling held
+   * {@code 160..191}, and the index silently stopped serving.
+   *
+   * @return {@code true} when the key branched (it is fully inserted — the caller must NOT also
+   *         merge); {@code false} when the key belongs in the routed leaf and the caller merges
+   */
+  protected final boolean branchIfEscapesRoutedLeaf(final LeafNavigationResult navResult,
+      final byte[] keySlice, final byte[] valueBuf, final int valueLen) {
+    final int pathDepth = navResult.pathDepth();
+    if (pathDepth == 0) {
+      return false;                        // the root is the leaf — nothing to escape from
+    }
+    final HOTIncrementalInsert.DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(
+        navResult.pathNodes(), navResult.pathChildIndices(), pathDepth, navResult.leaf(), keySlice);
+    final int beta = analysis.mismatchBit();
+    if (beta < 0 || beta > leastSignificantDiscBit(navResult.pathNodes()[pathDepth - 1])) {
+      return false;                        // present/empty, or β inside the leaf's R(S)-subtree
+    }
+    selfHealScope = null;
+    final boolean structurallyChanged =
+        branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
+    if (structurallyChanged && SELFHEAL_STRUCTURAL) {
+      detectAndHeal(selfHealScope);
+      healStructuralViolationOnPath(keySlice);
+    }
+    return true;
+  }
+
+  /**
    * Full-invariant self-heal scoped to {@code scope}'s subtree: run the executable invariant spec
    * ({@link HOTMalformedSubtreeDetector}, I3/I4/I5/I7/I8/I11) and discharge every highest malformed
    * indirect via a canonical scoped rebuild ({@link #rebuildExistingSubtree}). Because I5 is
@@ -2361,7 +2403,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIndirectPage subtreeRoot = pathNodes[safeDepth];
 
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
-    collectSubtreeEntries(subtreeRoot, collected);
+    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
+    collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
     collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
 
@@ -2381,6 +2424,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
         entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
     final Page rebuilt = built.rootPage();
+    reattachSegmentRefs(rebuilt, segmentRefs);
     final PageReference subtreeRef = navResult.pathRefs()[safeDepth];
     subtreeRef.setPage(rebuilt);
     registerFreshSubtree(subtreeRef);
@@ -2461,7 +2505,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       return;                                            // a leaf root has no indirect invariant
     }
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>();
-    collectSubtreeEntries(subtreeRoot, collected);
+    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
+    collectSubtreeEntries(subtreeRoot, collected, segmentRefs);
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
 
@@ -2470,6 +2515,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
         entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+    reattachSegmentRefs(built.rootPage(), segmentRefs);
     ref.setPage(built.rootPage());
     registerFreshSubtree(ref);
     storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
@@ -2584,12 +2630,12 @@ public abstract class AbstractHOTIndexWriter<K> {
     for (final byte[] k : strandKeys) {
       strandSet.add(java.util.HexFormat.of().formatHex(k));
     }
-    // Same loud backstop as collectSubtreeEntries: this two-leaf rebuild extracts keys/values
-    // only and discards the source leaf — segment refs would be silently dropped.
+    // This two-leaf migration extracts keys/values only and discards the source leaf. Rather
+    // than route the side map across the two rebuilt leaves, decline: the caller's canonical
+    // {@link #rebuildSubtree} fallback carries segment refs (collect + reattach), so falling
+    // back is correct and this rare path stays simple.
     if (sourceLeaf.segmentRefCount() > 0) {
-      throw new IllegalStateException("Strand migration would drop " + sourceLeaf.segmentRefCount()
-          + " segment reference(s) on leaf pageKey=" + sourceLeaf.getPageKey()
-          + " — this rebuild path is not instrumented for segment-ref routing.");
+      return false;
     }
     final List<HOTBulkBuilder.Entry> remaining = new ArrayList<>(sourceLeaf.getEntryCount());
     for (int i = 0; i < sourceLeaf.getEntryCount(); i++) {
@@ -2712,7 +2758,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTLeafPage oldLeaf = navResult.leaf();
 
     final List<HOTBulkBuilder.Entry> collected = new ArrayList<>(oldLeaf.getEntryCount() + 1);
-    collectSubtreeEntries(oldLeaf, collected);              // preserves tombstone entries
+    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>();
+    collectSubtreeEntries(oldLeaf, collected, segmentRefs); // preserves tombstone entries
     collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
     collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
     final List<HOTBulkBuilder.Entry> entries = new ArrayList<>(collected.size());
@@ -2730,6 +2777,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(
         entries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
     final Page miniRoot = built.rootPage();
+    reattachSegmentRefs(miniRoot, segmentRefs);
 
     if (pathDepth == 0) {                                   // the leaf is the whole index root
       navResult.leafRef().setPage(miniRoot);
@@ -2925,18 +2973,32 @@ public abstract class AbstractHOTIndexWriter<K> {
    * modifications are seen.
    */
   private void collectSubtreeEntries(Page page, List<HOTBulkBuilder.Entry> out) {
+    collectSubtreeEntries(page, out, null);
+  }
+
+  /**
+   * Depth-first gather of every {@code (key, value)} entry — and, when {@code segmentRefsOut} is
+   * non-null, every segment-reference side-map entry — in {@code page}'s subtree.
+   *
+   * <p>A side map (projection index segment references,
+   * {@code docs/PROJECTION_INDEX_STORAGE_REDESIGN.md} §2.3) must ride whichever leaf holds its
+   * OWNING SLOT; a rebuild that reconstructs leaves from {@code (key, value)} pairs alone would
+   * silently orphan the committed segment pages. Callers that reattach — via
+   * {@link #reattachSegmentRefs} after the bulk build — pass a sink; callers that cannot pass
+   * {@code null} and keep the loud backstop, failing attributably instead of losing data.
+   */
+  private void collectSubtreeEntries(Page page, List<HOTBulkBuilder.Entry> out,
+      @Nullable List<CapturedSegmentRef> segmentRefsOut) {
     if (page instanceof HOTLeafPage leaf) {
-      // Loud backstop, not a supported path: subtree rebuilds reconstruct leaves from
-      // (key, value) pairs only — a segment-reference side map on the source leaf would be
-      // silently dropped and its committed segment pages would become unreachable. Today no
-      // side-map-bearing tree (IndexType.PROJECTION only) can reach the doIndex-driven rebuild
-      // paths; if that wiring ever changes, fail attributably here instead of losing data.
-      // Instrumenting the rebuild with owner-slot ref routing is the fix if this ever fires
-      // (see docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.4).
       if (leaf.segmentRefCount() > 0) {
-        throw new IllegalStateException("Subtree rebuild would drop " + leaf.segmentRefCount()
-            + " segment reference(s) on leaf pageKey=" + leaf.getPageKey()
-            + " — this rebuild path is not instrumented for segment-ref routing.");
+        if (segmentRefsOut == null) {
+          throw new IllegalStateException("Subtree rebuild would drop " + leaf.segmentRefCount()
+              + " segment reference(s) on leaf pageKey=" + leaf.getPageKey()
+              + " — this rebuild path is not instrumented for segment-ref routing.");
+        }
+        for (final long refKey : leaf.overflowPageRefKeysSorted()) {
+          segmentRefsOut.add(new CapturedSegmentRef(refKey, leaf.getPageReference(refKey)));
+        }
       }
       final int count = leaf.getEntryCount();
       for (int i = 0; i < count; i++) {
@@ -2948,8 +3010,49 @@ public abstract class AbstractHOTIndexWriter<K> {
         if (child == null) {
           throw new SirixIOException("HOT: unresolvable child page during subtree rebuild");
         }
-        collectSubtreeEntries(child, out);
+        collectSubtreeEntries(child, out, segmentRefsOut);
       }
+    }
+  }
+
+  /** A side-map entry captured off a leaf that a rebuild is about to discard. */
+  private record CapturedSegmentRef(long refKey, PageReference reference) {
+  }
+
+  /**
+   * Re-home captured side-map references into the freshly built subtree: for each reference,
+   * descend from {@code newRoot} to the leaf now holding its owning slot and re-attach there.
+   * Mirrors {@link HOTLeafPage#overflowPageRefKey}'s contract (owner slot = {@code refKey >>> 16},
+   * stored-key encoding = {@link PathKeySerializer}) — the same owner-slot-residency routing the
+   * leaf split paths apply via {@code moveOverflowPageRefsAfterSplit}.
+   *
+   * <p>The bulk-built subtree contains every collected entry, so the owning slot MUST be found;
+   * anything else is data loss and fails loudly.
+   */
+  private void reattachSegmentRefs(final Page newRoot, final List<CapturedSegmentRef> refs) {
+    if (refs.isEmpty()) {
+      return;
+    }
+    final byte[] ownerKey = new byte[8];
+    for (int i = 0; i < refs.size(); i++) {
+      final CapturedSegmentRef captured = refs.get(i);
+      final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      Page current = newRoot;
+      while (current instanceof HOTIndirectPage indirect) {
+        final int childIndex = indirect.findChildIndex(ownerKey);
+        if (childIndex < 0) {
+          current = null;
+          break;
+        }
+        current = resolveHOTPageForTraversal(indirect.getChildReference(childIndex));
+      }
+      if (!(current instanceof HOTLeafPage leaf) || leaf.findEntry(ownerKey) < 0) {
+        throw new IllegalStateException("Segment-ref reattach after rebuild: owning slot "
+            + ownerSlot + " (refKey=" + captured.refKey() + ") not found in the rebuilt subtree"
+            + " — the rebuild dropped an entry it collected.");
+      }
+      leaf.setPageReference(captured.refKey(), captured.reference());
     }
   }
 

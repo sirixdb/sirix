@@ -105,6 +105,47 @@ public final class RegionsOnlyPage {
   }
 
   /**
+   * How many slots this fragment defines in {@code [from, to)}, by popcount rather than by asking
+   * bit by bit.
+   *
+   * <p>A column kernel segmenting a page counts the populated slots between one object key and the
+   * next, which over a whole page is one {@link #definesSlot} call per slot — 1,024 shifts, masks
+   * and branches to answer what sixteen {@code Long.bitCount}s answer exactly.
+   *
+   * @param from first slot, inclusive
+   * @param to one past the last slot
+   * @return the number of defined slots in the range, or {@code 0} when the range is empty or the
+   *         page carries no bitmap
+   */
+  public int populatedInRange(final int from, final int to) {
+    final long[] bitmap = slotBitmap;
+    if (bitmap == null || from >= to || to <= 0) {
+      return 0;
+    }
+    final int lo = Math.max(from, 0);
+    final int hi = Math.min(to, bitmap.length << 6);
+    if (lo >= hi) {
+      return 0;
+    }
+    final int firstWord = lo >>> 6;
+    final int lastWord = (hi - 1) >>> 6;
+    // -1L << (lo & 63) keeps the bits at and above lo; Java's shift is mod 64, which is what makes
+    // the aligned case (lo & 63 == 0) come out as the full word rather than empty.
+    long mask = -1L << (lo & 63);
+    int count = 0;
+    for (int w = firstWord; w <= lastWord; w++) {
+      long word = bitmap[w] & mask;
+      if (w == lastWord) {
+        final int lastBit = (hi - 1) & 63;
+        word &= lastBit == 63 ? -1L : (1L << (lastBit + 1)) - 1L;
+      }
+      count += Long.bitCount(word);
+      mask = -1L;
+    }
+    return count;
+  }
+
+  /**
    * How many slots this fragment defines, i.e. the bitmap's cardinality; {@code -1} when the page
    * was read without a bitmap.
    *

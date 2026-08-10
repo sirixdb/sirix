@@ -20,6 +20,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.LongAdder;
@@ -224,6 +225,9 @@ public final class ProjectionIndexCatalog {
         SERVED.increment();
         return stats.totalRows();
       } catch (final RuntimeException e) {
+      if (DIAG) {
+        System.err.println("[cat] load: threw " + e);
+      }
         // Transient (session closing, I/O): not cached; the next query retries.
         LOGGER.warn("Descriptor-tier count failed transiently for resource " + resourceKey
             + ", definition #" + candidate.def.getID() + " at revision " + revision + ": "
@@ -303,6 +307,9 @@ public final class ProjectionIndexCatalog {
       return null;
     }
     final DefEntry[] candidates = selectCandidates(entries, canonicalSourcePath, requiredFields);
+    if (DIAG) {
+      System.err.println("[cat] " + candidates.length + " candidate(s) after filtering");
+    }
     for (final DefEntry candidate : candidates) {
       final ProjectionIndexRegistry.Handle handle =
           load(session, resourceKey, revision, candidate.def);
@@ -370,10 +377,16 @@ public final class ProjectionIndexCatalog {
     try {
       final Probe probe = probeMetadata(reader, def, -1);
       if (probe == UNUSABLE || probe.buildRevision < 0) {
+        if (DIAG) {
+          System.err.println("[cat] load: probe unusable/buildRevision<0 for def #" + def.getID());
+        }
         return null;
       }
       final ProjectionIndexRegistry.Handle handle = decodeRowGroups(reader, def);
       if (handle == NOT_USABLE) {
+        if (DIAG) {
+          System.err.println("[cat] load: decode produced NOT_USABLE for def #" + def.getID());
+        }
         return null;
       }
       SERVED.increment();
@@ -389,12 +402,25 @@ public final class ProjectionIndexCatalog {
    * Root-matching, covering candidates ordered narrowest-first; tiny arrays —
    * insertion sort keeps them ordered.
    */
+  /** Diagnostic switch shared with the executor's {@code sirix.projDiag}. */
+  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
+
   private static DefEntry[] selectCandidates(final DefEntry[] entries,
       final String canonicalSourcePath, final String[] requiredFields) {
     DefEntry[] candidates = null;
     int candidateCount = 0;
+    if (DIAG) {
+      System.err.println("[cat] " + entries.length + " projection def(s); want root='"
+                             + canonicalSourcePath + "' fields=" + Arrays.toString(requiredFields));
+    }
     for (final DefEntry entry : entries) {
       if (!entry.rootPath.equals(canonicalSourcePath) || !coversAll(entry.fieldNames, requiredFields)) {
+        if (DIAG) {
+          System.err.println("[cat]   skip def root='" + entry.rootPath + "' fields="
+                                 + Arrays.toString(entry.fieldNames)
+                                 + (entry.rootPath.equals(canonicalSourcePath)
+                                        ? " (does not cover)" : " (root mismatch)"));
+        }
         continue;
       }
       if (candidates == null) {
@@ -444,6 +470,10 @@ public final class ProjectionIndexCatalog {
           DATA.get(new DataKey(resourceKey, def.getID(), probe.buildRevision),
               key -> decodeRowGroups(session, revision, def));
       if (handle == NOT_USABLE) {
+        if (DIAG) {
+          System.err.println("[cat] load: decodeRowGroups -> NOT_USABLE (def #" + def.getID()
+                                 + ", buildRevision " + probe.buildRevision + ")");
+        }
         return null;
       }
       // The cached handle is SHARED and stores nothing session-lifecycle-scoped: a column-
@@ -457,6 +487,9 @@ public final class ProjectionIndexCatalog {
       // always correct, so fail soft.
       LOGGER.warn("Projection probe/load failed transiently for resource " + resourceKey
           + ", definition #" + def.getID() + " at revision " + revision + ": " + e.getMessage());
+      if (DIAG) {
+        System.err.println("[cat] load: transient failure — " + e);
+      }
       return null;
     }
   }
@@ -486,10 +519,19 @@ public final class ProjectionIndexCatalog {
       LOGGER.warn("Projection definition #" + def.getID() + " has a corrupt metadata payload at "
           + "revision " + revisionForLog + " — falling back to the generic pipeline ("
           + corrupt.getMessage() + ")");
+      if (DIAG) {
+        System.err.println("[cat] probe UNUSABLE: corrupt payload — " + corrupt);
+      }
       return UNUSABLE;
     }
     if (metadata == null || metadata.isStale()) {
       // Expected: never persisted / older wire format / invalidated.
+      if (DIAG) {
+        System.err.println("[cat] probe UNUSABLE: metadata "
+                               + (metadata == null ? "null (absent or wrong wire version)"
+                                                   : "stale") + ", slot0 bytes="
+                               + (slot0 == null ? -1 : slot0.length));
+      }
       return UNUSABLE;
     }
     if (!metadata.matches(def.getProjectionRootPath().toString(), defFieldPaths(def),
@@ -497,6 +539,9 @@ public final class ProjectionIndexCatalog {
       LOGGER.warn("Projection definition #" + def.getID() + " does not match its persisted "
           + "metadata shape at revision " + revisionForLog + " (leftover sub-tree from a dropped "
           + "definition?) — falling back to the generic pipeline");
+      if (DIAG) {
+        System.err.println("[cat] probe UNUSABLE: shape mismatch");
+      }
       return UNUSABLE;
     }
     return new Probe(metadata.buildRevision());
@@ -548,6 +593,9 @@ public final class ProjectionIndexCatalog {
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "directory walk (" + corrupt.getMessage() + ")");
+      if (DIAG) {
+        System.err.println("[cat] directory walk CORRUPT — " + corrupt);
+      }
       return NOT_USABLE;
     }
     if (directories == null) {
@@ -558,6 +606,10 @@ public final class ProjectionIndexCatalog {
       LOGGER.warn("Projection definition #" + def.getID() + " declares " + rowGroupCount
           + " leaves but only " + directories.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
+      if (DIAG) {
+        System.err.println("[cat] decode: TRUNCATED — metadata declares " + rowGroupCount
+                               + " leaves, directory walk found " + directories.size());
+      }
       return NOT_USABLE;
     }
     final List<ProjectionIndexHOTStorage.RowGroupDirectory> live =
@@ -587,8 +639,13 @@ public final class ProjectionIndexCatalog {
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
     final ProjectionColumnStore store = new ProjectionColumnStore(live);
-    return ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(), metadata.buildRevision(),
-        metadata.fieldNames(), store, def.getID(), projectedBytes);
+    final ProjectionIndexRegistry.Handle handle =
+        ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(), metadata.buildRevision(),
+                                                  metadata.fieldNames(), store, def.getID(),
+                                                  projectedBytes);
+    // The metadata blob has already been read to get here, so the summary rides along for free.
+    handle.setSetValueRowCounts(metadata.setValueRowCounts());
+    return handle;
   }
 
   /**
@@ -652,6 +709,9 @@ public final class ProjectionIndexCatalog {
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during "
           + "decode (" + corrupt.getMessage() + ")");
+      if (DIAG) {
+        System.err.println("[cat] eager decode CORRUPT — " + corrupt);
+      }
       return NOT_USABLE;
     }
     final int rowGroupCount = metadata.rowGroupCount();
@@ -659,6 +719,10 @@ public final class ProjectionIndexCatalog {
       LOGGER.warn("Projection definition #" + def.getID() + " declares " + rowGroupCount
           + " leaves but only " + persisted.size() + " are stored — the store is "
           + "truncated; falling back to the generic pipeline");
+      if (DIAG) {
+        System.err.println("[cat] eager decode TRUNCATED — declares " + rowGroupCount
+                               + ", found " + persisted.size());
+      }
       return NOT_USABLE;
     }
     final List<byte[]> decoded = new ArrayList<>(rowGroupCount);
@@ -751,7 +815,8 @@ public final class ProjectionIndexCatalog {
   private static byte[] defColumnKinds(final IndexDef def) {
     final byte[] kinds = new byte[def.getProjectionFieldTypes().size()];
     for (int i = 0; i < kinds.length; i++) {
-      kinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(def.getProjectionFieldTypes().get(i));
+      kinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(def.getProjectionFieldTypes().get(i),
+                                                            def.getProjectionFields().get(i));
     }
     return kinds;
   }

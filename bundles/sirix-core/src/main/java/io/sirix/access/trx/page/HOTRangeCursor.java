@@ -125,6 +125,19 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private boolean positionedValid = false;
 
   /**
+   * End a bounded scan at the first key past {@code toKey} (default), rather than filtering to the
+   * end of the trie.
+   *
+   * <p>This is FAST but sound only on a trie where every node carries all of its discriminating
+   * bits — see {@link #advanceToValid} for why that does not currently hold. Set
+   * {@code -Dsirix.hot.range.scanToEnd=true} to trade the speed for a complete answer; measured
+   * cost of doing so on {@code HOTLeafUseAfterCloseTest}: 23 s to >590 s, because every bounded
+   * scan then walks the whole trie.
+   */
+  private static final boolean EARLY_EXIT_PAST_UPPER_BOUND =
+      !Boolean.getBoolean("sirix.hot.range.scanToEnd");
+
+  /**
    * Create a new range cursor.
    *
    * @param reader the keyed trie reader
@@ -196,17 +209,45 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
         continue;
       }
 
-      // Check if current entry is within range — zero-alloc comparison
-      // against the pre-supplied {@code toKey} bound. The previous impl
-      // materialised a {@link MemorySegment} via {@code getKeySlice} +
-      // {@code MemorySegment.ofArray(toKey)} on every call (3 heap
-      // allocs per iteration); the new path reads the key bytes straight
-      // from the HOT leaf's on/off-heap storage.
-      if (toKey != null && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0) {
-        exhausted = true;
-        positionedValid = false;
-        nextEntry = null;
-        return;
+      // Whole-leaf skip. Entries WITHIN a leaf are sorted, so one comparison against each end
+      // rules out every entry in it. This is what keeps "scan to the end of the trie" affordable:
+      // a bounded scan still touches each page once, but does no per-entry work on the pages that
+      // cannot contribute.
+      if (currentIndex == 0 && leafCannotContainInRangeKeys()) {
+        currentIndex = currentLeaf.getEntryCount();
+        continue;
+      }
+
+      // Check if current entry is within range — zero-alloc comparison against the pre-supplied
+      // bounds. The previous impl materialised a {@link MemorySegment} via {@code getKeySlice} +
+      // {@code MemorySegment.ofArray(toKey)} on every call (3 heap allocs per iteration); this
+      // path reads the key bytes straight from the HOT leaf's on/off-heap storage.
+      //
+      // An out-of-range key SKIPS the entry; it does NOT end the scan. Leaf visit order here is
+      // not lex-monotonic: HOTTrieWriter keeps children in partial-key order and accepts a mask
+      // that misses a discriminating bit (see redistributeLeafKeysIfMisrouted — "firstKey order
+      // and partial order diverge whenever the mask misses a discriminating bit"), so one leaf
+      // can hold two disjoint key ranges. Measured on a 196-leaf projection index: a leaf holding
+      // row groups 128..159 AND 192..196 sits before the leaf holding 160..191. Ending the scan
+      // at the first key past {@code toKey} therefore DROPPED every in-range key living in a
+      // later-visited leaf, silently returning a short answer.
+      //
+      // A PEXT partial key is not monotone in the key it is extracted from, so no bound
+      // comparison can prove "no further in-range keys exist" — the scan must run to the end of
+      // the trie. Whole leaves are skipped cheaply below, so the residual cost is page touches,
+      // not per-entry work.
+      if (isOutOfRange(currentIndex)) {
+        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null
+            && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0) {
+          // Default: stop at the first key past the upper bound. Fast, and correct ONLY on a
+          // trie whose masks are complete (-Dsirix.hot.range.scanToEnd=true opts out).
+          exhausted = true;
+          positionedValid = false;
+          nextEntry = null;
+          return;
+        }
+        currentIndex++;
+        continue;
       }
 
       // Valid entry found — expose via positional accessors.
@@ -214,6 +255,38 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       nextEntry = null;
       return;
     }
+  }
+
+  /**
+   * Is the entry at {@code index} outside {@code [fromKey, toKey]}?
+   *
+   * <p>Both ends are checked. Checking only the upper bound was safe while the cursor could
+   * assume it started exactly at {@code fromKey} and never moved backwards; it cannot — an
+   * out-of-order leaf can present keys BELOW {@code fromKey} after the scan has begun, and those
+   * were being returned to the caller as if they were in range.
+   */
+  private boolean isOutOfRange(final int index) {
+    if (fromKey != null && currentLeaf.compareKeyWithBound(index, fromKey) < 0) {
+      return true;
+    }
+    // Upper bound stays INCLUSIVE, as it was when this comparison ended the scan.
+    return toKey != null && currentLeaf.compareKeyWithBound(index, toKey) > 0;
+  }
+
+  /**
+   * Can the current leaf be skipped whole? True when its lowest key is already past
+   * {@code toKey}, or its highest key is still below {@code fromKey}. Sound because a leaf's own
+   * entries are sorted — it is only the order BETWEEN leaves that is unreliable.
+   */
+  private boolean leafCannotContainInRangeKeys() {
+    final int entryCount = currentLeaf.getEntryCount();
+    if (entryCount == 0) {
+      return true;
+    }
+    if (toKey != null && currentLeaf.compareKeyWithBound(0, toKey) > 0) {
+      return true;
+    }
+    return fromKey != null && currentLeaf.compareKeyWithBound(entryCount - 1, fromKey) < 0;
   }
 
   // iter#08 — compareKeys(MemorySegment, byte[]) removed in favour of the

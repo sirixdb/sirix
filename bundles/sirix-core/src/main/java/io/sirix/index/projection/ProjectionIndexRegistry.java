@@ -80,6 +80,36 @@ public final class ProjectionIndexRegistry {
      * the decoded column-slice arrays a fully-touched handle retains.
      */
     private final long projectedWeightBytes;
+
+    /**
+     * Index-wide per-value ROW counts from the projection's metadata blob, or {@code null} when the
+     * index carries none. Held on the handle because that blob is already read to build the handle
+     * — a membership count then needs no further read at all.
+     */
+    private java.util.Map<Integer, java.util.Map<String, Long>> setValueRowCounts;
+
+    /**
+     * Rows in the index whose set at {@code column} contains {@code value}; {@code 0} for a value
+     * the index does not hold, {@code null} when this column carries no summary.
+     */
+    public Long setValueRowCount(final int column, final String value) {
+      final var counts = setValueRowCounts;
+      if (counts == null) {
+        return null;
+      }
+      final var forColumn = counts.get(column);
+      if (forColumn == null) {
+        return null;
+      }
+      final Long n = forColumn.get(value);
+      return n == null ? Long.valueOf(0) : n;
+    }
+
+    /** Attach the metadata's summary; called once, at construction time, by the catalog. */
+    public void setSetValueRowCounts(
+        final java.util.Map<Integer, java.util.Map<String, Long>> counts) {
+      this.setValueRowCounts = counts;
+    }
     /**
      * iter#10 dense group-by: per-column canonical dictionary cache.
      * Sentinel value {@link #CANON_DICT_INELIGIBLE} flags
@@ -312,8 +342,18 @@ public final class ProjectionIndexRegistry {
       // derivation writes identical bits.
       byte bits = (byte) (EV_RESOLVED | EV_PURE_ALL);
       try {
-        for (final ProjectionColumnStore.ColumnSlice slice : columnStore.column(col, fetcher)) {
-          final byte f = slice.flags();
+        // From the DESCRIPTORS, which this store already holds, not by materialising the column.
+        // The flags byte a slice reports is the same byte the encoder wrote into the descriptor
+        // entry, so the evidence is identical — but decoding every slice to read one byte per leaf
+        // fetched the column's whole BODY and DICT chain: 110 MB on the movies corpus, paid by
+        // EVERY predicate on a sliceable column, including ones answered from metadata alone.
+        final boolean fromDescriptors =
+            !"false".equals(System.getProperty("sirix.projection.descriptorEvidence"));
+        final int leaves = fromDescriptors
+            ? columnStore.rowGroupCount() : columnStore.column(col, fetcher).length;
+        for (int leaf = 0; leaf < leaves; leaf++) {
+          final byte f = fromDescriptors ? columnStore.columnFlags(leaf, col)
+                                         : columnStore.column(col, fetcher)[leaf].flags();
           if ((f & ProjectionIndexRowGroupPage.COLUMN_FLAG_UNREPRESENTABLE) != 0) {
             bits |= EV_UNREP_ANY;
           }

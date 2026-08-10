@@ -788,6 +788,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     for (final Long2ObjectMap.Entry<RawBlobSlot> e : descriptors.long2ObjectEntrySet()) {
       final long slot = e.getLongKey();
       if (slot != expected) {
+        if (Boolean.getBoolean("sirix.projDiag")) {
+          final StringBuilder keys = new StringBuilder("[cat] descriptor key set: ");
+          long lo = -1, prev = -1;
+          for (final Long2ObjectMap.Entry<RawBlobSlot> k : descriptors.long2ObjectEntrySet()) {
+            final long v = k.getLongKey();
+            if (lo < 0) { lo = v; } else if (v != prev + 1) {
+              keys.append(lo).append("..").append(prev).append(' ');
+              lo = v;
+            }
+            prev = v;
+          }
+          keys.append(lo).append("..").append(prev).append("  (count=").append(descriptors.size())
+              .append(", metadata declares ").append(rowGroupCount).append(')');
+          System.err.println(keys);
+        }
         throw new IllegalStateException("segment-slot leaves are not contiguous: expected leaf "
             + expected + ", found " + slot + " (indexNumber=" + indexNumber + ")");
       }
@@ -1173,160 +1188,228 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return Arrays.asList(out);
   }
 
+
   /**
-   * Streaming builder for the directory walk — the projection tier's one-per-(resource, revision)
-   * cold cost, so it is written to allocate only what it hands back.
+   * Builder for the directory walk — the projection tier's one-per-(resource, revision) cold cost,
+   * so it is written to allocate only what it hands back.
    *
-   * <p><b>Why no intermediate index structures.</b> A slot key is
-   * {@code (rowGroupId << 16) | columnSegmentId} and the range cursor yields keys ASCENDING, so a
-   * row group's descriptor (segment id 0) always arrives before that row group's segment slots,
-   * and those arrive before the next row group's. The walk therefore needs no map from slot key to
-   * captured value and no sorted map to order the row groups: it fills one row group's arrays in
-   * place, emits it when the next descriptor appears, and indexes the output array directly by
-   * {@code rowGroupId - 1}. The previous form paid a red-black node per row group plus two hash
-   * maps sized for every segment slot in the index (≈ {@code rowGroups × segmentsPerGroup}
-   * entries, grown by repeated rehashing), all of it discarded once the directories were built.
+   * <p><b>Indexed by id, NOT by arrival order.</b> A slot key is
+   * {@code (rowGroupId << 16) | columnSegmentId}, so every row group's state can be addressed
+   * directly at {@code rowGroupId - 1} — the same index the output array uses. That needs no map
+   * from slot key to captured value and no sorted map to order the row groups. The map-based form
+   * this replaced paid a red-black node per row group plus two hash maps sized for every segment
+   * slot in the index (≈ {@code rowGroups × segmentsPerGroup} entries, grown by repeated
+   * rehashing), all of it discarded once the directories were built.
    *
-   * <p>Ordering is ENFORCED, never assumed: a descriptor out of sequence, a segment slot without
-   * its descriptor, a duplicate, or a row group whose segments never all arrive each fail loudly —
-   * the same corruption checks the map-based form made, moved to the point where the streaming
-   * pass can see them.
+   * <p><b>Visit order is NOT assumed.</b> The range cursor walks the trie's sibling chain, and
+   * topology order can diverge from key order after splits — measured: a 196-leaf index whose scan
+   * yielded {@code 1..159, 192..196, 160..191}. An earlier streaming form of this class emitted a
+   * row group when the NEXT descriptor arrived and rejected any id that was not {@code emitted + 1},
+   * so it rejected such a store outright; because the failure is caught and turned into "this index
+   * cannot serve", a projection index simply stopped being used above ~160 leaves with nothing
+   * logged at default level. Row groups are therefore completed in place and emitted together in
+   * {@link #finish()}. Segment slots that arrive before their own descriptor — possible when a row
+   * group straddles two leaves visited out of order — are buffered and replayed there.
+   *
+   * <p>Corruption is still caught, just at the point an order-agnostic pass can see it: a duplicate
+   * descriptor, an id past {@code rowGroupCount}, a segment naming a row group that has no
+   * descriptor at all, a missing declared segment, and a descriptor count that disagrees with the
+   * metadata each fail loudly. Distinct non-duplicate ids in {@code [1, N]} that number {@code N}
+   * are exactly {@code {1..N}}, so contiguity needs no separate check.
    */
   private static final class DirectoryWalk {
     private final RowGroupDirectory[] out;
     private final int rowGroupCount;
     private final int indexNumber;
 
-    /** Row group currently being filled; 0 = none started yet. */
-    private long currentRowGroupId;
-    private byte[] currentDescriptor;
-    private int[] currentSegmentIds;
-    private long[] currentOffsets;
-    private byte[] @Nullable [] currentInline;
-    private int currentFilled;
-    /** Rolling hint into {@link #currentSegmentIds}: slots arrive in ascending segment id. */
-    private int currentEntryHint;
-    private int emitted;
+    /** Per-row-group state, indexed by {@code rowGroupId - 1}; null until its descriptor arrives. */
+    private final byte[][] descriptors;
+    private final int[][] segmentIds;
+    private final long[][] offsets;
+    private final byte[][][] inlineBytes;
+    /** Declared segments already filled, per row group. */
+    private final int[] filled;
+    /** Rolling hint into {@link #segmentIds}{@code [slot]}: slots arrive in ascending segment id. */
+    private final int[] entryHint;
+    private int descriptorsSeen;
+
+    /** Segment slots seen before their descriptor; parallel arrays, grown by doubling. */
+    private long[] pendingRowGroupIds = EMPTY_LONGS;
+    private int[] pendingSegmentIds = EMPTY_INTS;
+    private long[] pendingOffsets = EMPTY_LONGS;
+    private byte[][] pendingInline = EMPTY_PAYLOADS;
+    private int pendingCount;
+
+    private static final long[] EMPTY_LONGS = new long[0];
+    private static final int[] EMPTY_INTS = new int[0];
+    private static final byte[][] EMPTY_PAYLOADS = new byte[0][];
 
     DirectoryWalk(final RowGroupDirectory[] out, final int rowGroupCount, final int indexNumber) {
       this.out = out;
       this.rowGroupCount = rowGroupCount;
       this.indexNumber = indexNumber;
+      this.descriptors = new byte[rowGroupCount][];
+      this.segmentIds = new int[rowGroupCount][];
+      this.offsets = new long[rowGroupCount][];
+      this.inlineBytes = new byte[rowGroupCount][][];
+      this.filled = new int[rowGroupCount];
+      this.entryHint = new int[rowGroupCount];
     }
 
-    /** A descriptor slot: emit the row group in progress, then start {@code rowGroupId}. */
+    /** A descriptor slot: open the row group it names. */
     void beginRowGroup(final long rowGroupId, final byte[] descriptor) {
-      emitCurrent();
-      if (rowGroupId != emitted + 1L) {
-        throw new IllegalStateException("segment-slot leaves are not contiguous: expected leaf "
-            + (emitted + 1) + ", found " + rowGroupId + " (indexNumber=" + indexNumber + ")");
-      }
-      if (rowGroupId > rowGroupCount) {
-        throw new IllegalStateException("segment-slot store has more live descriptors than the "
-            + rowGroupCount + " metadata declares (indexNumber=" + indexNumber + ")");
+      final int slot = slotOf(rowGroupId);
+      if (descriptors[slot] != null) {
+        throw new IllegalStateException("segment-slot leaf " + rowGroupId
+            + " has two descriptor slots (indexNumber=" + indexNumber + ")");
       }
       final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
       final int[] ids = new int[columnSegmentCount];
-      final long[] offsets = new long[columnSegmentCount];
+      final long[] offs = new long[columnSegmentCount];
       for (int i = 0; i < columnSegmentCount; i++) {
         ids[i] = RowGroupDescriptor.entryColumnSegmentId(descriptor, i);
-        offsets[i] = Constants.NULL_ID_LONG;
+        offs[i] = Constants.NULL_ID_LONG;
       }
-      currentRowGroupId = rowGroupId;
-      currentDescriptor = descriptor;
-      currentSegmentIds = ids;
-      currentOffsets = offsets;
-      currentInline = null;
-      currentFilled = 0;
-      currentEntryHint = 0;
+      descriptors[slot] = descriptor;
+      segmentIds[slot] = ids;
+      offsets[slot] = offs;
+      descriptorsSeen++;
     }
 
     /** A referenced segment slot: record its durable page offset. */
     void putOffset(final long rowGroupId, final int columnSegmentId, final long offset) {
-      final int i = entryIndexOf(rowGroupId, columnSegmentId);
-      if (i < 0) {
+      final int slot = slotOf(rowGroupId);
+      if (segmentIds[slot] == null) {
+        addPending(rowGroupId, columnSegmentId, offset, null);
         return;
       }
-      if (currentOffsets[i] == Constants.NULL_ID_LONG
-          && (currentInline == null || currentInline[i] == null)) {
-        currentFilled++;
-      }
-      currentOffsets[i] = offset;
+      applyOffset(slot, columnSegmentId, offset);
     }
 
     /** An inline segment slot: record its bytes (they never touch a page). */
     void putInline(final long rowGroupId, final int columnSegmentId, final byte[] payload) {
-      final int i = entryIndexOf(rowGroupId, columnSegmentId);
+      final int slot = slotOf(rowGroupId);
+      if (segmentIds[slot] == null) {
+        addPending(rowGroupId, columnSegmentId, Constants.NULL_ID_LONG, payload);
+        return;
+      }
+      applyInline(slot, columnSegmentId, payload);
+    }
+
+    private void applyOffset(final int slot, final int columnSegmentId, final long offset) {
+      final int i = entryIndexOf(slot, columnSegmentId);
       if (i < 0) {
         return;
       }
-      if (currentInline == null) {
-        currentInline = new byte[currentSegmentIds.length][];
+      final byte[][] inline = inlineBytes[slot];
+      if (offsets[slot][i] == Constants.NULL_ID_LONG && (inline == null || inline[i] == null)) {
+        filled[slot]++;
       }
-      if (currentOffsets[i] == Constants.NULL_ID_LONG && currentInline[i] == null) {
-        currentFilled++;
+      offsets[slot][i] = offset;
+    }
+
+    private void applyInline(final int slot, final int columnSegmentId, final byte[] payload) {
+      final int i = entryIndexOf(slot, columnSegmentId);
+      if (i < 0) {
+        return;
       }
-      currentInline[i] = payload;
-      currentOffsets[i] = Constants.NULL_ID_LONG;
+      byte[][] inline = inlineBytes[slot];
+      if (inline == null) {
+        inline = new byte[segmentIds[slot].length][];
+        inlineBytes[slot] = inline;
+      }
+      if (offsets[slot][i] == Constants.NULL_ID_LONG && inline[i] == null) {
+        filled[slot]++;
+      }
+      inline[i] = payload;
+      offsets[slot][i] = Constants.NULL_ID_LONG;
+    }
+
+    /** Buffer a segment slot whose descriptor has not been visited yet. */
+    private void addPending(final long rowGroupId, final int columnSegmentId, final long offset,
+        final byte @Nullable [] payload) {
+      if (pendingCount == pendingRowGroupIds.length) {
+        final int grown = pendingCount == 0 ? 16 : pendingCount << 1;
+        pendingRowGroupIds = Arrays.copyOf(pendingRowGroupIds, grown);
+        pendingSegmentIds = Arrays.copyOf(pendingSegmentIds, grown);
+        pendingOffsets = Arrays.copyOf(pendingOffsets, grown);
+        pendingInline = Arrays.copyOf(pendingInline, grown);
+      }
+      pendingRowGroupIds[pendingCount] = rowGroupId;
+      pendingSegmentIds[pendingCount] = columnSegmentId;
+      pendingOffsets[pendingCount] = offset;
+      pendingInline[pendingCount] = payload;
+      pendingCount++;
+    }
+
+    /** Validate a row group id and turn it into an index into the per-row-group arrays. */
+    private int slotOf(final long rowGroupId) {
+      if (rowGroupId < 1 || rowGroupId > rowGroupCount) {
+        throw new IllegalStateException("segment-slot store names leaf " + rowGroupId
+            + " but metadata declares " + rowGroupCount + " (indexNumber=" + indexNumber + ")");
+      }
+      return (int) rowGroupId - 1;
     }
 
     /**
-     * Entry index of {@code columnSegmentId} in the row group being filled, or {@code -1} when the
-     * descriptor does not declare it. Slots arrive in ascending segment id, so the rolling hint
-     * makes this O(1) amortized; the wrap-around scan keeps it correct for a descriptor whose
-     * entries are in some other order.
+     * Entry index of {@code columnSegmentId} in row group {@code slot}, or {@code -1} when the
+     * descriptor does not declare it. Slots arrive in ascending segment id within a row group, so
+     * the per-row-group rolling hint makes this O(1) amortized; the wrap-around scan keeps it
+     * correct for a descriptor whose entries are in some other order.
      *
      * <p>An undeclared slot is SKIPPED, not rejected: the descriptor-driven map lookup this
      * replaced only ever asked for the segments the descriptor declares, so a store carrying
      * anything else was already tolerated. Turning that into a hard failure here would reject
      * stores the previous reader accepted.
      */
-    private int entryIndexOf(final long rowGroupId, final int columnSegmentId) {
-      if (rowGroupId != currentRowGroupId) {
-        throw new IllegalStateException("segment-slot segment " + columnSegmentId + " belongs to "
-            + "leaf " + rowGroupId + " but no descriptor for it was read (indexNumber="
-            + indexNumber + ")");
-      }
-      final int[] ids = currentSegmentIds;
+    private int entryIndexOf(final int slot, final int columnSegmentId) {
+      final int[] ids = segmentIds[slot];
       final int n = ids.length;
+      final int hint = entryHint[slot];
       for (int probe = 0; probe < n; probe++) {
-        final int i = currentEntryHint + probe < n ? currentEntryHint + probe
-            : currentEntryHint + probe - n;
+        final int i = hint + probe < n ? hint + probe : hint + probe - n;
         if (ids[i] == columnSegmentId) {
-          currentEntryHint = i + 1 < n ? i + 1 : 0;
+          entryHint[slot] = i + 1 < n ? i + 1 : 0;
           return i;
         }
       }
       return -1;
     }
 
-    /** Emit the row group in progress, if any, after checking every declared segment arrived. */
-    private void emitCurrent() {
-      if (currentRowGroupId == 0) {
-        return;
-      }
-      if (currentFilled != currentSegmentIds.length) {
-        for (int i = 0; i < currentSegmentIds.length; i++) {
-          if (currentOffsets[i] == Constants.NULL_ID_LONG
-              && (currentInline == null || currentInline[i] == null)) {
-            throw new IllegalStateException("segment-slot leaf " + currentRowGroupId + " segment "
-                + currentSegmentIds[i] + " missing (indexNumber=" + indexNumber + ")");
-          }
+    /** Replay buffered segments, check every row group is complete, and emit them all. */
+    void finish() {
+      for (int p = 0; p < pendingCount; p++) {
+        final int slot = slotOf(pendingRowGroupIds[p]);
+        if (segmentIds[slot] == null) {
+          throw new IllegalStateException("segment-slot segment " + pendingSegmentIds[p]
+              + " belongs to leaf " + pendingRowGroupIds[p]
+              + " but no descriptor for it was read (indexNumber=" + indexNumber + ")");
+        }
+        final byte[] payload = pendingInline[p];
+        if (payload != null) {
+          applyInline(slot, pendingSegmentIds[p], payload);
+        } else {
+          applyOffset(slot, pendingSegmentIds[p], pendingOffsets[p]);
         }
       }
-      out[(int) currentRowGroupId - 1] = new RowGroupDirectory(currentRowGroupId, currentDescriptor,
-          currentSegmentIds, currentOffsets, currentInline);
-      emitted++;
-      currentRowGroupId = 0;
-    }
-
-    /** Emit the last row group and check the store holds exactly what the metadata declares. */
-    void finish() {
-      emitCurrent();
-      if (emitted != rowGroupCount) {
-        throw new IllegalStateException("segment-slot store has " + emitted
+      if (descriptorsSeen != rowGroupCount) {
+        throw new IllegalStateException("segment-slot store has " + descriptorsSeen
             + " live descriptors but metadata declares " + rowGroupCount + " (indexNumber="
             + indexNumber + ")");
+      }
+      for (int slot = 0; slot < rowGroupCount; slot++) {
+        final int[] ids = segmentIds[slot];
+        if (filled[slot] != ids.length) {
+          final byte[][] inline = inlineBytes[slot];
+          for (int i = 0; i < ids.length; i++) {
+            if (offsets[slot][i] == Constants.NULL_ID_LONG && (inline == null || inline[i] == null)) {
+              throw new IllegalStateException("segment-slot leaf " + (slot + 1) + " segment " + ids[i]
+                  + " missing (indexNumber=" + indexNumber + ")");
+            }
+          }
+        }
+        out[slot] = new RowGroupDirectory(slot + 1L, descriptors[slot], ids, offsets[slot],
+            inlineBytes[slot]);
       }
     }
   }
@@ -1743,6 +1826,18 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     for (int attempt = 0; attempt < MAX_SPLIT_CASCADE; attempt++) {
       final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
       final HOTLeafPage leaf = navResult.leaf();
+      // Binna's merge-vs-branch dispatch, which this bespoke merge path previously skipped:
+      // subset-match routing can land a key in a leaf whose R(S)-subtree it does not belong to
+      // (its mismatch bit β sits at or above an ancestor's discriminative bit). Absorbing it
+      // there let one leaf hold two disjoint key ranges — with 8-byte slot keys that first
+      // happened at ~160 row groups (a boundary key's partial was novel, e.g. 110 vs children
+      // 000..101, and subset routing fell back to 100) — and every range scan then returned
+      // row groups out of order. KEY_BUFFER is exactly 8 bytes, so keyBuf IS the exact key
+      // slice the analysis needs; when the key branches it is fully inserted and this write is
+      // done.
+      if (branchIfEscapesRoutedLeaf(navResult, keyBuf, value, value.length)) {
+        return;
+      }
       if (leaf.put(keyBuf, value)) {
         return;
       }

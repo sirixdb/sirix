@@ -554,8 +554,13 @@ public final class ProjectionColumnScan {
       if (!store.columnSliceable(p.column)) {
         throw new IllegalStateException("Predicate column " + p.column + " is not sliceable");
       }
-      final boolean stringColumn = store.columnKind(p.column)
-          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+      // A SET column is a string column here too: membership takes a string literal with EQ, and
+      // the evaluator picks the kernel off the slice's shape. Omitted, this threw "string literal
+      // against non-string column" into the caller's fail-soft catch, and every query silently
+      // took the whole-leaf byte scan instead.
+      final byte columnKind = store.columnKind(p.column);
+      final boolean stringColumn = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       if (stringColumn) {
         // The one string shape these kernels serve, mirroring the byte kernel's evaluator.
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
@@ -613,6 +618,9 @@ public final class ProjectionColumnScan {
       final long[] values = slice.numericValues();
       if (values != null) {
         evalNumeric(values, rows, p, presence, mask);
+      } else if (slice.setCounts() != null) {
+        evalStringSetContains(slice.stringDict(), slice.setCounts(), slice.stringDictIds(), rows,
+                              p.stringLitBytes, presence, mask);
       } else if (slice.stringDictIds() != null) {
         evalStringEq(slice.stringDict(), slice.stringDictIds(), rows, p.stringLitBytes, presence,
                      mask);
@@ -705,6 +713,213 @@ public final class ProjectionColumnScan {
    * surviving mask. A literal the dictionary does not hold zeroes the leaf's mask outright —
    * "not on this leaf" is exact, the dictionary interns every present value.
    */
+  /**
+   * Count rows whose set contains {@code literal}, from the DICTIONARIES ALONE.
+   *
+   * <p>No BODY segment is fetched, no element is visited and no mask is built: each leaf
+   * contributes the row count stored beside its dictionary entry. A leaf whose dictionary lacks the
+   * literal contributes nothing without any further work, which is the same pruning the scanning
+   * kernel does but at a fraction of the I/O.
+   *
+   * <p>Valid ONLY for a bare count over one set column. A conjunction needs to know WHICH rows
+   * matched so later predicates can narrow them, and a per-value total cannot say — the caller's
+   * gate is what keeps this method from being reached with a second predicate.
+   *
+   * @return matching rows, or {@code -1} when any leaf lacks counts and the caller must scan
+   */
+  public static long countSetMembership(final ProjectionColumnStore store, final int col,
+      final byte[] literal, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    // Preferred: the inline SET_COUNTS segments, whose bytes ride in the descriptors this store
+    // already holds — no page is read at all. The dictionary route below is the fallback for leaves
+    // written before that segment existed, and it costs a page per leaf.
+    final byte[][] inlineCounts = store.setCountsSegments(col, fetcher);
+    if (inlineCounts != null) {
+      long viaInline = 0;
+      boolean complete = true;
+      for (int leaf = 0; leaf < inlineCounts.length; leaf++) {
+        if (store.rowCount(leaf) == 0) {
+          continue;
+        }
+        final long n = ProjectionIndexColumnSegmentCodec.setCountFor(store.descriptor(leaf),
+                                                                     inlineCounts[leaf], col,
+                                                                     literal);
+        if (n < 0) {
+          complete = false;
+          break;
+        }
+        viaInline += n;
+      }
+      if (complete) {
+        return viaInline;
+      }
+    }
+    final var perLeaf = store.dictRowCounts(col, fetcher);
+    if (perLeaf == null) {
+      return -1;
+    }
+    long total = 0;
+    for (final var leaf : perLeaf) {
+      if (leaf == null) {
+        continue;                       // rowless leaf writes no dictionary
+      }
+      if (leaf.rowCounts() == null) {
+        return -1;                      // written before the counts existed — fall back wholesale
+      }
+      final byte[][] dict = leaf.dict();
+      for (int i = 0; i < dict.length && dict[i] != null; i++) {
+        if (Arrays.equals(dict[i], literal)) {
+          total += leaf.rowCounts()[i];
+          break;
+        }
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Set membership: mark the rows whose set holds {@code literal}.
+   *
+   * <p>The whole point of giving array-valued fields their own column kind. The literal resolves
+   * against the leaf's dictionary ONCE, and a literal the dictionary does not hold rules out every
+   * row in the leaf without reading a single element — the pruning a per-page storage scan cannot
+   * do, because there the values of one field are mixed in with every other string on the page.
+   *
+   * <p>Elements are laid out flat, rows consecutive, so one forward walk with a running cursor
+   * visits each element exactly once. An existential stops at the first hit in a row.
+   *
+   * @param counts per-row element count
+   * @param elems flat dict ids, rows consecutive
+   */
+  private static void evalStringSetContains(final byte[][] dict, final int[] counts,
+      final int[] elems, final int rowCount, final byte[] literal, final long[] presence,
+      final long[] mask) {
+    final int stride = (rowCount + 63) >>> 6;
+    int targetDictId = -1;
+    for (int i = 0; i < dict.length && dict[i] != null; i++) {
+      if (Arrays.equals(dict[i], literal)) {
+        targetDictId = i;
+        break;
+      }
+    }
+    if (targetDictId < 0) {
+      Arrays.fill(mask, 0, stride, 0L);   // not in this leaf at all
+      return;
+    }
+    // ONE pass, scalar, with an early exit per row. Measured against a vectorized restructuring
+    // (flat SIMD compare over the elements into a bitmap, then a range test per row): that was
+    // 338 -> 579 ms on the movies corpus, i.e. 1.7x SLOWER, and worse still on a rarer literal.
+    //
+    // The reason is element DENSITY, not the kernel. A leaf holds ~1,024 rows of ~2.5 elements, so
+    // ~2,560 ints; the scalar loop exits at the first match in a row, which on a selective literal
+    // is usually the first element. The vector version pays a count pass, a bitmap zeroing and a
+    // range test per row to save comparisons that were never the cost. SIMD wins on this shape only
+    // when a row holds many elements, and the profile's 38 %% self-time meant "this is the only work
+    // left", not "this is inefficient per element".
+    if (SET_SCAN_VECTORIZED) {
+      evalStringSetContainsVectorized(counts, elems, rowCount, targetDictId, presence, mask);
+      return;
+    }
+    int cursor = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int n = counts[row];
+      final int w = row >>> 6;
+      final long bit = 1L << (row & 63);
+      // The cursor advances over every row's elements whether or not the row is live, or the flat
+      // run desynchronises and later rows read their neighbours' elements.
+      if ((mask[w] & presence[w] & bit) != 0L) {
+        boolean hit = false;
+        for (int k = 0; k < n; k++) {
+          if (elems[cursor + k] == targetDictId) {
+            hit = true;
+            break;
+          }
+        }
+        if (!hit) {
+          mask[w] &= ~bit;
+        }
+      } else {
+        mask[w] &= ~bit;
+      }
+      cursor += n;
+    }
+  }
+
+  /**
+   * Which membership kernel runs. Both live in one build so they can be INTERLEAVED on one machine
+   * rather than compared across builds — a comparison of this kernel across two runs was what a
+   * thermally throttled laptop turned into a 1.7x phantom regression.
+   */
+  public static boolean SET_SCAN_VECTORIZED = Boolean.getBoolean("sirix.projection.setScanSimd");
+
+  /**
+   * The same answer via a flat SIMD compare over the elements, then a range test per row.
+   *
+   * <p>The hypothesis this exists to test: finding the literal among a leaf's elements has no
+   * per-row structure, so it should vectorize at 64 elements per word, and attributing hits to rows
+   * should then be a word-granular range test rather than a branch per element.
+   */
+  private static void evalStringSetContainsVectorized(final int[] counts, final int[] elems,
+      final int rowCount, final int targetDictId, final long[] presence, final long[] mask) {
+    int elemCount = 0;
+    for (int row = 0; row < rowCount; row++) {
+      elemCount += counts[row];
+    }
+    final int elemWords = (elemCount + 63) >>> 6;
+    long[] hits = ELEMENT_HITS.get();
+    if (hits.length < elemWords) {
+      hits = new long[Math.max(elemWords, hits.length << 1)];
+      ELEMENT_HITS.set(hits);
+    }
+    Arrays.fill(hits, 0, elemWords, 0L);
+    int e = 0;
+    for (; e + 64 <= elemCount; e += 64) {
+      hits[e >>> 6] = ProjectionVectorKernels.equalsIdWord(elems, e, targetDictId);
+    }
+    for (; e < elemCount; e++) {
+      if (elems[e] == targetDictId) {
+        hits[e >>> 6] |= 1L << (e & 63);
+      }
+    }
+    int cursor = 0;
+    for (int row = 0; row < rowCount; row++) {
+      final int n = counts[row];
+      final int w = row >>> 6;
+      final long bit = 1L << (row & 63);
+      final boolean live = (mask[w] & presence[w] & bit) != 0L;
+      if (!live || !anySet(hits, cursor, cursor + n)) {
+        mask[w] &= ~bit;
+      }
+      cursor += n;
+    }
+  }
+
+  /** Per-thread element-hit bitmap, grown to the widest leaf a thread has seen. */
+  private static final ThreadLocal<long[]> ELEMENT_HITS = ThreadLocal.withInitial(() -> new long[64]);
+
+  /** Whether any bit in {@code [from, to)} is set, tested a word at a time. */
+  private static boolean anySet(final long[] bits, final int from, final int to) {
+    if (from >= to) {
+      return false;
+    }
+    final int firstWord = from >>> 6;
+    final int lastWord = (to - 1) >>> 6;
+    final long headMask = -1L << (from & 63);
+    final int lastBit = (to - 1) & 63;
+    final long tailMask = lastBit == 63 ? -1L : (1L << (lastBit + 1)) - 1L;
+    if (firstWord == lastWord) {
+      return (bits[firstWord] & headMask & tailMask) != 0L;
+    }
+    if ((bits[firstWord] & headMask) != 0L || (bits[lastWord] & tailMask) != 0L) {
+      return true;
+    }
+    for (int w = firstWord + 1; w < lastWord; w++) {
+      if (bits[w] != 0L) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private static void evalStringEq(final byte[][] dict, final int[] ids, final int rowCount,
       final byte[] literal, final long[] presence, final long[] mask) {
     int targetDictId = -1;

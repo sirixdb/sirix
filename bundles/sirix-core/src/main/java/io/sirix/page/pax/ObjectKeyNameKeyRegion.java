@@ -391,6 +391,47 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   /**
+   * Every object-key slot on the page, in bitmap order, in ONE pass.
+   *
+   * <p>{@link #slotAt} answers one position with a select-nth-set-bit, which is the right shape for
+   * one lookup and the wrong one for a loop: a kernel walking a page's anchors calls it once per
+   * anchor and once per anchor's successor, so a page with ~70 anchors pays ~140 rank scans over
+   * the same 128-byte bitmap. Expanding the bitmap once and indexing it turns that into a single
+   * pass plus array reads.
+   *
+   * @param out receives the slot numbers; must hold at least the region's object-key count
+   * @return the number of slots written, or {@code -1} if the region is unreadable or {@code out}
+   *         is too small
+   */
+  public static int decodeSlotsInto(final MemorySegment payload, final int[] out) {
+    if (payload == null || payload.byteSize() < 3 || out == null) {
+      return -1;
+    }
+    final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
+    if (numUnique == 0) {
+      return -1;
+    }
+    if (payload.byteSize() < dictIdsOffset(numUnique)) {
+      return -1;
+    }
+    final int okCount = getShortU(payload, countOffset(numUnique));
+    if (okCount > out.length) {
+      return -1;
+    }
+    final int bitmapOff = bitmapOffset(numUnique);
+    int n = 0;
+    for (int w = 0; w < 16; w++) {
+      long word = getLong(payload, bitmapOff + w * 8);
+      final int base = w << 6;
+      while (word != 0L) {
+        out[n++] = base + Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+      }
+    }
+    return n == okCount ? n : -1;   // a bitmap that disagrees with the count is not usable
+  }
+
+  /**
    * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey.
    * Writes matching slot indices into out[]. Returns match count.
    */

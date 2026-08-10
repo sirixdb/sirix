@@ -20,6 +20,9 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -164,6 +167,36 @@ public final class ProjectionIndexBuilder {
    * must agree, or hydration's shape validation would reject healthy
    * stores.
    */
+  /**
+   * Column kind for a declared field, using its PATH as well as its type.
+   *
+   * <p>A field path whose last step is an array layer ({@code /[]/genres/[]}) declares the
+   * ELEMENTS of an array-valued field, and a set of strings is what that column holds. Every other
+   * kind is scalar, which is why such a field used to be recorded as present-but-unrepresentable
+   * and the index could answer nothing about it.
+   *
+   * <p>Keyed off the path rather than a new {@code Type} constant because {@link Type} is
+   * brackit's, and the path already says unambiguously what the user declared — an array step is
+   * not expressible any other way.
+   */
+  public static byte mapTypeToColumnKind(final Type type, final Path<QNm> fieldPath) {
+    if (fieldPath != null && isArrayLayerPath(fieldPath)
+        && (type == Type.STR || type == Type.ANY)) {
+      return ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+    }
+    return mapTypeToColumnKind(type);
+  }
+
+  /** Whether the path's LAST step selects an array layer. */
+  public static boolean isArrayLayerPath(final Path<QNm> fieldPath) {
+    final var steps = fieldPath.steps();
+    if (steps.isEmpty()) {
+      return false;
+    }
+    final var axis = steps.get(steps.size() - 1).getAxis();
+    return axis == Path.Axis.CHILD_ARRAY || axis == Path.Axis.DESC_ARRAY;
+  }
+
   public static byte mapTypeToColumnKind(final Type type) {
     if (type == Type.BOOL) return ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN;
     if (type == Type.INR || type == Type.LON || type == Type.INT) {
@@ -221,10 +254,11 @@ public final class ProjectionIndexBuilder {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
       final byte[] columnKinds = new byte[fieldTypes.size()];
       for (int i = 0; i < columnKinds.length; i++) {
-        columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i));
+        columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i),
+                                            indexDef.getProjectionFields().get(i));
       }
       finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds);
+          rtx.getRevisionNumber(), columnKinds, null);
       return;
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
@@ -233,6 +267,7 @@ public final class ProjectionIndexBuilder {
     // fence longs per leaf are accumulated for the metadata blob written last.
     final LongArrayList firstKeys = new LongArrayList();
     final LongArrayList lastKeys = new LongArrayList();
+    final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
     final ProjectionIndexBuilder builder =
         new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
           final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(raw);
@@ -242,12 +277,16 @@ public final class ProjectionIndexBuilder {
           }
           firstKeys.add(range[0]);
           lastKeys.add(range[1]);
+          // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
+          // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
+          // already count rows rather than occurrences.
+          accumulateSetValueRowCounts(raw, setValueRowCounts);
           storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(),
               ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
         });
     builder.build(rtx);
     finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
-        builder.columnKinds());
+        builder.columnKinds(), setValueRowCounts);
   }
 
   /**
@@ -312,6 +351,39 @@ public final class ProjectionIndexBuilder {
   }
 
   /**
+   * Fold one leaf's per-value ROW counts into the index-wide totals.
+   *
+   * <p>Reads the leaf back from its raw payload rather than threading state out of the encoder: the
+   * payload is already in hand at this point, and deriving the counts from the bytes that will
+   * actually be stored keeps the summary and the data from disagreeing if the encoder changes.
+   */
+  private static void accumulateSetValueRowCounts(final byte[] raw,
+      final Map<Integer, Map<String, Long>> into) {
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(raw);
+    final int rowCount = leaf.getRowCount();
+    if (rowCount == 0) {
+      return;
+    }
+    for (int c = 0; c < leaf.getColumnCount(); c++) {
+      if (leaf.columnKind(c) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        continue;
+      }
+      final byte[][] dict = leaf.stringDictionary(c);
+      final long[] counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(
+          dict, leaf.stringSetCountColumn(c), leaf.stringSetIdColumn(c), rowCount);
+      if (counts == null) {
+        continue;
+      }
+      final Map<String, Long> forColumn = into.computeIfAbsent(c, k -> new LinkedHashMap<>());
+      for (int i = 0; i < counts.length && dict[i] != null; i++) {
+        if (counts[i] > 0) {
+          forColumn.merge(new String(dict[i], StandardCharsets.UTF_8), counts[i], Long::sum);
+        }
+      }
+    }
+  }
+
+  /**
    * Finish a (re)build: tombstone orphaned slots above the new leaf count (real deletes —
    * hygiene, not load-bearing; the metadata's leaf count still bounds every read), write the
    * shape-only metadata blob (shape, build revision) at slot 0, then persist the per-leaf
@@ -319,7 +391,8 @@ public final class ProjectionIndexBuilder {
    */
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
-      final int buildRevision, final byte[] columnKinds) {
+      final int buildRevision, final byte[] columnKinds,
+      final Map<Integer, Map<String, Long>> setValueRowCounts) {
     final int rowGroupCount = firstKeys.size();
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
       storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
@@ -332,7 +405,7 @@ public final class ProjectionIndexBuilder {
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
-        columnKinds, rowGroupCount, buildRevision);
+        columnKinds, rowGroupCount, buildRevision, setValueRowCounts);
     storage.putBlob(0, metadata.serialize());
     ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
         priorRowGroupCount);
