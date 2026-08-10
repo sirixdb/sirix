@@ -54,6 +54,38 @@ public final class ProjectionColumnScan {
     return conjunctiveCount(store, predicates, 0, store.rowGroupCount(), fetcher);
   }
 
+  /**
+   * Resolve the predicate columns ONCE for a chunked parallel dispatch: the keep-mask (fingerprint
+   * + descriptor-zone pruning) is computed a single time, the surviving leaves are fetched a
+   * single time, and every range then shares the immutable slice arrays. Without this, each range
+   * re-resolved — and the executor's cache-warming prefill filled the FULL column besides,
+   * fetching the whole 70 MB dictionary chain the prune had just proven irrelevant.
+   */
+  public static ColumnSlice[][] resolvePredicateColumnsShared(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    checkPredicates(store, predicates);
+    return resolvePredicateColumns(store, predicates, fetcher);
+  }
+
+  /** Ranged variant over PRE-RESOLVED columns ({@link #resolvePredicateColumnsShared}). */
+  public static long conjunctiveCount(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final int fromRowGroup, final int toRowGroup,
+      final ColumnSlice[][] cols) {
+    final Scratch s = SCRATCH.get();
+    long total = 0;
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
+      final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        total += Long.bitCount(s.mask[w]);
+      }
+    }
+    return total;
+  }
+
   /** Ranged variant for the executor's chunked parallel dispatch — scratch is thread-local. */
   public static long conjunctiveCount(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final int fromRowGroup, final int toRowGroup,
@@ -576,11 +608,78 @@ public final class ProjectionColumnScan {
 
   private static ColumnSlice[][] resolvePredicateColumns(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    final long[] keep = computeKeepMask(store, predicates, fetcher);
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      int kept = 0;
+      if (keep != null) {
+        for (final long w : keep) {
+          kept += Long.bitCount(w);
+        }
+      }
+      System.err.println("[prune] leaves=" + store.leafCount() + " kept="
+                             + (keep == null ? "ALL (no evidence dropped)" : kept));
+    }
     final ColumnSlice[][] cols = new ColumnSlice[predicates.length][];
     for (int i = 0; i < predicates.length; i++) {
-      cols[i] = store.column(predicates[i].column, fetcher);
+      cols[i] = keep == null
+          ? store.column(predicates[i].column, fetcher)
+          : store.columnMasked(predicates[i].column, fetcher, keep);
     }
     return cols;
+  }
+
+  /**
+   * Leaf keep-mask from evidence the store holds BEFORE any predicate column is fetched: the
+   * descriptor's numeric zone pairs, and — for string-equality literals — the per-leaf
+   * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_STRING_BLOOM} fingerprints (their chain is
+   * a fraction of the BODY+DICT bytes it lets the fill skip). A dropped leaf is one PROVEN to
+   * contribute no row: descriptor {@code min > max} (no present value), a numeric zone the
+   * predicate excludes, or a fingerprint miss (no false negatives). Leaves without evidence —
+   * pre-fingerprint indexes, rowless descriptors' segments, non-EQ string ops — are kept, so
+   * behaviour degrades to the unpruned fill, never past it.
+   *
+   * @return the bitset over leaf indices, or {@code null} when nothing was dropped (callers then
+   *         use the plain cached fill)
+   */
+  private static long @Nullable [] computeKeepMask(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
+    final int n = store.leafCount();
+    if (n == 0) {
+      return null;
+    }
+    final long[] keep = new long[(n + 63) >>> 6];
+    Arrays.fill(keep, -1L);
+    if ((n & 63) != 0) {
+      keep[keep.length - 1] = (1L << (n & 63)) - 1;
+    }
+    boolean dropped = false;
+    for (final ColumnPredicate p : predicates) {
+      final byte kind = store.columnKind(p.column);
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG && p.stringLitBytes == null) {
+        final int bodyId = ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(p.column);
+        for (int i = 0; i < n; i++) {
+          if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+            continue;
+          }
+          final byte[] d = store.leafDescriptor(i);
+          final int e = RowGroupDescriptor.entryIndexOf(d, bodyId);
+          if (e < 0) {
+            continue;                        // no descriptor evidence — keep
+          }
+          final long min = RowGroupDescriptor.entryMin(d, e);
+          final long max = RowGroupDescriptor.entryMax(d, e);
+          if (min > max || zoneSkip(p, min, max)) {
+            keep[i >>> 6] &= ~(1L << (i & 63));
+            dropped = true;
+          }
+        }
+      } else if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
+          && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        final long literalHash = ProjectionIndexColumnSegmentCodec.bloomHash(p.stringLitBytes);
+        dropped |= store.applyBloomPrune(p.column, literalHash, keep, fetcher) > 0;
+      }
+    }
+    return dropped ? keep : null;
   }
 
   /**
@@ -594,6 +693,15 @@ public final class ProjectionColumnScan {
       final int leaf, final int rowCount, final long[] mask) {
     if (rowCount <= 0) {
       return 0;
+    }
+    // A predicate slice with no rows on a leaf the KEYS chain says has rows is a PRUNED slice
+    // (descriptor zone or string fingerprint proved no row can match) — the conjunction is
+    // false for the whole leaf. Checked before any evaluator so the pruned sentinel's absent
+    // typed arrays are never touched.
+    for (int i = 0; i < predicates.length; i++) {
+      if (cols[i][leaf].rowCount() <= 0) {
+        return 0;
+      }
     }
     // Zone-map prune — numeric predicate columns only (byte-kernel policy).
     for (int i = 0; i < predicates.length; i++) {

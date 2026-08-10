@@ -18,6 +18,8 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 
+import org.jspecify.annotations.Nullable;
+import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -258,7 +260,7 @@ public final class ProjectionIndexBuilder {
                                             indexDef.getProjectionFields().get(i));
       }
       finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds, null);
+          rtx.getRevisionNumber(), columnKinds, null, null);
       return;
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
@@ -267,6 +269,7 @@ public final class ProjectionIndexBuilder {
     // fence longs per leaf are accumulated for the metadata blob written last.
     final LongArrayList firstKeys = new LongArrayList();
     final LongArrayList lastKeys = new LongArrayList();
+    final Map<Integer, List<byte[]>> bloomPerColumn = new HashMap<>();
     final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
     final ProjectionIndexBuilder builder =
         new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
@@ -281,12 +284,37 @@ public final class ProjectionIndexBuilder {
           // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
           // already count rows rather than occurrences.
           accumulateSetValueRowCounts(raw, setValueRowCounts);
-          storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(),
-              ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
+          final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+              ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
+          accumulateBloomSegments(encoded, firstKeys.size(), bloomPerColumn);
+          storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), encoded);
         });
     builder.build(rtx);
     finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
-        builder.columnKinds(), setValueRowCounts);
+        builder.columnKinds(), setValueRowCounts, bloomPerColumn);
+  }
+
+  /**
+   * Collect the leaf's fingerprint segments per column, index-aligned to {@code rowGroupId - 1}.
+   * Leaves without one (rowless, non-string columns) stay {@code null} in the list — the block
+   * encoder writes them as empty slices, which probe as "no evidence, keep".
+   */
+  private static void accumulateBloomSegments(
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded, final int rowGroupId,
+      final Map<Integer, List<byte[]>> bloomPerColumn) {
+    final int[] ids = encoded.columnSegmentIds();
+    for (int i = 0; i < ids.length; i++) {
+      final int id = ids[i];
+      if (id > 0 && id % ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN == 0) {
+        final int column = id / ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN - 1;
+        final List<byte[]> list =
+            bloomPerColumn.computeIfAbsent(column, unused -> new ArrayList<>());
+        while (list.size() < rowGroupId - 1) {
+          list.add(null);
+        }
+        list.add(encoded.segments()[i]);
+      }
+    }
   }
 
   /**
@@ -392,7 +420,8 @@ public final class ProjectionIndexBuilder {
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
       final int buildRevision, final byte[] columnKinds,
-      final Map<Integer, Map<String, Long>> setValueRowCounts) {
+      final Map<Integer, Map<String, Long>> setValueRowCounts,
+      final @Nullable Map<Integer, List<byte[]>> bloomPerColumn) {
     final int rowGroupCount = firstKeys.size();
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
       storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
@@ -407,6 +436,26 @@ public final class ProjectionIndexBuilder {
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names,
         columnKinds, rowGroupCount, buildRevision, setValueRowCounts);
     storage.putBlob(0, metadata.serialize());
+    // Fingerprint BLOCKS — the contiguous acceleration over the per-leaf segments just written.
+    // A full build is the ONLY writer of blocks; incremental maintenance tombstones them
+    // (see ProjectionIndexHOTStorage#removeBloomBlocks), so a block always mirrors a complete
+    // build's truth. Tombstone-first covers columns whose block existed but is empty now.
+    storage.removeBloomBlocks(columnKinds.length);
+    if (bloomPerColumn != null) {
+      for (final Map.Entry<Integer, List<byte[]>> e : bloomPerColumn.entrySet()) {
+        final List<byte[]> list = e.getValue();
+        final byte[][] perLeaf = new byte[rowGroupCount][];
+        final int upTo = Math.min(list.size(), rowGroupCount);
+        for (int i = 0; i < upTo; i++) {
+          perLeaf[i] = list.get(i);
+        }
+        final byte[] block =
+            ProjectionIndexColumnSegmentCodec.encodeBloomBlock(perLeaf, rowGroupCount);
+        if (block != null) {
+          storage.putBlob(ProjectionIndexHOTStorage.bloomBlockSlotKey(e.getKey()), block);
+        }
+      }
+    }
     ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
         priorRowGroupCount);
   }

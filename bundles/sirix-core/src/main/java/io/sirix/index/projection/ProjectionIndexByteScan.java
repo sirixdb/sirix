@@ -81,21 +81,44 @@ public final class ProjectionIndexByteScan {
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   /**
+   * Manual little-endian byte assembly instead of the {@link VarHandle} view (same switch and
+   * default as {@link ProjectionIndexRowGroupCodec}). The VarHandle folds to a single
+   * {@code MOVL}/{@code MOVQ} only once C2 has compiled the call-site; a COLD one-shot never gets
+   * there, and a wall-clock profile of cold S3 put the un-elided access-mode machinery
+   * ({@code checkAccessModeThenIsDirect} / {@code VarForm.getMemberName} /
+   * {@code guard_LI_J}) at ~55 % of all busy samples — more than the scan kernel itself. Manual
+   * assembly has no access-mode check to elide, so it costs the same interpreted, in C1 and in C2.
+   */
+  private static final boolean MANUAL_LE =
+      !"false".equals(System.getProperty("sirix.projection.manualLE"));
+
+  /**
    * Read a little-endian {@code int} from {@code b} at byte offset {@code off}.
-   * Forwards to {@link #INT_LE} — wrapped in a named helper so call-sites are
-   * easier to grep and the small unchecked-cast-from-Object boilerplate lives
-   * in one place. HotSpot intrinsifies the VarHandle call to a single
-   * {@code MOVL} after warm-up.
+   * Wrapped in a named helper so call-sites are easier to grep and the encoding
+   * choice lives in one place.
    */
   private static int getIntLE(final byte[] b, final int off) {
+    if (MANUAL_LE) {
+      return (b[off] & 0xFF)
+          | (b[off + 1] & 0xFF) << 8
+          | (b[off + 2] & 0xFF) << 16
+          | b[off + 3] << 24;
+    }
     return (int) INT_LE.get(b, off);
   }
 
-  /**
-   * Read a little-endian {@code long} from {@code b} at byte offset {@code off}.
-   * Intrinsified to a single {@code MOVQ} by HotSpot.
-   */
+  /** Read a little-endian {@code long} from {@code b} at byte offset {@code off}. */
   private static long getLongLE(final byte[] b, final int off) {
+    if (MANUAL_LE) {
+      return (b[off] & 0xFFL)
+          | (b[off + 1] & 0xFFL) << 8
+          | (b[off + 2] & 0xFFL) << 16
+          | (b[off + 3] & 0xFFL) << 24
+          | (b[off + 4] & 0xFFL) << 32
+          | (b[off + 5] & 0xFFL) << 40
+          | (b[off + 6] & 0xFFL) << 48
+          | (b[off + 7] & 0xFFL) << 56;
+    }
     return (long) LONG_LE.get(b, off);
   }
 

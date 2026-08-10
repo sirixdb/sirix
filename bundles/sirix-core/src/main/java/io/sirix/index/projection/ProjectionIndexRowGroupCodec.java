@@ -623,6 +623,14 @@ public final class ProjectionIndexRowGroupCodec {
     return w == words - 1 && (rowCount & 63) != 0 ? (1L << (rowCount & 63)) - 1 : -1L;
   }
 
+  /** Little-endian {@code int} into an array at {@code off} — the block writers' primitive. */
+  static void putIntLEAt(final byte[] b, final int off, final int v) {
+    b[off] = (byte) v;
+    b[off + 1] = (byte) (v >>> 8);
+    b[off + 2] = (byte) (v >>> 16);
+    b[off + 3] = (byte) (v >>> 24);
+  }
+
   static void putIntLE(final ByteArrayOutputStream out, final int v) {
     out.write(v);
     out.write(v >>> 8);

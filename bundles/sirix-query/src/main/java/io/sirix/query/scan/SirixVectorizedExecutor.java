@@ -1529,9 +1529,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return total;
     }
-    prefillColumns(store, preds, -1, fetcher);
+    // Resolve ONCE (keep-mask pruning + one masked fetch of the survivors), share the immutable
+    // slice arrays across ranges. The old cache-warming prefill filled the FULL column here —
+    // fetching the 70 MB dictionary chain the fingerprint prune had just excluded.
+    final ProjectionColumnStore.ColumnSlice[][] sharedCols =
+        ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher);
     if (rowGroupCount < 64) {
-      return ProjectionColumnScan.conjunctiveCount(store, preds, fetcher);
+      return ProjectionColumnScan.conjunctiveCount(store, preds, 0, rowGroupCount, sharedCols);
     }
     final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     final long[] perThread = new long[eff];
@@ -1540,7 +1544,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to) return;
-      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to, fetcher);
+      perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to, sharedCols);
     });
     long total = 0;
     for (final long t : perThread) {

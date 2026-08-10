@@ -577,6 +577,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       boolean patched = false;
       if (!rebuildPending) {
         try {
+          // The fingerprint blocks are DERIVED from the per-leaf segments this patch is about to
+          // rewrite; a stale filter could prove a freshly added value "absent" — a wrong answer.
+          // Tombstone them first; readers fall back to the per-leaf chain, and the next full
+          // build (or the rebuild below) rewrites them.
+          new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID())
+              .removeBloomBlocks(indexDef.getProjectionFields().size());
           patched = applyIncremental(dirty);
         } catch (final RuntimeException incrementalFailure) {
           // The incremental patch is the OPTIONAL fast path: a throw here must degrade to the

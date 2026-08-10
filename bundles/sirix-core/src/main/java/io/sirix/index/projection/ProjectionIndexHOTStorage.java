@@ -385,6 +385,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * granularity; entry {@code i} of the descriptor describes {@code segments[i]} (both ascending by
    * columnSegmentId), so the (byteLen, contentHash) compare needs no second hash pass over the bytes.
    */
+  /**
+   * Slot key of column {@code column}'s fingerprint BLOCK blob. Lives in the {@code rowGroupId==0}
+   * key space (keys {@code 16 + column}, all {@code < 2^16}) beside the metadata blob at key 0 —
+   * every row-group walker already skips the whole space, so the block is invisible to them.
+   */
+  public static long bloomBlockSlotKey(final int column) {
+    if (column < 0 || column >= 0xFFF0) {
+      throw new IllegalArgumentException("column out of bloom-block key range: " + column);
+    }
+    return 16L + column;
+  }
+
+  /**
+   * Tombstone every fingerprint block. Called by incremental maintenance BEFORE it patches leaves:
+   * the blocks are derived from the per-leaf segments, and a stale filter could otherwise prove a
+   * freshly added value "absent" — a wrong answer, not a slow one. The next full build rewrites
+   * them; until then readers fall back to the per-leaf chain.
+   */
+  public void removeBloomBlocks(final int columnCount) {
+    for (int c = 0; c < columnCount; c++) {
+      tombstoneBlobSlot(bloomBlockSlotKey(c));
+    }
+  }
+
   public void putRowGroupAsColumnSegmentSlots(final long rowGroupId,
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
     if (rowGroupId < 1) {
@@ -1585,6 +1609,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[][] out = new byte[offsets.length][];
     for (int i = 0; i < offsets.length; i++) {
       out[i] = pages[i] == null ? null : pages[i].getDataBytes();
+    }
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      int wanted = 0;
+      long bytes = 0;
+      for (int i = 0; i < offsets.length; i++) {
+        if (offsets[i] != Constants.NULL_ID_LONG && offsets[i] >= 0) {
+          wanted++;
+        }
+        if (out[i] != null) {
+          bytes += out[i].length;
+        }
+      }
+      System.err.println("[io] segBatch offsets=" + offsets.length + " wanted=" + wanted
+                             + " bytes=" + bytes + "  "
+                             + io.sirix.io.filechannel.FileChannelReader.runDiagSummary());
     }
     return out;
   }

@@ -105,6 +105,28 @@ public final class ProjectionIndexColumnSegmentCodec {
    */
   public static final byte SEG_KIND_SET_COUNTS = 3;
 
+  /**
+   * Per-leaf BLOOM FINGERPRINT over a string column's distinct values — the equality analogue of
+   * the numeric zone map for UNSORTED string data.
+   *
+   * <p>Why min/max cannot do this job: the descriptor's zone pair prunes only when the column is
+   * clustered, and a leaf of ~1024 arbitrary titles spans nearly the whole collation range, so a
+   * string-equality literal zone-tests as "possible" on every leaf. The fingerprint answers the
+   * question the zone map cannot: "can THIS value be on this leaf at all?" — probabilistically,
+   * with no false negatives. A miss skips the leaf's BODY and DICT fetch AND decode entirely; a
+   * false positive costs exactly what every leaf cost before this segment existed.
+   *
+   * <p>Sized at ~10 bits per distinct value (3 probes of one 64-bit hash), clamped to
+   * [64 B, 2 KiB] of filter words: ~1 % false-positive rate at full occupancy. On the movies
+   * corpus a title-equality one-shot reads ~4 MB of fingerprints instead of ~55 MB of
+   * dictionary + id segments.
+   *
+   * <p>ADDITIVE format: readers discover the segment by its chain being present. An index built
+   * before this kind existed simply has no fingerprint chain, and the scan keeps every leaf —
+   * the pre-fingerprint behaviour, not an error.
+   */
+  public static final byte SEG_KIND_STRING_BLOOM = 4;
+
   /** Fixed per-segment header size: magic + version + segKind. */
   public static final int SEGMENT_HEADER_BYTES = 6;
 
@@ -178,6 +200,15 @@ public final class ProjectionIndexColumnSegmentCodec {
   /** Segment id of column {@code c}'s {@link #SEG_KIND_SET_COUNTS} segment. */
   public static int setCountsColumnSegmentId(final int column) {
     return SEGMENTS_PER_COLUMN * checkColumn(column) + 3;
+  }
+
+  /**
+   * Segment id of column {@code c}'s {@link #SEG_KIND_STRING_BLOOM} segment. Sub-id 4 is the last
+   * free slot of the per-column stride ({@code SEGMENTS_PER_COLUMN} = 4; body/dict/set-counts take
+   * 1..3), so the id space and {@link RowGroupDescriptor#MAX_COLUMNS} are unchanged.
+   */
+  public static int bloomColumnSegmentId(final int column) {
+    return SEGMENTS_PER_COLUMN * checkColumn(column) + 4;
   }
 
   private static int checkColumn(final int column) {
@@ -263,7 +294,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     // KEYS once, then per column: BODY, an optional DICT, and an optional SET_COUNTS. Sized for
     // the maximum a column can emit — under-sizing this overflows the parallel arrays below rather
     // than dropping a segment, which is how the SET_COUNTS addition first showed up.
-    final int maxColumnSegments = 1 + 3 * columnCount;
+    final int maxColumnSegments = 1 + 4 * columnCount;
     final int[] columnSegmentIds = new int[maxColumnSegments];
     final byte[][] segments = new byte[maxColumnSegments][];
     final byte[] entryFlags = new byte[maxColumnSegments];
@@ -370,6 +401,11 @@ public final class ProjectionIndexColumnSegmentCodec {
             columnSegmentCount++;
           }
         }
+
+        // STRING_BLOOM segment: equality fingerprint over the leaf's distinct values.
+        columnSegmentIds[columnSegmentCount] = bloomColumnSegmentId(c);
+        segments[columnSegmentCount] = encodeStringBloomPayload(page.stringDictionary(c));
+        columnSegmentCount++;
       }
     }
 
@@ -449,6 +485,180 @@ public final class ProjectionIndexColumnSegmentCodec {
       inline[best] = true;
       remaining -= byteLens[best];
     }
+  }
+
+  /** Filter-size clamp: [512, 16384] bits = [64 B, 2 KiB] of words. */
+  private static final int BLOOM_MIN_BITS = 512;
+  private static final int BLOOM_MAX_BITS = 16384;
+
+  /**
+   * Build the {@link #SEG_KIND_STRING_BLOOM} payload over the leaf's distinct dictionary values.
+   * Layout after the shared segment header: {@code int mBits; long[mBits/64] words}.
+   */
+  private static byte[] encodeStringBloomPayload(final byte[][] dictionary) {
+    int count = 0;
+    while (count < dictionary.length && dictionary[count] != null) {
+      count++;
+    }
+    int mBits = Integer.highestOneBit(Math.max(1, count * 10));
+    if (mBits < count * 10) {
+      mBits <<= 1;                            // next power of two at ~10 bits/value
+    }
+    mBits = Math.max(BLOOM_MIN_BITS, Math.min(BLOOM_MAX_BITS, mBits));
+    final long[] words = new long[mBits >>> 6];
+    final int mask = mBits - 1;
+    for (int i = 0; i < count; i++) {
+      final long h = fnv64(dictionary[i]);
+      words[(int) ((h & mask) >>> 6)] |= 1L << (h & 63);
+      final long h2 = h >>> 21;
+      words[(int) ((h2 & mask) >>> 6)] |= 1L << (h2 & 63);
+      final long h3 = h >>> 42;
+      words[(int) ((h3 & mask) >>> 6)] |= 1L << (h3 & 63);
+    }
+    final ByteArrayOutputStream out = newColumnSegmentStream(SEG_KIND_STRING_BLOOM);
+    ProjectionIndexRowGroupCodec.putIntLE(out, mBits);
+    for (final long w : words) {
+      ProjectionIndexRowGroupCodec.putLongLE(out, w);
+    }
+    return out.toByteArray();
+  }
+
+  /**
+   * Probe a {@link #SEG_KIND_STRING_BLOOM} payload for {@code literalUtf8}. No false negatives:
+   * {@code false} PROVES the value is absent from the leaf; {@code true} means "fetch and check".
+   * Defensive on malformed input — anything unexpected answers {@code true}, i.e. no pruning.
+   */
+  public static boolean bloomMayContain(final byte[] segment, final byte[] literalUtf8) {
+    return bloomMayContainHash(segment, bloomHash(literalUtf8));
+  }
+
+  /**
+   * The literal's fingerprint hash, hoisted so a scan over N leaves hashes ONCE and probes N
+   * times — the per-leaf work is three word loads and three bit tests.
+   */
+  public static long bloomHash(final byte[] literalUtf8) {
+    return fnv64(literalUtf8);
+  }
+
+  /** Probe with a pre-computed {@link #bloomHash}. Same no-false-negative contract. */
+  public static boolean bloomMayContainHash(final byte[] segment, final long h) {
+    return segment == null || bloomMayContainHashAt(segment, 0, segment.length, h);
+  }
+
+  private static boolean bloomMayContainHashAt(final byte[] a, final int off, final int len,
+      final long h) {
+    if (len < SEGMENT_HEADER_BYTES + Integer.BYTES) {
+      return true;
+    }
+    final int mBits = ProjectionIndexRowGroupCodec.getIntLE(a, off + SEGMENT_HEADER_BYTES);
+    if (mBits < BLOOM_MIN_BITS || mBits > BLOOM_MAX_BITS || Integer.bitCount(mBits) != 1
+        || len < SEGMENT_HEADER_BYTES + Integer.BYTES + (mBits >>> 3)) {
+      return true;
+    }
+    final int base = off + SEGMENT_HEADER_BYTES + Integer.BYTES;
+    final int mask = mBits - 1;
+    return bloomBit(a, base, h & mask)
+        && bloomBit(a, base, (h >>> 21) & mask)
+        && bloomBit(a, base, (h >>> 42) & mask);
+  }
+
+  private static boolean bloomBit(final byte[] segment, final int base, final long bit) {
+    final long word = ProjectionIndexRowGroupCodec.getLongLE(segment, base + (int) ((bit >>> 6) << 3));
+    return (word & 1L << (bit & 63)) != 0;
+  }
+
+  // ==================== fingerprint BLOCK ====================
+  // One contiguous blob per string column concatenating every leaf's fingerprint segment.
+  // Motivation (measured): the per-leaf fingerprint chain is ~2 KiB pages STRIDED between the fat
+  // BODY/DICT pages, so a cold chain fetch degenerates to one scattered pread per leaf and cost
+  // MORE than the pruning saved (S6 381 -> ~950 ms). As one blob the same bytes are one
+  // sequential read. The per-leaf segments remain the WRITTEN truth; the block is a derived
+  // acceleration — deleted on incremental maintenance, rebuilt by the next full build — and
+  // readers without it fall back to the chain.
+
+  /** Block header: magic + version + leafCount, then (leafCount+1) int offsets, then payloads. */
+  private static final int BLOOM_BLOCK_MAGIC = 0x50424C4D;   // "PBLM"
+  private static final byte BLOOM_BLOCK_VERSION = 1;
+  private static final int BLOOM_BLOCK_HEADER_BYTES = Integer.BYTES + 1 + Integer.BYTES;
+
+  /**
+   * Concatenate per-leaf fingerprint segments (index = rowGroupId - 1; {@code null} = the leaf has
+   * none, e.g. rowless) into one block. Returns {@code null} when NO leaf carries a fingerprint —
+   * writing an all-empty block would cost a slot and prove nothing.
+   */
+  public static byte @Nullable [] encodeBloomBlock(final byte @Nullable [] @Nullable [] perLeaf,
+      final int leafCount) {
+    int total = 0;
+    boolean any = false;
+    for (int i = 0; i < leafCount; i++) {
+      final byte[] seg = perLeaf[i];
+      if (seg != null) {
+        total += seg.length;
+        any = true;
+      }
+    }
+    if (!any) {
+      return null;
+    }
+    final byte[] block =
+        new byte[BLOOM_BLOCK_HEADER_BYTES + (leafCount + 1) * Integer.BYTES + total];
+    ProjectionIndexRowGroupCodec.putIntLEAt(block, 0, BLOOM_BLOCK_MAGIC);
+    block[Integer.BYTES] = BLOOM_BLOCK_VERSION;
+    ProjectionIndexRowGroupCodec.putIntLEAt(block, Integer.BYTES + 1, leafCount);
+    int payload = 0;
+    final int tableBase = BLOOM_BLOCK_HEADER_BYTES;
+    final int payloadBase = tableBase + (leafCount + 1) * Integer.BYTES;
+    for (int i = 0; i < leafCount; i++) {
+      ProjectionIndexRowGroupCodec.putIntLEAt(block, tableBase + i * Integer.BYTES, payload);
+      final byte[] seg = perLeaf[i];
+      if (seg != null) {
+        System.arraycopy(seg, 0, block, payloadBase + payload, seg.length);
+        payload += seg.length;
+      }
+    }
+    ProjectionIndexRowGroupCodec.putIntLEAt(block, tableBase + leafCount * Integer.BYTES, payload);
+    return block;
+  }
+
+  /** Leaf count a block declares, or {@code -1} when it is not a well-formed block. */
+  public static int bloomBlockLeafCount(final byte @Nullable [] block) {
+    if (block == null || block.length < BLOOM_BLOCK_HEADER_BYTES
+        || ProjectionIndexRowGroupCodec.getIntLE(block, 0) != BLOOM_BLOCK_MAGIC
+        || block[Integer.BYTES] != BLOOM_BLOCK_VERSION) {
+      return -1;
+    }
+    final int leafCount = ProjectionIndexRowGroupCodec.getIntLE(block, Integer.BYTES + 1);
+    if (leafCount < 0
+        || block.length < BLOOM_BLOCK_HEADER_BYTES + (leafCount + 1L) * Integer.BYTES) {
+      return -1;
+    }
+    return leafCount;
+  }
+
+  /**
+   * Probe leaf {@code i} of a validated block ({@link #bloomBlockLeafCount} {@code >= i+1}) with a
+   * pre-computed {@link #bloomHash}. A leaf without a fingerprint (empty slice) answers
+   * {@code true} — no evidence, no prune.
+   */
+  public static boolean bloomBlockMayContainHash(final byte[] block, final int i, final long h) {
+    final int tableBase = BLOOM_BLOCK_HEADER_BYTES;
+    final int leafCount = ProjectionIndexRowGroupCodec.getIntLE(block, Integer.BYTES + 1);
+    final int off = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + i * Integer.BYTES);
+    final int end = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + (i + 1) * Integer.BYTES);
+    final int payloadBase = tableBase + (leafCount + 1) * Integer.BYTES;
+    if (end <= off || payloadBase + end > block.length) {
+      return true;
+    }
+    return bloomMayContainHashAt(block, payloadBase + off, end - off, h);
+  }
+
+  /** FNV-1a 64 over the value bytes — the fingerprint's one hash; probes derive from it. */
+  private static long fnv64(final byte[] bytes) {
+    long h = 0xcbf29ce484222325L;
+    for (final byte b : bytes) {
+      h = (h ^ (b & 0xFF)) * 0x100000001b3L;
+    }
+    return h;
   }
 
   private static ByteArrayOutputStream newColumnSegmentStream(final byte segKind) {

@@ -414,6 +414,7 @@ public final class FileChannelReader extends AbstractReader {
   private static final long COALESCE_MAX_SPAN =
       Long.getLong("sirix.filechannel.coalesceSpanBytes", 8L * 1024 * 1024);
 
+
   /**
    * {@inheritDoc}
    *
@@ -428,9 +429,27 @@ public final class FileChannelReader extends AbstractReader {
       final @Nullable ResourceConfiguration resourceConfiguration) {
     final int n = references.length;
     final Page[] pages = new Page[n];
+    // Coalesce over the offsets in FILE order, not caller order. Callers hand references in
+    // LOGICAL order (ascending rowGroupId), but the pages were written in the trie writer's
+    // commit-walk order, which diverges — and a run builder over zig-zagging offsets restarts
+    // at every descent and RE-READS the same region: measured on a two-column aggregate fill,
+    // ~900 runs spanning 180 MB per chain over a ~36 MB region (5× re-coverage, 355 MB of
+    // syscall reads for 9 MB of segments). One permutation sort makes the runs disjoint and
+    // near-sequential; results scatter back input-aligned, so callers see no difference.
+    final int[] order = new int[n];
+    for (int k = 0; k < n; k++) {
+      order[k] = k;
+    }
+    it.unimi.dsi.fastutil.Arrays.quickSort(0, n,
+        (a, b) -> Long.compare(keyOf(references[order[a]]), keyOf(references[order[b]])),
+        (a, b) -> {
+          final int tmp = order[a];
+          order[a] = order[b];
+          order[b] = tmp;
+        });
     int i = 0;
     while (i < n) {
-      final long start = keyOf(references[i]);
+      final long start = keyOf(references[order[i]]);
       if (start < 0) {
         i++;
         continue;
@@ -439,7 +458,7 @@ public final class FileChannelReader extends AbstractReader {
       int j = i;
       long last = start;
       while (j + 1 < n) {
-        final long next = keyOf(references[j + 1]);
+        final long next = keyOf(references[order[j + 1]]);
         if (next <= last || next - last > COALESCE_MAX_GAP || next - start > COALESCE_MAX_SPAN) {
           break;
         }
@@ -447,11 +466,11 @@ public final class FileChannelReader extends AbstractReader {
         j++;
       }
       if (j == i) {
-        pages[i] = read(references[i], resourceConfiguration);
+        pages[order[i]] = read(references[order[i]], resourceConfiguration);
         i++;
         continue;
       }
-      readRun(references, pages, i, j, resourceConfiguration);
+      readRun(references, pages, order, i, j, resourceConfiguration);
       i = j + 1;
     }
     return pages;
@@ -462,11 +481,28 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   /** One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page deserialize. */
-  private void readRun(final PageReference[] references, final Page[] pages, final int from,
-      final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
-    final long start = references[from].getKey();
-    final long lastOffset = references[to].getKey();
+  /** DIAGNOSTIC (-Dsirix.projDiag): span bytes read and per-page fallbacks across all runs. */
+  private static final java.util.concurrent.atomic.LongAdder RUN_SPAN_BYTES =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder RUN_FALLBACKS =
+      new java.util.concurrent.atomic.LongAdder();
+  private static final java.util.concurrent.atomic.LongAdder RUN_COUNT =
+      new java.util.concurrent.atomic.LongAdder();
+
+  public static String runDiagSummary() {
+    return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum()
+        + " fallbacks=" + RUN_FALLBACKS.sum();
+  }
+
+  private void readRun(final PageReference[] references, final Page[] pages, final int[] order,
+      final int from, final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
+    final long start = references[order[from]].getKey();
+    final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
+    if (Boolean.getBoolean("sirix.projDiag")) {
+      RUN_COUNT.increment();
+      RUN_SPAN_BYTES.add(spanLen);
+    }
     ByteBuffer buffer = acquireBuffer(spanLen);
     try {
       buffer.clear().limit(spanLen);
@@ -474,20 +510,24 @@ public final class FileChannelReader extends AbstractReader {
       buffer.flip();
       // Non-final members: length header + full body sit inside the span.
       for (int k = from; k < to; k++) {
-        final long offset = references[k].getKey();
+        final PageReference member = references[order[k]];
+        final long offset = member.getKey();
         final int rel = (int) (offset - start);
         final int dataLength = buffer.getInt(rel);
-        final long bound = references[k + 1].getKey() - offset - 4;
+        final long bound = references[order[k + 1]].getKey() - offset - 4;
         if (dataLength < 0 || dataLength > bound) {
           // Body would cross the next page's offset — not the append-only layout this
           // fast path assumes. Exact per-page read decides whether it is corruption.
-          pages[k] = read(references[k], resourceConfiguration);
+          if (Boolean.getBoolean("sirix.projDiag")) {
+            RUN_FALLBACKS.increment();
+          }
+          pages[order[k]] = read(member, resourceConfiguration);
           continue;
         }
         final byte[] page = new byte[dataLength];
         buffer.get(rel + 4, page);
-        verifyChecksumIfNeeded(page, references[k], resourceConfiguration);
-        pages[k] = deserialize(resourceConfiguration, page, references[k]);
+        verifyChecksumIfNeeded(page, member, resourceConfiguration);
+        pages[order[k]] = deserialize(resourceConfiguration, page, member);
       }
       // Final member: its length header ends the span; the body needs one more pread.
       final int lastLength = buffer.getInt(spanLen - 4);
@@ -502,8 +542,9 @@ public final class FileChannelReader extends AbstractReader {
       buffer.flip();
       final byte[] page = new byte[lastLength];
       buffer.get(page);
-      verifyChecksumIfNeeded(page, references[to], resourceConfiguration);
-      pages[to] = deserialize(resourceConfiguration, page, references[to]);
+      final PageReference lastMember = references[order[to]];
+      verifyChecksumIfNeeded(page, lastMember, resourceConfiguration);
+      pages[order[to]] = deserialize(resourceConfiguration, page, lastMember);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {

@@ -639,6 +639,27 @@ public final class ProjectionIndexCatalog {
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
     final ProjectionColumnStore store = new ProjectionColumnStore(live);
+    // Fingerprint BLOCKS (one blob per string column, absent on pre-fingerprint stores and after
+    // incremental maintenance tombstoned them): one sequential read here replaces a scattered
+    // per-leaf chain fetch on every string-equality query. Absence is fine — the store falls
+    // back to the chain, and past that to keeping every leaf.
+    final byte[] kindsForBlooms = metadata.columnKinds();
+    final byte[][] bloomBlocks = new byte[kindsForBlooms.length][];
+    boolean anyBloomBlock = false;
+    for (int c = 0; c < kindsForBlooms.length; c++) {
+      if (kindsForBlooms[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          || kindsForBlooms[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        final byte[] block = ProjectionIndexHOTStorage.readBlob(reader, def.getID(),
+            ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
+        if (ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block) >= rowGroupCount) {
+          bloomBlocks[c] = block;
+          anyBloomBlock = true;
+        }
+      }
+    }
+    if (anyBloomBlock) {
+      store.attachBloomBlocks(bloomBlocks);
+    }
     final ProjectionIndexRegistry.Handle handle =
         ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(), metadata.buildRevision(),
                                                   metadata.fieldNames(), store, def.getID(),

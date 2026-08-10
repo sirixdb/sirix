@@ -93,6 +93,61 @@ public final class ProjectionColumnStore {
    */
   private volatile byte[][] @Nullable [] columnBytes;
 
+  /** Per-column fingerprint chains ({@code SEG_KIND_STRING_BLOOM}), published once per store. */
+  private volatile byte[][] @Nullable [] bloomBytes;
+
+  /**
+   * Per-column fingerprint BLOCKS (the contiguous acceleration; {@code null} per column when
+   * absent). Attached once by the catalog right after construction, before the handle escapes.
+   */
+  private byte @Nullable [] @Nullable [] bloomBlocks;
+
+  /** See {@link ProjectionIndexColumnSegmentCodec#encodeBloomBlock}. Catalog-attach, set once. */
+  public void attachBloomBlocks(final byte @Nullable [] @Nullable [] blocks) {
+    this.bloomBlocks = blocks;
+  }
+
+  /**
+   * Clear {@code keep} bits for leaves whose string-column fingerprint PROVES the literal absent.
+   * Evidence order: the contiguous block (already in memory, zero I/O), else the per-leaf chain
+   * (cached after the first fetch), else nothing — leaves without evidence stay kept.
+   *
+   * @return number of leaves newly dropped
+   */
+  public int applyBloomPrune(final int col, final long literalHash, final long[] keep,
+      final ColumnSegmentFetcher fetcher) {
+    final int n = directories.size();
+    int dropped = 0;
+    final byte[][] blocks = bloomBlocks;
+    final byte[] block = blocks != null ? blocks[col] : null;
+    if (block != null) {
+      for (int i = 0; i < n; i++) {
+        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
+          continue;
+        }
+        if (!ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHash(block, i, literalHash)) {
+          keep[i >>> 6] &= ~(1L << (i & 63));
+          dropped++;
+        }
+      }
+      return dropped;
+    }
+    final byte[][] chain = stringBloomSegments(col, fetcher);
+    if (chain == null) {
+      return 0;
+    }
+    for (int i = 0; i < n; i++) {
+      if ((keep[i >>> 6] & 1L << (i & 63)) == 0 || chain[i] == null) {
+        continue;
+      }
+      if (!ProjectionIndexColumnSegmentCodec.bloomMayContainHash(chain[i], literalHash)) {
+        keep[i >>> 6] &= ~(1L << (i & 63));
+        dropped++;
+      }
+    }
+    return dropped;
+  }
+
   /**
    * Per-column permanent-corruption memo (1 = a fill hit a decode/hash/missing-segment
    * failure, which cannot heal for this build). Plain byte writes of a single value are
@@ -127,6 +182,7 @@ public final class ProjectionColumnStore {
     }
     this.columns = new ColumnSlice[columnKinds.length][];
     this.columnBytes = new byte[columnKinds.length][][];
+    this.bloomBytes = new byte[columnKinds.length][][];
     this.corruptColumns = new byte[columnKinds.length];
   }
 
@@ -222,6 +278,108 @@ public final class ProjectionColumnStore {
       final ColumnSlice[][] next = columns.clone();
       next[col] = slices;
       columns = next;
+    }
+    return slices;
+  }
+
+  /** Number of row-group leaves this store spans. */
+  public int leafCount() {
+    return directories.size();
+  }
+
+  /** Leaf {@code i}'s zone-map descriptor — the pruning evidence a caller consults pre-fetch. */
+  public byte[] leafDescriptor(final int i) {
+    return directories.get(i).descriptor();
+  }
+
+  /**
+   * Per-leaf {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_STRING_BLOOM} payloads for a string
+   * column, or {@code null} when the column is not a string kind. Individual entries are
+   * {@code null} for leaves without a fingerprint (rowless, or written before the segment kind
+   * existed) — the caller keeps those leaves, so an old index simply never prunes.
+   */
+  private byte @Nullable [] @Nullable [] stringBloomSegments(final int col,
+      final ColumnSegmentFetcher fetcher) {
+    if (!columnSliceable(col)
+        || (columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            && columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET)) {
+      return null;
+    }
+    // Cached like the column fills: the fingerprints are literal-INDEPENDENT, and the morsel
+    // chain resolves predicate columns once per worker range — without this cache every range
+    // re-fetched the whole ~N-leaf fingerprint chain, which cost more than the pruning saved
+    // (measured: S6 381 → ~950 ms). Same double-checked volatile publish as {@link #column}.
+    final byte[][][] cached = bloomBytes;
+    byte[][] chain = cached[col];
+    if (chain != null) {
+      return chain;
+    }
+    chain = fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bloomColumnSegmentId(col),
+                              ProjectionIndexColumnSegmentCodec.SEG_KIND_STRING_BLOOM, true, fetcher,
+                              null);
+    synchronized (this) {
+      final byte[][] existing = bloomBytes[col];
+      if (existing != null) {
+        return existing;
+      }
+      final byte[][][] next = bloomBytes.clone();
+      next[col] = chain;
+      bloomBytes = next;
+    }
+    return chain;
+  }
+
+  /** Canonical pruned slice: {@code rowCount == 0} short-circuits every evaluator. */
+  private static final long[] NO_WORDS = new long[0];
+  private static final ColumnSlice PRUNED_SLICE =
+      new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, NO_WORDS, null, null, null, null);
+
+  /**
+   * Like {@link #column(int, ColumnSegmentFetcher)} but fetching and decoding ONLY the leaves set
+   * in {@code keepWords} (a bitset over leaf indices); dropped leaves yield a shared
+   * {@code rowCount == 0} slice that every evaluator already skips. The result is
+   * predicate-specific, so it is NOT published to the column cache.
+   */
+  public ColumnSlice[] columnMasked(final int col, final ColumnSegmentFetcher fetcher,
+      final long[] keepWords) {
+    if (!columnSliceable(col)) {
+      throw new IllegalStateException("Column " + col + " is not sliceable (kind="
+          + (col >= 0 && col < columnKinds.length ? columnKinds[col] : -1) + ")");
+    }
+    if (corruptColumns[col] != 0) {
+      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+    final byte[][] segments = fetchSegmentChain(col,
+        ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
+        ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher, keepWords);
+    final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+    final boolean string = set
+        || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    final byte[][] dictSegments = string
+        ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+                            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher,
+                            keepWords)
+        : null;
+    final int n = directories.size();
+    final ColumnSlice[] slices = new ColumnSlice[n];
+    try {
+      for (int i = 0; i < n; i++) {
+        if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+          slices[i] = PRUNED_SLICE;
+          continue;
+        }
+        final byte[] descriptor = directories.get(i).descriptor();
+        slices[i] = set
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i],
+                                                                     dictSegments[i], col)
+            : string
+                ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i],
+                                                                      dictSegments[i], col)
+                : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+      }
+    } catch (final IllegalStateException corrupt) {
+      corruptColumns[col] = 1;
+      throw corrupt;
     }
     return slices;
   }
@@ -448,6 +606,16 @@ public final class ProjectionColumnStore {
    */
   private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind,
       final boolean optional, final ColumnSegmentFetcher fetcher) {
+    return fetchSegmentChain(col, segId, segKind, optional, fetcher, null);
+  }
+
+  /**
+   * As above, but when {@code keepWords} is non-null, leaves whose bit is clear are neither
+   * fetched (their offset is replaced by the no-page sentinel), patched from the inline region,
+   * nor verified — a leaf the caller has already proven irrelevant costs zero I/O and zero CPU.
+   */
+  private byte[][] fetchSegmentChain(final int col, final int segId, final byte segKind,
+      final boolean optional, final ColumnSegmentFetcher fetcher, final long @Nullable [] keepWords) {
     final int n = directories.size();
     // Leaf order IS file order to within noise: the builder persists leaves 1..N in one
     // sequential commit, so a column's segment offsets ascend with the leaf index — no
@@ -458,6 +626,16 @@ public final class ProjectionColumnStore {
     final long[] offsets = new long[n];
     final boolean[] absent = optional ? new boolean[n] : null;
     final byte[][] inlineBytes = collectColumnOffsets(segId, offsets, optional, absent);
+    if (keepWords != null) {
+      for (int i = 0; i < n; i++) {
+        if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+          offsets[i] = Constants.NULL_ID_LONG;
+          if (inlineBytes != null) {
+            inlineBytes[i] = null;
+          }
+        }
+      }
+    }
     final byte[][] segments;
     try {
       segments = fetcher.fetchAll(offsets);
@@ -482,6 +660,9 @@ public final class ProjectionColumnStore {
       for (int i = 0; i < n; i++) {
         if (absent != null && absent[i]) {
           continue;  // the descriptor genuinely lists no such segment for this leaf
+        }
+        if (keepWords != null && (keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+          continue;  // pruned — nothing was fetched, nothing to verify
         }
         ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i],
             segId, segKind);
