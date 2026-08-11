@@ -54,7 +54,6 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;

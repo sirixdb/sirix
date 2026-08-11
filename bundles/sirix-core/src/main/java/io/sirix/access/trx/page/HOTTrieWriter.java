@@ -14646,7 +14646,7 @@ public final class HOTTrieWriter {
    * <p>
    * Returns {@code null} on degenerate cases the caller falls back on: sub-layout empty AND
    * !bothSplitHere; identical-keys (computeDifferingBit returned -1); unknown child; partial-key
-   * collision. Each null path increments the corresponding {@link #BCH_FALLBACK_*} counter.
+   * collision. Each null path increments the corresponding {@code BCH_FALLBACK_*} counter.
    *
    * <p>
    * HFT-grade: bounded allocations sized exactly to the new layout (extraction arrays at most one

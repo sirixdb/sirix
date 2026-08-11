@@ -7,10 +7,8 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Constants;
-import io.sirix.node.DeltaVarIntCodec;
 
 import java.lang.foreign.MemorySegment;
 import java.nio.file.Path;

@@ -603,7 +603,7 @@ public final class HOTTrieReader implements AutoCloseable {
         final byte[] fk = getFirstKeyOfChild(indirect, i);
         if (fk == null || fk.length == 0)
           continue;
-        final int cmp = java.util.Arrays.compareUnsigned(fk, searchKey);
+        final int cmp = Arrays.compareUnsigned(fk, searchKey);
         if (cmp <= 0) {
           chosenIdx = i;
         } else {
