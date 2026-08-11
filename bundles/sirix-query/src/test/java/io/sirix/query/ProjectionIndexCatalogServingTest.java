@@ -308,7 +308,6 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
       final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
-      System.setProperty("sirix.projDiag", "true");   // TEMP: surface the decline reason
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
