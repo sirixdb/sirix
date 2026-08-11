@@ -161,7 +161,10 @@ subprojects {
     }
 
     spotless {
-        enforceCheck false
+        // One rule, generally enforced: the sirix formatter profile. Ratcheting scopes the
+        // check to files changed since main, so legacy formatting debt never blocks a build
+        // and no repo-wide reformat is required.
+        ratchetFrom 'origin/main'
         java {
             targetExclude "**/index/art/Abstract*Test.java",
                           "**/index/art/NavigableKeySetStringTest.java",

@@ -21,6 +21,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
@@ -29,7 +32,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compile and package
-        run: ./gradlew classes testClasses :sirix-rest-api:shadowJar --parallel --refresh-dependencies
+        run: ./gradlew classes testClasses :sirix-rest-api:shadowJar spotlessCheck --parallel --refresh-dependencies
       - name: Cache build output
         uses: actions/cache/save@v4
         with:
@@ -48,6 +51,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
@@ -72,6 +78,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
@@ -126,6 +135,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       # Defender's real-time scanner sits in front of every one of the many small files a Gradle
       # build and a storage engine's tests write. Excluding the work volume and the JVM processes
       # is the single cheapest Windows win available. Best-effort: never fail the lane over it.
@@ -189,6 +201,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
@@ -244,6 +259,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install GraalVM
         uses: graalvm/setup-graalvm@v1
         with:
@@ -271,6 +289,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
       - name: Install JDK
         uses: actions/setup-java@v4
         with:
