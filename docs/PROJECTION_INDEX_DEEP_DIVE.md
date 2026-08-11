@@ -142,7 +142,11 @@ for $d in distinct-values(for $r in $doc[] return $r.dept) ...
 
 Declared column types: `long`, `boolean`, `string`, and — since the
 segment-directory redesign — `double` / `float` / `decimal` (all mapped to
-the `NUMERIC_DOUBLE` column kind, §9).
+the `NUMERIC_DOUBLE` column kind, §9). A field path may also end in an
+**array step** — `'/[]/genres/[]'` declares a `genres` column over the
+*elements* of an array-valued field (the `STRING_SET` column kind, §2), so
+membership predicates (`some $g in $r.genres[] satisfies $g eq "..."`) are
+answered from the column.
 
 ---
 
@@ -155,19 +159,29 @@ ascending record-key (node-key) order.
 ```mermaid
 flowchart TB
     subgraph store["One projection definition"]
-        M["slot 0<br/>metadata (PIXM, shape only)<br/>root path, column shapes,<br/>rowGroupCount, buildRevision, stale flag"]
+        M["slot 0<br/>metadata (PIXM)<br/>root path, column shapes,<br/>rowGroupCount, buildRevision, stale flag,<br/>optional set-column membership counts"]
         L1["rowGroupId 1 — leaf 0<br/>rows 0..1023<br/>descriptor + its segments,<br/>one slot each"]
         L2["rowGroupId 2 — leaf 1<br/>rows 1024..2047"]
         LN["rowGroupId N — leaf N-1<br/>tail rows"]
         F["slots 2^42 + c<br/>fence chunks<br/>512 leaves each"]
+        B["slots 16 + c<br/>fingerprint blocks<br/>one Bloom-filter blob per string column"]
     end
     M -.->|"bounds every read:<br/>rowGroupCount = N"| LN
     F -.->|"per-leaf (first,last) zone map,<br/>writer-only"| LN
+    B -.->|"prunes leaf fetches on<br/>string-equality probes"| LN
 ```
 
 Each of those row groups occupies *several* HOT slots, not one: its descriptor
 at `(rowGroupId << 16) | 0` and each of its segments at
-`(rowGroupId << 16) | segmentId + 1` (§3).
+`(rowGroupId << 16) | segmentId + 1` (§3). The `rowGroupId == 0` key space
+belongs to the store itself: the metadata blob at key 0 and, at keys
+`16 + column`, one **fingerprint block** per string(-set) column — the
+per-leaf string-dictionary fingerprints gathered into a single blob, so a
+string-equality probe rules out leaves with one sequential read instead of a
+scattered per-leaf fetch. Incremental maintenance tombstones the blocks
+before patching leaves (a stale filter would prove a fresh value "absent");
+the next full build rewrites them, and readers without one fall back to the
+per-leaf filters.
 
 Each leaf carries, per column:
 
@@ -177,6 +191,7 @@ Each leaf carries, per column:
 | `BOOLEAN` | 1 | 1024-bit bitmap words |
 | `STRING_DICT` | 2 | leaf-local dictionary + per-row dict ids |
 | `NUMERIC_DOUBLE` | 3 | order-preserving 64-bit transform of the double bits (§9) |
+| `STRING_SET` | 4 | array-valued fields: `STRING_DICT` storage plus a per-row element count, elements laid out consecutively |
 
 plus a **presence bitmap** (a field can be missing on any row) and sticky
 **provenance flags**:
@@ -356,7 +371,7 @@ Four magics, all little-endian; every payload is self-describing:
 | `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
 | `0x53584950` | `PIXS` | segment page payload | one encoded segment |
 | `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
-| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape only, VERSION 0) |
+| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape + optional set-column membership counts, VERSION 1) |
 
 ### 5.1 `PIXD` — the row-group descriptor
 
@@ -507,25 +522,34 @@ the shape from *here*, never trusting a caller's argument list — a
 same-arity re-create with different fields must not silently mislabel
 columns), `leafCount` (bounds every read; higher slots are stale remnants),
 `buildRevision`, and the **stale flag** — the update-time invalidation
-valve. It is a few hundred bytes, so it inlines: opening a projection reads
-its shape from the one slot value, with **no extra random read** for a
-metadata page.
+valve. Since VERSION 1 it may also carry **index-wide set-column membership
+counts** — per set value, the number of rows whose set contains it, summed
+from the per-leaf counts — so a bare membership `count(...)` is a map probe
+on a blob every covering lookup reads anyway. The counts section is capped
+(`-Dsirix.projection.metadataSetCountsBytes`, default 1024 B); a column
+whose counts do not fit is simply not summarised and the reader falls back.
 
-`PIXM` is **VERSION 2**. Version 1 additionally carried the per-leaf record-key
-fences inline; those moved to their own chunks (§5.4) so a maintenance commit
-stops re-persisting the whole fence array. The version byte is the only thing
-that tells a v1 fenced blob from a v2 shape-only one (same magic, same header
-prefix), so a v1 blob parses to *nothing* and the reader rebuilds — the
-graceful-degradation contract every unknown version already had.
+The shape alone is a few hundred bytes, so it inlines: opening a projection
+reads its shape from the one slot value, with **no extra random read** for a
+metadata page. A summarised set column can push the blob past the 512 B
+inline threshold, spilling it to an `OverflowPage` — one extra page read per
+open, the accepted price of scan-free membership counts.
+
+`PIXM` is **VERSION 1**, and exactly one version is ever supported — the
+current one. A blob with any other version byte (an older store: a
+pre-membership-counts blob, or the early layouts that carried the per-leaf
+record-key fences inline before they moved to their own chunks, §5.4) parses
+to *nothing* and the reader rebuilds — the graceful-degradation contract
+every unknown version already had.
 
 Slot-0 states are deliberately distinct:
 
 | State | Representation | Meaning |
 |---|---|---|
-| Valid metadata | `PIXB` → `PIXM` v2, stale bit clear | projection serves |
+| Valid metadata | `PIXB` → current-version `PIXM`, stale bit clear | projection serves |
 | Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | invalidated; rebuild on next use |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
-| Legacy layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 2 | pre-redesign / v1 store → rebuild (§12) |
+| Legacy layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ current | older store → rebuild (§12) |
 
 ### 5.4 The fence chunks — a carry-forward zone map
 

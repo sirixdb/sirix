@@ -47,6 +47,11 @@ Nested roots and nested columns are paths too — e.g. a record set under
 pattern `'//records/[]'` spanning sibling subtrees. Missing fields are tracked per row in
 presence bitmaps, so sparse data stays correct.
 
+A field path may also end in an **array step**: `'/[]/genres/[]'` declares a `genres` column
+over the *elements* of an array-valued field (a dictionary-encoded string set per row), so
+membership predicates — `some $g in $r.genres[] satisfies $g eq "Drama"`, alone or inside a
+larger filter — are answered from the projection instead of the tree.
+
 ## Querying
 
 There is no separate scan function — eligible queries route through the projection
@@ -140,8 +145,10 @@ query.
 
 ## Current limits
 
-Column types are `long`, `boolean`, and `string` (floating-point columns are rejected rather
-than silently degraded); columns are resolved by trailing field name, which must be unique
+Column types are `long`, `boolean`, `string`, `double`/`float`/`decimal` (stored exactly in
+an order-preserving encoding; value-exact consumers decline columns tainted by lossy decimal
+conversions), and array-element string sets; columns are resolved by trailing field name (for
+a set column, the field step before the array layer), which must be unique
 and unambiguous under the record set; queries that the projection cannot serve exactly
 (unrepresentable values, non-covered predicates, ambiguous projection selection) fall back
 to the regular pipeline automatically, so results are always identical with or without the

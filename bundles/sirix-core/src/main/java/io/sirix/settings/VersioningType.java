@@ -1228,15 +1228,15 @@ public enum VersioningType {
     };
   }
 
+  /** Shared empty payload for merging a null/zero-length fragment entry — no per-entry alloc. */
+  private static final byte[] EMPTY_VALUE = new byte[0];
+
   /**
    * Merge HOT fragments by full key. Single newest-fragment fast path returns the page directly.
    * Multi-fragment path copies the newest, then walks older fragments inserting any keys absent
    * from the result. Tombstones in newer fragments shadow older entries; tombstones in older
    * fragments without a newer entry remain dropped.
    */
-  /** Shared empty payload for merging a null/zero-length fragment entry — no per-entry alloc. */
-  private static final byte[] EMPTY_VALUE = new byte[0];
-
   private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
       return pages.getFirst();
@@ -1246,7 +1246,6 @@ public enum VersioningType {
     if (newest.isCompleteDump()) {
       return newest;
     }
-
 
     // Newest fragment is the base; copy() bulk-copies its entries and resets the dirty bitmap on
     // the result, so cross-fragment fills below are safely tracked as fresh writes if needed.
