@@ -29,7 +29,7 @@ public final class HOTLongBulkIndexLoader extends AbstractHOTBulkIndexLoader {
    * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
    */
   public void add(final long key, final long nodeKey) {
-    final byte[] block = reserveKeySpace(nodeKey);
+    final byte[] block = reserveKeySpace(nodeKey, HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE);
     final int offset = blockOffset();
     final int length = keySerializer.serializeWithChunkIdx(key, (int) (nodeKey >>> 16), block, offset);
     commitKey(length, nodeKey);

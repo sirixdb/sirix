@@ -155,6 +155,48 @@ public final class JsonPathAndNameIndexBuildTest {
     assertEquals("postings must not depend on how the index was built", incremental, bulk);
   }
 
+  /**
+   * A NAME key is the field name as raw UTF-8, so nothing bounds it but the document. Both write
+   * paths used to size their key buffer from the length the serializer <em>returned</em> — after it
+   * had already written that many bytes into a 512-byte buffer — so a field name past roughly 500
+   * characters wrote off the end. Both now size from an upper bound taken before the write, so the
+   * only thing a long name costs is a bigger buffer.
+   */
+  @Test
+  public void indexesAFieldNameLongerThanTheKeyBuffer() {
+    final String longName = "n".repeat(2_000);
+    final String json = "[{\"" + longName + "\":1},{\"" + longName + "\":2},{\"other\":3}]";
+
+    final TreeSet<Long> bulk = longNamePostings(JsonTestHelper.PATHS.PATH1.getFile(), json, longName, false);
+    final TreeSet<Long> incremental = longNamePostings(JsonTestHelper.PATHS.PATH2.getFile(), json, longName, true);
+
+    assertEquals("both fields with the long name must be indexed", 2, bulk.size());
+    assertEquals("postings must not depend on how the index was built", incremental, bulk);
+  }
+
+  private TreeSet<Long> longNamePostings(final Path databasePath, final String json, final String name,
+      final boolean indexFirst) {
+    final var database = JsonTestHelper.getDatabase(databasePath);
+    try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+      final IndexDef requested = nameIndexDef();
+      final JsonIndexController indexController;
+      if (indexFirst) {
+        indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+        indexController.createIndexes(Set.of(requested), trx);
+        shred(trx, json);
+      } else {
+        shred(trx, json);
+        indexController = manager.getWtxIndexController(trx.getRevisionNumber());
+        indexController.createIndexes(Set.of(requested), trx);
+        trx.commit();
+      }
+      final IndexDef def = indexController.getIndexes().getIndexDef(requested.getID(), IndexType.NAME);
+      return collect(indexController.openNameIndex(trx.getStorageEngineReader(), def,
+          indexController.createNameFilter(Set.of(name))));
+    }
+  }
+
   @Test
   public void buildingOverAnExistingRevisionRebuildsNoSubtree() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());

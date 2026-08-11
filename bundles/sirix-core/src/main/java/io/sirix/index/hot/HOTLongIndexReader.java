@@ -343,6 +343,12 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     return keySerializer.serialize(key, buffer, offset);
   }
 
+  /** A PATH key is a fixed-width sign-flipped long. */
+  @Override
+  protected int maxSerializedKeyLength(Long key) {
+    return HOTLongKeySerializer.SERIALIZED_SIZE;
+  }
+
   @Override
   protected @Nullable Long deserializeKey(byte[] buffer, int offset, int length) {
     return keySerializer.deserialize(buffer, offset, length);

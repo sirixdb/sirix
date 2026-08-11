@@ -73,14 +73,6 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   /** Initial entry capacity — grown by doubling. */
   private static final int INITIAL_ENTRIES = 1024;
 
-  /**
-   * Upper bound on one serialized composite key, and hence the tail of a block that is left unused
-   * rather than split a key across two blocks. Mirrors {@link HOTIndexWriter}'s thread-local key
-   * buffer: the largest CAS prefix (10-byte header + 246 value bytes) plus the 4-byte chunkIdx
-   * trailer, rounded up for headroom. PATH's composite key is a fixed 12 bytes.
-   */
-  private static final int MAX_COMPOSITE_KEY_BYTES = 512;
-
   /** The index whose root this loader replaces on {@link #flush()}. */
   private final AbstractHOTIndexWriter<?> writer;
 
@@ -114,6 +106,9 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   /** Number of accumulated entries. */
   private int count;
 
+  /** Bytes {@link #reserveKeySpace} last promised the caller, and {@link #commitKey} holds it to. */
+  private int reservedKeyBytes;
+
   /** Set once {@link #flush()} has run, so a second flush cannot re-splice the tree. */
   private boolean flushed;
 
@@ -129,16 +124,25 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
    *
    * @param nodeKey the node key the key being written belongs to; validated here so a subclass
    *        never serializes a key it would have to roll back
-   * @return the current block, guaranteed to have {@link #MAX_COMPOSITE_KEY_BYTES} free from
+   * @param maxKeyBytes the caller's own upper bound on what it is about to write. Taken BEFORE the
+   *        write, because the length a serializer <em>returns</em> arrives too late — by then a key
+   *        larger than the room available has already been written past it
+   * @return the current block, guaranteed to have {@code maxKeyBytes} free from
    *         {@link #blockOffset()}
+   * @throws IllegalStateException if a single key cannot fit a block at all
    */
-  final byte[] reserveKeySpace(final long nodeKey) {
+  final byte[] reserveKeySpace(final long nodeKey, final int maxKeyBytes) {
     if (flushed) {
       throw new IllegalStateException("Bulk loader already flushed");
     }
     AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
+    if (maxKeyBytes <= 0 || maxKeyBytes > BLOCK_BYTES) {
+      throw new IllegalStateException(
+          "Composite index key of up to " + maxKeyBytes + " bytes does not fit a " + BLOCK_BYTES + "-byte key block");
+    }
+    reservedKeyBytes = maxKeyBytes;
 
-    if (currentBlockOffset + MAX_COMPOSITE_KEY_BYTES > BLOCK_BYTES) {
+    if (currentBlockOffset + maxKeyBytes > BLOCK_BYTES) {
       if (blockCount == blocks.length) {
         blocks = Arrays.copyOf(blocks, blocks.length << 1);
       }
@@ -167,18 +171,18 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   /**
    * Record the key just written at {@link #blockOffset()} as belonging to {@code nodeKey}.
    *
-   * <p>Checked, not asserted: {@link #reserveKeySpace} only guarantees
-   * {@link #MAX_COMPOSITE_KEY_BYTES} of room, so a serializer that ran past that has written into
-   * the tail of the block and must not be allowed to look like it succeeded.</p>
+   * <p>Checked, not asserted: {@link #reserveKeySpace} guarantees only what the caller asked for,
+   * so a serializer that under-reported its own bound has written into whatever followed the
+   * reservation and must not be allowed to look like it succeeded.</p>
    *
    * @param length bytes the subclass wrote
    * @param nodeKey the node key the written composite key belongs to
-   * @throws IllegalStateException if {@code length} is outside the reserved range
+   * @throws IllegalStateException if {@code length} is outside the reservation
    */
   final void commitKey(final int length, final long nodeKey) {
-    if (length <= 0 || length > MAX_COMPOSITE_KEY_BYTES) {
-      throw new IllegalStateException(
-          "Composite index key of " + length + " bytes exceeds the " + MAX_COMPOSITE_KEY_BYTES + "-byte maximum");
+    if (length <= 0 || length > reservedKeyBytes) {
+      throw new IllegalStateException("Composite index key of " + length
+          + " bytes overran the " + reservedKeyBytes + " bytes its serializer reserved");
     }
     keyPos[count] = ((long) currentBlockIndex << BLOCK_SHIFT) | currentBlockOffset;
     keyLength[count] = length;

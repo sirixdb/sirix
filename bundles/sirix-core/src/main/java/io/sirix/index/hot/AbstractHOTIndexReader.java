@@ -175,6 +175,15 @@ public abstract class AbstractHOTIndexReader<K> {
   protected abstract int serializeKey(K key, byte[] buffer, int offset);
 
   /**
+   * Upper bound, in bytes, on what {@link #serializeKey} writes for {@code key}, so callers can
+   * size the buffer before the write rather than discover the overflow after it.
+   *
+   * @param key the key about to be serialized
+   * @return a value {@code >=} the length {@code serializeKey} will return
+   */
+  protected abstract int maxSerializedKeyLength(K key);
+
+  /**
    * Deserialize a key from bytes.
    *
    * @param buffer the buffer to read from

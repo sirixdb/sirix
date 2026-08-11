@@ -78,6 +78,22 @@ public interface HOTKeySerializer<K> {
   int serialize(K key, byte[] dest, int offset);
 
   /**
+   * Upper bound, in bytes, on what {@link #serialize} will write for {@code key}.
+   *
+   * <p>Callers size their buffer from this <em>before</em> serializing. Checking the returned
+   * length against the buffer afterwards does not work: by then the write has already happened,
+   * and for a variable-length key it has happened past the end of the buffer.</p>
+   *
+   * <p>Deliberately not defaulted. A serializer that under-reports its own bound reintroduces
+   * exactly the overflow this method exists to prevent, so every implementation has to state one.
+   * An over-estimate is always safe.</p>
+   *
+   * @param key the key that is about to be serialized
+   * @return a value {@code >= serialize(key, ...)} would return
+   */
+  int maxSerializedLength(K key);
+
+  /**
    * Deserializes a key from bytes.
    *
    * <p>

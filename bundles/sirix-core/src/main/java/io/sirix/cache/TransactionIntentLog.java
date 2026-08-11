@@ -10,11 +10,12 @@ import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Reference2IntMap;
+import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -67,6 +68,19 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /** Membership bitset over log indices, so each index is appended at most once. */
   private long[] hotLeafIndexBits = new long[8];
+
+  /**
+   * Scratch for {@link #releaseOrphanedHOTLeaves(List)}: orphan leaf -> the log index that owns it.
+   *
+   * <p>Reference-keyed (identity, like {@code IdentityHashMap}) with a primitive {@code int} value,
+   * and reused across calls. The subtree rebuilds this method serves fire in the thousands during a
+   * shred that maintains an index, each handing over a whole subtree's leaves, so a fresh map and an
+   * {@code Integer} box per orphan were the bulk of its cost. The TIL is transaction-private, so a
+   * field is as safe here as a local was.</p>
+   */
+  private final Reference2IntMap<HOTLeafPage> orphanCloseable = new Reference2IntOpenHashMap<>();
+
+  { orphanCloseable.defaultReturnValue(-1); }
 
   // ==================== GENERATION COUNTER ====================
 
@@ -901,8 +915,10 @@ public final class TransactionIntentLog implements AutoCloseable {
       return;
     }
     // Map each orphan leaf page to its own TIL index; this set is whittled down to the pages
-    // that are safe to close.
-    final IdentityHashMap<HOTLeafPage, Integer> closeable = new IdentityHashMap<>();
+    // that are safe to close. Log indices are non-negative here (see the guard below), so the
+    // map's -1 default doubles as "absent".
+    final Reference2IntMap<HOTLeafPage> closeable = orphanCloseable;
+    closeable.clear();
     for (int r = 0; r < orphanRefs.size(); r++) {
       final PageReference ref = orphanRefs.get(r);
       if (ref == null) {
@@ -922,6 +938,8 @@ public final class TransactionIntentLog implements AutoCloseable {
       if (container.getComplete() instanceof HOTLeafPage leaf) {
         closeable.putIfAbsent(leaf, logKey);
       }
+      // (putIfAbsent, not put: a leaf reachable twice keeps the first index it was seen at, which
+      // is the index the sharing check below must exclude.)
     }
     if (closeable.isEmpty()) {
       return;
@@ -949,14 +967,16 @@ public final class TransactionIntentLog implements AutoCloseable {
         leaf.close();
       }
     }
+    // Do not let the scratch map pin the pages it just released until the next call.
+    closeable.clear();
   }
 
   private static void unshareIfElsewhere(final Page page, final int entryIndex,
-      final IdentityHashMap<HOTLeafPage, Integer> closeable) {
+      final Reference2IntMap<HOTLeafPage> closeable) {
     if (page instanceof HOTLeafPage leaf) {
-      final Integer ownIndex = closeable.get(leaf);
-      if (ownIndex != null && ownIndex.intValue() != entryIndex) {
-        closeable.remove(leaf);
+      final int ownIndex = closeable.getInt(leaf);
+      if (ownIndex >= 0 && ownIndex != entryIndex) {
+        closeable.removeInt(leaf);
       }
     }
   }

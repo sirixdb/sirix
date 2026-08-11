@@ -141,6 +141,29 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
     return pos - offset;
   }
 
+  /**
+   * A local name and a prefix are written as raw UTF-8, so the bound is three bytes a char — the
+   * most any single {@code char} encodes to, a surrogate pair being two chars for four bytes — plus
+   * the sentinel and length byte the prefixed format prepends.
+   *
+   * @throws IllegalArgumentException if the name is so long that its own bound overflows an
+   *         {@code int}; such a name could never be serialized into any buffer anyway
+   */
+  @Override
+  public int maxSerializedLength(final QNm key) {
+    requireNonNull(key, "Key cannot be null");
+    final String localName = key.getLocalName();
+    final String prefix = key.getPrefix();
+    long bound = localName == null ? 0L : 3L * localName.length();
+    if (prefix != null && !prefix.isEmpty()) {
+      bound += 2L + 3L * prefix.length();
+    }
+    if (bound > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("QNm too long to serialize: " + bound + " bytes");
+    }
+    return (int) bound;
+  }
+
   @Override
   public QNm deserialize(final byte[] bytes, final int offset, final int length) {
     if (length == 0) {

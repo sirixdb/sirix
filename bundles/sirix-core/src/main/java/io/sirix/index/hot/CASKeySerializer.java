@@ -128,6 +128,17 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     return bytesWritten;
   }
 
+  /**
+   * A CAS key is a 10-byte header plus a value region the encoders bound themselves: 8 bytes for
+   * every numeric family, 1 for a boolean, and at most {@link #MAX_STRING_VALUE_BYTES} for a
+   * string, which {@link #encodeAtomicOrderPreserving} truncates to. So the bound is a constant
+   * and no key of any type can exceed it.
+   */
+  @Override
+  public int maxSerializedLength(final CASValue key) {
+    return HEADER_BYTES + MAX_STRING_VALUE_BYTES;
+  }
+
   @Override
   public CASValue deserialize(byte[] bytes, int offset, int length) {
     // Read path node key (8 bytes)
@@ -149,11 +160,14 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     return new CASValue(atomicValue, type, pathNodeKey);
   }
 
+  /** Bytes a key spends before its value: 8 for the pathNodeKey plus 2 for the type id. */
+  static final int HEADER_BYTES = 10;
+
   /**
    * Maximum bytes available for string value encoding. Header is 10 bytes (8 for pathNodeKey + 2 for
    * typeId), buffer is 256 bytes.
    */
-  private static final int MAX_STRING_VALUE_BYTES = 246;
+  static final int MAX_STRING_VALUE_BYTES = 246;
 
   /**
    * Encodes an atomic value in order-preserving format.

@@ -51,6 +51,12 @@ public final class ValidTimeKeySerializer implements HOTKeySerializer<ValidTimeK
     return o - offset;
   }
 
+  /** Fixed width: a store byte plus two sign-flipped longs. */
+  @Override
+  public int maxSerializedLength(final ValidTimeKey key) {
+    return KEY_BYTES;
+  }
+
   @Override
   public ValidTimeKey deserialize(final byte[] bytes, final int offset, final int length) {
     final byte store = bytes[offset];

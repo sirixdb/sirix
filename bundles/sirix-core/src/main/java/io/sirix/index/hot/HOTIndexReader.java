@@ -124,13 +124,15 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   public @Nullable NodeReferences get(K key, SearchMode mode) {
     requireNonNull(key);
 
+    // Size the buffer BEFORE serializing: checking the returned length afterwards is too late,
+    // the write past the end has already happened.
     byte[] keyBuf = getKeyBuffer();
-    int prefixLen = serializeKey(key, keyBuf, 0);
-    if (prefixLen > keyBuf.length) {
-      keyBuf = new byte[prefixLen];
+    final int required = maxSerializedKeyLength(key);
+    if (required > keyBuf.length) {
+      keyBuf = new byte[required];
       setKeyBuffer(keyBuf);
-      prefixLen = serializeKey(key, keyBuf, 0);
     }
+    final int prefixLen = serializeKey(key, keyBuf, 0);
     return reassembleChunksForPrefix(keyBuf, prefixLen);
   }
 
@@ -451,6 +453,11 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   @Override
   protected int serializeKey(K key, byte[] buffer, int offset) {
     return keySerializer.serialize(key, buffer, offset);
+  }
+
+  @Override
+  protected int maxSerializedKeyLength(K key) {
+    return keySerializer.maxSerializedLength(key);
   }
 
   @Override

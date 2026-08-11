@@ -217,13 +217,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 
-    byte[] keyBuf = KEY_BUFFER.get();
-    int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    if (compLen > keyBuf.length) {
-      keyBuf = new byte[compLen];
-      KEY_BUFFER.set(keyBuf);
-      compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    }
+    final byte[] keyBuf = chunkedKeyBuffer(key);
+    final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
     // Reusable single-bit payload — clear, set, serialize. Avoids per-call bitmap allocation.
     final NodeReferences singleBit = SINGLE_BIT_REFS.get();
@@ -252,13 +247,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   public @Nullable NodeReferences get(K key, SearchMode mode) {
     requireNonNull(key);
 
-    byte[] keyBuf = KEY_BUFFER.get();
-    int prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    if (prefixLen > keyBuf.length) {
-      keyBuf = new byte[prefixLen];
-      KEY_BUFFER.set(keyBuf);
-      prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    }
+    final byte[] keyBuf = prefixKeyBuffer(key);
+    final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
     return reassembleChunksForPrefix(keyBuf, prefixLen);
   }
 
@@ -341,13 +331,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 
-    byte[] keyBuf = KEY_BUFFER.get();
-    int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    if (compLen > keyBuf.length) {
-      keyBuf = new byte[compLen];
-      KEY_BUFFER.set(keyBuf);
-      compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    }
+    final byte[] keyBuf = chunkedKeyBuffer(key);
+    final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
     final byte[] keySlice = compLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, compLen);
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
@@ -383,6 +368,37 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final int valueLen = NodeReferencesSerializer.serialize(chunkRefs, valueBuf, 0);
     leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
     return true;
+  }
+
+  /**
+   * The thread-local key buffer, grown first if {@code key} could need more than it currently
+   * holds.
+   *
+   * <p>Sizing has to happen BEFORE the write. The previous shape serialized into the buffer and
+   * only then compared the returned length against {@code buffer.length} — by which point a key
+   * larger than the buffer had already been written past its end. Only NAME keys can reach that:
+   * a CAS key is bounded by a constant well under the buffer, but a local name is raw UTF-8 of
+   * whatever the document called the field.</p>
+   *
+   * @param key the key about to be serialized
+   * @return a buffer with room for {@code key}'s prefix
+   */
+  private byte[] prefixKeyBuffer(final K key) {
+    return keyBufferOfAtLeast(keySerializer.maxSerializedLength(key));
+  }
+
+  /** As {@link #prefixKeyBuffer}, with room for the 4-byte chunkIdx trailer as well. */
+  private byte[] chunkedKeyBuffer(final K key) {
+    return keyBufferOfAtLeast(keySerializer.maxSerializedLength(key) + HOTKeySerializer.CHUNK_IDX_BYTES);
+  }
+
+  private static byte[] keyBufferOfAtLeast(final int required) {
+    byte[] keyBuf = KEY_BUFFER.get();
+    if (required > keyBuf.length) {
+      keyBuf = new byte[required];
+      KEY_BUFFER.set(keyBuf);
+    }
+    return keyBuf;
   }
 
   @Override
