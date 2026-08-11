@@ -252,11 +252,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   /**
    * Address → arena map for allocations LARGER than the largest size class (e.g. decompression
    * buffers for {@code OverflowPage}s carrying large values, #1076). Frame slots cannot serve
-   * them, so each is backed by its own shared arena, closed on {@link #release(MemorySegment)}.
-   * Oversized allocations are rare by design — every slotted page fits a size class — so the
-   * extra map lookup on release is off the hot path.
+   * them, so each is backed by its own CONFINED arena, closed deterministically on
+   * {@link #release(MemorySegment)} — closing a confined arena is not gated by GraalVM's
+   * {@code SharedArenaSupport} (only shared-arena close is, and that flag is mutually exclusive
+   * with the Vector API), so this keeps both deterministic reclaim and the SIMD kernels in the
+   * native image. Allocation, access, and release are confined to the allocating thread; a
+   * release (or access) from another thread fails loudly with {@link WrongThreadException},
+   * which is the intended failure for a caller violating the scoped decompress path's
+   * same-thread contract. Oversized allocations are rare by design — every slotted page fits a
+   * size class — so the extra map lookup on release is off the hot path.
    */
-  private final ConcurrentHashMap<Long, MemorySegment> oversizedByAddress = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<Long, Arena> oversizedByAddress = new ConcurrentHashMap<>();
 
   public static FrameSlotAllocator getInstance() {
     return INSTANCE;
@@ -437,15 +443,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (size > SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
       // Oversized request — larger than any frame-slot size class. These come from large-value
       // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Served
-      // from an AUTOMATIC arena: its memory is reclaimed by GC once the segment is unreachable,
-      // so release() only drops the tracking entry and never calls Arena.close(). Two reasons over
-      // ofShared: (1) closing a shared arena is a thread-handshake — measurable on a path a large
-      // blob read hits once per query; (2) native-image forbids Arena.ofShared close unless
+      // from a per-allocation CONFINED arena, closed deterministically in release(). Two reasons
+      // over ofShared: (1) closing a shared arena is a thread-handshake — measurable on a path a
+      // large blob read hits once per query; (2) native-image forbids Arena.ofShared close unless
       // -H:+SharedArenaSupport is on, and THAT flag is mutually exclusive with Vector API support
       // in GraalVM 25 — this method was the image's only shared-arena close, and it silently cost
-      // the SIMD kernels. Oversized buffers are rare and short-lived; GC-timed reclaim is fine.
-      final MemorySegment segment = Arena.ofAuto().allocate(size);
-      oversizedByAddress.put(segment.address(), segment);
+      // the SIMD kernels. Confined-arena close carries neither cost, and the scoped decompress
+      // path allocates and releases on the same thread; a cross-thread caller fails loudly with
+      // WrongThreadException rather than leaking or deferring reclaim to GC.
+      final Arena arena = Arena.ofConfined();
+      final MemorySegment segment = arena.allocate(size);
+      oversizedByAddress.put(segment.address(), arena);
       return segment;
     }
     FrameSlot slot = allocateSlot(size);
@@ -506,10 +514,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     final long address = segment.address();
-    // Oversized allocation (#1076): automatic-arena-backed, not slot-backed — drop the tracking
-    // reference and let GC reclaim the memory (no explicit close exists for an automatic arena).
+    // Oversized allocation (#1076): confined-arena-backed, not slot-backed — close the arena to
+    // reclaim the native memory deterministically. Confined close must run on the allocating
+    // thread; a cross-thread release throws WrongThreadException, surfacing the misuse loudly.
     // Checked first: oversized segments can never match an Issued frame-slot era token below.
-    if (oversizedByAddress.remove(address) != null) {
+    final Arena oversized = oversizedByAddress.remove(address);
+    if (oversized != null) {
+      oversized.close();
       return;
     }
     final Issued issued = liveByAddress.get(address);

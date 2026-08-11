@@ -97,6 +97,24 @@ class FrameSlotAllocatorTest {
   }
 
   @Test
+  void oversizedAllocateReleasedDeterministically() {
+    // Larger than the largest size class (256 KiB) — served from a per-allocation
+    // confined arena rather than a frame slot.
+    final long size = 512L * 1024;
+    final MemorySegment segment = allocator.allocate(size);
+    assertNotNull(segment);
+    assertEquals(size, segment.byteSize());
+    assertTrue(segment.scope().isAlive());
+    segment.set(ValueLayout.JAVA_BYTE, 0L, (byte) 0x5A);
+    segment.set(ValueLayout.JAVA_BYTE, size - 1, (byte) 0xA5);
+    allocator.release(segment);
+    assertFalse(segment.scope().isAlive(),
+        "release of an oversized segment must close its confined arena deterministically");
+    // Idempotent: a second release of the same (now dead) segment is a no-op.
+    allocator.release(segment);
+  }
+
+  @Test
   void exhaustionReturnsNull() {
     // The allocator shares a single physical budget across classes; draining
     // it via the largest class should yield null once the cap is hit.

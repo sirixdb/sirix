@@ -479,6 +479,7 @@ public final class FileChannelReader extends AbstractReader {
 
   /** One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page deserialize. */
   /** DIAGNOSTIC (-Dsirix.projDiag): span bytes read and per-page fallbacks across all runs. */
+  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
   private static final LongAdder RUN_SPAN_BYTES = new LongAdder();
   private static final LongAdder RUN_FALLBACKS = new LongAdder();
   private static final LongAdder RUN_COUNT = new LongAdder();
@@ -493,7 +494,7 @@ public final class FileChannelReader extends AbstractReader {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (DIAG) {
       RUN_COUNT.increment();
       RUN_SPAN_BYTES.add(spanLen);
     }
@@ -512,7 +513,7 @@ public final class FileChannelReader extends AbstractReader {
         if (dataLength < 0 || dataLength > bound) {
           // Body would cross the next page's offset — not the append-only layout this
           // fast path assumes. Exact per-page read decides whether it is corruption.
-          if (Boolean.getBoolean("sirix.projDiag")) {
+          if (DIAG) {
             RUN_FALLBACKS.increment();
           }
           pages[order[k]] = read(member, resourceConfiguration);

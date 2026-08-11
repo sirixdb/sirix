@@ -3989,6 +3989,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
+        candidates:
         for (final PathNode candidate : summary.findPathsByLocalName(field)) {
           if (!summary.moveTo(candidate.getNodeKey()) || !summary.moveToFirstChild()) {
             continue;
@@ -3997,7 +3998,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (resolvedLocalName(summary, summary.getPathNode()) == null) {
               if (resolved != -1L) {
                 resolved = -1L;   // two array layers under this name: ambiguous, fail closed
-                break;
+                break candidates;
               }
               resolved = summary.getNodeKey();
             }
@@ -4895,12 +4896,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // directly: it is only observable past the fan-out threshold, and every query shape that reached
   // it has since grown a route of its own, so an end-to-end test of it would silently stop biting.
   static RuntimeException projectionWorkerFailure(final String message, final Exception e) {
-    for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+    Throwable cause = e;
+    for (int depth = 0; depth < 16 && cause != null; depth++, cause = cause.getCause()) {
       if (cause instanceof IllegalStateException decline) {
         throw decline;
-      }
-      if (cause.getCause() == cause) {
-        break;  // self-referential cause chain; stop rather than spin
       }
     }
     return new RuntimeException(message, e);
@@ -6471,7 +6470,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                                                      arrayElementPathKey,
                                                                      arrayContainsLiteralBytes,
                                                                      arrayContainsLiteralWrapper,
-                                                                     headerScratch);
+                                                                     anchorSlotOut, headerScratch);
               if (fromColumns >= 0L) {
                 REGION_ONLY_PAGES.increment();
                 columnarServed++;
@@ -6486,7 +6485,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 headerScratch.clearPendingBoundary();
                 localCount += decideOneArrayContains(leading, pk, rtx, arrayContainsLiteralBytes)
                     + decideOneArrayContains(trailing, pk, rtx, arrayContainsLiteralBytes);
-                if (recordBuf != null) recordBuf.add((int) pk);
+                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
                 continue;
               }
               // A decline here has already paid the column read AND is about to pay the record
@@ -6646,7 +6645,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private long countArrayContainsFromRegions(final StorageEngineReader reader,
       final IndexLogKey reusableKey, final long pageKey, final int anchorNameKey,
       final long elementPathTag, final byte[] literal, final byte[][] literalWrapper,
-      final RegionHeaderScratch scratch) {
+      final int[] anchorSlotOut, final RegionHeaderScratch scratch) {
+    anchorSlotOut[0] = 0;
     if (elementPathTag <= 0L || elementPathTag > Integer.MAX_VALUE) {
       return declineArrayContains(ArrayContainsDecline.NO_ARRAY_PATH);
     }
@@ -6696,6 +6696,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] anchorIdx = scratch.anchorBitmapIdx;
     final int anchorMatches =
         ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+    anchorSlotOut[0] = anchorMatches;
     // Expand the object-key bitmap ONCE. slotAt is a select-nth-set-bit, and the loop below wants
     // both the anchor's slot and its successor's, so the per-call form paid ~140 rank scans over
     // the same 128-byte bitmap on a page with ~70 anchors.
@@ -6924,7 +6925,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int ORPHANS_UNDECIDABLE = -1;
 
   /**
-   * Settle an array that runs off the end of its page from the NEXT page's orphan elements.
+   * Settle an array that runs off the end of its page from the following pages' orphan elements,
+   * walking forward for as long as the orphan run keeps covering a whole page.
    *
    * <p>This is the whole point of the orphan tag. Profiled cold at a 98.9 % serve rate, deciding
    * these records through the records was 69 % of the query — one full slotted-page rebuild, ~800
@@ -6938,32 +6940,52 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private int orphanElementsContain(final StorageEngineReader reader, final IndexLogKey reusableKey,
       final long nextPageKey, final byte[] literal, final byte[][] literalWrapper,
       final RegionHeaderScratch scratch) {
-    final RegionsOnlyPage next = reader.getRecordPageRegionsOnly(
-        reusableKey.setRecordPageKey(nextPageKey), 1 << RegionTable.KIND_STRING, 0);
-    if (next == null) {
-      return ORPHANS_UNDECIDABLE;   // no next page, or it published no regions
+    long pageKey = nextPageKey;
+    while (true) {
+      final RegionsOnlyPage next = reader.getRecordPageRegionsOnly(
+          reusableKey.setRecordPageKey(pageKey), 1 << RegionTable.KIND_STRING, 0);
+      if (next == null) {
+        return ORPHANS_UNDECIDABLE;   // no next page, or it published no regions
+      }
+      final MemorySegment strings = next.stringPayload();
+      if (strings == null) {
+        return ORPHANS_UNDECIDABLE;
+      }
+      final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
+      if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
+        return ORPHANS_UNDECIDABLE;   // written before the promise existed, or staging gave up
+      }
+      final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
+      if (tag < 0) {
+        return ORPHANS_ABSENT;        // it looked and found none: the array ended on the page before
+      }
+      final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
+                                                 scratch.literalsFor(next.getFsstSymbolTableId(),
+                                                                     literalWrapper, reader)[0]);
+      if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
+        return ORPHANS_UNDECIDABLE;
+      }
+      // A per-tag dictionary holds only values that occur under that tag, so membership in it IS an
+      // occurrence — an existential needs no more than that.
+      if (dictId != StringRegion.DICT_ID_ABSENT) {
+        return ORPHANS_CONTAIN;
+      }
+      // Absent HERE settles the array only if it ends here. An orphan run that covers every
+      // populated slot of the page leaves the array still open, so its remaining elements sit on
+      // the page after this one — walk on and ask that page's orphans the same question.
+      if (!next.hasSlotBitmap()) {
+        return ORPHANS_UNDECIDABLE;
+      }
+      final int populated = next.populatedInRange(0, Constants.NDP_NODE_COUNT);
+      final int orphanCount = sh.tagCount[tag];
+      if (populated > orphanCount) {
+        return ORPHANS_ABSENT;        // the run ended on this page, and the literal was not in it
+      }
+      if (populated < orphanCount) {
+        return ORPHANS_UNDECIDABLE;   // more orphans than slots: a shape this does not model
+      }
+      pageKey++;
     }
-    final MemorySegment strings = next.stringPayload();
-    if (strings == null) {
-      return ORPHANS_UNDECIDABLE;
-    }
-    final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
-    if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
-      return ORPHANS_UNDECIDABLE;   // written before the promise existed, or staging gave up
-    }
-    final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
-    if (tag < 0) {
-      return ORPHANS_ABSENT;        // it looked and found none: the array ended on the page before
-    }
-    final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
-                                               scratch.literalsFor(next.getFsstSymbolTableId(),
-                                                                   literalWrapper, reader)[0]);
-    if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
-      return ORPHANS_UNDECIDABLE;
-    }
-    // A per-tag dictionary holds only values that occur under that tag, so membership in it IS an
-    // occurrence — an existential needs no more than that.
-    return dictId == StringRegion.DICT_ID_ABSENT ? ORPHANS_ABSENT : ORPHANS_CONTAIN;
   }
 
   /**
@@ -8758,7 +8780,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath,
       final String func, final String leftField, final String op, final String rightField)
       throws QueryException {
-    if (wtx != null || !"sum".equals(func) || leftField == null || rightField == null) {
+    if (!"sum".equals(func)) {
+      return null;
+    }
+    return serveBinarySumFromSlices(sourcePath, leftField, op, rightField);
+  }
+
+  /**
+   * The binary slice fold's serving core: sum {@code leftField OP rightField} column-at-a-time
+   * from the two BODY slice chains, with presence intersection and exact arithmetic (decline on
+   * overflow). Factored out of {@link #executeBinaryAggregate} so
+   * {@link #executeComputedAggregate} can route the pure two-field shape here — the translator
+   * emits the computed expression for every arithmetic aggregate, leaving the dedicated binary
+   * entry point unreachable, and the computed route's whole-leaf assembly plus per-row program
+   * interpretation profiled at ~70 % of a cold product-sum that this fold serves from ~9 MB of
+   * body segments instead.
+   */
+  private @Nullable Sequence serveBinarySumFromSlices(final String[] sourcePath,
+      final String leftField, final String op, final String rightField) {
+    if (wtx != null || leftField == null || rightField == null) {
       return null;
     }
     if (projectionRegistryKey == null || !anyProjectionAvailable()) {
@@ -9697,6 +9737,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return null; // untrusted-boundary re-validation, same as the row-materialize path
       }
       final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      // Pure two-field program with no predicate — exactly the binary slice fold's shape. Serve
+      // it there first: the fold reads only the two BODY chains and folds with presence
+      // intersection, where the route below assembles WHOLE leaves (keys plus every segment)
+      // and interprets the program per row. A fold decline (non-integral column, sparse-dirty
+      // evidence, overflow) falls through to this route unchanged.
+      if (cp == null && "sum".equals(func) && fields.length == 2 && code.length == 3
+          && code[0] >= 0 && code[0] <= 1 && code[1] >= 0 && code[1] <= 1 && code[0] != code[1]) {
+        final String binaryOp = switch (code[2]) {
+          case ProjectionIndexByteScan.COMPUTED_OP_ADD -> "+";
+          case ProjectionIndexByteScan.COMPUTED_OP_SUB -> "-";
+          case ProjectionIndexByteScan.COMPUTED_OP_MUL -> "*";
+          default -> null;
+        };
+        if (binaryOp != null) {
+          final Sequence viaFold =
+              serveBinarySumFromSlices(sourcePath, fields[code[0]], binaryOp, fields[code[1]]);
+          if (viaFold != null) {
+            return viaFold;
+          }
+        }
+      }
       final ProjectionIndexRegistry.Handle handle =
           lookupProjection(sourcePath, requiredFields(fields, cp));
       if (handle == null) {

@@ -1958,6 +1958,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
+   * Shared result for a zero-length {@code STRING_VALUE} payload: an empty string is a legitimate
+   * value and must stay distinguishable from a corrupt slot, which answers {@code null}.
+   */
+  private static final byte[] EMPTY_STRING_VALUE_BYTES = new byte[0];
+
+  /**
    * The UTF-8 bytes of a standalone {@code STRING_VALUE} slot — an ARRAY ELEMENT, the one string
    * shape the PAX string column never held.
    *
@@ -1965,8 +1971,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * a different field table: {@link NodeFieldLayout#STRING_VALUE_FIELD_COUNT} fields with the
    * payload at {@link NodeFieldLayout#STRVAL_PAYLOAD}.
    *
-   * @return the value, or {@code null} when the slot is unpopulated, empty, or FSST-compressed
-   *         with no symbol table resolved on this instance
+   * @return the value — the shared empty array for a zero-length value — or {@code null} when the
+   *         slot is unpopulated, carries a negative length, or is FSST-compressed with no symbol
+   *         table resolved on this instance
    */
   public byte[] readStringValueBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
@@ -1981,8 +1988,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
     final long lenOff = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
-    if (length <= 0) {
+    if (length < 0) {
       return null;
+    }
+    if (length == 0) {
+      return EMPTY_STRING_VALUE_BYTES;
     }
     final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
     final long dataOff = lenOff + lenBytes;
@@ -4118,6 +4128,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // if EVERY element on the page resolved its enclosing array, so the tag they land under is
     // always the complete set of that path's values on this page.
     int elementCount = 0;
+    int orphanCount = 0;
+    boolean elementsUsable = ARRAY_ELEMENT_STRINGS_IN_REGION;
     int[] elementNameKeys = new int[16];
     int[] elementPathKeys = new int[16];
     byte[][] elementValues = new byte[16][];
@@ -4138,40 +4150,55 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           // never held them: a path-tagged region has nothing to tag them by. Its enclosing
           // array DOES have one (the fused OBJECT_NAMED_ARRAY slot), and that is the right tag:
           // it is the path a query names when it writes `$m.genres[]`.
-          if (!ARRAY_ELEMENT_STRINGS_IN_REGION) {
+          if (!elementsUsable) {
             continue;
           }
           final byte[] elementValue = readStringValueBytes(slot);
+          if (elementValue == null) {
+            // An undecodable value makes the element set for this page incomplete, and a tag that
+            // covers most of its values is worse than absent: every reader here treats tagCount as
+            // the complete count of that path's values on the page. Drop the element contribution
+            // for the whole page rather than publish a partial one.
+            elementsUsable = false;
+            continue;
+          }
           final int parentSlot = onPageParentSlot(slot, pageKeyBase);
-          if (elementValue != null && parentSlot < 0 && elementCount == 0) {
-            // The LEADING run of elements whose array opens on the previous page — the same shape
-            // RecordOrdinalRegion records as a skip prefix. Skipped, not fatal: the reader
-            // segments by this page's object-key slots and a leading orphan precedes all of them.
-            continue;
-          }
-          if (elementValue == null || parentSlot < 0) {
-            // Either undecodable, or an element whose array opens on the PREVIOUS page. Both
-            // make the element set for this page incomplete, and a tag that covers most of its
-            // values is worse than absent: every reader here treats tagCount as the complete
-            // count of that path's values on the page. Drop the element contribution for the
-            // whole page rather than publish a partial one.
-            elementCount = -1;
-            continue;
-          }
-          if (elementCount >= 0) {
+          if (parentSlot < 0) {
+            // An element whose array opens on the PREVIOUS page. Slot order is node-key order, so
+            // those form a LEADING RUN at the head of the page and nowhere else — kept under the
+            // reserved orphan tag, exactly as PageKind.buildRegionTable keeps them, so the page
+            // holding the array can settle its own last record.
+            if (elementCount > orphanCount) {
+              elementsUsable = false;
+              continue;
+            }
             elementNameKeys = grow(elementNameKeys, elementCount);
             elementPathKeys = grow(elementPathKeys, elementCount);
             elementValues = grow(elementValues, elementCount);
-            // The enclosing array is a STRUCTURAL fused record (12 fields, NAME_KEY at index 5);
-            // the primitive accessor would read index 3 of a layout that does not have it there.
-            elementNameKeys[elementCount] =
-                isFusedStructuralKindId(PageLayout.getDirNodeKindId(sp, parentSlot))
-                    ? getFusedStructuralNameKeyFromSlot(parentSlot)
-                    : getFusedObjectNamedNameKeyFromSlot(parentSlot);
-            elementPathKeys[elementCount] = pathNodeKeyIntForSlot(parentSlot, pageKeyBase);
+            elementNameKeys[elementCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+            elementPathKeys[elementCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
             elementValues[elementCount] = elementValue;
             elementCount++;
+            orphanCount++;
+            continue;
           }
+          // The enclosing array is a STRUCTURAL fused record (12 fields, NAME_KEY at index 5) or a
+          // fused OBJECT_NAMED record (NAME_KEY at index 3); a non-fused parent carries no nameKey
+          // in either layout, so decoding one would read a sibling-key field.
+          final int parentKind = PageLayout.getDirNodeKindId(sp, parentSlot);
+          if (!isFusedStructuralKindId(parentKind) && !isFusedObjectNamedKindId(parentKind)) {
+            elementsUsable = false;
+            continue;
+          }
+          elementNameKeys = grow(elementNameKeys, elementCount);
+          elementPathKeys = grow(elementPathKeys, elementCount);
+          elementValues = grow(elementValues, elementCount);
+          elementNameKeys[elementCount] = isFusedStructuralKindId(parentKind)
+              ? getFusedStructuralNameKeyFromSlot(parentSlot)
+              : getFusedObjectNamedNameKeyFromSlot(parentSlot);
+          elementPathKeys[elementCount] = pathNodeKeyIntForSlot(parentSlot, pageKeyBase);
+          elementValues[elementCount] = elementValue;
+          elementCount++;
           continue;
         }
         if (kindId == FUSED_OBJECT_NAMED_STRING_KIND_ID) {
@@ -4200,11 +4227,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         count++;
       }
     }
-    // Array elements go in only when EVERY one of them resolved; see the branch above.
-    for (int i = 0; elementCount > 0 && i < elementCount; i++) {
-      if (elementPathKeys[i] < 0) {
+    // Array elements go in only when EVERY one of them resolved; see the branch above. The orphan
+    // tag is deliberately negative and is NOT an unresolved path — see PageKind.buildRegionTable.
+    for (int i = 0; elementsUsable && i < elementCount; i++) {
+      if (elementPathKeys[i] < 0 && elementPathKeys[i] != StringRegion.TAG_ORPHAN_ELEMENTS) {
         allPathNodeKeysValid = false;
       }
+    }
+    for (int i = 0; elementsUsable && i < elementCount; i++) {
       nameEnc.addValue(elementNameKeys[i], elementValues[i]);
       if (pathEnc != null && allPathNodeKeysValid) {
         pathEnc.addValue(elementPathKeys[i], elementValues[i]);
@@ -4215,8 +4245,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return null;
     }
     return allPathNodeKeysValid && pathEnc != null
-        ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE)
-        : nameEnc.finish(StringRegion.TAG_KIND_NAME);
+        ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE, elementsUsable)
+        : nameEnc.finish(StringRegion.TAG_KIND_NAME, elementsUsable);
   }
 
   /**

@@ -6661,6 +6661,9 @@ public final class HOTTrieWriter {
           }
         }
         if (target == null) {
+          for (int k = 0; k < n; k++) {
+            newLeaves[k].close();
+          }
           throw new IllegalStateException("Phase 7w redistribution: owning slot " + ownerSlot
               + " (refKey=" + refKey + ") not found in any redistributed leaf — a segment"
               + " reference would be orphaned.");

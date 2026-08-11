@@ -84,9 +84,10 @@ public final class RowGroupDescriptor {
 
   /**
    * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key:
-   * {@code SEGMENTS_PER_COLUMN · c + 2 ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID}. Derived — not restated — from the
-   * id-scheme constants so the invariant has a single authority (a fourth per-column segment
-   * kind automatically tightens this cap). With a 16-bit sub-id this is {@code (65535-2)/3 = 21844}
+   * {@code SEGMENTS_PER_COLUMN · c + 4 ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID} (sub-id +4, the bloom
+   * segment, is the largest of the per-column stride). Derived — not restated — from the
+   * id-scheme constants so the invariant has a single authority (a further per-column segment
+   * kind automatically tightens this cap). With a 16-bit sub-id this is {@code (65535-2)/4 = 16383}
    * columns (was 84 at 8 bits); the on-disk entry columnSegmentId field is 2 bytes to match.
    */
   public static final int MAX_COLUMNS =
@@ -431,7 +432,7 @@ public final class RowGroupDescriptor {
    * Index of the entry for {@code columnSegmentId}, or {@code -1} when absent. Entries are sorted
    * ascending by columnSegmentId (serialize enforces it), so this binary-searches: the write-side
    * carry-forward loops call this once per encoded segment, and at wide-table segment counts (up to
-   * {@code 3·MAX_COLUMNS} ≈ 65k) a linear scan would make those loops quadratic.
+   * {@code 4·MAX_COLUMNS} ≈ 65k) a linear scan would make those loops quadratic.
    */
   public static int entryIndexOf(final byte[] d, final int columnSegmentId) {
     final int base = entriesOffset(d);

@@ -424,6 +424,9 @@ public final class ObjectKeyNameKeyRegion {
       long word = getLong(payload, bitmapOff + w * 8);
       final int base = w << 6;
       while (word != 0L) {
+        if (n >= out.length) {
+          return -1;
+        }
         out[n++] = base + Long.numberOfTrailingZeros(word);
         word &= word - 1L;
       }

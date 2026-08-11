@@ -271,6 +271,7 @@ public final class ProjectionIndexBuilder {
     final LongArrayList lastKeys = new LongArrayList();
     final Map<Integer, List<byte[]>> bloomPerColumn = new HashMap<>();
     final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
+    final boolean hasSetColumn = hasStringSetColumn(indexDef);
     final ProjectionIndexBuilder builder =
         new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
           final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(raw);
@@ -283,7 +284,9 @@ public final class ProjectionIndexBuilder {
           // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
           // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
           // already count rows rather than occurrences.
-          accumulateSetValueRowCounts(raw, setValueRowCounts);
+          if (hasSetColumn) {
+            accumulateSetValueRowCounts(raw, setValueRowCounts);
+          }
           final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
               ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
           accumulateBloomSegments(encoded, firstKeys.size(), bloomPerColumn);
@@ -376,6 +379,19 @@ public final class ProjectionIndexBuilder {
     }
     storage.resetTree();
     return true;
+  }
+
+  /** Whether the definition declares at least one {@code COLUMN_KIND_STRING_SET} column. */
+  private static boolean hasStringSetColumn(final IndexDef indexDef) {
+    final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+    final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+    for (int i = 0; i < fieldTypes.size(); i++) {
+      if (mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i))
+          == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

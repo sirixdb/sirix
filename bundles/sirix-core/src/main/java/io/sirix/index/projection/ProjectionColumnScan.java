@@ -34,6 +34,8 @@ import java.util.Arrays;
  */
 public final class ProjectionColumnScan {
 
+  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
+
   private static final int MASK_WORDS = (ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6;
 
   private static final class Scratch {
@@ -609,7 +611,7 @@ public final class ProjectionColumnScan {
   private static ColumnSlice[][] resolvePredicateColumns(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSegmentFetcher fetcher) {
     final long[] keep = computeKeepMask(store, predicates, fetcher);
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (DIAG) {
       int kept = 0;
       if (keep != null) {
         for (final long w : keep) {

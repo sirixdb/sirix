@@ -93,6 +93,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static final LogWrapper LOGGER =
       new LogWrapper(LoggerFactory.getLogger(ProjectionIndexHOTStorage.class));
 
+  /** Diagnostic switch shared with the executor's {@code sirix.projDiag}. */
+  private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
+
   /** Zero-length slot value marking a tombstoned slot (HOT has no per-entry delete). */
   private static final byte[] TOMBSTONE = new byte[0];
 
@@ -406,7 +409,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public void removeBloomBlocks(final int columnCount) {
     for (int c = 0; c < columnCount; c++) {
-      tombstoneBlobSlot(bloomBlockSlotKey(c));
+      final long slotKey = bloomBlockSlotKey(c);
+      // Only tombstone a block that EXISTS. Writing a tombstone for a never-written slot is not
+      // merely wasted work: it materializes a zero-length entry in the leaf, and a zero-length
+      // entry is exactly what a fragment merge cannot distinguish from an unreadable slot value
+      // (HOTLeafPage#getValue answers null for both) — so a column whose block was never written
+      // would poison every later versioned read of that leaf.
+      if (readSlotValueForWrite(slotKey) != null) {
+        tombstoneBlobSlot(slotKey);
+      }
     }
   }
 
@@ -813,7 +824,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     for (final Long2ObjectMap.Entry<RawBlobSlot> e : descriptors.long2ObjectEntrySet()) {
       final long slot = e.getLongKey();
       if (slot != expected) {
-        if (Boolean.getBoolean("sirix.projDiag")) {
+        if (DIAG) {
           final StringBuilder keys = new StringBuilder("[cat] descriptor key set: ");
           long lo = -1, prev = -1;
           for (final Long2ObjectMap.Entry<RawBlobSlot> k : descriptors.long2ObjectEntrySet()) {
@@ -1611,7 +1622,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     for (int i = 0; i < offsets.length; i++) {
       out[i] = pages[i] == null ? null : pages[i].getDataBytes();
     }
-    if (Boolean.getBoolean("sirix.projDiag")) {
+    if (DIAG) {
       int wanted = 0;
       long bytes = 0;
       for (int i = 0; i < offsets.length; i++) {
@@ -1624,7 +1635,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       }
       System.err.println("[io] segBatch offsets=" + offsets.length + " wanted=" + wanted
                              + " bytes=" + bytes + "  "
-                             + io.sirix.io.filechannel.FileChannelReader.runDiagSummary());
+                             + FileChannelReader.runDiagSummary());
     }
     return out;
   }

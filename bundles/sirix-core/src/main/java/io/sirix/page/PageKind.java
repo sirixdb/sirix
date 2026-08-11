@@ -3114,28 +3114,33 @@ public enum PageKind {
               }
             } else {
               final int parentSlot = (int) parentSlotLong;
-              if (elemValues == null) {
-                elemValues = new byte[64][];
-                elemNameTags = new int[64];
-                elemPathTags = new int[64];
-                elemSlots = new int[64];
-              } else if (elemCount == elemValues.length) {
-                elemValues = java.util.Arrays.copyOf(elemValues, elemCount << 1);
-                elemNameTags = java.util.Arrays.copyOf(elemNameTags, elemCount << 1);
-                elemPathTags = java.util.Arrays.copyOf(elemPathTags, elemCount << 1);
-                elemSlots = java.util.Arrays.copyOf(elemSlots, elemCount << 1);
-              }
               final int parentKind = PageLayout.getDirNodeKindId(slottedPage, parentSlot);
-              elemNameTags[elemCount] = KeyValueLeafPage.isFusedStructuralKindId(parentKind)
-                  ? page.getFusedStructuralNameKeyFromSlot(parentSlot)
-                  : page.getFusedObjectNamedNameKeyFromSlot(parentSlot);
-              final long parentPnk =
-                  page.getObjectKeyPathNodeKeyFromSlot(parentSlot, pageKeyBase + parentSlot);
-              elemPathTags[elemCount] =
-                  parentPnk > 0L && parentPnk <= (long) Integer.MAX_VALUE ? (int) parentPnk : -1;
-              elemValues[elemCount] = elementValue;
-              elemSlots[elemCount] = slot;
-              elemCount++;
+              if (!KeyValueLeafPage.isFusedStructuralKindId(parentKind)
+                  && !KeyValueLeafPage.isFusedObjectNamedKindId(parentKind)) {
+                elemUsable = false;
+              } else {
+                if (elemValues == null) {
+                  elemValues = new byte[64][];
+                  elemNameTags = new int[64];
+                  elemPathTags = new int[64];
+                  elemSlots = new int[64];
+                } else if (elemCount == elemValues.length) {
+                  elemValues = Arrays.copyOf(elemValues, elemCount << 1);
+                  elemNameTags = Arrays.copyOf(elemNameTags, elemCount << 1);
+                  elemPathTags = Arrays.copyOf(elemPathTags, elemCount << 1);
+                  elemSlots = Arrays.copyOf(elemSlots, elemCount << 1);
+                }
+                elemNameTags[elemCount] = KeyValueLeafPage.isFusedStructuralKindId(parentKind)
+                    ? page.getFusedStructuralNameKeyFromSlot(parentSlot)
+                    : page.getFusedObjectNamedNameKeyFromSlot(parentSlot);
+                final long parentPnk =
+                    page.getObjectKeyPathNodeKeyFromSlot(parentSlot, pageKeyBase + parentSlot);
+                elemPathTags[elemCount] =
+                    parentPnk > 0L && parentPnk <= (long) Integer.MAX_VALUE ? (int) parentPnk : -1;
+                elemValues[elemCount] = elementValue;
+                elemSlots[elemCount] = slot;
+                elemCount++;
+              }
             }
           } else if (KeyValueLeafPage.isFusedStructuralKindId(kindId)) {
             // OBJECT- and ARRAY-valued fields play the OBJECT_KEY role too — they carry a field

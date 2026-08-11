@@ -78,7 +78,7 @@ public final class ProjectionSchemePool implements SchemePool {
       // BtrBlocks §3.1: excluded below an average run of 2, where RLE is strictly larger than its
       // input. The scan-shape gate above is ours, and independent of the paper's rule.
       case SCHEME_RLE -> RLE_ENABLED && stats.averageRunLength() >= 2.0;
-      case SCHEME_FOR_BITPACK -> true;
+      case SCHEME_FOR_BITPACK -> stats.max() - stats.min() >= 0;
       default -> false;
     };
   }

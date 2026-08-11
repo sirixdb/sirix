@@ -7,6 +7,7 @@ import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
@@ -86,7 +87,7 @@ public final class ProjectionIndexRegistry {
      * index carries none. Held on the handle because that blob is already read to build the handle
      * — a membership count then needs no further read at all.
      */
-    private java.util.Map<Integer, java.util.Map<String, Long>> setValueRowCounts;
+    private Map<Integer, Map<String, Long>> setValueRowCounts;
 
     /**
      * Rows in the index whose set at {@code column} contains {@code value}; {@code 0} for a value
@@ -107,7 +108,7 @@ public final class ProjectionIndexRegistry {
 
     /** Attach the metadata's summary; called once, at construction time, by the catalog. */
     public void setSetValueRowCounts(
-        final java.util.Map<Integer, java.util.Map<String, Long>> counts) {
+        final Map<Integer, Map<String, Long>> counts) {
       this.setValueRowCounts = counts;
     }
     /**

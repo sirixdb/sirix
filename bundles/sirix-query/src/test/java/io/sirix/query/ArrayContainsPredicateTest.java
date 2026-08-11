@@ -160,6 +160,64 @@ final class ArrayContainsPredicateTest {
                "the column route served no page at all, so the agreement above is vacuous");
   }
 
+  /**
+   * The anchor's ARRAY-kind child is an ELEMENT, not a value layer to descend through.
+   *
+   * <p>Every array-valued field the writer can produce is a fused OBJECT_NAMED_ARRAY whose
+   * elements are its direct children — the legacy unfused {@code OBJECT_KEY -> ARRAY} pair is no
+   * longer representable (the OBJECT_KEY node kind was deleted in Phase 4), so the only plain
+   * ARRAY node that can sit beneath the anchor is a NESTED array element. A membership scan that
+   * descended into it on the grounds that "the child is an ARRAY, so the elements must be one
+   * level further down" would count records whose literal occurs only inside a nested array —
+   * which is not an element of the field and satisfies no existential over it.
+   */
+  @Test
+  @DisplayName("a string inside a nested array element is not a member of the field's array")
+  void aNestedArrayElementIsNotAStringMatch() throws Exception {
+    final String resource = "nested.jn";
+    final int n = 300;
+    long expectedDrama = 0;
+    long expectedComedy = 0;
+    final StringBuilder sb = new StringBuilder(n * 48);
+    sb.append('[');
+    for (int i = 0; i < n; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append("{\"year\":").append(1900 + i % 120).append(",\"genres\":");
+      switch (i % 3) {
+        case 0 -> {
+          sb.append("[\"Drama\"]");
+          expectedDrama++;
+        }
+        case 1 -> {
+          // "Drama" sits INSIDE a nested array element; only "Comedy" is an element of genres.
+          sb.append("[[\"Drama\"],\"Comedy\"]");
+          expectedComedy++;
+        }
+        default -> {
+          sb.append("[\"Comedy\"]");
+          expectedComedy++;
+        }
+      }
+      sb.append('}');
+    }
+    sb.append(']');
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "jn:store('" + DB + "','" + resource + "','" + sb + "',false())")
+          .evaluate(ctx);
+    }
+    assertEquals(expectedDrama,
+                 count(resource, "some $g in $m.genres[] satisfies $g eq 'Drama'", true),
+                 "a string inside a NESTED array element must not satisfy membership in the "
+                     + "field's array — the ARRAY-kind child is an element, not a value layer");
+    assertEquals(expectedComedy,
+                 count(resource, "some $g in $m.genres[] satisfies $g eq 'Comedy'", true),
+                 "top-level string elements beside a nested array element must still match");
+  }
+
   @Test
   @DisplayName("the shape matches something, so agreement is not vacuous")
   void thePredicateSelectsARealSubset() throws Exception {
@@ -171,13 +229,18 @@ final class ArrayContainsPredicateTest {
   }
 
   private long count(final String predicate, final boolean autoWire) throws Exception {
+    return count(RES, predicate, autoWire);
+  }
+
+  private long count(final String resource, final String predicate, final boolean autoWire)
+      throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = autoWire
              ? SirixCompileChain.createWithJsonStore(store)
              : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       return ((Int64) new Query(chain,
-                                "count(for $m in jn:doc('" + DB + "','" + RES + "')[] where "
+                                "count(for $m in jn:doc('" + DB + "','" + resource + "')[] where "
                                     + predicate + " return $m)").evaluate(ctx)).longValue();
     }
   }

@@ -308,6 +308,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
       final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      System.setProperty("sirix.projDiag", "true");   // TEMP: surface the decline reason
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -1082,11 +1083,16 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         for (int i = 0; i < queries.length; i++) {
-          final long servedBefore = SirixVectorizedExecutor.computedAggServedCount();
+          // A pure two-field product/sum is deliberately served by the binary SLICE FOLD (body
+          // chains + presence intersection) instead of the whole-leaf computed route — both are
+          // projection-served, so either counter satisfies the assertion.
+          final long servedBefore = SirixVectorizedExecutor.computedAggServedCount()
+              + SirixVectorizedExecutor.binaryAggregatesServed();
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "computed-aggregate parity, query " + i);
           Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.computedAggServedCount() - servedBefore,
+              SirixVectorizedExecutor.computedAggServedCount()
+                  + SirixVectorizedExecutor.binaryAggregatesServed() - servedBefore,
               "computed-aggregate query " + i + " must be SERVED from the projection");
         }
         // Sanity on real values: products over fully-present rows only (12 + 20).

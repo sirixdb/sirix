@@ -314,6 +314,20 @@ public final class ProjectionIndexByteScan {
           }
           cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
         }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          // Dict, then per-row counts, then the flat element run whose length is their sum.
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
         default -> { return -1; }
       }
     }
@@ -2037,6 +2051,20 @@ public final class ProjectionIndexByteScan {
             lenTotal += getIntLE(payload, cursor + 4 + i * 4);
           }
           cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          // Dict, then per-row counts, then the flat element run whose length is their sum.
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
         }
         default -> { return -1; }
       }

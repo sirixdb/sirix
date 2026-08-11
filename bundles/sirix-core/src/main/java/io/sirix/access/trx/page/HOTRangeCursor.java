@@ -128,11 +128,13 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * End a bounded scan at the first key past {@code toKey} (default), rather than filtering to the
    * end of the trie.
    *
-   * <p>This is FAST but sound only on a trie where every node carries all of its discriminating
-   * bits — see {@link #advanceToValid} for why that does not currently hold. Set
-   * {@code -Dsirix.hot.range.scanToEnd=true} to trade the speed for a complete answer; measured
-   * cost of doing so on {@code HOTLeafUseAfterCloseTest}: 23 s to >590 s, because every bounded
-   * scan then walks the whole trie.
+   * <p>This fast early exit is sound for tries built by the branch-guarded writer
+   * ({@code AbstractHOTIndexWriter#branchIfEscapesRoutedLeaf}), which keeps leaf visits
+   * lex-ordered — validated by {@code HOTBinnaConformanceTest} and the validator's I12
+   * (subtree-ranges-disjoint) invariant. Resources built BEFORE that guard existed can hold
+   * out-of-order leaves; on those, set {@code -Dsirix.hot.range.scanToEnd=true} for complete
+   * bounded scans. Measured cost of opting out on {@code HOTLeafUseAfterCloseTest}: 23 s to
+   * >590 s, because every bounded scan then walks the whole trie.
    */
   private static final boolean EARLY_EXIT_PAST_UPPER_BOUND =
       !Boolean.getBoolean("sirix.hot.range.scanToEnd");
@@ -214,6 +216,13 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       // a bounded scan still touches each page once, but does no per-entry work on the pages that
       // cannot contribute.
       if (currentIndex == 0 && leafCannotContainInRangeKeys()) {
+        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null
+            && currentLeaf.compareKeyWithBound(0, toKey) > 0) {
+          exhausted = true;
+          positionedValid = false;
+          nextEntry = null;
+          return;
+        }
         currentIndex = currentLeaf.getEntryCount();
         continue;
       }
@@ -223,24 +232,24 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       // {@code MemorySegment.ofArray(toKey)} on every call (3 heap allocs per iteration); this
       // path reads the key bytes straight from the HOT leaf's on/off-heap storage.
       //
-      // An out-of-range key SKIPS the entry; it does NOT end the scan. Leaf visit order here is
-      // not lex-monotonic: HOTTrieWriter keeps children in partial-key order and accepts a mask
-      // that misses a discriminating bit (see redistributeLeafKeysIfMisrouted — "firstKey order
-      // and partial order diverge whenever the mask misses a discriminating bit"), so one leaf
-      // can hold two disjoint key ranges. Measured on a 196-leaf projection index: a leaf holding
-      // row groups 128..159 AND 192..196 sits before the leaf holding 160..191. Ending the scan
-      // at the first key past {@code toKey} therefore DROPPED every in-range key living in a
-      // later-visited leaf, silently returning a short answer.
+      // An out-of-range key SKIPS the entry by default only under scanToEnd. Tries built by the
+      // branch-guarded writer (AbstractHOTIndexWriter.branchIfEscapesRoutedLeaf) visit leaves in
+      // lex order — validated by HOTBinnaConformanceTest and the validator's I12
+      // (subtree-ranges-disjoint) invariant — so the first key past {@code toKey} proves no
+      // further in-range keys exist and the scan can end there (the default fast path below).
       //
-      // A PEXT partial key is not monotone in the key it is extracted from, so no bound
-      // comparison can prove "no further in-range keys exist" — the scan must run to the end of
-      // the trie. Whole leaves are skipped cheaply below, so the residual cost is page touches,
-      // not per-entry work.
+      // Resources built BEFORE that guard existed may hold a mask that misses a discriminating
+      // bit, letting one leaf carry two disjoint key ranges and making leaf visit order
+      // non-lex-monotonic. On those, ending at the first key past {@code toKey} would drop
+      // in-range keys in later-visited leaves; -Dsirix.hot.range.scanToEnd=true disables the
+      // early exit and runs the scan to the end of the trie instead. Whole leaves are skipped
+      // cheaply above, so the residual cost is page touches, not per-entry work.
       if (isOutOfRange(currentIndex)) {
         if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null
             && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0) {
-          // Default: stop at the first key past the upper bound. Fast, and correct ONLY on a
-          // trie whose masks are complete (-Dsirix.hot.range.scanToEnd=true opts out).
+          // Default: stop at the first key past the upper bound. Sound on tries built by the
+          // branch-guarded writer; pre-guard resources opt out via
+          // -Dsirix.hot.range.scanToEnd=true.
           exhausted = true;
           positionedValid = false;
           nextEntry = null;

@@ -799,36 +799,46 @@ public final class HOTTrieReader implements AutoCloseable {
    * at each level for range scan readahead.
    */
   private @Nullable HOTLeafPage descendToLeftmostLeaf(PageReference ref) {
-    PageReference currentRef = ref;
+    final Page page = loadPage(ref);
+    if (page == null) {
+      return null;
+    }
 
-    while (true) {
-      final Page page = loadPage(currentRef);
-      if (page == null) {
-        return null;
-      }
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf;
+    }
 
-      if (page instanceof HOTLeafPage leaf) {
-        return leaf;
-      }
+    if (!(page instanceof HOTIndirectPage hotNode)) {
+      return null;
+    }
 
-      if (!(page instanceof HOTIndirectPage hotNode)) {
-        return null;
-      }
+    // Prefetch-batch at descent: schedule PREFETCH_WINDOW in-flight reads for
+    // the current inner node's first N children. Saturates queue depth on the
+    // way down — the cursor will visit all of them in order anyway.
+    final int numChildren = hotNode.getNumChildren();
+    prefetchSiblingWindow(hotNode, 1, numChildren);
 
-      final int childIndex = 0;
+    // Try each child in order — a child that cannot be descended (null reference, or a subtree
+    // that bottoms out on an unresolvable page) must not abandon this inner node: its right-hand
+    // siblings are still live subtrees. Mirrors the sibling loop in advanceToNextLeaf.
+    final int savedDepth = pathDepth;
+    for (int childIndex = 0; childIndex < numChildren; childIndex++) {
       final PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
-        return null;
+        continue;
       }
 
-      // Prefetch-batch at descent: schedule PREFETCH_WINDOW in-flight reads for
-      // the current inner node's first N children. Saturates queue depth on the
-      // way down — the cursor will visit all of them in order anyway.
-      prefetchSiblingWindow(hotNode, 1, hotNode.getNumChildren());
-
-      pushPath(currentRef, hotNode, childIndex);
-      currentRef = childRef;
+      pushPath(ref, hotNode, childIndex);
+      final HOTLeafPage result = descendToLeftmostLeaf(childRef);
+      if (result != null) {
+        return result;
+      }
+      // The failed descent pushed path entries for the route it got through; truncate back to
+      // this node's level before trying the next child.
+      pathDepth = savedDepth;
     }
+
+    return null;
   }
 
   /**

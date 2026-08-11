@@ -159,6 +159,28 @@ final class RleScanTest {
   }
 
   @Test
+  @DisplayName("decodeRle expands the fixture back to the values the kernels scanned")
+  void decodeRleExpandsTheFixture() {
+    final long[] out = new long[ROWS];
+    assertEquals(ROWS,
+                 LightweightSchemes.decodeRle(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, out),
+                 "decodeRle wrote a different row count than the runs sum to");
+    assertArrayEquals(expand(), out, "decodeRle disagrees with the positional expansion");
+  }
+
+  @Test
+  @DisplayName("an adversarial run length that would wrap the cursor is refused, not thrown at")
+  void decodeRleRefusesWrappingRunLength() {
+    // With the cursor already advanced, a run length near Integer.MAX_VALUE makes the naive
+    // cursor-plus-length sum wrap negative — the documented answer is -1, never an exception.
+    final long[] out = new long[8];
+    assertEquals(-1,
+                 LightweightSchemes.decodeRle(new long[] {1L, 2L},
+                                              new int[] {4, Integer.MAX_VALUE - 1}, 2, out),
+                 "a run length overflowing the output must report -1 like any other too-small out");
+  }
+
+  @Test
   @DisplayName("range clear and set handle word edges")
   void rangeHelpersHandleWordEdges() {
     for (final int[] range : new int[][] {{0, 1}, {0, 64}, {63, 65}, {64, 128}, {1, 63}, {5, 200}}) {

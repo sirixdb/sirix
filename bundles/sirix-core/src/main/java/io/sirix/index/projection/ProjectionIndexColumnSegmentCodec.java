@@ -203,9 +203,12 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
-   * Segment id of column {@code c}'s {@link #SEG_KIND_STRING_BLOOM} segment. Sub-id 4 is the last
-   * free slot of the per-column stride ({@code SEGMENTS_PER_COLUMN} = 4; body/dict/set-counts take
-   * 1..3), so the id space and {@link RowGroupDescriptor#MAX_COLUMNS} are unchanged.
+   * Segment id of column {@code c}'s {@link #SEG_KIND_STRING_BLOOM} segment. Sub-id 4 takes the
+   * fourth slot of the per-column stride ({@code SEGMENTS_PER_COLUMN} = 4; body/dict/set-counts
+   * take 1..3). Widening the stride from 3 to 4 renumbered every column's segment ids and shrank
+   * {@link RowGroupDescriptor#MAX_COLUMNS} by a quarter; that is safe across versions only because
+   * the {@link ProjectionIndexMetadata} wire-format version bump (0 → 1) makes any pre-renumbering
+   * store parse as "no metadata" and be rebuilt rather than read at shifted ids.
    */
   public static int bloomColumnSegmentId(final int column) {
     return SEGMENTS_PER_COLUMN * checkColumn(column) + 4;
@@ -222,7 +225,7 @@ public final class ProjectionIndexColumnSegmentCodec {
 
   /** Column index owning segment id {@code columnSegmentId} (BODY/DICT), or -1 for KEYS. */
   public static int columnOfColumnSegment(final int columnSegmentId) {
-    return columnSegmentId == 0 ? -1 : (columnSegmentId - 1) / 3;
+    return columnSegmentId == 0 ? -1 : (columnSegmentId - 1) / SEGMENTS_PER_COLUMN;
   }
 
   /** XXH3-64 content hash as stored in descriptor entries. */
@@ -441,24 +444,24 @@ public final class ProjectionIndexColumnSegmentCodec {
   }
 
   /**
-   * As above, but a {@link #SEG_KIND_SET_COUNTS} segment is inlined REGARDLESS of the size policy.
+   * As above, but a {@link #SEG_KIND_SET_COUNTS} segment is inlined AHEAD of the smallest-first
+   * size policy — it claims the inline budget before any other segment competes for it, subject
+   * only to the structural caps (per-segment and per-leaf), which bound descriptor size and may
+   * never be exceeded.
    *
    * <p>That segment exists solely so a membership count can be answered from the descriptor without
    * touching a page. Letting the ordinary smallest-first budget decide would defeat it exactly when
    * it matters — a dictionary with enough distinct values to be worth summarising is also the one
-   * whose counts run past the per-segment cap, so it would be referenced, cost a page, and leave
-   * the query no better off than scanning. Its size is instead bounded at write time
-   * ({@link #MAX_SET_COUNTS_BYTES}); past that the segment is not written at all.
+   * that loses the smallest-first race, so it would be referenced, cost a page, and leave the query
+   * no better off than scanning. Its size is bounded at write time
+   * ({@link #MAX_SET_COUNTS_BYTES}, tied to the per-segment cap); past that the segment is not
+   * written at all.
    *
    * @param columnSegmentIds segment ids parallel to {@code byteLens}, or {@code null} to apply the
    *                         size policy uniformly
    */
   static boolean[] classifyInline(final int[] byteLens, final int columnSegmentCount,
       final int @Nullable [] columnSegmentIds) {
-    // No kind is force-inlined. The caps are not a preference: they bound a descriptor's size,
-    // which bounds how many descriptors fit in a 64 KB HOT leaf page. Forcing a 451-byte payload
-    // past them overflowed HOTLeafPage.rebuildForShorterPrefix during a projection build — the
-    // invariant is structural, and a segment that does not fit belongs on a page.
     final boolean[] inline = new boolean[columnSegmentCount];
     final int[] policy = INLINE_POLICY.get();
     final int maxColumnSegment = policy != null ? policy[0] : DEFAULT_INLINE_MAX_SEGMENT_BYTES;
@@ -466,9 +469,17 @@ public final class ProjectionIndexColumnSegmentCodec {
       return inline; // inlining disabled → all referenced (pre-hybrid layout)
     }
     int remaining = policy != null ? policy[1] : DEFAULT_INLINE_MAX_TOTAL_BYTES;
-    for (int i = 0; i < columnSegmentCount; i++) {
-      if (inline[i]) {
-        remaining -= byteLens[i];   // forced entries still consume the leaf's inline budget
+    // SET_COUNTS segments claim the budget first — still within the structural caps: they bound a
+    // descriptor's size, which bounds how many descriptors fit in a 64 KB HOT leaf page. Forcing a
+    // 451-byte payload past them overflowed HOTLeafPage.rebuildForShorterPrefix during a projection
+    // build — the invariant is structural, and a segment that does not fit belongs on a page.
+    if (columnSegmentIds != null) {
+      for (int i = 0; i < columnSegmentCount; i++) {
+        if (columnSegmentIds[i] % SEGMENTS_PER_COLUMN == 3
+            && byteLens[i] <= maxColumnSegment && byteLens[i] <= remaining) {
+          inline[i] = true;
+          remaining -= byteLens[i];
+        }
       }
     }
     while (true) {
@@ -646,7 +657,7 @@ public final class ProjectionIndexColumnSegmentCodec {
     final int off = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + i * Integer.BYTES);
     final int end = ProjectionIndexRowGroupCodec.getIntLE(block, tableBase + (i + 1) * Integer.BYTES);
     final int payloadBase = tableBase + (leafCount + 1) * Integer.BYTES;
-    if (end <= off || payloadBase + end > block.length) {
+    if (off < 0 || end <= off || payloadBase + end > block.length) {
       return true;
     }
     return bloomMayContainHashAt(block, payloadBase + off, end - off, h);

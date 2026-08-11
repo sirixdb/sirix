@@ -1234,6 +1234,9 @@ public enum VersioningType {
    * from the result. Tombstones in newer fragments shadow older entries; tombstones in older
    * fragments without a newer entry remain dropped.
    */
+  /** Shared empty payload for merging a null/zero-length fragment entry — no per-entry alloc. */
+  private static final byte[] EMPTY_VALUE = new byte[0];
+
   private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
       return pages.getFirst();
@@ -1243,6 +1246,7 @@ public enum VersioningType {
     if (newest.isCompleteDump()) {
       return newest;
     }
+
 
     // Newest fragment is the base; copy() bulk-copies its entries and resets the dirty bitmap on
     // the result, so cross-fragment fills below are safely tracked as fresh writes if needed.
@@ -1267,8 +1271,18 @@ public enum VersioningType {
         // skipping it would let the older value resurrect on the next iteration.
         // mergeWithNodeRefs takes the insert-new-entry branch when the key is absent and
         // preserves the tombstone byte verbatim.
+        //
+        // getValue answers null both for a zero-length value and for a slot whose stored extent
+        // does not fit the page — the two are indistinguishable here, and BOTH must merge as the
+        // empty (tombstone) value rather than dereference: a fragment carrying one used to fail
+        // the whole versioned read with a NullPointerException from deep inside the page layer,
+        // turning a recoverable empty slot into an unreadable index.
         final byte[] value = olderPage.getValue(j);
-        result.mergeWithNodeRefs(key, key.length, value, value.length);
+        if (value == null) {
+          result.mergeWithNodeRefs(key, key.length, EMPTY_VALUE, 0);
+        } else {
+          result.mergeWithNodeRefs(key, key.length, value, value.length);
+        }
       }
     }
 

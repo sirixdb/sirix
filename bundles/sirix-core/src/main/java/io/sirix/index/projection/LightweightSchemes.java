@@ -154,7 +154,7 @@ public final class LightweightSchemes {
     int at = 0;
     for (int r = 0; r < runs; r++) {
       final int length = runLengths[r];
-      if (length < 0 || at + length > out.length) {
+      if (length < 0 || length > out.length - at) {
         return -1;
       }
       Arrays.fill(out, at, at + length, runValues[r]);
