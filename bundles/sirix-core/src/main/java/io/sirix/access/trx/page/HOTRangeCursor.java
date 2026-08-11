@@ -114,13 +114,11 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private Entry nextEntry = null;
 
   /**
-   * iter#08 — when {@code true}, the cursor stays positioned on the
-   * current valid entry without materialising a new {@link Entry} record
-   * per advance. Callers use {@link #currentKeySlice()} /
-   * {@link #currentValueSlice()} / {@link #currentLeafPage()} +
-   * {@link #advance()} to walk entries zero-alloc. The legacy
-   * {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to
-   * work against the same positional state for callers that prefer it.
+   * iter#08 — when {@code true}, the cursor stays positioned on the current valid entry without
+   * materialising a new {@link Entry} record per advance. Callers use {@link #currentKeySlice()} /
+   * {@link #currentValueSlice()} / {@link #currentLeafPage()} + {@link #advance()} to walk entries
+   * zero-alloc. The legacy {@link Iterator} API ({@link #hasNext}/{@link #next}) continues to work
+   * against the same positional state for callers that prefer it.
    */
   private boolean positionedValid = false;
 
@@ -128,16 +126,16 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * End a bounded scan at the first key past {@code toKey} (default), rather than filtering to the
    * end of the trie.
    *
-   * <p>This fast early exit is sound for tries built by the branch-guarded writer
-   * ({@code AbstractHOTIndexWriter#branchIfEscapesRoutedLeaf}), which keeps leaf visits
-   * lex-ordered — validated by {@code HOTBinnaConformanceTest} and the validator's I12
-   * (subtree-ranges-disjoint) invariant. Resources built BEFORE that guard existed can hold
-   * out-of-order leaves; on those, set {@code -Dsirix.hot.range.scanToEnd=true} for complete
-   * bounded scans. Measured cost of opting out on {@code HOTLeafUseAfterCloseTest}: 23 s to
-   * >590 s, because every bounded scan then walks the whole trie.
+   * <p>
+   * This fast early exit is sound for tries built by the branch-guarded writer
+   * ({@code AbstractHOTIndexWriter#branchIfEscapesRoutedLeaf}), which keeps leaf visits lex-ordered —
+   * validated by {@code HOTBinnaConformanceTest} and the validator's I12 (subtree-ranges-disjoint)
+   * invariant. Resources built BEFORE that guard existed can hold out-of-order leaves; on those, set
+   * {@code -Dsirix.hot.range.scanToEnd=true} for complete bounded scans. Measured cost of opting out
+   * on {@code HOTLeafUseAfterCloseTest}: 23 s to >590 s, because every bounded scan then walks the
+   * whole trie.
    */
-  private static final boolean EARLY_EXIT_PAST_UPPER_BOUND =
-      !Boolean.getBoolean("sirix.hot.range.scanToEnd");
+  private static final boolean EARLY_EXIT_PAST_UPPER_BOUND = !Boolean.getBoolean("sirix.hot.range.scanToEnd");
 
   /**
    * Create a new range cursor.
@@ -160,11 +158,13 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   /**
    * Descend to the first entry {@code >= fromKey} in lex order.
    *
-   * <p>Reference impl: {@code HOTSingleThreaded::lower_bound} (Binna §4.2). PEXT-routed
-   * point-search alone is incorrect for non-existent fromKeys — it lands at a partial-key
-   * match which can miss the lex-position. The proper algorithm walks back up the search
-   * stack to the branching depth and re-positions in the affected-subtree's first child.
-   * See {@link HOTTrieReader#lowerBound(io.sirix.page.PageReference, byte[])}.</p>
+   * <p>
+   * Reference impl: {@code HOTSingleThreaded::lower_bound} (Binna §4.2). PEXT-routed point-search
+   * alone is incorrect for non-existent fromKeys — it lands at a partial-key match which can miss the
+   * lex-position. The proper algorithm walks back up the search stack to the branching depth and
+   * re-positions in the affected-subtree's first child. See
+   * {@link HOTTrieReader#lowerBound(io.sirix.page.PageReference, byte[])}.
+   * </p>
    */
   private void descendToFirstEntry() {
     if (fromKey == null) {
@@ -191,11 +191,11 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   /**
    * Advance to the next valid entry (within range and within leaf bounds).
    *
-   * <p>iter#08 — the positional state ({@link #positionedValid},
-   * {@link #currentLeaf}, {@link #currentIndex}) is authoritative. The
-   * legacy {@link #nextEntry} field is only populated on demand by
-   * {@link #next()} to preserve the {@link Iterator} API; the fast-path
-   * accessors read directly from the positional state.
+   * <p>
+   * iter#08 — the positional state ({@link #positionedValid}, {@link #currentLeaf},
+   * {@link #currentIndex}) is authoritative. The legacy {@link #nextEntry} field is only populated on
+   * demand by {@link #next()} to preserve the {@link Iterator} API; the fast-path accessors read
+   * directly from the positional state.
    */
   private void advanceToValid() {
     while (!exhausted) {
@@ -216,8 +216,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       // a bounded scan still touches each page once, but does no per-entry work on the pages that
       // cannot contribute.
       if (currentIndex == 0 && leafCannotContainInRangeKeys()) {
-        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null
-            && currentLeaf.compareKeyWithBound(0, toKey) > 0) {
+        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null && currentLeaf.compareKeyWithBound(0, toKey) > 0) {
           exhausted = true;
           positionedValid = false;
           nextEntry = null;
@@ -245,8 +244,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       // early exit and runs the scan to the end of the trie instead. Whole leaves are skipped
       // cheaply above, so the residual cost is page touches, not per-entry work.
       if (isOutOfRange(currentIndex)) {
-        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null
-            && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0) {
+        if (EARLY_EXIT_PAST_UPPER_BOUND && toKey != null && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0) {
           // Default: stop at the first key past the upper bound. Sound on tries built by the
           // branch-guarded writer; pre-guard resources opt out via
           // -Dsirix.hot.range.scanToEnd=true.
@@ -269,10 +267,11 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   /**
    * Is the entry at {@code index} outside {@code [fromKey, toKey]}?
    *
-   * <p>Both ends are checked. Checking only the upper bound was safe while the cursor could
-   * assume it started exactly at {@code fromKey} and never moved backwards; it cannot — an
-   * out-of-order leaf can present keys BELOW {@code fromKey} after the scan has begun, and those
-   * were being returned to the caller as if they were in range.
+   * <p>
+   * Both ends are checked. Checking only the upper bound was safe while the cursor could assume it
+   * started exactly at {@code fromKey} and never moved backwards; it cannot — an out-of-order leaf
+   * can present keys BELOW {@code fromKey} after the scan has begun, and those were being returned to
+   * the caller as if they were in range.
    */
   private boolean isOutOfRange(final int index) {
     if (fromKey != null && currentLeaf.compareKeyWithBound(index, fromKey) < 0) {
@@ -283,9 +282,9 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * Can the current leaf be skipped whole? True when its lowest key is already past
-   * {@code toKey}, or its highest key is still below {@code fromKey}. Sound because a leaf's own
-   * entries are sorted — it is only the order BETWEEN leaves that is unreliable.
+   * Can the current leaf be skipped whole? True when its lowest key is already past {@code toKey}, or
+   * its highest key is still below {@code fromKey}. Sound because a leaf's own entries are sorted —
+   * it is only the order BETWEEN leaves that is unreliable.
    */
   private boolean leafCannotContainInRangeKeys() {
     final int entryCount = currentLeaf.getEntryCount();
@@ -344,26 +343,25 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc fast-path — advance past the current entry.
-   * Callers must have consumed the current entry (via
-   * {@link #currentKeySlice}, {@link #currentValueSlice},
-   * {@link #currentLeafPage} + {@link #currentEntryIndex}, or
-   * {@link HOTLeafPage#decodeKey8BE}) BEFORE calling this. After it
-   * returns, {@link #hasNext} reports whether a new valid entry is
-   * now positioned.
+   * iter#08 zero-alloc fast-path — advance past the current entry. Callers must have consumed the
+   * current entry (via {@link #currentKeySlice}, {@link #currentValueSlice}, {@link #currentLeafPage}
+   * + {@link #currentEntryIndex}, or {@link HOTLeafPage#decodeKey8BE}) BEFORE calling this. After it
+   * returns, {@link #hasNext} reports whether a new valid entry is now positioned.
    *
-   * <p>Iteration pattern:
+   * <p>
+   * Iteration pattern:
+   * 
    * <pre>{@code
-   *   while (cursor.hasNext()) {
-   *     final long key = cursor.currentLeafPage().decodeKey8BE(cursor.currentEntryIndex());
-   *     final MemorySegment val = cursor.currentValueSlice();
-   *     consume(key, val);
-   *     cursor.advance();
-   *   }
+   * while (cursor.hasNext()) {
+   *   final long key = cursor.currentLeafPage().decodeKey8BE(cursor.currentEntryIndex());
+   *   final MemorySegment val = cursor.currentValueSlice();
+   *   consume(key, val);
+   *   cursor.advance();
+   * }
    * }</pre>
    *
-   * <p>Concurrency: single-threaded cursor state; guard lifetime same
-   * as the legacy path.
+   * <p>
+   * Concurrency: single-threaded cursor state; guard lifetime same as the legacy path.
    */
   public void advance() {
     if (!positionedValid) {
@@ -374,17 +372,15 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc — key slice for the current positioned entry.
-   * Requires {@link #hasNext()} / {@link #advance()} to have returned
-   * {@code true}. The returned slice is valid for the duration of the
-   * current leaf guard; callers must not retain it across an
-   * {@link #advance} call.
+   * iter#08 zero-alloc — key slice for the current positioned entry. Requires {@link #hasNext()} /
+   * {@link #advance()} to have returned {@code true}. The returned slice is valid for the duration of
+   * the current leaf guard; callers must not retain it across an {@link #advance} call.
    *
-   * <p>Note this method still allocates a heap-backed {@link MemorySegment}
-   * wrapper — the underlying key bytes are on-heap inside the leaf's
-   * {@code commonPrefix + suffix} reconstruction. Zero-alloc key
-   * consumers should use {@link HOTLeafPage#decodeKey8BE} on
-   * {@link #currentLeafPage} at {@link #currentEntryIndex} instead.
+   * <p>
+   * Note this method still allocates a heap-backed {@link MemorySegment} wrapper — the underlying key
+   * bytes are on-heap inside the leaf's {@code commonPrefix + suffix} reconstruction. Zero-alloc key
+   * consumers should use {@link HOTLeafPage#decodeKey8BE} on {@link #currentLeafPage} at
+   * {@link #currentEntryIndex} instead.
    */
   public MemorySegment currentKeySlice() {
     if (!positionedValid) {
@@ -394,9 +390,8 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc — value slice for the current positioned entry
-   * (already zero-copy via {@link HOTLeafPage#getValueSlice}). Slice
-   * lifetime bounded by the leaf guard.
+   * iter#08 zero-alloc — value slice for the current positioned entry (already zero-copy via
+   * {@link HOTLeafPage#getValueSlice}). Slice lifetime bounded by the leaf guard.
    */
   public MemorySegment currentValueSlice() {
     if (!positionedValid) {
@@ -406,9 +401,8 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * iter#08 zero-alloc — the HOT leaf page carrying the current entry.
-   * Consumers that need an allocation-free decode of the composite
-   * 8-byte key call {@link HOTLeafPage#decodeKey8BE} at
+   * iter#08 zero-alloc — the HOT leaf page carrying the current entry. Consumers that need an
+   * allocation-free decode of the composite 8-byte key call {@link HOTLeafPage#decodeKey8BE} at
    * {@link #currentEntryIndex} on this leaf.
    */
   public HOTLeafPage currentLeafPage() {

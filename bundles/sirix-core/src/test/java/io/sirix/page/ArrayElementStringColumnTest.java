@@ -27,21 +27,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What was missing</h2>
  *
- * <p>The column held object-named strings and nothing else: {@code collectAndEncodeStringRegion}
+ * <p>
+ * The column held object-named strings and nothing else: {@code collectAndEncodeStringRegion}
  * matched {@code FUSED_OBJECT_NAMED_STRING} and every other kind fell through a {@code continue}.
  * So a predicate over an array of strings — {@code some $g in $m.genres[] satisfies $g eq "Drama"}
  * — had no column to read and went through the records, which on a 3.48M-record corpus meant
  * rebuilding all 51,745 slotted pages: 78 % of a one-shot query, and the one shape left an order of
  * magnitude behind DuckDB.
  *
- * <p>The reason was not a policy about arrays. An array element is a standalone
- * {@code STRING_VALUE} that carries NO path node key of its own — every one reads back as
- * {@code -1} — and the region is path-tagged, so there was nothing to tag it by. Its enclosing
- * array does have one, and that is the tag a query actually names when it writes {@code $m.genres[]}.
+ * <p>
+ * The reason was not a policy about arrays. An array element is a standalone {@code STRING_VALUE}
+ * that carries NO path node key of its own — every one reads back as {@code -1} — and the region is
+ * path-tagged, so there was nothing to tag it by. Its enclosing array does have one, and that is
+ * the tag a query actually names when it writes {@code $m.genres[]}.
  *
  * <h2>What is asserted</h2>
  *
- * <p>That the elements arrive under the ENCLOSING ARRAY's path node key, that their count is the
+ * <p>
+ * That the elements arrive under the ENCLOSING ARRAY's path node key, that their count is the
  * complete set for the page, and — the half that keeps the change safe — that the object-named tags
  * beside them are untouched. Every reader of this region treats {@code tagCount} as the complete
  * number of that path's values on the page, so a tag that gained or lost entries would silently
@@ -65,8 +68,8 @@ final class ArrayElementStringColumnTest {
     final int withoutElements = tagKeyCount(false);
     final int withElements = tagKeyCount(true);
     assertTrue(withElements > withoutElements,
-               "enabling the flag added no tag: array-element strings still never reach the "
-                   + "column, so a predicate over an array has nothing columnar to read");
+        "enabling the flag added no tag: array-element strings still never reach the "
+            + "column, so a predicate over an array has nothing columnar to read");
   }
 
   @Test
@@ -84,8 +87,8 @@ final class ArrayElementStringColumnTest {
       final int tag = StringRegion.lookupTag(with, key);
       assertTrue(tag >= 0, "tag " + key + " disappeared when array elements were added");
       assertEquals(without.tagCount[i], with.tagCount[tag],
-                   "tag " + key + " changed count when array elements were added — the existing "
-                       + "kernels read tagCount as the complete count for that path");
+          "tag " + key + " changed count when array elements were added — the existing "
+              + "kernels read tagCount as the complete count for that path");
     }
 
     // And the new tag holds every element the corpus put on the page: 3 records x 2 genres, under
@@ -103,12 +106,11 @@ final class ArrayElementStringColumnTest {
       }
     }
     assertEquals(1, addedTags, "the elements must land under ONE tag — their enclosing array's");
-    assertEquals(6, addedValues,
-                 "the added tag does not hold all six genre elements; a tag covering only some of "
-                     + "a path's values is worse than none, because tagCount is read as complete");
+    assertEquals(6, addedValues, "the added tag does not hold all six genre elements; a tag covering only some of "
+        + "a path's values is worse than none, because tagCount is read as complete");
     assertEquals(genresPathNodeKey(), addedKey,
-                 "the elements are not tagged by their enclosing array's path node key — a query "
-                     + "naming $m.genres[] would look under that key and find nothing");
+        "the elements are not tagged by their enclosing array's path node key — a query "
+            + "naming $m.genres[] would look under that key and find nothing");
   }
 
   /**
@@ -118,7 +120,7 @@ final class ArrayElementStringColumnTest {
   private int genresPathNodeKey() throws Exception {
     final var database = Databases.openJsonDatabase(dbDir);
     try (final JsonResourceSession session = database.beginResourceSession("records");
-         final var rtx = session.beginNodeReadOnlyTrx()) {
+        final var rtx = session.beginNodeReadOnlyTrx()) {
       final long pages = (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
       for (long pk = 0; pk < pages; pk++) {
         for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
@@ -135,7 +137,9 @@ final class ArrayElementStringColumnTest {
   /** Number of distinct tags in the page's string region. */
   private int tagKeyCount(final boolean elementsEnabled) throws Exception {
     final StringRegion.Header header = header(elementsEnabled);
-    return header == null ? 0 : header.parentDictSize;
+    return header == null
+        ? 0
+        : header.parentDictSize;
   }
 
   private StringRegion.Header header(final boolean elementsEnabled) throws Exception {
@@ -164,18 +168,15 @@ final class ArrayElementStringColumnTest {
       try (final var rtx = session.beginNodeReadOnlyTrx()) {
         final var reader = rtx.getStorageEngineReader();
         final int rev = rtx.getRevisionNumber();
-        final long pages =
-            (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+        final long pages = (rtx.getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
         final IndexLogKey key = new IndexLogKey(IndexType.DOCUMENT, 0, 0, rev);
         for (long pk = 0; pk < pages; pk++) {
           final RegionsOnlyPage regions =
-              reader.getRecordPageRegionsOnly(key.setRecordPageKey(pk),
-                                              1 << RegionTable.KIND_STRING, 0);
+              reader.getRecordPageRegionsOnly(key.setRecordPageKey(pk), 1 << RegionTable.KIND_STRING, 0);
           if (regions == null) {
             continue;
           }
-          final StringRegion.Header header =
-              regions.stringHeaderInto(new StringRegion.Header());
+          final StringRegion.Header header = regions.stringHeaderInto(new StringRegion.Header());
           if (header != null && header.parentDictSize > 0) {
             return header;
           }

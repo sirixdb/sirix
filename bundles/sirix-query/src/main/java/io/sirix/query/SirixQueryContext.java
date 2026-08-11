@@ -225,8 +225,8 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   /**
-   * Invalidate stale statistics and cached plans after a commit.
-   * Must never throw — statistics cleanup must not fail the commit.
+   * Invalidate stale statistics and cached plans after a commit. Must never throw — statistics
+   * cleanup must not fail the commit.
    */
   private static void invalidateStatisticsForResource(NodeTrx trx) {
     try {

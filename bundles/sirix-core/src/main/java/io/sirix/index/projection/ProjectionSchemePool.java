@@ -12,8 +12,9 @@ import io.sirix.index.projection.SchemeSelector.Stats;
  *
  * <h2>Scheme codes</h2>
  *
- * <p>Deliberately separate from {@code ProjectionIndexRowGroupPage}'s COLUMN_KIND bytes: a kind
- * says what a column HOLDS (longs, a string set), a scheme says how those values are LAID OUT. The
+ * <p>
+ * Deliberately separate from {@code ProjectionIndexRowGroupPage}'s COLUMN_KIND bytes: a kind says
+ * what a column HOLDS (longs, a string set), a scheme says how those values are LAID OUT. The
  * paper's cascade needs the second to vary per block while the first stays fixed for the column.
  */
 public final class ProjectionSchemePool implements SchemePool {
@@ -31,27 +32,26 @@ public final class ProjectionSchemePool implements SchemePool {
   public static final byte SCHEME_RLE = 3;
 
   /**
-   * The pool in preference order. Ties in estimated size go to the earlier entry, so a block that
-   * One Value and RLE would encode identically — a constant block, where RLE degenerates to a
-   * single run — takes One Value, which is both smaller in practice and scannable with one compare.
+   * The pool in preference order. Ties in estimated size go to the earlier entry, so a block that One
+   * Value and RLE would encode identically — a constant block, where RLE degenerates to a single run
+   * — takes One Value, which is both smaller in practice and scannable with one compare.
    */
-  private static final Candidate[] CANDIDATES = {
-      new Candidate(SCHEME_ONE_VALUE, LightweightSchemes::oneValueBytes),
+  private static final Candidate[] CANDIDATES = {new Candidate(SCHEME_ONE_VALUE, LightweightSchemes::oneValueBytes),
       new Candidate(SCHEME_RLE, LightweightSchemes::rleBytes),
-      new Candidate(SCHEME_FOR_BITPACK, ProjectionSchemePool::forBitPackBytes),
-  };
+      new Candidate(SCHEME_FOR_BITPACK, ProjectionSchemePool::forBitPackBytes),};
 
   /**
    * Whether RLE may be offered at all.
    *
-   * <p>Off by default, and this is NOT a ratio judgement. Our scan kernels evaluate predicates over
-   * the encoded bytes positionally — value {@code i} lives at bit offset {@code i * width}. Under
-   * RLE the value at a row is only reachable by walking the run lengths, so a column encoded this
-   * way would fall off the vectorized path onto a decode-then-scan fallback. BtrBlocks optimises
-   * decompression and can take that trade; we optimise scanning and cannot, until a run-aware
-   * kernel exists.
+   * <p>
+   * Off by default, and this is NOT a ratio judgement. Our scan kernels evaluate predicates over the
+   * encoded bytes positionally — value {@code i} lives at bit offset {@code i * width}. Under RLE the
+   * value at a row is only reachable by walking the run lengths, so a column encoded this way would
+   * fall off the vectorized path onto a decode-then-scan fallback. BtrBlocks optimises decompression
+   * and can take that trade; we optimise scanning and cannot, until a run-aware kernel exists.
    *
-   * <p>Left switchable so the run-aware kernel can be measured against the positional one on real
+   * <p>
+   * Left switchable so the run-aware kernel can be measured against the positional one on real
    * columns rather than argued about.
    */
   public static boolean RLE_ENABLED = Boolean.getBoolean("sirix.projection.rle");
@@ -62,8 +62,7 @@ public final class ProjectionSchemePool implements SchemePool {
     return INSTANCE;
   }
 
-  private ProjectionSchemePool() {
-  }
+  private ProjectionSchemePool() {}
 
   @Override
   public Candidate[] candidates() {

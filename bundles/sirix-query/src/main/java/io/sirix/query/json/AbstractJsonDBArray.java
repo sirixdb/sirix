@@ -31,8 +31,7 @@ import java.util.List;
 import java.util.Objects;
 
 public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> extends AbstractArray
-    implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx>,
-               SplittableMembers {
+    implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx>, SplittableMembers {
   /**
    * The unique nodeKey of the current node.
    */
@@ -59,8 +58,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private final JsonItemSequence jsonItemSequence;
 
   /**
-   * Cached values. Populated only by {@link #values()} and by RANDOM access through
-   * {@link #at(int)}; a purely sequential scan never builds it.
+   * Cached values. Populated only by {@link #values()} and by RANDOM access through {@link #at(int)};
+   * a purely sequential scan never builds it.
    */
   private List<Sequence> values;
 
@@ -70,22 +69,25 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /**
    * This array's element count, captured at construction.
    *
-   * <p>brackit's array unbox calls {@code len()} once per element, and answering that from the
-   * cursor means {@code moveRtx()} — a jump back to the array node, which lives on a different page
-   * from the element being read. That bounced the cursor page N -> array page -> page N for every
-   * element and defeated the same-page fast path. It used to be avoided by materializing the whole
-   * element list and reading its size; capturing the count here removes the need for either.
+   * <p>
+   * brackit's array unbox calls {@code len()} once per element, and answering that from the cursor
+   * means {@code moveRtx()} — a jump back to the array node, which lives on a different page from the
+   * element being read. That bounced the cursor page N -> array page -> page N for every element and
+   * defeated the same-page fast path. It used to be avoided by materializing the whole element list
+   * and reading its size; capturing the count here removes the need for either.
    *
-   * <p>Read-only transactions only, for the reason {@code JsonDBObject#firstChildKey} records: a
-   * writer can change the child count through a different item or through the transaction directly,
-   * and this object would not see it. A writer leaves this {@link #CHILD_COUNT_UNKNOWN}.
+   * <p>
+   * Read-only transactions only, for the reason {@code JsonDBObject#firstChildKey} records: a writer
+   * can change the child count through a different item or through the transaction directly, and this
+   * object would not see it. A writer leaves this {@link #CHILD_COUNT_UNKNOWN}.
    */
   private long childCount;
 
   /**
    * Index of the element returned by the last SEQUENTIAL {@link #at(int)} call, or -1.
    *
-   * <p>Together with {@link #seqNodeKey} this turns {@code for $x in $doc[]} into a sibling walk:
+   * <p>
+   * Together with {@link #seqNodeKey} this turns {@code for $x in $doc[]} into a sibling walk:
    * re-anchor on the previously returned element and hop right, instead of materializing every
    * element up front. The re-anchor is needed because the cursor is shared — evaluating
    * {@code $x.field} moves it — and lands on the page the element already lives on, so it takes the
@@ -132,7 +134,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     jsonItemSequence = new JsonItemSequence();
     // See the field javadoc: only a read-only cursor sees a fixed revision, so only there can the
     // count be trusted for the lifetime of this item.
-    childCount = rtx instanceof JsonNodeTrx ? CHILD_COUNT_UNKNOWN : rtx.getChildCount();
+    childCount = rtx instanceof JsonNodeTrx
+        ? CHILD_COUNT_UNKNOWN
+        : rtx.getChildCount();
   }
 
   @Override
@@ -464,10 +468,11 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /**
    * Elements below which splitting is refused.
    *
-   * <p>A split costs a read transaction and a storage reader per piece, and a page-range scan
-   * inspects every slot of every page it covers — including the ~14 non-element nodes per element
-   * on a typical JSON corpus. Under a large array that trade is overwhelmingly worth it; under a
-   * small one it is pure loss, and the serial sibling walk is simply better.
+   * <p>
+   * A split costs a read transaction and a storage reader per piece, and a page-range scan inspects
+   * every slot of every page it covers — including the ~14 non-element nodes per element on a typical
+   * JSON corpus. Under a large array that trade is overwhelmingly worth it; under a small one it is
+   * pure loss, and the serial sibling walk is simply better.
    */
   private static final long SPLIT_MIN_ELEMENTS = Long.getLong("sirix.morsel.minElements", 65_536L);
 
@@ -477,9 +482,10 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /**
    * Whether this array's elements are exactly "the children of {@link #nodeKey}".
    *
-   * <p>That equivalence is what makes a parent-key test a correct membership test, and it is what a
-   * sub-range view breaks: a slice's elements are a positional window, which no per-node property
-   * can identify. Such views decline to split and fall back to serial iteration.
+   * <p>
+   * That equivalence is what makes a parent-key test a correct membership test, and it is what a
+   * sub-range view breaks: a slice's elements are a positional window, which no per-node property can
+   * identify. Such views decline to split and fall back to serial iteration.
    */
   protected boolean isWholeArray() {
     return true;
@@ -510,8 +516,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   @Override
   public Sequence memberSplit(final int index, final int total) {
     if (index < 0 || total <= 0 || index >= total) {
-      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE,
-                               "Invalid split %s of %s", index, total);
+      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid split %s of %s", index, total);
     }
     final long pages = documentPageCount();
     final long pagesPerSplit = (pages + total - 1) / total;
@@ -519,8 +524,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final long to = Math.min(from + pagesPerSplit, pages);
     // Each piece opens its own transaction; nothing of this array's cursor state is shared, which
     // is what makes concurrent iteration of the pieces safe.
-    return new ArrayPageRangeSequence(rtx.getResourceSession(), rtx.getRevisionNumber(), nodeKey,
-                                      collection, jsonItemFactory, from, Math.max(from, to));
+    return new ArrayPageRangeSequence(rtx.getResourceSession(), rtx.getRevisionNumber(), nodeKey, collection,
+        jsonItemFactory, from, Math.max(from, to));
   }
 
   @Override
@@ -616,25 +621,27 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /**
    * Keep the read-ahead in step with a sequential walk that has just landed on {@code index}.
    *
-   * <p>On the LAST element the prefetcher is released instead. A consumer that bounds its loop by
-   * {@code len()} — which brackit's array unbox does — never calls {@code at(n)}, so that is the
-   * only point at which a completed scan is observably over, and the read-ahead's worker
-   * transactions have to be released there or not at all. Nothing follows that could consume a
-   * prefetched page anyway.
+   * <p>
+   * On the LAST element the prefetcher is released instead. A consumer that bounds its loop by
+   * {@code len()} — which brackit's array unbox does — never calls {@code at(n)}, so that is the only
+   * point at which a completed scan is observably over, and the read-ahead's worker transactions have
+   * to be released there or not at all. Nothing follows that could consume a prefetched page anyway.
    *
-   * <p>Otherwise the walk is extended. Decoding the pages ahead is what makes a cold or
-   * buffer-pressured scan use more than one core; see {@code RecordPagePrefetcher}. It only warms a
-   * cache, so it cannot affect the result. The two keys bracket one element, so their distance is
-   * this walk's measured stride: together with the elements still to come it says how far the walk
-   * will actually reach, which is what decides whether read-ahead can pay for itself here.
+   * <p>
+   * Otherwise the walk is extended. Decoding the pages ahead is what makes a cold or buffer-pressured
+   * scan use more than one core; see {@code RecordPagePrefetcher}. It only warms a cache, so it
+   * cannot affect the result. The two keys bracket one element, so their distance is this walk's
+   * measured stride: together with the elements still to come it says how far the walk will actually
+   * reach, which is what decides whether read-ahead can pay for itself here.
    */
   private void onSequentialAdvance(final int index, final long previousNodeKey) {
     if (childCount != CHILD_COUNT_UNKNOWN && index == childCount - 1L) {
       closePrefetcher();
       return;
     }
-    startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey),
-                      childCount == CHILD_COUNT_UNKNOWN ? 0L : childCount - 1L - index);
+    startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey), childCount == CHILD_COUNT_UNKNOWN
+        ? 0L
+        : childCount - 1L - index);
     if (prefetcher != null) {
       prefetcher.advanceTo(seqNodeKey);
     }
@@ -642,15 +649,14 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   /**
    * Starts the read-ahead on the first sequential step of a walk, once per walk. Deferred to the
-   * first step rather than done in the constructor because most arrays are never scanned end to
-   * end, and a prefetcher that is created and immediately dropped costs a transaction for nothing —
-   * and because only a step that has already happened can measure the walk.
+   * first step rather than done in the constructor because most arrays are never scanned end to end,
+   * and a prefetcher that is created and immediately dropped costs a transaction for nothing — and
+   * because only a step that has already happened can measure the walk.
    *
-   * @param nodeStride        node-key distance between the two elements visited so far, at least 1
+   * @param nodeStride node-key distance between the two elements visited so far, at least 1
    * @param remainingElements elements still to visit; {@code 0} when the count is unknown, which
-   *                          declines — a walk of unmeasurable length cannot be shown to amortize
-   *                          read-ahead, and an unknown count also means the last-element teardown
-   *                          can never fire for it
+   *        declines — a walk of unmeasurable length cannot be shown to amortize read-ahead, and an
+   *        unknown count also means the last-element teardown can never fire for it
    */
   private void startPrefetchOnce(final long nodeStride, final long remainingElements) {
     if (!prefetcherInitialized) {
@@ -673,12 +679,13 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /**
    * Ends the read-ahead and releases its worker transactions. Idempotent.
    *
-   * <p>Resets the initialization latch as well, because this is the end of a WALK, not of the item:
-   * the same array is walked again by a second {@code for} over the same variable, and by any walk
-   * resumed after {@link #invalidateScanState()}. Leaving the latch set made the teardown at the
-   * last element a one-way switch that permanently demoted every later scan of that item to the
-   * cold single-core decode path the read-ahead exists to hide. Re-admission is decided afresh from
-   * the new walk's own measurements, so a walk that should not prefetch still does not.
+   * <p>
+   * Resets the initialization latch as well, because this is the end of a WALK, not of the item: the
+   * same array is walked again by a second {@code for} over the same variable, and by any walk
+   * resumed after {@link #invalidateScanState()}. Leaving the latch set made the teardown at the last
+   * element a one-way switch that permanently demoted every later scan of that item to the cold
+   * single-core decode path the read-ahead exists to hide. Re-admission is decided afresh from the
+   * new walk's own measurements, so a walk that should not prefetch still does not.
    */
   private void closePrefetcher() {
     prefetcherInitialized = false;
@@ -698,8 +705,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   }
 
   /**
-   * Holds the process-wide cleaner in a class of its own so its thread starts on the first array
-   * that actually prefetches, not on the first one that is loaded.
+   * Holds the process-wide cleaner in a class of its own so its thread starts on the first array that
+   * actually prefetches, not on the first one that is loaded.
    */
   private static final class PrefetcherCleaner {
     static final Cleaner CLEANER = Cleaner.create(runnable -> {
@@ -708,8 +715,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
       return thread;
     });
 
-    private PrefetcherCleaner() {
-    }
+    private PrefetcherCleaner() {}
   }
 
   @Override

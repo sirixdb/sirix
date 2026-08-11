@@ -81,10 +81,10 @@ public final class FileChannelReader extends AbstractReader {
 
   /**
    * Release action for a reader borrowing one of the storage's SHARED channel stripes (a small
-   * reference-counted pool per {@link FileChannelStorage}, positional reads only): instead of
-   * closing the channels, {@link #close()} runs this callback so the storage can close the pool
-   * once the LAST borrowing reader is gone. {@code null} means this reader owns its channels and
-   * closes them directly (writer delegate, {@code MMStorage}, recovery, test harnesses).
+   * reference-counted pool per {@link FileChannelStorage}, positional reads only): instead of closing
+   * the channels, {@link #close()} runs this callback so the storage can close the pool once the LAST
+   * borrowing reader is gone. {@code null} means this reader owns its channels and closes them
+   * directly (writer delegate, {@code MMStorage}, recovery, test harnesses).
    */
   private final @Nullable Runnable releaseAction;
 
@@ -95,34 +95,34 @@ public final class FileChannelReader extends AbstractReader {
 
   /**
    * Direct-ByteBuffer pool for page reads. Owning a buffer via
-   * {@link java.util.concurrent.ArrayBlockingQueue#poll} gives a thread exclusive use
-   * without holding any shared monitor during the expensive decompress + deserialize
-   * phase. Replaces the prior {@code synchronized(STRIPE_LOCK)} design which serialized
-   * {@code read → decompress → deserialize} per-stripe and was the dominant cold-cache
-   * wall-time contributor (profiled: 97 % of lock samples, ~770 s off-CPU at cold 100M).
+   * {@link java.util.concurrent.ArrayBlockingQueue#poll} gives a thread exclusive use without holding
+   * any shared monitor during the expensive decompress + deserialize phase. Replaces the prior
+   * {@code synchronized(STRIPE_LOCK)} design which serialized {@code read → decompress → deserialize}
+   * per-stripe and was the dominant cold-cache wall-time contributor (profiled: 97 % of lock samples,
+   * ~770 s off-CPU at cold 100M).
    *
-   * <p>HFT constraints honored: bounded off-heap (POOL_SIZE × per-buffer capacity),
-   * zero alloc in steady state (buffers are reused), virtual-thread-safe (queue applies
-   * back-pressure instead of letting the buffer population scale with thread count).
+   * <p>
+   * HFT constraints honored: bounded off-heap (POOL_SIZE × per-buffer capacity), zero alloc in steady
+   * state (buffers are reused), virtual-thread-safe (queue applies back-pressure instead of letting
+   * the buffer population scale with thread count).
    */
   private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
   private static final java.util.concurrent.ArrayBlockingQueue<ByteBuffer> BUF_POOL =
       new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
 
   /**
-   * Per-pool-buffer capacity. Kept at 128 KiB because measurement at cold 100 M
-   * showed that enlarging to 1 MiB didn't help wall-time (the pool-growth path
-   * is hit rarely enough to not matter) but increased FS-input by 20% —
-   * apparently {@code FileChannel.read(buffer, pos)} with a 1 MiB-limit buffer
-   * on a 200 KiB page triggers extra readahead we don't benefit from.
+   * Per-pool-buffer capacity. Kept at 128 KiB because measurement at cold 100 M showed that enlarging
+   * to 1 MiB didn't help wall-time (the pool-growth path is hit rarely enough to not matter) but
+   * increased FS-input by 20% — apparently {@code FileChannel.read(buffer, pos)} with a 1 MiB-limit
+   * buffer on a 200 KiB page triggers extra readahead we don't benefit from.
    *
-   * <p>Override with {@code -Dsirix.filechannel.bufferBytes=<N>} (N = bytes,
-   * clamped to [64 KiB, 16 MiB]). Kept configurable for future tuning on
-   * different workloads (e.g. LZ4-on DBs where pages are ~32 KiB).
+   * <p>
+   * Override with {@code -Dsirix.filechannel.bufferBytes=<N>} (N = bytes, clamped to [64 KiB, 16
+   * MiB]). Kept configurable for future tuning on different workloads (e.g. LZ4-on DBs where pages
+   * are ~32 KiB).
    */
   private static final int BUFFER_BYTES =
-      Math.max(64 * 1024, Math.min(16 * 1024 * 1024,
-          Integer.getInteger("sirix.filechannel.bufferBytes", 128 * 1024)));
+      Math.max(64 * 1024, Math.min(16 * 1024 * 1024, Integer.getInteger("sirix.filechannel.bufferBytes", 128 * 1024)));
 
   static {
     for (int i = 0; i < POOL_SIZE; i++) {
@@ -131,12 +131,13 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   /**
-   * Acquire a direct ByteBuffer from the pool, or — rare — allocate a fresh one if the
-   * pool is temporarily drained. Always pair with {@link #releaseBuffer}.
+   * Acquire a direct ByteBuffer from the pool, or — rare — allocate a fresh one if the pool is
+   * temporarily drained. Always pair with {@link #releaseBuffer}.
    *
-   * <p>We do not block on {@code take()} here: a drained pool means every worker is
-   * already servicing a read in parallel; adding queue-wait on top would serialize
-   * them again. One extra allocation is cheaper than that serialization.
+   * <p>
+   * We do not block on {@code take()} here: a drained pool means every worker is already servicing a
+   * read in parallel; adding queue-wait on top would serialize them again. One extra allocation is
+   * cheaper than that serialization.
    */
   private static ByteBuffer acquireBuffer(final int minCapacity) {
     ByteBuffer b = BUF_POOL.poll();
@@ -154,7 +155,8 @@ public final class FileChannelReader extends AbstractReader {
 
   /** Return a buffer to the pool. If pool is full (transient extras), drop the reference. */
   private static void releaseBuffer(final ByteBuffer b) {
-    if (b == null) return;
+    if (b == null)
+      return;
     BUF_POOL.offer(b);
   }
 
@@ -195,9 +197,9 @@ public final class FileChannelReader extends AbstractReader {
    * Validate a page's declared data-length header before it is used to size an allocation
    * ({@link #acquireBuffer} / {@code new byte[dataLength]}). The length is read straight from the
    * file, so a corrupt or garbled beacon/page can present any 32-bit value; a large positive one
-   * (e.g. random bytes read as ~2 GiB) would trigger a multi-gigabyte allocation that OOMs or
-   * stalls the JVM in GC instead of failing fast — the cause of {@code UberPageCorruptionTest}
-   * flakiness. A page can never be longer than the file that contains it, so bound it accordingly.
+   * (e.g. random bytes read as ~2 GiB) would trigger a multi-gigabyte allocation that OOMs or stalls
+   * the JVM in GC instead of failing fast — the cause of {@code UberPageCorruptionTest} flakiness. A
+   * page can never be longer than the file that contains it, so bound it accordingly.
    */
   private void checkDataLength(final int dataLength) throws IOException {
     // Zero is as invalid as negative: no serialized page is empty. It matters under preallocated
@@ -213,10 +215,10 @@ public final class FileChannelReader extends AbstractReader {
 
   /**
    * Reads the buffer's full remaining range from the given file offset, failing with a clean
-   * {@link SirixIOException} on EOF/short data. A single unchecked {@code read} returned -1 at
-   * EOF and left the buffer empty, so the subsequent {@code getInt()}/bulk get surfaced raw
-   * {@code BufferUnderflowException}s when a crash-truncated file's beacon advertised a page
-   * past the durable tail (found by the power-loss simulation harness).
+   * {@link SirixIOException} on EOF/short data. A single unchecked {@code read} returned -1 at EOF
+   * and left the buffer empty, so the subsequent {@code getInt()}/bulk get surfaced raw
+   * {@code BufferUnderflowException}s when a crash-truncated file's beacon advertised a page past the
+   * durable tail (found by the power-loss simulation harness).
    */
   private void readFully(final ByteBuffer buffer, final long offset, final String what) throws IOException {
     while (buffer.hasRemaining()) {
@@ -228,8 +230,7 @@ public final class FileChannelReader extends AbstractReader {
     }
   }
 
-  public Page read(final PageReference reference,
-      final @Nullable ResourceConfiguration resourceConfiguration) {
+  public Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     // First pread: 4-byte length header. Uses a pooled buffer so we can size the
     // data buffer exactly for the second pread.
     ByteBuffer buffer = acquireBuffer(4);
@@ -278,8 +279,7 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RegionsOnlyPage readRegionsOnly(final PageReference reference,
-      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
-      final int regionDeferMask) {
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
     // Two bounded preads instead of the whole page: the header, which says where the region table
     // begins, and then a chunk of that table. A ~26 KB page yields its columns from ~4 KB, and the
     // record body — the majority of the page — is never pulled off disk at all.
@@ -287,8 +287,8 @@ public final class FileChannelReader extends AbstractReader {
     // FSST resources are excluded: their string predicates need the symbol-table id, which lives in
     // the page tail behind everything else, so those pages are read whole (below).
     if (byteHandler.supportsMemorySegments() && regionChunkEligible(resourceConfiguration)) {
-      final RegionsOnlyPage chunked = recordChunkOutcome(
-          readRegionsFromChunk(reference, resourceConfiguration, regionKindMask, regionDeferMask));
+      final RegionsOnlyPage chunked =
+          recordChunkOutcome(readRegionsFromChunk(reference, resourceConfiguration, regionKindMask, regionDeferMask));
       if (chunked != null) {
         return chunked;
       }
@@ -314,7 +314,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.flip();
 
       if (!byteHandler.supportsMemorySegments()) {
-        return null;  // caller falls back to the full read path
+        return null; // caller falls back to the full read path
       }
       final MemorySegment segment = MemorySegment.ofBuffer(buffer);
       verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
@@ -328,23 +328,21 @@ public final class FileChannelReader extends AbstractReader {
 
 
   /**
-   * Whether a page of this resource can be served from a partial read. Two things forbid it:
-   * a page-level checksum, which can only be verified over bytes we do not intend to read, and
-   * FSST string compression, whose symbol-table id sits in the page tail.
+   * Whether a page of this resource can be served from a partial read. Two things forbid it: a
+   * page-level checksum, which can only be verified over bytes we do not intend to read, and FSST
+   * string compression, whose symbol-table id sits in the page tail.
    */
   private static boolean regionChunkEligible(final @Nullable ResourceConfiguration config) {
-    return config != null
-        && !config.verifyChecksumsOnRead
+    return config != null && !config.verifyChecksumsOnRead
         && config.stringCompressionType != StringCompressionType.FSST;
   }
 
   /**
-   * Fetch the header, then a bounded window of the region table. Returns {@code null} when the
-   * window did not cover the requested regions, leaving the caller to read the page whole.
+   * Fetch the header, then a bounded window of the region table. Returns {@code null} when the window
+   * did not cover the requested regions, leaving the caller to read the page whole.
    */
   private RegionsOnlyPage readRegionsFromChunk(final PageReference reference,
-      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
-      final int regionDeferMask) {
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
     ByteBuffer header = acquireBuffer(4 + REGION_PROBE_BYTES);
     final long position = reference.getKey();
     final int dataLength;
@@ -361,12 +359,11 @@ public final class FileChannelReader extends AbstractReader {
       dataLength = header.getInt();
       checkDataLength(dataLength);
       final MemorySegment headerSeg = MemorySegment.ofBuffer(header.slice());
-      regionOffset =
-          pagePersister.probeRegionTableOffset(new MemorySegmentBytesIn(headerSeg), probe, bitmap);
+      regionOffset = pagePersister.probeRegionTableOffset(new MemorySegmentBytesIn(headerSeg), probe, bitmap);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
-      return null;  // header did not fit the probe window, or is not a record page
+      return null; // header did not fit the probe window, or is not a record page
     } finally {
       releaseBuffer(header);
     }
@@ -382,10 +379,9 @@ public final class FileChannelReader extends AbstractReader {
       chunk.flip();
       // The bitmap is copied out of the thread-local scratch: the page outlives this call and the
       // scratch is reused by the next page this thread reads.
-      return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk),
-                                             probe[0], (int) probe[1], (int) probe[2],
-                                             KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID,
-                                             regionKindMask, regionDeferMask, bitmap.clone());
+      return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk), probe[0],
+          (int) probe[1], (int) probe[2], KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, regionKindMask, regionDeferMask,
+          bitmap.clone());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
@@ -404,31 +400,29 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   /**
-   * Maximum gap between two consecutive page offsets that still coalesces them into one
-   * ranged pread — a column's BODY segments are strided by the leaf's other segments, so a
-   * generous stride keeps a whole column fill in a handful of sequential reads. Beyond the
-   * gap the pages read individually (no wasted bandwidth on sparse layouts).
+   * Maximum gap between two consecutive page offsets that still coalesces them into one ranged pread
+   * — a column's BODY segments are strided by the leaf's other segments, so a generous stride keeps a
+   * whole column fill in a handful of sequential reads. Beyond the gap the pages read individually
+   * (no wasted bandwidth on sparse layouts).
    */
-  private static final long COALESCE_MAX_GAP =
-      Long.getLong("sirix.filechannel.coalesceGapBytes", 256L * 1024);
+  private static final long COALESCE_MAX_GAP = Long.getLong("sirix.filechannel.coalesceGapBytes", 256L * 1024);
 
   /** Cap on one coalesced span; bounds the transient read buffer. */
-  private static final long COALESCE_MAX_SPAN =
-      Long.getLong("sirix.filechannel.coalesceSpanBytes", 8L * 1024 * 1024);
+  private static final long COALESCE_MAX_SPAN = Long.getLong("sirix.filechannel.coalesceSpanBytes", 8L * 1024 * 1024);
 
 
   /**
    * {@inheritDoc}
    *
-   * <p>Coalesced override: ascending runs of near-adjacent offsets are read with TWO preads
-   * per run (the span up to the last page's length header, then the last page's body)
-   * instead of two per page. Page bodies of non-final run members always end before the
-   * next member's offset in an append-only data file; a page that violates that bound
-   * (foreign layout, corruption) falls back to its own exact per-page read.
+   * <p>
+   * Coalesced override: ascending runs of near-adjacent offsets are read with TWO preads per run (the
+   * span up to the last page's length header, then the last page's body) instead of two per page.
+   * Page bodies of non-final run members always end before the next member's offset in an append-only
+   * data file; a page that violates that bound (foreign layout, corruption) falls back to its own
+   * exact per-page read.
    */
   @Override
-  public Page[] read(final PageReference[] references,
-      final @Nullable ResourceConfiguration resourceConfiguration) {
+  public Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration) {
     final int n = references.length;
     final Page[] pages = new Page[n];
     // Coalesce over the offsets in FILE order, not caller order. Callers hand references in
@@ -442,8 +436,7 @@ public final class FileChannelReader extends AbstractReader {
     for (int k = 0; k < n; k++) {
       order[k] = k;
     }
-    IntArrays.quickSort(order,
-        (a, b) -> Long.compare(keyOf(references[a]), keyOf(references[b])));
+    IntArrays.quickSort(order, (a, b) -> Long.compare(keyOf(references[a]), keyOf(references[b])));
     int i = 0;
     while (i < n) {
       final long start = keyOf(references[order[i]]);
@@ -474,10 +467,15 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   private static long keyOf(final @Nullable PageReference reference) {
-    return reference == null ? -1L : reference.getKey();
+    return reference == null
+        ? -1L
+        : reference.getKey();
   }
 
-  /** One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page deserialize. */
+  /**
+   * One coalesced run [{@code from}, {@code to}]: span pread + last-body pread + per-page
+   * deserialize.
+   */
   /** DIAGNOSTIC (-Dsirix.projDiag): span bytes read and per-page fallbacks across all runs. */
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
   private static final LongAdder RUN_SPAN_BYTES = new LongAdder();
@@ -485,12 +483,12 @@ public final class FileChannelReader extends AbstractReader {
   private static final LongAdder RUN_COUNT = new LongAdder();
 
   public static String runDiagSummary() {
-    return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum()
-        + " fallbacks=" + RUN_FALLBACKS.sum();
+    return "[runs] count=" + RUN_COUNT.sum() + " spanBytes=" + RUN_SPAN_BYTES.sum() + " fallbacks="
+        + RUN_FALLBACKS.sum();
   }
 
-  private void readRun(final PageReference[] references, final Page[] pages, final int[] order,
-      final int from, final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
+  private void readRun(final PageReference[] references, final Page[] pages, final int[] order, final int from,
+      final int to, final @Nullable ResourceConfiguration resourceConfiguration) {
     final long start = references[order[from]].getKey();
     final long lastOffset = references[order[to]].getKey();
     final int spanLen = (int) (lastOffset + 4 - start);
@@ -553,8 +551,7 @@ public final class FileChannelReader extends AbstractReader {
     try {
       // The cached record carries (offset, timestamp, pageHash) — reuse it so we neither re-read
       // the revisions record nor lose the page hash needed to integrity-check the body below.
-      final RevisionFileData revisionFileData =
-          cache.get(revision, (unused) -> getRevisionFileData(revision));
+      final RevisionFileData revisionFileData = cache.get(revision, (unused) -> getRevisionFileData(revision));
       final long dataFileOffset = revisionFileData.offset();
 
       buffer.clear().limit(4);
@@ -708,10 +705,9 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   /**
-   * The tail-log copy of the given revision's record from either beacon slot, or {@code null}.
-   * The entry must sit at the revision's deterministic ring index, name EXACTLY that revision and
-   * pass {@link IOStorage#tailLogEntryValidAt} — a torn or stale entry can never masquerade as
-   * the record.
+   * The tail-log copy of the given revision's record from either beacon slot, or {@code null}. The
+   * entry must sit at the revision's deterministic ring index, name EXACTLY that revision and pass
+   * {@link IOStorage#tailLogEntryValidAt} — a torn or stale entry can never masquerade as the record.
    */
   private static RevisionFileData tailLogRecord(final ByteBuffer[] slots, final int revision) {
     final int base = IOStorage.tailLogEntryOffsetInSlot(revision);
@@ -733,15 +729,16 @@ public final class FileChannelReader extends AbstractReader {
    * read-only or otherwise unwritable channel only logs — the salvaged value is served either way,
    * and a writer's next force makes a successful heal durable.
    *
-   * <p>Skipped when the revisions file's SUPERBLOCK is absent (file lost/recreated): writing a
-   * record into a superblock-less file would make it non-empty with an all-zero header, which the
-   * validator correctly rejects as corruption. The next write transaction heals both — it knows
-   * the resource UUID, which this reader does not.
+   * <p>
+   * Skipped when the revisions file's SUPERBLOCK is absent (file lost/recreated): writing a record
+   * into a superblock-less file would make it non-empty with an all-zero header, which the validator
+   * correctly rejects as corruption. The next write transaction heals both — it knows the resource
+   * UUID, which this reader does not.
    *
-   * <p>The slot is re-read immediately before writing and the heal skipped if a checksum-valid
-   * record appeared there meanwhile: a concurrent writer (recovery truncation + recommit) may
-   * legitimately have rewritten it, and this reader's salvage source could belong to the replaced
-   * timeline.
+   * <p>
+   * The slot is re-read immediately before writing and the heal skipped if a checksum-valid record
+   * appeared there meanwhile: a concurrent writer (recovery truncation + recommit) may legitimately
+   * have rewritten it, and this reader's salvage source could belong to the replaced timeline.
    */
   private void healRevisionRecord(final int revision, final RevisionFileData ringRecord) {
     try {
@@ -771,8 +768,8 @@ public final class FileChannelReader extends AbstractReader {
         currentRead += n;
       }
       if (currentRead == IOStorage.REVISIONS_FILE_RECORD_SIZE) {
-        final boolean nowValid = current.getLong(16)
-            == IOStorage.expectedRevisionRecordChecksum(current.getLong(0), current.getLong(8), current.getLong(24));
+        final boolean nowValid = current.getLong(16) == IOStorage.expectedRevisionRecordChecksum(current.getLong(0),
+            current.getLong(8), current.getLong(24));
         if (nowValid && (current.getLong(0) != offset || current.getLong(8) != timestampMillis
             || current.getLong(24) != pageHash)) {
           LOGGER.warn("Skipping heal of revision record {} — a concurrent writer rewrote the slot "

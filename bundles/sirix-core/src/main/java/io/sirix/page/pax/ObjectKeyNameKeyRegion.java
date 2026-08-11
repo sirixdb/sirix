@@ -16,11 +16,11 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
 /**
- * Dict-encoded PAX region for OBJECT_KEY nameKey values. Stores the nameKey
- * ONLY here — the in-record varint is zeroed at serialize time so the page
- * is smaller overall.
+ * Dict-encoded PAX region for OBJECT_KEY nameKey values. Stores the nameKey ONLY here — the
+ * in-record varint is zeroed at serialize time so the page is smaller overall.
  *
  * <h2>Wire format</h2>
+ * 
  * <pre>
  *   byte   numUnique        // distinct nameKeys (typically 5-10)
  *   int[numUnique] dictKeys // the unique nameKeys (little-endian)
@@ -29,11 +29,10 @@ import java.nio.ByteOrder;
  *   byte[okCount] dictIds   // per-OBJECT_KEY dict index, bitmap order
  * </pre>
  *
- * <p>For ~465 OBJECT_KEY slots × 5 unique nameKeys:
- * 1 + 20 + 2 + 128 + 465 = 616 bytes. Much smaller than the in-record
- * varint storage it replaces (~930 bytes of nameKey varints + field-offset
- * bytes). LZ4 compresses the dictIds column (5 repeating values) to near
- * zero.
+ * <p>
+ * For ~465 OBJECT_KEY slots × 5 unique nameKeys: 1 + 20 + 2 + 128 + 465 = 616 bytes. Much smaller
+ * than the in-record varint storage it replaces (~930 bytes of nameKey varints + field-offset
+ * bytes). LZ4 compresses the dictIds column (5 repeating values) to near zero.
  */
 public final class ObjectKeyNameKeyRegion {
 
@@ -43,10 +42,8 @@ public final class ObjectKeyNameKeyRegion {
   // Array VarHandles for the ENCODE path, which builds its output in a byte[] before the region
   // table copies it off-heap. Reads go through the payload segment instead (see the accessors
   // below): payloads are native now, so there is no ofArray wrapper left to avoid.
-  private static final VarHandle LONG_LE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
-  private static final VarHandle INT_LE =
-      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle LONG_LE = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INT_LE = MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle SHORT_LE =
       MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
 
@@ -62,8 +59,7 @@ public final class ObjectKeyNameKeyRegion {
     return buf.get(LE.SHORT, off) & 0xFFFF;
   }
 
-  private ObjectKeyNameKeyRegion() {
-  }
+  private ObjectKeyNameKeyRegion() {}
 
   /**
    * Encode from parallel arrays (bitmap order).
@@ -77,10 +73,14 @@ public final class ObjectKeyNameKeyRegion {
       final int nk = nameKeys[i];
       int id = -1;
       for (int j = 0; j < numUnique; j++) {
-        if (dict[j] == nk) { id = j; break; }
+        if (dict[j] == nk) {
+          id = j;
+          break;
+        }
       }
       if (id < 0) {
-        if (numUnique >= 255) return null;
+        if (numUnique >= 255)
+          return null;
         id = numUnique;
         dict[numUnique++] = nk;
       }
@@ -115,11 +115,11 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   // ── wire layout ─────────────────────────────────────────────────────────────
-  // byte           numUnique
+  // byte numUnique
   // int[numUnique] dictKeys
-  // short          okCount
-  // long[16]       slot bitmap (BITMAP_BYTES)
-  // byte[okCount]  dictIds, in bitmap order
+  // short okCount
+  // long[16] slot bitmap (BITMAP_BYTES)
+  // byte[okCount] dictIds, in bitmap order
   //
   // The offsets below are the ONE derivation of that layout. Eight kernels used to inline the
   // same arithmetic; a format change re-derived in seven of them still reads in-bounds bytes at
@@ -144,28 +144,32 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   public static int count(final MemorySegment payload) {
-    if (payload == null || payload.byteSize() < 3) return 0;
+    if (payload == null || payload.byteSize() < 3)
+      return 0;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
     final int countOff = countOffset(numUnique);
-    if (payload.byteSize() < countOff + 2) return 0;
+    if (payload.byteSize() < countOff + 2)
+      return 0;
     return getShortU(payload, countOff);
   }
 
   /**
-   * Extract the distinct {@code nameKey}s present on this page. Reads
-   * directly from the dictKeys header — O(numUnique) with one VarHandle
-   * load per entry. Empty array if the region is absent or the page has
-   * no OBJECT_KEY slots.
+   * Extract the distinct {@code nameKey}s present on this page. Reads directly from the dictKeys
+   * header — O(numUnique) with one VarHandle load per entry. Empty array if the region is absent or
+   * the page has no OBJECT_KEY slots.
    *
-   * <p>Used by the page-skip index builder to determine, per leaf page,
-   * which field names are present — the presence set is then folded into
-   * a per-{@code nameKey} {@link org.roaringbitmap.RoaringBitmap} of pages
-   * so scans can skip pages that have no slot with their anchor field.
+   * <p>
+   * Used by the page-skip index builder to determine, per leaf page, which field names are present —
+   * the presence set is then folded into a per-{@code nameKey}
+   * {@link org.roaringbitmap.RoaringBitmap} of pages so scans can skip pages that have no slot with
+   * their anchor field.
    */
   public static int[] uniqueNameKeys(final MemorySegment payload) {
-    if (payload == null) return EMPTY_INT_ARRAY;
+    if (payload == null)
+      return EMPTY_INT_ARRAY;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    if (numUnique == 0) return EMPTY_INT_ARRAY;
+    if (numUnique == 0)
+      return EMPTY_INT_ARRAY;
     final int[] out = new int[numUnique];
     for (int i = 0; i < numUnique; i++) {
       out[i] = getInt(payload, 1 + i * 4);
@@ -176,38 +180,41 @@ public final class ObjectKeyNameKeyRegion {
   private static final int[] EMPTY_INT_ARRAY = new int[0];
 
   /**
-   * Look up nameKey for the N-th OBJECT_KEY slot (0-based in bitmap order).
-   * Returns the nameKey, or -1 if index is out of range.
+   * Look up nameKey for the N-th OBJECT_KEY slot (0-based in bitmap order). Returns the nameKey, or
+   * -1 if index is out of range.
    */
   public static int nameKeyAt(final MemorySegment payload, final int bitmapIndex) {
-    if (payload == null) return -1;
+    if (payload == null)
+      return -1;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
     final int okCount = getShortU(payload, countOffset(numUnique));
-    if (bitmapIndex < 0 || bitmapIndex >= okCount) return -1;
-    final int dictId =
-        payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
-    if (dictId >= numUnique) return -1;
+    if (bitmapIndex < 0 || bitmapIndex >= okCount)
+      return -1;
+    final int dictId = payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
+    if (dictId >= numUnique)
+      return -1;
     return getInt(payload, 1 + dictId * 4);
   }
 
   /**
-   * Look up nameKey for a given slot index (0-1023). Converts slot to
-   * bitmap-order index, then reads from dictIds. Returns -1 if the slot
-   * is not an OBJECT_KEY on this page.
+   * Look up nameKey for a given slot index (0-1023). Converts slot to bitmap-order index, then reads
+   * from dictIds. Returns -1 if the slot is not an OBJECT_KEY on this page.
    *
-   * <p>HFT hot path: called once per OBJECT_KEY slot during
-   * {@code buildObjectKeySlotsForNameKey}. Uses direct {@code byte[]} VarHandle
-   * reads — no {@code MemorySegment.ofArray} allocation.
+   * <p>
+   * HFT hot path: called once per OBJECT_KEY slot during {@code buildObjectKeySlotsForNameKey}. Uses
+   * direct {@code byte[]} VarHandle reads — no {@code MemorySegment.ofArray} allocation.
    */
   public static int nameKeyForSlot(final MemorySegment payload, final int slotIndex) {
-    if (payload == null || slotIndex < 0 || slotIndex > 1023) return -1;
+    if (payload == null || slotIndex < 0 || slotIndex > 1023)
+      return -1;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
     final int bitmapOff = bitmapOffset(numUnique);
     // Check if this slot is set in the OBJECT_KEY bitmap.
     final int wordIdx = slotIndex >>> 6;
     final long bit = 1L << (slotIndex & 63);
     final long word = getLong(payload, bitmapOff + wordIdx * 8);
-    if ((word & bit) == 0) return -1;
+    if ((word & bit) == 0)
+      return -1;
     // Count set bits before this slot to find the bitmap-order index.
     int bitmapIndex = 0;
     for (int w = 0; w < wordIdx; w++) {
@@ -217,40 +224,42 @@ public final class ObjectKeyNameKeyRegion {
     // Inlined nameKeyAt body — avoids the redundant numUnique/countOff re-read
     // and the nested array-bounds check the JIT occasionally leaves un-hoisted.
     final int okCount = getShortU(payload, countOffset(numUnique));
-    if (bitmapIndex >= okCount) return -1;
-    final int dictId =
-        payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
-    if (dictId >= numUnique) return -1;
+    if (bitmapIndex >= okCount)
+      return -1;
+    final int dictId = payload.get(ValueLayout.JAVA_BYTE, dictIdsOffset(numUnique) + bitmapIndex) & 0xFF;
+    if (dictId >= numUnique)
+      return -1;
     return getInt(payload, 1 + dictId * 4);
   }
 
   /**
-   * Thread-local scratch for {@link #findMatchingSlots}'s bitmap-order mapping.
-   * The array is grown to fit the largest {@code okCount} any caller has seen
-   * and reused across every subsequent call on the same thread. Reduces per-page
-   * GC pressure — alloc-profile at 100M records showed 76K samples worth of
-   * {@code findMatchingSlots;int[]} before this optimisation.
+   * Thread-local scratch for {@link #findMatchingSlots}'s bitmap-order mapping. The array is grown to
+   * fit the largest {@code okCount} any caller has seen and reused across every subsequent call on
+   * the same thread. Reduces per-page GC pressure — alloc-profile at 100M records showed 76K samples
+   * worth of {@code findMatchingSlots;int[]} before this optimisation.
    */
-  private static final ThreadLocal<int[]> BITMAP_SLOTS_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[256]);
+  private static final ThreadLocal<int[]> BITMAP_SLOTS_SCRATCH = ThreadLocal.withInitial(() -> new int[256]);
 
   /**
    * How many OBJECT_KEY slots on this page carry {@code fieldKey} — the count alone, without
    * materializing which slots they are.
    *
-   * <p>{@link #findMatchingSlots} has to expand the 1024-bit slot bitmap into bitmap-order slot
-   * indices before it can report anything. A caller that only needs the cardinality — the
-   * region-scan completeness check, which compares this against the number-region's tag count —
-   * pays none of that: it is one dictionary probe plus a SIMD popcount over the dict-id bytes.
+   * <p>
+   * {@link #findMatchingSlots} has to expand the 1024-bit slot bitmap into bitmap-order slot indices
+   * before it can report anything. A caller that only needs the cardinality — the region-scan
+   * completeness check, which compares this against the number-region's tag count — pays none of
+   * that: it is one dictionary probe plus a SIMD popcount over the dict-id bytes.
    *
    * @param payload the region payload, or {@code null}
    * @param fieldKey the nameKey to count
    * @return the number of matching slots; {@code 0} when the region is absent or the key unknown
    */
   public static int countMatchingSlots(final MemorySegment payload, final int fieldKey) {
-    if (payload == null || payload.byteSize() < 3) return 0;
+    if (payload == null || payload.byteSize() < 3)
+      return 0;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    if (numUnique == 0) return 0;
+    if (numUnique == 0)
+      return 0;
 
     int targetId = -1;
     for (int i = 0; i < numUnique; i++) {
@@ -259,19 +268,20 @@ public final class ObjectKeyNameKeyRegion {
         break;
       }
     }
-    if (targetId < 0) return 0;
+    if (targetId < 0)
+      return 0;
 
     final int okCount = getShortU(payload, countOffset(numUnique));
-    if (okCount == 0) return 0;
+    if (okCount == 0)
+      return 0;
     final int dictIdsOff = dictIdsOffset(numUnique);
 
     final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, (byte) targetId);
     int matched = 0;
     int i = 0;
     for (; i <= okCount - LANES; i += LANES) {
-      final ByteVector v = ByteVector.fromMemorySegment(BYTE_SPECIES, payload,
-                                                       (long) dictIdsOff + i,
-                                                       ByteOrder.LITTLE_ENDIAN);
+      final ByteVector v =
+          ByteVector.fromMemorySegment(BYTE_SPECIES, payload, (long) dictIdsOff + i, ByteOrder.LITTLE_ENDIAN);
       matched += v.compare(VectorOperators.EQ, bNeedle).trueCount();
     }
     for (; i < okCount; i++) {
@@ -285,18 +295,18 @@ public final class ObjectKeyNameKeyRegion {
   /**
    * SIMD filter reporting BITMAP-ORDER positions rather than slot numbers.
    *
-   * <p>{@link #findMatchingSlots} answers "which page slots carry this field", which is what a
+   * <p>
+   * {@link #findMatchingSlots} answers "which page slots carry this field", which is what a
    * record-reading caller needs. A caller that wants to index a parallel per-OBJECT_KEY column —
-   * {@link RecordOrdinalRegion}'s ordinals, or the dictIds themselves — needs the position within
-   * the OBJECT_KEY sequence instead, and going through slot numbers to get it means expanding the
+   * {@link RecordOrdinalRegion}'s ordinals, or the dictIds themselves — needs the position within the
+   * OBJECT_KEY sequence instead, and going through slot numbers to get it means expanding the
    * 1024-bit slot bitmap and then inverting the mapping. That work is pure loss here: the positions
    * are exactly where the dict-id scan already finds its matches.
    *
    * @param out destination, must hold at least {@link #count(MemorySegment)} entries
    * @return the number of matches written, ascending
    */
-  public static int findMatchingBitmapIndices(final MemorySegment payload, final int fieldKey,
-      final int[] out) {
+  public static int findMatchingBitmapIndices(final MemorySegment payload, final int fieldKey, final int[] out) {
     if (payload == null || payload.byteSize() < 3 || out == null) {
       return 0;
     }
@@ -331,9 +341,8 @@ public final class ObjectKeyNameKeyRegion {
     int matched = 0;
     int i = 0;
     for (; i <= okCount - LANES; i += LANES) {
-      final ByteVector v = ByteVector.fromMemorySegment(BYTE_SPECIES, payload,
-                                                       (long) dictIdsOff + i,
-                                                       ByteOrder.LITTLE_ENDIAN);
+      final ByteVector v =
+          ByteVector.fromMemorySegment(BYTE_SPECIES, payload, (long) dictIdsOff + i, ByteOrder.LITTLE_ENDIAN);
       long bits = v.compare(VectorOperators.EQ, bNeedle).toLong();
       while (bits != 0) {
         out[matched++] = i + Long.numberOfTrailingZeros(bits);
@@ -352,11 +361,11 @@ public final class ObjectKeyNameKeyRegion {
    * The page slot behind {@code bitmapIndex} of the region's bitmap-ordered columns, or {@code -1}
    * when the index is out of range or the payload unreadable.
    *
-   * <p>A select-nth-set-bit over the region's own 128-byte slot bitmap — at most sixteen popcounts
-   * and one word's bit-clear walk. This is the right tool when ONE position needs resolving (the
-   * fused kernel's pending boundary slot); resolving it through {@link #findMatchingSlots} would
-   * re-scan the whole dictIds column and expand the bitmap into a scratch array to read a single
-   * element.
+   * <p>
+   * A select-nth-set-bit over the region's own 128-byte slot bitmap — at most sixteen popcounts and
+   * one word's bit-clear walk. This is the right tool when ONE position needs resolving (the fused
+   * kernel's pending boundary slot); resolving it through {@link #findMatchingSlots} would re-scan
+   * the whole dictIds column and expand the bitmap into a scratch array to read a single element.
    */
   public static int slotAt(final MemorySegment payload, final int bitmapIndex) {
     if (payload == null || payload.byteSize() < 3 || bitmapIndex < 0) {
@@ -368,7 +377,7 @@ public final class ObjectKeyNameKeyRegion {
     }
     final int countOff = countOffset(numUnique);
     if (payload.byteSize() < dictIdsOffset(numUnique)) {
-      return -1;  // truncated or corrupt: decline, as every reader of this format does, not throw
+      return -1; // truncated or corrupt: decline, as every reader of this format does, not throw
     }
     final int okCount = getShortU(payload, countOff);
     if (bitmapIndex >= okCount) {
@@ -393,15 +402,16 @@ public final class ObjectKeyNameKeyRegion {
   /**
    * Every object-key slot on the page, in bitmap order, in ONE pass.
    *
-   * <p>{@link #slotAt} answers one position with a select-nth-set-bit, which is the right shape for
-   * one lookup and the wrong one for a loop: a kernel walking a page's anchors calls it once per
-   * anchor and once per anchor's successor, so a page with ~70 anchors pays ~140 rank scans over
-   * the same 128-byte bitmap. Expanding the bitmap once and indexing it turns that into a single
-   * pass plus array reads.
+   * <p>
+   * {@link #slotAt} answers one position with a select-nth-set-bit, which is the right shape for one
+   * lookup and the wrong one for a loop: a kernel walking a page's anchors calls it once per anchor
+   * and once per anchor's successor, so a page with ~70 anchors pays ~140 rank scans over the same
+   * 128-byte bitmap. Expanding the bitmap once and indexing it turns that into a single pass plus
+   * array reads.
    *
    * @param out receives the slot numbers; must hold at least the region's object-key count
-   * @return the number of slots written, or {@code -1} if the region is unreadable or {@code out}
-   *         is too small
+   * @return the number of slots written, or {@code -1} if the region is unreadable or {@code out} is
+   *         too small
    */
   public static int decodeSlotsInto(final MemorySegment payload, final int[] out) {
     if (payload == null || payload.byteSize() < 3 || out == null) {
@@ -431,17 +441,21 @@ public final class ObjectKeyNameKeyRegion {
         word &= word - 1L;
       }
     }
-    return n == okCount ? n : -1;   // a bitmap that disagrees with the count is not usable
+    return n == okCount
+        ? n
+        : -1; // a bitmap that disagrees with the count is not usable
   }
 
   /**
-   * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey.
-   * Writes matching slot indices into out[]. Returns match count.
+   * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey. Writes matching slot indices into
+   * out[]. Returns match count.
    */
   public static int findMatchingSlots(final MemorySegment payload, final int fieldKey, final int[] out) {
-    if (payload == null || payload.byteSize() < 3) return 0;
+    if (payload == null || payload.byteSize() < 3)
+      return 0;
     final int numUnique = payload.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
-    if (numUnique == 0) return 0;
+    if (numUnique == 0)
+      return 0;
 
     // Dict lookup — byte[] VarHandle read, no MemorySegment wrapper.
     int targetId = -1;
@@ -451,10 +465,12 @@ public final class ObjectKeyNameKeyRegion {
         break;
       }
     }
-    if (targetId < 0) return 0;
+    if (targetId < 0)
+      return 0;
 
     final int okCount = getShortU(payload, countOffset(numUnique));
-    if (okCount == 0) return 0;
+    if (okCount == 0)
+      return 0;
     final int bitmapOff = bitmapOffset(numUnique);
     final int dictIdsOff = dictIdsOffset(numUnique);
 
@@ -482,11 +498,11 @@ public final class ObjectKeyNameKeyRegion {
       // Loads straight out of the payload segment. Payloads are native (see ColumnLoad), which is
       // the case fromMemorySegment intrinsifies; the heap-backed case, which does not, no longer
       // arises here.
-      final ByteVector v = ByteVector.fromMemorySegment(BYTE_SPECIES, payload,
-                                                       (long) dictIdsOff + i,
-                                                       ByteOrder.LITTLE_ENDIAN);
+      final ByteVector v =
+          ByteVector.fromMemorySegment(BYTE_SPECIES, payload, (long) dictIdsOff + i, ByteOrder.LITTLE_ENDIAN);
       final VectorMask<Byte> mask = v.compare(VectorOperators.EQ, bNeedle);
-      if (!mask.anyTrue()) continue;
+      if (!mask.anyTrue())
+        continue;
       for (int lane = 0; lane < LANES; lane++) {
         if (mask.laneIsSet(lane)) {
           out[written++] = bitmapSlots[i + lane];

@@ -25,7 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>The gap</h2>
  *
- * <p>A store-only compile chain reads the resource off the query's own {@code jn:doc}/{@code jn:open}
+ * <p>
+ * A store-only compile chain reads the resource off the query's own {@code jn:doc}/{@code jn:open}
  * ({@link StoreBoundExecutorCache}). {@code declare variable $doc external} with the document bound
  * through the {@link SirixQueryContext} puts no such call in the tree — and that is the ordinary
  * embedding shape: bind once, compile once, run many. Auto-vectorization being ON by default was
@@ -35,10 +36,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What is asserted</h2>
  *
- * <p>Two halves, and the second is the one that keeps the first honest. Speed: the columnar path
- * must actually run for an externally bound document — an agreement test alone would pass just as
- * well with the fix removed. Safety: {@link BoundDocumentHint} is a HINT, taken from whatever the
- * caller bound most recently on this thread, and a caller may go on to run a query over a different
+ * <p>
+ * Two halves, and the second is the one that keeps the first honest. Speed: the columnar path must
+ * actually run for an externally bound document — an agreement test alone would pass just as well
+ * with the fix removed. Safety: {@link BoundDocumentHint} is a HINT, taken from whatever the caller
+ * bound most recently on this thread, and a caller may go on to run a query over a different
  * document entirely. That must still produce the right answer, because the compile-time hint only
  * decides which executor is built, while the runtime source gate re-checks the actual binding per
  * evaluation.
@@ -52,7 +54,9 @@ final class ExternalDocumentAutoWiringTest {
   private static final QNm DOC = new QNm("doc");
   private static final QNm OTHER = new QNm("other");
 
-  /** Anchored so a record lacking the field cannot satisfy it — the shape the columnar route serves. */
+  /**
+   * Anchored so a record lacking the field cannot satisfy it — the shape the columnar route serves.
+   */
   private static final String PREDICATE = "$u.year gt 1990 and $u.year lt 2010";
 
   private Path dbDir;
@@ -61,8 +65,8 @@ final class ExternalDocumentAutoWiringTest {
   void setUp() throws Exception {
     dbDir = Files.createTempDirectory("sirix-external-doc-");
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB_A + "','" + RES + "','" + corpus(1980) + "')").evaluate(ctx);
       // A different base, so the two resources answer the SAME predicate with different non-zero
       // counts — which is what makes "the foreign hint served the wrong document" detectable.
@@ -71,7 +75,9 @@ final class ExternalDocumentAutoWiringTest {
     BoundDocumentHint.clear();
   }
 
-  /** Records whose years start at {@code base}, so the two resources answer the predicate differently. */
+  /**
+   * Records whose years start at {@code base}, so the two resources answer the predicate differently.
+   */
   private static String corpus(final int base) {
     final StringBuilder sb = new StringBuilder(N * 40);
     sb.append('[');
@@ -79,8 +85,7 @@ final class ExternalDocumentAutoWiringTest {
       if (i > 0) {
         sb.append(',');
       }
-      sb.append("{\"year\":").append(base + i % 60)
-        .append(",\"title\":\"t").append(i).append("\"}");
+      sb.append("{\"year\":").append(base + i % 60).append(",\"title\":\"t").append(i).append("\"}");
     }
     return sb.append(']').toString();
   }
@@ -104,9 +109,9 @@ final class ExternalDocumentAutoWiringTest {
     assertEquals(viaGeneric, viaColumns, "auto-wired answer differs from the generic pipeline's");
     assertTrue(viaGeneric > 0, "predicate matches nothing, so it proves nothing");
     assertTrue(SirixVectorizedExecutor.regionOnlyPagesServed() > 0,
-               "no page was served from columns for an externally bound document — the chain has no "
-                   + "jn:doc to read the resource off, so without the binding hint the query "
-                   + "compiles the generic pipeline exactly as it did before");
+        "no page was served from columns for an externally bound document — the chain has no "
+            + "jn:doc to read the resource off, so without the binding hint the query "
+            + "compiles the generic pipeline exactly as it did before");
   }
 
   @Test
@@ -119,8 +124,8 @@ final class ExternalDocumentAutoWiringTest {
     SirixVectorizedExecutor.resetRegionOnlyCounters();
     final long withForeignHint = countExternal(DB_B, DB_A, true);
     assertEquals(expected, withForeignHint,
-                 "a compile-time hint naming another resource changed the ANSWER — the runtime "
-                     + "source gate is what makes the hint safe, and it did not decline");
+        "a compile-time hint naming another resource changed the ANSWER — the runtime "
+            + "source gate is what makes the hint safe, and it did not decline");
     assertTrue(expected > 0, "predicate matches nothing on B, so it proves nothing");
   }
 
@@ -129,15 +134,15 @@ final class ExternalDocumentAutoWiringTest {
    *
    * @param queryDatabase the document {@code $doc} is bound to — what the query reads
    * @param hintDatabase the document bound LAST, and therefore the one the compile-time hint names;
-   *     equal to {@code queryDatabase} for the ordinary case, different to reach the mismatch
+   *        equal to {@code queryDatabase} for the ordinary case, different to reach the mismatch
    */
-  private long countExternal(final String queryDatabase, final String hintDatabase,
-      final boolean autoWire) throws Exception {
+  private long countExternal(final String queryDatabase, final String hintDatabase, final boolean autoWire)
+      throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = autoWire
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = autoWire
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       BoundDocumentHint.clear();
       ctx.bind(DOC, (Sequence) store.lookup(queryDatabase).getDocument());
       // A second bound document, which a query is free to have. It is the most recent binding, so

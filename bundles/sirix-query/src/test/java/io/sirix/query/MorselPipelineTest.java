@@ -23,18 +23,20 @@ import static org.junit.Assert.assertTrue;
 /**
  * The morsel-parallel pipeline must answer exactly what the serial pipeline answers.
  *
- * <p>Worth stating why this test exists in this shape. Morsel fan-out is off by default, so no other
+ * <p>
+ * Worth stating why this test exists in this shape. Morsel fan-out is off by default, so no other
  * test in the suite compiles a {@code MorselPipeExpr} at all — the path could break completely and
  * everything would stay green. It is also a path whose failures are quiet rather than loud: while
  * this was being built, a binding released too early made every worker scan the whole array instead
  * of its own split, and the query cheerfully returned twenty times the right count. Nothing threw.
- * So the assertions here are on ANSWERS against the serial pipeline, not on timing or on plan shape.
+ * So the assertions here are on ANSWERS against the serial pipeline, not on timing or on plan
+ * shape.
  *
- * <p>The array has to be genuinely large: splitting is declined below
- * {@code sirix.morsel.minElements} (65,536) and below 64 record pages, precisely so that small
- * arrays do not pay for transactions they cannot amortize. A smaller fixture would pass by taking
- * the serial fallback, which is the one outcome this test must not silently accept — hence
- * {@link #splitsRatherThanFallingBack()}.
+ * <p>
+ * The array has to be genuinely large: splitting is declined below {@code sirix.morsel.minElements}
+ * (65,536) and below 64 record pages, precisely so that small arrays do not pay for transactions
+ * they cannot amortize. A smaller fixture would pass by taking the serial fallback, which is the
+ * one outcome this test must not silently accept — hence {@link #splitsRatherThanFallingBack()}.
  */
 public class MorselPipelineTest {
 
@@ -65,17 +67,20 @@ public class MorselPipelineTest {
       }
       // A mix of value types, so the split's element-kind filter is exercised on more than objects,
       // and a nested array so that non-member nodes share the pages being scanned.
-      json.append("{\"id\":").append(i)
-          .append(",\"even\":").append(i % 2 == 0)
-          .append(",\"name\":\"n").append(i % 997).append('"')
+      json.append("{\"id\":")
+          .append(i)
+          .append(",\"even\":")
+          .append(i % 2 == 0)
+          .append(",\"name\":\"n")
+          .append(i % 997)
+          .append('"')
           .append(",\"tags\":[\"a\",\"b\"]}");
     }
     json.append(']');
 
     try (final var database = Databases.openJsonDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE).build());
-      try (final var session = database.beginResourceSession(RESOURCE);
-           final var wtx = session.beginNodeTrx()) {
+      try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         wtx.commit();
       }
@@ -104,8 +109,7 @@ public class MorselPipelineTest {
         // A nested array traversal — the pages a worker scans hold these members too, and they must
         // not be mistaken for members of the array being split.
         "count(for $r in jn:doc('" + DB_NAME + "','" + RESOURCE + "')[] "
-            + "where (some $t in $r.tags[] satisfies $t eq \"a\") return $r)",
-    };
+            + "where (some $t in $r.tags[] satisfies $t eq \"a\") return $r)",};
 
     for (final String query : queries) {
       final String serial = run(query, false);
@@ -117,7 +121,8 @@ public class MorselPipelineTest {
   /**
    * The fixture must be big enough that morsel actually splits.
    *
-   * <p>Without this, {@link #morselAnswersMatchSerial()} would keep passing if splitting silently
+   * <p>
+   * Without this, {@link #morselAnswersMatchSerial()} would keep passing if splitting silently
    * stopped happening — it would just be comparing the serial pipeline with itself.
    */
   @Test
@@ -126,17 +131,17 @@ public class MorselPipelineTest {
       final var collection = store.lookup(DB_NAME);
       final var document = (io.brackit.query.jdm.json.SplittableMembers) collection.getDocument();
       assertTrue("fixture too small to split; the answer comparison would be vacuous",
-                 document.memberSplitCount(8) > 1);
+          document.memberSplitCount(8) > 1);
     }
   }
 
   private String run(final String query, final boolean morsel) {
     SequentialPipelineStrategy.setMorselEnabled(morsel);
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(storeLocation).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = morsel
-             ? SirixCompileChain.createWithMorsel(null, store)
-             : SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = morsel
+            ? SirixCompileChain.createWithMorsel(null, store)
+            : SirixCompileChain.createWithJsonStore(store)) {
       final ByteArrayOutputStream sink = new ByteArrayOutputStream();
       try (final PrintStream out = new PrintStream(sink)) {
         new Query(chain, query).prettyPrint().serialize(ctx, out);

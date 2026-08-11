@@ -97,8 +97,8 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArraySliceStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection,
-        fromIndex, toIndex);
+    return new TemporalSirixJsonArraySliceStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include),
+        collection, fromIndex, toIndex);
   }
 
   @Override
@@ -107,8 +107,8 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArraySliceStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection,
-        fromIndex, toIndex);
+    return new TemporalSirixJsonArraySliceStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include),
+        collection, fromIndex, toIndex);
   }
 
   @Override
@@ -166,9 +166,8 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final int absoluteIndex = fromIndex + sliceIndex;
     final long arrayKey = getNodeKey();
 
-    if (cursorSliceIndex >= 0 && sliceIndex == cursorSliceIndex + 1
-        && rtx.moveTo(cursorNodeKey) && rtx.getParentKey() == arrayKey
-        && rtx.hasRightSibling()) {
+    if (cursorSliceIndex >= 0 && sliceIndex == cursorSliceIndex + 1 && rtx.moveTo(cursorNodeKey)
+        && rtx.getParentKey() == arrayKey && rtx.hasRightSibling()) {
       rtx.moveToRightSibling();
       cursorSliceIndex = sliceIndex;
       cursorNodeKey = rtx.getNodeKey();

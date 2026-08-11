@@ -16,21 +16,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>What has to be true</h2>
  *
- * <p>Agreement, on every operator, for every row. A compressor picks the scheme per block, so the
- * same column can be run-encoded in one block and bit-packed in the next; if the two kernels
- * disagreed anywhere — a boundary, an empty run, a mask word edge — a query's answer would depend
- * on a compression decision, which is the worst kind of wrong answer because it is not reproducible
- * from the query alone.
+ * <p>
+ * Agreement, on every operator, for every row. A compressor picks the scheme per block, so the same
+ * column can be run-encoded in one block and bit-packed in the next; if the two kernels disagreed
+ * anywhere — a boundary, an empty run, a mask word edge — a query's answer would depend on a
+ * compression decision, which is the worst kind of wrong answer because it is not reproducible from
+ * the query alone.
  *
- * <p>The row counts are chosen to straddle word boundaries deliberately: runs that end mid-word,
- * runs that span several words, and a total that is not a multiple of 64. Those are where a
+ * <p>
+ * The row counts are chosen to straddle word boundaries deliberately: runs that end mid-word, runs
+ * that span several words, and a total that is not a multiple of 64. Those are where a
  * word-at-a-time range clear goes wrong, and where a per-row loop never would.
  */
 final class RleScanTest {
 
   /** Runs built so boundaries fall inside words, across words, and on a word edge. */
   private static final long[] RUN_VALUES = {5, 9, 5, 100, 7, 9};
-  private static final int[] RUN_LENGTHS = {1, 63, 64, 65, 200, 7};   // sums to 400
+  private static final int[] RUN_LENGTHS = {1, 63, 64, 65, 200, 7}; // sums to 400
 
   private static final int ROWS = 400;
 
@@ -46,8 +48,7 @@ final class RleScanTest {
   }
 
   /** The positional reference: evaluate per row, exactly as a bit-packed column would. */
-  private static long[] positionalMask(final long[] values, final Op op, final long lit,
-      final long high) {
+  private static long[] positionalMask(final long[] values, final Op op, final long lit, final long high) {
     final long[] mask = new long[(ROWS + 63) >>> 6];
     for (int i = 0; i < ROWS; i++) {
       final long v = values[i];
@@ -87,11 +88,10 @@ final class RleScanTest {
       for (final long lit : new long[] {4, 5, 7, 9, 100, 101}) {
         final long high = lit + 90;
         final long[] mine = allTrue();
-        assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, op, lit, high,
-                                    mine),
-                   "kernel refused a well-formed run set");
+        assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, op, lit, high, mine),
+            "kernel refused a well-formed run set");
         assertArrayEquals(positionalMask(values, op, lit, high), mine,
-                          "run-aware and positional disagree for " + op + " lit=" + lit);
+            "run-aware and positional disagree for " + op + " lit=" + lit);
       }
     }
   }
@@ -107,10 +107,8 @@ final class RleScanTest {
         for (final long word : positionalMask(values, op, lit, high)) {
           expected += Long.bitCount(word);
         }
-        assertEquals(expected,
-                     RleScan.countMatching(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, op, lit,
-                                           high),
-                     "count disagrees with the mask for " + op + " lit=" + lit);
+        assertEquals(expected, RleScan.countMatching(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, op, lit, high),
+            "count disagrees with the mask for " + op + " lit=" + lit);
       }
     }
   }
@@ -131,15 +129,13 @@ final class RleScanTest {
     }
     final long[] before = mask.clone();
 
-    assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, Op.GE, 0,
-                                Long.MAX_VALUE, mask),
-               "kernel refused a well-formed run set");
+    assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, Op.GE, 0, Long.MAX_VALUE, mask),
+        "kernel refused a well-formed run set");
     // GE 0 matches every run here, so a correct AND leaves the mask exactly as it was.
     assertArrayEquals(before, mask, "a predicate matching every run changed the mask");
 
-    assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, Op.EQ,
-                                -12345, 0, mask),
-               "kernel refused a well-formed run set");
+    assertTrue(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS, Op.EQ, -12345, 0, mask),
+        "kernel refused a well-formed run set");
     for (final long word : mask) {
       assertEquals(0L, word, "a predicate matching no run left bits set");
     }
@@ -150,21 +146,18 @@ final class RleScanTest {
   void refusesInconsistentRuns() {
     final long[] mask = allTrue();
     final long[] before = mask.clone();
-    assertFalse(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS + 1, Op.EQ, 5, 0,
-                                 mask),
-                "kernel accepted runs that do not sum to the row count");
-    assertArrayEquals(before, mask,
-                      "the mask was modified before the run set was found inconsistent — a "
-                          + "half-narrowed conjunction is a wrong answer, not a slow one");
+    assertFalse(RleScan.evalInto(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, ROWS + 1, Op.EQ, 5, 0, mask),
+        "kernel accepted runs that do not sum to the row count");
+    assertArrayEquals(before, mask, "the mask was modified before the run set was found inconsistent — a "
+        + "half-narrowed conjunction is a wrong answer, not a slow one");
   }
 
   @Test
   @DisplayName("decodeRle expands the fixture back to the values the kernels scanned")
   void decodeRleExpandsTheFixture() {
     final long[] out = new long[ROWS];
-    assertEquals(ROWS,
-                 LightweightSchemes.decodeRle(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, out),
-                 "decodeRle wrote a different row count than the runs sum to");
+    assertEquals(ROWS, LightweightSchemes.decodeRle(RUN_VALUES, RUN_LENGTHS, RUN_VALUES.length, out),
+        "decodeRle wrote a different row count than the runs sum to");
     assertArrayEquals(expand(), out, "decodeRle disagrees with the positional expansion");
   }
 
@@ -174,10 +167,8 @@ final class RleScanTest {
     // With the cursor already advanced, a run length near Integer.MAX_VALUE makes the naive
     // cursor-plus-length sum wrap negative — the documented answer is -1, never an exception.
     final long[] out = new long[8];
-    assertEquals(-1,
-                 LightweightSchemes.decodeRle(new long[] {1L, 2L},
-                                              new int[] {4, Integer.MAX_VALUE - 1}, 2, out),
-                 "a run length overflowing the output must report -1 like any other too-small out");
+    assertEquals(-1, LightweightSchemes.decodeRle(new long[] {1L, 2L}, new int[] {4, Integer.MAX_VALUE - 1}, 2, out),
+        "a run length overflowing the output must report -1 like any other too-small out");
   }
 
   @Test
@@ -191,7 +182,7 @@ final class RleScanTest {
         set += Long.bitCount(word);
       }
       assertEquals(range[1] - range[0], set,
-                   "setRange(" + range[0] + "," + range[1] + ") set the wrong number of bits");
+          "setRange(" + range[0] + "," + range[1] + ") set the wrong number of bits");
       RleScan.clearRange(mask, range[0], range[1]);
       for (final long word : mask) {
         assertEquals(0L, word, "clearRange did not undo setRange for " + Arrays.toString(range));

@@ -36,18 +36,21 @@ import java.util.concurrent.TimeUnit;
 /**
  * Does answering array membership FROM COLUMNS beat answering it from the records?
  *
- * <p>The question was first settled on three hand-timed runs per arm, on a box whose load average
- * was 8 with no JVM running — the same shape came back at 230 ms and at 1,192 ms under an identical
+ * <p>
+ * The question was first settled on three hand-timed runs per arm, on a box whose load average was
+ * 8 with no JVM running — the same shape came back at 230 ms and at 1,192 ms under an identical
  * configuration. That is enough noise to invert an A/B verdict, and this exists so the verdict does
  * not rest on it. Both arms run in one JMH invocation with shared warm-up discipline and per-arm
  * error bars.
  *
- * <p>The route reads three columns — the element values (tagged by their enclosing array's path),
- * the field-name column and the record-ordinal column — and never rebuilds a record. Its problem is
- * not the served pages but the declining ones: a decline pays the column read AND the record page it
+ * <p>
+ * The route reads three columns — the element values (tagged by their enclosing array's path), the
+ * field-name column and the record-ordinal column — and never rebuilds a record. Its problem is not
+ * the served pages but the declining ones: a decline pays the column read AND the record page it
  * still has to read, so the arm is a win only if it serves a large enough majority.
  *
- * <p>Needs a store ingested with {@code -Dsirix.page.arrayElementStrings=true}; without the element
+ * <p>
+ * Needs a store ingested with {@code -Dsirix.page.arrayElementStrings=true}; without the element
  * column the columnar arm has nothing to read and both arms measure the same record path.
  *
  * <pre>
@@ -81,8 +84,7 @@ public class ArrayMembershipRouteBenchmark {
   @Setup(Level.Trial)
   public void setUp() {
     SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = columnar;
-    final Path location = Paths.get(System.getProperty("sirix.bench.store",
-                                                       System.getProperty("java.io.tmpdir")));
+    final Path location = Paths.get(System.getProperty("sirix.bench.store", System.getProperty("java.io.tmpdir")));
     final String dbName = System.getProperty("sirix.bench.db", "db-elem");
 
     store = BasicJsonDBStore.newBuilder().location(location).build();
@@ -92,10 +94,10 @@ public class ArrayMembershipRouteBenchmark {
     final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
     session = coll.getDatabase().beginResourceSession(RESOURCE);
     executor = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(),
-                                           Runtime.getRuntime().availableProcessors());
+        Runtime.getRuntime().availableProcessors());
     SequentialPipelineStrategy.setVectorizedExecutor(executor);
     ctx.bind(DOC_VAR, (Sequence) coll.getDocument());
-    run();  // fault the resource in; the first pass loads every page
+    run(); // fault the resource in; the first pass loads every page
     // After the faulting pass, so the counts describe steady-state scans rather than a cold one.
     SirixVectorizedExecutor.resetArrayContainsDeclineCounts();
     SirixVectorizedExecutor.resetRegionOnlyCounters();
@@ -121,13 +123,23 @@ public class ArrayMembershipRouteBenchmark {
         total += c;
       }
       final StringBuilder sb = new StringBuilder(512);
-      sb.append("\n[array-contains] served=").append(SirixVectorizedExecutor.regionOnlyPagesServed())
-        .append(" fellBack=").append(SirixVectorizedExecutor.regionOnlyPageFallbacks()).append('\n');
+      sb.append("\n[array-contains] served=")
+        .append(SirixVectorizedExecutor.regionOnlyPagesServed())
+        .append(" fellBack=")
+        .append(SirixVectorizedExecutor.regionOnlyPageFallbacks())
+        .append('\n');
       sb.append("[array-contains declines] total=").append(total).append('\n');
       for (int i = 0; i < counts.length; i++) {
         if (counts[i] > 0) {
-          sb.append("  ").append(reasons[i]).append(" = ").append(counts[i])
-            .append(" (").append(total == 0 ? 0 : counts[i] * 100 / total).append(" %)\n");
+          sb.append("  ")
+            .append(reasons[i])
+            .append(" = ")
+            .append(counts[i])
+            .append(" (")
+            .append(total == 0
+                ? 0
+                : counts[i] * 100 / total)
+            .append(" %)\n");
         }
       }
       System.out.println(sb);

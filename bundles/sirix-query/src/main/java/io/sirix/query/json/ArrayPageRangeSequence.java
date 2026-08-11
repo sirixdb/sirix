@@ -17,41 +17,45 @@ import io.sirix.page.PageLayout;
 /**
  * The elements of one JSON array that live in a given range of record pages.
  *
- * <p>This is the unit of parallel work behind {@code SplittableSequence}: N of these cover an
- * array's children exactly once between them, and each can be iterated on its own thread.
+ * <p>
+ * This is the unit of parallel work behind {@code SplittableSequence}: N of these cover an array's
+ * children exactly once between them, and each can be iterated on its own thread.
  *
- * <p><b>Why pages and not indices.</b> The obvious split is by element position, but positions are
- * not addressable here — reaching element {@code i} means walking {@code i} siblings, so computing
+ * <p>
+ * <b>Why pages and not indices.</b> The obvious split is by element position, but positions are not
+ * addressable here — reaching element {@code i} means walking {@code i} siblings, so computing
  * chunk boundaries would cost a full serial pass. Measured on a 3.5 M element corpus that pass is
  * 307.8 ms against a 449 ms serial scan, which by Amdahl's law would cap the entire parallel design
  * near 1.4x. The page key space, by contrast, is known from {@code maxNodeKey} before anything is
  * read, so ranges are handed out in constant time and no serial pass exists to bound the speedup.
  *
- * <p>The cost of that choice is real and worth stating: a record page holds every node, not only
- * array elements, so this inspects far more slots than there are elements — about 15x on the
- * reference corpus, whose movie objects each carry five fields plus two nested arrays. It is
- * affordable only because rejecting a slot is a parent-key read from the page image rather than a
- * node materialization. Measured end to end, page ranges beat the index-split design 91 ms to
- * ~330 ms at 16 threads despite scanning 15x the slots.
+ * <p>
+ * The cost of that choice is real and worth stating: a record page holds every node, not only array
+ * elements, so this inspects far more slots than there are elements — about 15x on the reference
+ * corpus, whose movie objects each carry five fields plus two nested arrays. It is affordable only
+ * because rejecting a slot is a parent-key read from the page image rather than a node
+ * materialization. Measured end to end, page ranges beat the index-split design 91 ms to ~330 ms at
+ * 16 threads despite scanning 15x the slots.
  *
- * <p><b>Order is not preserved.</b> Elements arrive in page order, which coincides with document
- * order only by construction accident. Callers requiring document order must not use this.
+ * <p>
+ * <b>Order is not preserved.</b> Elements arrive in page order, which coincides with document order
+ * only by construction accident. Callers requiring document order must not use this.
  */
 final class ArrayPageRangeSequence extends LazySequence {
 
   /**
    * Node kinds that can appear as a JSON array member, indexed by kind id.
    *
-   * <p>The fused {@code OBJECT_NAMED_*} kinds are deliberately absent: those are an object's
-   * fields, never an array's members, and on a record-oriented corpus they are the overwhelming
-   * majority of slots. Rejecting them on a directory byte is what keeps the parent-key decode off
-   * the hot path.
+   * <p>
+   * The fused {@code OBJECT_NAMED_*} kinds are deliberately absent: those are an object's fields,
+   * never an array's members, and on a record-oriented corpus they are the overwhelming majority of
+   * slots. Rejecting them on a directory byte is what keeps the parent-key decode off the hot path.
    */
   private static final boolean[] ELEMENT_KIND = new boolean[256];
 
   static {
-    for (final NodeKind kind : new NodeKind[] { NodeKind.OBJECT, NodeKind.ARRAY, NodeKind.STRING_VALUE,
-        NodeKind.NUMBER_VALUE, NodeKind.BOOLEAN_VALUE, NodeKind.NULL_VALUE }) {
+    for (final NodeKind kind : new NodeKind[] {NodeKind.OBJECT, NodeKind.ARRAY, NodeKind.STRING_VALUE,
+        NodeKind.NUMBER_VALUE, NodeKind.BOOLEAN_VALUE, NodeKind.NULL_VALUE}) {
       ELEMENT_KIND[kind.getId() & 0xFF] = true;
     }
   }
@@ -66,7 +70,7 @@ final class ArrayPageRangeSequence extends LazySequence {
 
   /**
    * @param pageKeyFrom first record page key, inclusive
-   * @param pageKeyTo   last record page key, exclusive
+   * @param pageKeyTo last record page key, exclusive
    */
   ArrayPageRangeSequence(final JsonResourceSession session, final int revision, final long arrayNodeKey,
       final JsonDBCollection collection, final JsonItemFactory itemFactory, final long pageKeyFrom,
@@ -90,9 +94,10 @@ final class ArrayPageRangeSequence extends LazySequence {
     /**
      * One transaction and one reader for the whole range, opened on first use.
      *
-     * <p>Per-chunk transaction open was the dominant fixed cost that held SirixDB's earlier
-     * parallel array materialization to 2-3x on 19 cores; amortizing both over an entire page range
-     * is what keeps that cost off the measurement here.
+     * <p>
+     * Per-chunk transaction open was the dominant fixed cost that held SirixDB's earlier parallel array
+     * materialization to 2-3x on 19 cores; amortizing both over an entire page range is what keeps that
+     * cost off the measurement here.
      */
     private JsonNodeReadOnlyTrx rtx;
     private StorageEngineReader reader;

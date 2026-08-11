@@ -24,13 +24,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Why the shape needed its own predicate node</h2>
  *
- * <p>The optimizer's predicate vocabulary had no quantified form, so a query with this {@code where}
+ * <p>
+ * The optimizer's predicate vocabulary had no quantified form, so a query with this {@code where}
  * clause was never claimed and ran entirely on the generic pipeline. On a 3.48M-record corpus that
  * meant a full record scan — the one shape still an order of magnitude behind DuckDB one-shot.
  *
  * <h2>What is asserted</h2>
  *
- * <p>Agreement with the generic pipeline, which is the only ground truth that cannot drift, over a
+ * <p>
+ * Agreement with the generic pipeline, which is the only ground truth that cannot drift, over a
  * corpus built to break the three things this can get wrong: records with NO such field at all
  * (they satisfy nothing, and that is what lets the shape anchor on the field), records with an
  * EMPTY array (likewise), and arrays holding non-string elements beside the strings (comparing
@@ -42,14 +44,13 @@ final class ArrayContainsPredicateTest {
   private static final String DB = "array-contains-db";
   private static final String RES = "records.jn";
 
-  private static final List<String> SHAPES = List.of(
-      "some $g in $m.genres[] satisfies $g eq 'Drama'",
-      "some $g in $m.genres[] satisfies $g eq 'Nowhere'",
-      "$m.year gt 1950 and (some $g in $m.genres[] satisfies $g eq 'Drama')",
-      "(some $g in $m.genres[] satisfies $g eq 'Drama') and $m.year lt 1950",
-      // A universal is NOT the anchorable direction — it is vacuously true on a record with no
-      // array at all — so it must fall through to the generic pipeline and still be right.
-      "every $g in $m.genres[] satisfies $g eq 'Drama'");
+  private static final List<String> SHAPES =
+      List.of("some $g in $m.genres[] satisfies $g eq 'Drama'", "some $g in $m.genres[] satisfies $g eq 'Nowhere'",
+          "$m.year gt 1950 and (some $g in $m.genres[] satisfies $g eq 'Drama')",
+          "(some $g in $m.genres[] satisfies $g eq 'Drama') and $m.year lt 1950",
+          // A universal is NOT the anchorable direction — it is vacuously true on a record with no
+          // array at all — so it must fall through to the generic pipeline and still be right.
+          "every $g in $m.genres[] satisfies $g eq 'Drama'");
 
   private Path dbDir;
 
@@ -67,10 +68,12 @@ final class ArrayContainsPredicateTest {
         sb.append(',');
       }
       sb.append("{\"year\":").append(1900 + i % 120);
-      if (i % 7 != 0) {                       // a seventh of the records have NO genres field
+      if (i % 7 != 0) { // a seventh of the records have NO genres field
         sb.append(",\"genres\":[");
-        if (i % 5 != 0) {                     // and a fifth of the rest have an EMPTY array
-          sb.append(i % 3 == 0 ? "\"Drama\"" : "\"Comedy\"");
+        if (i % 5 != 0) { // and a fifth of the rest have an EMPTY array
+          sb.append(i % 3 == 0
+              ? "\"Drama\""
+              : "\"Comedy\"");
           if (i % 4 == 0) {
             sb.append(",\"Short\"");
           }
@@ -85,8 +88,8 @@ final class ArrayContainsPredicateTest {
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
     }
   }
@@ -106,21 +109,22 @@ final class ArrayContainsPredicateTest {
   void arrayMembershipAgreesWithTheGenericPipeline() throws Exception {
     for (final String predicate : SHAPES) {
       assertEquals(count(predicate, false), count(predicate, true),
-                   "the vectorized answer differs from the generic pipeline's for: " + predicate
-                       + " — a record with no such field, or an empty array, satisfies no "
-                       + "existential, and a non-string element is not a string match");
+          "the vectorized answer differs from the generic pipeline's for: " + predicate
+              + " — a record with no such field, or an empty array, satisfies no "
+              + "existential, and a non-string element is not a string match");
     }
   }
 
   /**
    * The COLUMN route must answer exactly what the record route answers.
    *
-   * <p>It is a second implementation of the same predicate reading a different structure, so
-   * nothing but a differential test pins it down. The corpus is what makes this sharp: at ~3,000
-   * records a page boundary falls inside a record repeatedly, and a record whose object node ends
-   * one page while its array begins the next is decidable from NEITHER page's columns — the page
-   * before never sees an anchor for it. Getting that seam wrong loses or double-counts records
-   * rather than failing outright, and the totals here are what notice.
+   * <p>
+   * It is a second implementation of the same predicate reading a different structure, so nothing but
+   * a differential test pins it down. The corpus is what makes this sharp: at ~3,000 records a page
+   * boundary falls inside a record repeatedly, and a record whose object node ends one page while its
+   * array begins the next is decidable from NEITHER page's columns — the page before never sees an
+   * anchor for it. Getting that seam wrong loses or double-counts records rather than failing
+   * outright, and the totals here are what notice.
    */
   @Test
   @DisplayName("the column route answers exactly what the record route answers")
@@ -138,9 +142,8 @@ final class ArrayContainsPredicateTest {
       SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
       final long viaRecords = count(shape, true);
       SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = true;
-      assertEquals(viaRecords, count(shape, true),
-                   "the column route differs from the record route for literal '" + literal
-                       + "' — a literal absent from some page is what exposes a mishandled seam");
+      assertEquals(viaRecords, count(shape, true), "the column route differs from the record route for literal '"
+          + literal + "' — a literal absent from some page is what exposes a mishandled seam");
     }
     for (final String predicate : SHAPES) {
       SirixVectorizedExecutor.ARRAY_CONTAINS_COLUMNAR_ENABLED = false;
@@ -149,27 +152,25 @@ final class ArrayContainsPredicateTest {
       SirixVectorizedExecutor.resetRegionOnlyCounters();
       final long viaColumns = count(predicate, true);
       servedAcrossShapes += SirixVectorizedExecutor.regionOnlyPagesServed();
-      assertEquals(viaRecords, viaColumns,
-                   "the column route differs from the record route for: " + predicate
-                       + " — most likely a record straddling a page boundary, counted by both "
-                       + "pages or by neither");
+      assertEquals(viaRecords, viaColumns, "the column route differs from the record route for: " + predicate
+          + " — most likely a record straddling a page boundary, counted by both " + "pages or by neither");
     }
     // Agreement proves nothing if the column route declined every page and quietly ran the record
     // route twice — which is exactly what happens when the element strings are not in the column.
-    assertTrue(servedAcrossShapes > 0,
-               "the column route served no page at all, so the agreement above is vacuous");
+    assertTrue(servedAcrossShapes > 0, "the column route served no page at all, so the agreement above is vacuous");
   }
 
   /**
    * The anchor's ARRAY-kind child is an ELEMENT, not a value layer to descend through.
    *
-   * <p>Every array-valued field the writer can produce is a fused OBJECT_NAMED_ARRAY whose
-   * elements are its direct children — the legacy unfused {@code OBJECT_KEY -> ARRAY} pair is no
-   * longer representable (the OBJECT_KEY node kind was deleted in Phase 4), so the only plain
-   * ARRAY node that can sit beneath the anchor is a NESTED array element. A membership scan that
-   * descended into it on the grounds that "the child is an ARRAY, so the elements must be one
-   * level further down" would count records whose literal occurs only inside a nested array —
-   * which is not an element of the field and satisfies no existential over it.
+   * <p>
+   * Every array-valued field the writer can produce is a fused OBJECT_NAMED_ARRAY whose elements are
+   * its direct children — the legacy unfused {@code OBJECT_KEY -> ARRAY} pair is no longer
+   * representable (the OBJECT_KEY node kind was deleted in Phase 4), so the only plain ARRAY node
+   * that can sit beneath the anchor is a NESTED array element. A membership scan that descended into
+   * it on the grounds that "the child is an ARRAY, so the elements must be one level further down"
+   * would count records whose literal occurs only inside a nested array — which is not an element of
+   * the field and satisfies no existential over it.
    */
   @Test
   @DisplayName("a string inside a nested array element is not a member of the field's array")
@@ -204,27 +205,23 @@ final class ArrayContainsPredicateTest {
     }
     sb.append(']');
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
-      new Query(chain, "jn:store('" + DB + "','" + resource + "','" + sb + "',false())")
-          .evaluate(ctx);
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "jn:store('" + DB + "','" + resource + "','" + sb + "',false())").evaluate(ctx);
     }
-    assertEquals(expectedDrama,
-                 count(resource, "some $g in $m.genres[] satisfies $g eq 'Drama'", true),
-                 "a string inside a NESTED array element must not satisfy membership in the "
-                     + "field's array — the ARRAY-kind child is an element, not a value layer");
-    assertEquals(expectedComedy,
-                 count(resource, "some $g in $m.genres[] satisfies $g eq 'Comedy'", true),
-                 "top-level string elements beside a nested array element must still match");
+    assertEquals(expectedDrama, count(resource, "some $g in $m.genres[] satisfies $g eq 'Drama'", true),
+        "a string inside a NESTED array element must not satisfy membership in the "
+            + "field's array — the ARRAY-kind child is an element, not a value layer");
+    assertEquals(expectedComedy, count(resource, "some $g in $m.genres[] satisfies $g eq 'Comedy'", true),
+        "top-level string elements beside a nested array element must still match");
   }
 
   @Test
   @DisplayName("the shape matches something, so agreement is not vacuous")
   void thePredicateSelectsARealSubset() throws Exception {
     final long drama = count(SHAPES.get(0), true);
-    assertTrue(drama > 0 && drama < N,
-               "the Drama predicate selected " + drama + " of " + N
-                   + " — it must select a proper subset or it proves nothing");
+    assertTrue(drama > 0 && drama < N, "the Drama predicate selected " + drama + " of " + N
+        + " — it must select a proper subset or it proves nothing");
     assertEquals(0L, count(SHAPES.get(1), true), "a genre no record carries must select nothing");
   }
 
@@ -232,16 +229,15 @@ final class ArrayContainsPredicateTest {
     return count(RES, predicate, autoWire);
   }
 
-  private long count(final String resource, final String predicate, final boolean autoWire)
-      throws Exception {
+  private long count(final String resource, final String predicate, final boolean autoWire) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = autoWire
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = autoWire
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       return ((Int64) new Query(chain,
-                                "count(for $m in jn:doc('" + DB + "','" + resource + "')[] where "
-                                    + predicate + " return $m)").evaluate(ctx)).longValue();
+          "count(for $m in jn:doc('" + DB + "','" + resource + "')[] where " + predicate + " return $m)").evaluate(
+              ctx)).longValue();
     }
   }
 }

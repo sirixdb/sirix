@@ -26,13 +26,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Unit + concurrency tests for {@link FrameSlotAllocator}.
  *
- * <p>The concurrency test is the real target: 20 threads allocating, writing,
- * and releasing slots in a tight loop for several seconds, with optimistic
- * version-check readers observing in parallel. If the pool-style recycling
- * race were present, we would expect either SIGSEGV (unhandled in Java) or
- * corrupted reads. The test verifies every version-validated read either
- * sees the writer's canary pattern or detects the race via the version
- * mismatch.
+ * <p>
+ * The concurrency test is the real target: 20 threads allocating, writing, and releasing slots in a
+ * tight loop for several seconds, with optimistic version-check readers observing in parallel. If
+ * the pool-style recycling race were present, we would expect either SIGSEGV (unhandled in Java) or
+ * corrupted reads. The test verifies every version-validated read either sees the writer's canary
+ * pattern or detects the race via the version mismatch.
  */
 class FrameSlotAllocatorTest {
 
@@ -126,8 +125,7 @@ class FrameSlotAllocatorTest {
       held.add(next);
     }
     assertTrue(held.size() > 0, "should succeed at least once before exhaustion");
-    assertNull(allocator.allocateSlot(slotSize),
-        "allocator must return null when physical budget is exhausted");
+    assertNull(allocator.allocateSlot(slotSize), "allocator must return null when physical budget is exhausted");
     for (final FrameSlot s : held) {
       s.close();
     }
@@ -169,10 +167,9 @@ class FrameSlotAllocatorTest {
   }
 
   /**
-   * Stress test: 20 workers each in a tight allocate-write-read-release
-   * loop for 5 seconds. A concurrent observer repeatedly allocates, reads
-   * a canary value, and validates the version; mismatches are counted
-   * (they are expected and MUST be detected, not silently pass).
+   * Stress test: 20 workers each in a tight allocate-write-read-release loop for 5 seconds. A
+   * concurrent observer repeatedly allocates, reads a canary value, and validates the version;
+   * mismatches are counted (they are expected and MUST be detected, not silently pass).
    */
   @Test
   void concurrentStressNoCorruption() throws Exception {
@@ -240,23 +237,21 @@ class FrameSlotAllocatorTest {
     // be zero because the slot was exclusively owned — if they occur, the
     // allocator is mutating slots while they are still owned, which would be
     // a bug.
-    System.err.printf("FrameSlotAllocator stress: allocations=%,d  reads=%,d  "
-            + "version-mismatches=%,d  corrupted=%,d%n",
-        totalAllocations.get(), totalReads.get(),
-        versionMismatches.get(), corruptedReads.get());
-    assertEquals(0L, corruptedReads.get(),
-        "reads of exclusively-held slots must never see corrupted data");
-    assertEquals(0L, versionMismatches.get(),
-        "reads of exclusively-held slots must never see version drift");
+    System.err.printf(
+        "FrameSlotAllocator stress: allocations=%,d  reads=%,d  " + "version-mismatches=%,d  corrupted=%,d%n",
+        totalAllocations.get(), totalReads.get(), versionMismatches.get(), corruptedReads.get());
+    assertEquals(0L, corruptedReads.get(), "reads of exclusively-held slots must never see corrupted data");
+    assertEquals(0L, versionMismatches.get(), "reads of exclusively-held slots must never see version drift");
     assertTrue(totalAllocations.get() > 10_000L,
         "stress test should complete many allocations; got " + totalAllocations.get());
   }
+
   /**
-   * Regression test for #1073 Defect A: the free stack is LIFO, so a released slot is re-issued
-   * first — at the same stable address. A stale, dangling segment from the PRIOR allocation era
-   * (a delayed double-release) used to look up the address and close the NEXT owner's live slot:
-   * the slot went back on the free stack while still owned, and the following allocation handed
-   * the same memory to a third owner (silent use-after-free, double budget decrement).
+   * Regression test for #1073 Defect A: the free stack is LIFO, so a released slot is re-issued first
+   * — at the same stable address. A stale, dangling segment from the PRIOR allocation era (a delayed
+   * double-release) used to look up the address and close the NEXT owner's live slot: the slot went
+   * back on the free stack while still owned, and the following allocation handed the same memory to
+   * a third owner (silent use-after-free, double budget decrement).
    */
   @Test
   void staleReleaseOfRecycledAddressMustNotFreeTheNewOwnersSlot() {
@@ -279,8 +274,7 @@ class FrameSlotAllocatorTest {
     // (two live owners of one slot). It must come from a different slot.
     final MemorySegment segC = allocator.allocate(4096);
     assertNotNull(segC);
-    assertFalse(segC.address() == address,
-        "stale release must not free the new owner's slot (ABA use-after-free)");
+    assertFalse(segC.address() == address, "stale release must not free the new owner's slot (ABA use-after-free)");
 
     // B's release must still work (its era is the current one for that address).
     allocator.release(segB);
@@ -293,9 +287,9 @@ class FrameSlotAllocatorTest {
   }
 
   /**
-   * Companion to the ABA regression: reinterpret-derived segments inherit the issuing
-   * allocation's scope, so the legitimate release patterns used across the codebase
-   * (e.g. {@code release(slottedPage.reinterpret(capacity))}) keep working.
+   * Companion to the ABA regression: reinterpret-derived segments inherit the issuing allocation's
+   * scope, so the legitimate release patterns used across the codebase (e.g.
+   * {@code release(slottedPage.reinterpret(capacity))}) keep working.
    */
   @Test
   void reinterpretDerivedReleaseIsAccepted() {

@@ -71,8 +71,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
    * @param documentNode the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
-      final int trxId, final StorageEngineReader pageReadTransaction,
-      final ImmutableJsonNode documentNode) {
+      final int trxId, final StorageEngineReader pageReadTransaction, final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
 
@@ -220,8 +219,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     // iter#31 Option B: fused OBJECT_NAMED_* carries the inline primitive value. Read
     // directly off the structural node — no synthetic-child indirection.
     return switch (getKind()) {
-      case STRING_VALUE ->
-        new String(((ValueNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
+      case STRING_VALUE -> new String(((ValueNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
       case OBJECT_NAMED_STRING ->
         new String(((ObjectNamedStringNode) getStructuralNodeView()).getRawValue(), Constants.DEFAULT_ENCODING);
       case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNodeView()).getValue());
@@ -252,7 +250,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
       case OBJECT_NAMED_STRING -> ((ObjectNamedStringNode) getStructuralNodeView()).getRawValue();
       default -> {
         String v = getValue();
-        yield v != null ? v.getBytes(StandardCharsets.UTF_8) : null;
+        yield v != null
+            ? v.getBytes(StandardCharsets.UTF_8)
+            : null;
       }
     };
   }
@@ -300,9 +300,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
       case NULL_VALUE -> ImmutableNullNode.of((NullNode) currentNode);
       // Fused OBJECT_NAMED_* kinds are treated as themselves — no legacy immutable wrapper exists
       // yet. Callers that pattern-match on ImmutableNode will need to handle the concrete class.
-      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
-           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
-          (ImmutableNode) currentNode;
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT,
+          OBJECT_NAMED_ARRAY ->
+        (ImmutableNode) currentNode;
       case JSON_DOCUMENT -> ImmutableJsonDocumentRootNode.of((JsonDocumentRootNode) currentNode);
       default -> throw new IllegalStateException("Node kind not known!");
     };
@@ -330,12 +330,9 @@ public final class JsonNodeReadOnlyTrxImpl extends
     // Use getKind() for zero-allocation check. Phase 4 — only fused OBJECT_NAMED_* records
     // carry the field-name role; the legacy OBJECT_KEY kind has been deleted.
     final var kind = getKind();
-    return kind == NodeKind.OBJECT_NAMED_BOOLEAN
-        || kind == NodeKind.OBJECT_NAMED_NUMBER
-        || kind == NodeKind.OBJECT_NAMED_STRING
-        || kind == NodeKind.OBJECT_NAMED_NULL
-        || kind == NodeKind.OBJECT_NAMED_OBJECT
-        || kind == NodeKind.OBJECT_NAMED_ARRAY;
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL
+        || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY;
   }
 
   @Override
@@ -343,8 +340,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.NUMBER_VALUE
-        || kind == NodeKind.OBJECT_NAMED_NUMBER;
+    return kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NAMED_NUMBER;
   }
 
   @Override
@@ -352,8 +348,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.NULL_VALUE
-        || kind == NodeKind.OBJECT_NAMED_NULL;
+    return kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NAMED_NULL;
   }
 
   @Override
@@ -361,8 +356,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.STRING_VALUE
-        || kind == NodeKind.OBJECT_NAMED_STRING;
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_NAMED_STRING;
   }
 
   @Override
@@ -370,8 +364,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
     assertNotClosed();
     // Use getKind() for zero-allocation check
     final var kind = getKind();
-    return kind == NodeKind.BOOLEAN_VALUE
-        || kind == NodeKind.OBJECT_NAMED_BOOLEAN;
+    return kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_NAMED_BOOLEAN;
   }
 
   @Override

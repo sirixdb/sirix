@@ -12,16 +12,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <h2>Why the kind exists</h2>
  *
- * <p>The other four column kinds are scalar, so an array-valued field declared as a projection
- * column was recorded present-but-unrepresentable and the index could answer nothing about it. That
- * left {@code some $g in $m.genres[] satisfies $g eq "..."} with no index to use.
+ * <p>
+ * The other four column kinds are scalar, so an array-valued field declared as a projection column
+ * was recorded present-but-unrepresentable and the index could answer nothing about it. That left
+ * {@code some $g in $m.genres[] satisfies $g eq "..."} with no index to use.
  *
  * <h2>What is asserted</h2>
  *
- * <p>That the leaf's own serialize/deserialize round-trips the shape exactly — the counts AND the
- * flat element run, over rows built to break the two things a variable-length column gets wrong:
- * an EMPTY set (whose row must still consume zero elements and not borrow its neighbour's) and
- * rows of DIFFERENT lengths either side of it, which is what desynchronises a flat run.
+ * <p>
+ * That the leaf's own serialize/deserialize round-trips the shape exactly — the counts AND the flat
+ * element run, over rows built to break the two things a variable-length column gets wrong: an
+ * EMPTY set (whose row must still consume zero elements and not borrow its neighbour's) and rows of
+ * DIFFERENT lengths either side of it, which is what desynchronises a flat run.
  */
 final class StringSetColumnTest {
 
@@ -38,44 +40,37 @@ final class StringSetColumnTest {
     return leaf;
   }
 
-  private static void appendSet(final ProjectionIndexRowGroupPage leaf, final long recordKey,
-      final String... elems) {
-    assertTrue(leaf.appendRow(recordKey, new long[1], new boolean[1], new String[] {""},
-                              new String[][] {elems}, new boolean[] {true}, new boolean[] {false},
-                              new boolean[] {false}, new boolean[] {false}),
-               "leaf refused a row it had capacity for");
+  private static void appendSet(final ProjectionIndexRowGroupPage leaf, final long recordKey, final String... elems) {
+    assertTrue(
+        leaf.appendRow(recordKey, new long[1], new boolean[1], new String[] {""}, new String[][] {elems},
+            new boolean[] {true}, new boolean[] {false}, new boolean[] {false}, new boolean[] {false}),
+        "leaf refused a row it had capacity for");
   }
 
   @Test
   @DisplayName("counts and elements survive a serialize/deserialize round-trip")
   void roundTripsThroughTheRawForm() {
     final ProjectionIndexRowGroupPage before = buildLeaf();
-    final ProjectionIndexRowGroupPage after =
-        ProjectionIndexRowGroupPage.deserialize(before.serialize());
+    final ProjectionIndexRowGroupPage after = ProjectionIndexRowGroupPage.deserialize(before.serialize());
 
     assertEquals(before.getRowCount(), after.getRowCount(), "row count changed");
     assertArrayEquals(new int[] {2, 0, 1, 3},
-                      java.util.Arrays.copyOf(after.stringSetCountColumn(0), after.getRowCount()),
-                      "per-row element counts did not survive the round-trip");
-    assertEquals(before.stringSetLength(0), after.stringSetLength(0),
-                 "flat element run changed length");
-    assertArrayEquals(
-        java.util.Arrays.copyOf(before.stringSetIdColumn(0), before.stringSetLength(0)),
-        java.util.Arrays.copyOf(after.stringSetIdColumn(0), after.stringSetLength(0)),
-        "flat element ids changed");
+        java.util.Arrays.copyOf(after.stringSetCountColumn(0), after.getRowCount()),
+        "per-row element counts did not survive the round-trip");
+    assertEquals(before.stringSetLength(0), after.stringSetLength(0), "flat element run changed length");
+    assertArrayEquals(java.util.Arrays.copyOf(before.stringSetIdColumn(0), before.stringSetLength(0)),
+        java.util.Arrays.copyOf(after.stringSetIdColumn(0), after.stringSetLength(0)), "flat element ids changed");
   }
 
   @Test
   @DisplayName("each row's elements resolve to the strings it was given")
   void elementsResolveBackToTheirStrings() {
-    final ProjectionIndexRowGroupPage leaf =
-        ProjectionIndexRowGroupPage.deserialize(buildLeaf().serialize());
+    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(buildLeaf().serialize());
     final byte[][] dict = leaf.stringDictionary(0);
     final int[] counts = leaf.stringSetCountColumn(0);
     final int[] elems = leaf.stringSetIdColumn(0);
 
-    final String[][] expected = {{"Drama", "Short"}, {}, {"Comedy"},
-                                 {"Drama", "Comedy", "Silent"}};
+    final String[][] expected = {{"Drama", "Short"}, {}, {"Comedy"}, {"Drama", "Comedy", "Silent"}};
     int cursor = 0;
     for (int row = 0; row < expected.length; row++) {
       final String[] got = new String[counts[row]];
@@ -83,9 +78,8 @@ final class StringSetColumnTest {
         got[k] = new String(dict[elems[cursor + k]], java.nio.charset.StandardCharsets.UTF_8);
       }
       cursor += counts[row];
-      assertArrayEquals(expected[row], got,
-                        "row " + row + " read back a different set — a flat run is only rows if "
-                            + "every count before it was consumed exactly");
+      assertArrayEquals(expected[row], got, "row " + row + " read back a different set — a flat run is only rows if "
+          + "every count before it was consumed exactly");
     }
     assertEquals(leaf.stringSetLength(0), cursor, "the walk did not consume the whole run");
   }
@@ -101,8 +95,8 @@ final class StringSetColumnTest {
     final ProjectionIndexRowGroupPage after = ProjectionIndexRowGroupPage.deserialize(roundTripped);
 
     assertArrayEquals(new int[] {2, 0, 1, 3},
-                      java.util.Arrays.copyOf(after.stringSetCountColumn(0), after.getRowCount()),
-                      "counts did not survive the compact codec");
+        java.util.Arrays.copyOf(after.stringSetCountColumn(0), after.getRowCount()),
+        "counts did not survive the compact codec");
     assertEquals(6, after.stringSetLength(0), "flat element run changed length");
   }
 

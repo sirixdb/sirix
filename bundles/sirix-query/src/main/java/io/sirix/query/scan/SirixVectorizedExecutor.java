@@ -119,24 +119,24 @@ import java.util.concurrent.atomic.LongAdder;
 /**
  * Vectorized executor backed by a Sirix {@link JsonResourceSession}.
  *
- * <p>Implements Brackit's {@link VectorizedExecutor} interface so that
- * Brackit's optimizer can dispatch eligible queries (pure aggregates,
- * filtered counts, group-bys) to a parallel page-scan path that bypasses
- * the per-record JsonItem/Trx ceremony.
+ * <p>
+ * Implements Brackit's {@link VectorizedExecutor} interface so that Brackit's optimizer can
+ * dispatch eligible queries (pure aggregates, filtered counts, group-bys) to a parallel page-scan
+ * path that bypasses the per-record JsonItem/Trx ceremony.
  *
- * <p>Pattern: each worker opens its own {@link JsonNodeReadOnlyTrx} +
- * {@code StorageEngineReader}, walks a chunk of leaf pages, examines
- * populated slots, and accumulates per-thread results that are merged
- * at the end.
+ * <p>
+ * Pattern: each worker opens its own {@link JsonNodeReadOnlyTrx} + {@code StorageEngineReader},
+ * walks a chunk of leaf pages, examines populated slots, and accumulates per-thread results that
+ * are merged at the end.
  *
- * <p>Served shapes: {@link #executeAggregate} (sum/avg/min/max/count), filtered
- * counts, single- and multi-key group-by-count, and count-distinct. A page whose
- * PAX columns can answer a predicate never touches its record heap — a
- * multi-leaf conjunction resolves its predicate tree once per scan and evaluates
- * it as bitmap algebra over the encoded columns ({@link PredicateBitmapEvaluator}),
- * with the hand-fused kernels kept for the pages that route declines. Every fast
- * path is fail-closed: a shape, encoding or page it cannot serve returns no claim
- * and the caller's generic pipeline answers.
+ * <p>
+ * Served shapes: {@link #executeAggregate} (sum/avg/min/max/count), filtered counts, single- and
+ * multi-key group-by-count, and count-distinct. A page whose PAX columns can answer a predicate
+ * never touches its record heap — a multi-leaf conjunction resolves its predicate tree once per
+ * scan and evaluates it as bitmap algebra over the encoded columns
+ * ({@link PredicateBitmapEvaluator}), with the hand-fused kernels kept for the pages that route
+ * declines. Every fast path is fail-closed: a shape, encoding or page it cannot serve returns no
+ * claim and the caller's generic pipeline answers.
  */
 public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
@@ -154,12 +154,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Returns {@code true} if the kindId plays the OBJECT_KEY role (legacy or fused). */
   private static boolean playsObjectKeyRole(final int kindId) {
-    return kindId == OBJECT_KEY_KIND
-        || kindId == OBJECT_NAMED_BOOLEAN_KIND
-        || kindId == OBJECT_NAMED_NUMBER_KIND
-        || kindId == OBJECT_NAMED_STRING_KIND
-        || kindId == OBJECT_NAMED_NULL_KIND
-        || kindId == OBJECT_NAMED_OBJECT_KIND
+    return kindId == OBJECT_KEY_KIND || kindId == OBJECT_NAMED_BOOLEAN_KIND || kindId == OBJECT_NAMED_NUMBER_KIND
+        || kindId == OBJECT_NAMED_STRING_KIND || kindId == OBJECT_NAMED_NULL_KIND || kindId == OBJECT_NAMED_OBJECT_KIND
         || kindId == OBJECT_NAMED_ARRAY_KIND;
   }
 
@@ -170,26 +166,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public int getRevision() {
     return revision;
   }
+
   private final int threads;
 
   /**
-   * Wtx-visible serving mode: when non-null, the executor is bound to an
-   * OPEN write transaction and serves queries from its uncommitted state.
-   * Only the projection fast paths run in this mode — they read through the
-   * transaction log via {@code IndexController#openProjectionIndex} (which
-   * applies pending incremental maintenance first, read-your-writes) — and
-   * every miss returns {@code null} so the caller's generic pipeline (which
-   * reads the same transaction) answers. Result caches and the generic
-   * kernels are committed-revision scoped and are bypassed entirely.
+   * Wtx-visible serving mode: when non-null, the executor is bound to an OPEN write transaction and
+   * serves queries from its uncommitted state. Only the projection fast paths run in this mode — they
+   * read through the transaction log via {@code IndexController#openProjectionIndex} (which applies
+   * pending incremental maintenance first, read-your-writes) — and every miss returns {@code null} so
+   * the caller's generic pipeline (which reads the same transaction) answers. Result caches and the
+   * generic kernels are committed-revision scoped and are bypassed entirely.
    */
   private final @Nullable JsonNodeTrx wtx;
 
   /**
-   * Cached resource-identifier string used as the
-   * {@link ProjectionIndexRegistry} lookup key. Computed once at
-   * construction to keep the per-query fast-path check branch-free and
-   * allocation-free. {@code null} on any resolution failure — disables
-   * the fast path for this executor.
+   * Cached resource-identifier string used as the {@link ProjectionIndexRegistry} lookup key.
+   * Computed once at construction to keep the per-query fast-path check branch-free and
+   * allocation-free. {@code null} on any resolution failure — disables the fast path for this
+   * executor.
    */
   private final String projectionRegistryKey;
 
@@ -198,25 +192,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
 
   /**
-   * Toggle the column-batched generic-predicate evaluator. When {@code true}
-   * (default), {@link #parallelGenericPredicateCount} and
-   * {@link #parallelGenericPredicateGroupByCount} collect each page's matching
-   * records into per-field primitive columns and evaluate the compiled predicate
-   * against those columns into a bitmap — amortising rtx navigation / dispatch
-   * overhead across the page. When {@code false}, falls back to the legacy
-   * record-at-a-time interpreter. Use {@code -Dsirix.vec.batchGenericEval=false}
-   * for A/B regression bisection.
+   * Toggle the column-batched generic-predicate evaluator. When {@code true} (default),
+   * {@link #parallelGenericPredicateCount} and {@link #parallelGenericPredicateGroupByCount} collect
+   * each page's matching records into per-field primitive columns and evaluate the compiled predicate
+   * against those columns into a bitmap — amortising rtx navigation / dispatch overhead across the
+   * page. When {@code false}, falls back to the legacy record-at-a-time interpreter. Use
+   * {@code -Dsirix.vec.batchGenericEval=false} for A/B regression bisection.
    */
   private static final boolean BATCH_GENERIC_EVAL_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.vec.batchGenericEval", "true"));
 
   /**
-   * Toggle per-predicate JIT-style class generation via {@link java.lang.classfile}.
-   * When {@code true} (default), each distinct {@link CompiledPredicate} tree is
-   * compiled to a dedicated hidden class implementing {@link BatchPredicate} — the
-   * opcode switch + recursive tree walk collapse to straight-line column kernels
-   * with all constants (comparison threshold, cmp op, fieldIdx) inlined. When
-   * {@code false}, {@link #evalCompiledBatch} interprets the flat op-array.
+   * Toggle per-predicate JIT-style class generation via {@link java.lang.classfile}. When
+   * {@code true} (default), each distinct {@link CompiledPredicate} tree is compiled to a dedicated
+   * hidden class implementing {@link BatchPredicate} — the opcode switch + recursive tree walk
+   * collapse to straight-line column kernels with all constants (comparison threshold, cmp op,
+   * fieldIdx) inlined. When {@code false}, {@link #evalCompiledBatch} interprets the flat op-array.
    * Use {@code -Dsirix.vec.compiledPredicate=false} for A/B bisection.
    */
   private static final boolean COMPILED_PREDICATE_ENABLED =
@@ -234,22 +225,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Whether we are running inside a GraalVM native image. The
-   * {@code org.graalvm.nativeimage.imagecode} system property is set to
-   * {@code "runtime"} inside the image and unset on HotSpot; checking presence
-   * avoids a compile dependency on the GraalVM SDK's {@code ImageInfo}.
+   * {@code org.graalvm.nativeimage.imagecode} system property is set to {@code "runtime"} inside the
+   * image and unset on HotSpot; checking presence avoids a compile dependency on the GraalVM SDK's
+   * {@code ImageInfo}.
    */
   private static boolean inNativeImage() {
     return System.getProperty("org.graalvm.nativeimage.imagecode") != null;
   }
 
   /**
-   * Toggle direct-slot column feed in {@link #collectColumns}. When {@code true}
-   * (default), multi-field predicates collect each referenced column via a
-   * name-key slot scan + parent-OBJECT lookup table — bypassing
-   * {@code rtx.moveToFirstChild + moveToRightSibling} per record. When
-   * {@code false}, every multi-field page falls back to the legacy rtx cursor
-   * walk ({@link #loadFieldsIntoBatch}). Use
-   * {@code -Dsirix.vec.directSlotColumns=false} for A/B bisection.
+   * Toggle direct-slot column feed in {@link #collectColumns}. When {@code true} (default),
+   * multi-field predicates collect each referenced column via a name-key slot scan + parent-OBJECT
+   * lookup table — bypassing {@code rtx.moveToFirstChild + moveToRightSibling} per record. When
+   * {@code false}, every multi-field page falls back to the legacy rtx cursor walk
+   * ({@link #loadFieldsIntoBatch}). Use {@code -Dsirix.vec.directSlotColumns=false} for A/B
+   * bisection.
    */
   private static final boolean DIRECT_SLOT_COLUMNS_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.vec.directSlotColumns", "true"));
@@ -258,61 +248,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final AtomicInteger COMPILED_PREDICATE_SEQ = new AtomicInteger();
 
   /**
-   * Lightweight scan-path diagnostics. Toggled via {@code -Dsirix.scan.diag=true}.
-   * When {@code false}, all counter increments are dead-code-eliminated by the
-   * JIT because this field is {@code static final} and read as a compile-time
-   * constant at class-init time. Zero steady-state overhead when disabled.
+   * Lightweight scan-path diagnostics. Toggled via {@code -Dsirix.scan.diag=true}. When
+   * {@code false}, all counter increments are dead-code-eliminated by the JIT because this field is
+   * {@code static final} and read as a compile-time constant at class-init time. Zero steady-state
+   * overhead when disabled.
    */
   static final boolean DIAGNOSTICS_ENABLED = Boolean.getBoolean("sirix.scan.diag");
   /** Diagnostic: force {@code parallelGroupByCount} off the StringRegion fast path. */
   private static final boolean STRING_REGION_FAST_OFF = Boolean.getBoolean("sirix.scan.stringRegion.off");
 
   /**
-   * iter#07 range-fusion — when the same column has one {@code GT}/{@code GE}
-   * predicate and one {@code LT}/{@code LE} predicate in the same conjunctive
-   * projection-scan, fuse them into a single {@code BETWEEN_*} op that shares
-   * one scalar-to-scratch load and one zone-map probe. Toggle via
-   * {@code -Dsirix.projection.rangeFusion=false} to disable (defaults
-   * <b>on</b>). See {@code profiling-output/iter07-range-fusion-analysis.md}
-   * for the correctness derivation and measurement plan.
+   * iter#07 range-fusion — when the same column has one {@code GT}/{@code GE} predicate and one
+   * {@code LT}/{@code LE} predicate in the same conjunctive projection-scan, fuse them into a single
+   * {@code BETWEEN_*} op that shares one scalar-to-scratch load and one zone-map probe. Toggle via
+   * {@code -Dsirix.projection.rangeFusion=false} to disable (defaults <b>on</b>). See
+   * {@code profiling-output/iter07-range-fusion-analysis.md} for the correctness derivation and
+   * measurement plan.
    */
   private static final boolean RANGE_FUSION_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.projection.rangeFusion", "true"));
 
   /**
-   * Per-query scan counters — attributes where the hot loop spent its pages and
-   * records. Only populated when {@link #DIAGNOSTICS_ENABLED} is {@code true}.
-   * Per-thread slots are contiguous in a single array; no contention, no
-   * false-sharing mitigation (one int per thread at 64-byte stride would be the
-   * next step if this becomes hot, but counter increments in-lambda are
+   * Per-query scan counters — attributes where the hot loop spent its pages and records. Only
+   * populated when {@link #DIAGNOSTICS_ENABLED} is {@code true}. Per-thread slots are contiguous in a
+   * single array; no contention, no false-sharing mitigation (one int per thread at 64-byte stride
+   * would be the next step if this becomes hot, but counter increments in-lambda are
    * register-resident for the JIT's duration).
    */
   static final class ScanDiagnostics {
     // Page-level outcomes (one increment per leaf page visited).
-    long pagesVisited;         // every getRecordPage result that yielded a KeyValueLeafPage
-    long pagesNullHeader;      // PAX NumberRegion header absent — slow path
-    long pagesTagMissing;      // header present, but lookupTag(fieldKey) returned -1
-    long pagesZoneSkippedAll;  // zone-map ruled out every row in the tag range
-    long pagesZoneAllPass;     // zone-map proved every row passes → no decode needed
-    long pagesDecoded;         // PAX fast-path decode loop actually ran
-    long pagesSlowPath;        // fell through to moveTo + getNumberValue path
+    long pagesVisited; // every getRecordPage result that yielded a KeyValueLeafPage
+    long pagesNullHeader; // PAX NumberRegion header absent — slow path
+    long pagesTagMissing; // header present, but lookupTag(fieldKey) returned -1
+    long pagesZoneSkippedAll; // zone-map ruled out every row in the tag range
+    long pagesZoneAllPass; // zone-map proved every row passes → no decode needed
+    long pagesDecoded; // PAX fast-path decode loop actually ran
+    long pagesSlowPath; // fell through to moveTo + getNumberValue path
 
     // Record-level outcomes (sum across decoded pages).
-    long recordsFastPath;      // records processed inside the PAX decode loop
-    long recordsSlowPath;      // records processed via rtx.moveTo + firstChild
-    long recordsMatched;       // records that passed the predicate
+    long recordsFastPath; // records processed inside the PAX decode loop
+    long recordsSlowPath; // records processed via rtx.moveTo + firstChild
+    long recordsMatched; // records that passed the predicate
 
     // GroupBy-specific: which path the value-read took.
-    long groupByDirectSuccess;  // fused inline read produced > 0 bytes
-    long groupByCrossPage;      // childPk != pk (value lives on a different page)
-    long groupByDirectNeg;      // direct read returned <= 0 (FSST/oversize/etc.)
-    long groupByRtxFallback;    // rtx.moveTo path actually ran
+    long groupByDirectSuccess; // fused inline read produced > 0 bytes
+    long groupByCrossPage; // childPk != pk (value lives on a different page)
+    long groupByDirectNeg; // direct read returned <= 0 (FSST/oversize/etc.)
+    long groupByRtxFallback; // rtx.moveTo path actually ran
 
     // GroupBy StringRegion fast-path stats.
-    long stringRegionHits;          // pages where the BtrBlocks/Umbra-style StringRegion fast-path ran
+    long stringRegionHits; // pages where the BtrBlocks/Umbra-style StringRegion fast-path ran
     long stringRegionMissesNoHeader; // header was null (region absent — page hadn't built one)
-    long stringRegionMissesNoTag;    // header present but no tag for this fieldKey
-    long stringRegionMissesDictBig;  // local dict > 256 entries — exceeds scratch
+    long stringRegionMissesNoTag; // header present but no tag for this fieldKey
+    long stringRegionMissesDictBig; // local dict > 256 entries — exceeds scratch
 
     /** Merge {@code other} into this accumulator. Called during per-thread fan-in. */
     void mergeFrom(final ScanDiagnostics other) {
@@ -339,26 +327,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     void print(final String label) {
       final long totalPagesWithHeader = pagesDecoded + pagesZoneSkippedAll + pagesZoneAllPass;
       final long totalRecords = recordsFastPath + recordsSlowPath;
-      System.err.printf("[scan-diag %s] pages visited=%,d  [fast-path: header-null=%,d, tag-missing=%,d, "
+      System.err.printf(
+          "[scan-diag %s] pages visited=%,d  [fast-path: header-null=%,d, tag-missing=%,d, "
               + "zone-skip=%,d, zone-all=%,d, decoded=%,d] slow-path=%,d%n",
-          label, pagesVisited, pagesNullHeader, pagesTagMissing, pagesZoneSkippedAll, pagesZoneAllPass,
-          pagesDecoded, pagesSlowPath);
-      System.err.printf("[scan-diag %s] records: fast-path=%,d (decoded %,d pages), slow-path=%,d "
+          label, pagesVisited, pagesNullHeader, pagesTagMissing, pagesZoneSkippedAll, pagesZoneAllPass, pagesDecoded,
+          pagesSlowPath);
+      System.err.printf(
+          "[scan-diag %s] records: fast-path=%,d (decoded %,d pages), slow-path=%,d "
               + "(via moveTo), matched=%,d, total=%,d%n",
           label, recordsFastPath, totalPagesWithHeader, recordsSlowPath, recordsMatched, totalRecords);
       if (groupByDirectSuccess + groupByCrossPage + groupByDirectNeg + groupByRtxFallback > 0) {
-        System.err.printf("[scan-diag %s] groupBy paths: direct-success=%,d, cross-page=%,d, "
+        System.err.printf(
+            "[scan-diag %s] groupBy paths: direct-success=%,d, cross-page=%,d, "
                 + "direct-returned-neg=%,d, rtx-fallback=%,d%n",
             label, groupByDirectSuccess, groupByCrossPage, groupByDirectNeg, groupByRtxFallback);
       }
       if (stringRegionHits + stringRegionMissesNoHeader + stringRegionMissesNoTag + stringRegionMissesDictBig > 0) {
-        System.err.printf("[scan-diag %s] StringRegion: hits=%,d, miss-no-header=%,d, "
-                + "miss-no-tag=%,d, miss-dict-too-big=%,d%n",
-            label, stringRegionHits, stringRegionMissesNoHeader, stringRegionMissesNoTag,
-            stringRegionMissesDictBig);
+        System.err.printf(
+            "[scan-diag %s] StringRegion: hits=%,d, miss-no-header=%,d, " + "miss-no-tag=%,d, miss-dict-too-big=%,d%n",
+            label, stringRegionHits, stringRegionMissesNoHeader, stringRegionMissesNoTag, stringRegionMissesDictBig);
       }
     }
   }
+
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
@@ -367,95 +358,88 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Per-field cache of the {@code {count, sum, min, max}} tuple produced by
-   * {@link #parallelAggregate(String)}. The executor is scoped to a single
-   * (session, revision), so the result is stable for the executor's lifetime —
-   * a closed-form invalidation is therefore not required. This exists so that
-   * query shapes like {@code {"min": min(...x), "max": max(...x)}} — which
-   * Brackit compiles to two separate aggregate calls on the same field — pay
-   * the parallel scan only once. For a 100M-record dataset that's a 8 s
-   * saving on the {@code minMaxAge} query shape (one scan vs two).
+   * {@link #parallelAggregate(String)}. The executor is scoped to a single (session, revision), so
+   * the result is stable for the executor's lifetime — a closed-form invalidation is therefore not
+   * required. This exists so that query shapes like {@code {"min": min(...x), "max": max(...x)}} —
+   * which Brackit compiles to two separate aggregate calls on the same field — pay the parallel scan
+   * only once. For a 100M-record dataset that's a 8 s saving on the {@code minMaxAge} query shape
+   * (one scan vs two).
    */
   private final ConcurrentHashMap<String, long[]> aggregateCache = new ConcurrentHashMap<>();
 
   /**
    * Per-predicate cache of the {@code long} count produced by
-   * {@link #parallelGenericPredicateCount(PredicateNode)}. Key is the
-   * canonicalized predicate signature (field + op + value); value is the
-   * scan result. Same validity argument as {@link #aggregateCache} — the
-   * executor is bound to a single (session, revision). Realistic dashboards
-   * re-issue the same filter-count after small delays (e.g. 5 s polling); the
-   * cache keeps the repeat sub-millisecond instead of a full parallel scan.
+   * {@link #parallelGenericPredicateCount(PredicateNode)}. Key is the canonicalized predicate
+   * signature (field + op + value); value is the scan result. Same validity argument as
+   * {@link #aggregateCache} — the executor is bound to a single (session, revision). Realistic
+   * dashboards re-issue the same filter-count after small delays (e.g. 5 s polling); the cache keeps
+   * the repeat sub-millisecond instead of a full parallel scan.
    */
   private final ConcurrentHashMap<String, Long> filterCountCache = new ConcurrentHashMap<>();
 
   /**
    * Per-field cache of the Brackit {@link Sequence} produced by
-   * {@link #parallelGroupByCount(String)}. The Sequence is a flat
-   * {@code ItemSequence} of immutable {@code ArrayObject}s — safe to share
-   * across callers. Same validity argument as the aggregate/filter caches:
-   * the executor is bound to one (session, revision).
+   * {@link #parallelGroupByCount(String)}. The Sequence is a flat {@code ItemSequence} of immutable
+   * {@code ArrayObject}s — safe to share across callers. Same validity argument as the
+   * aggregate/filter caches: the executor is bound to one (session, revision).
    */
   private final ConcurrentHashMap<String, Sequence> groupByCountCache = new ConcurrentHashMap<>();
 
   /**
-   * Per-(group, filter) cache of filtered-group-by-count. Same validity
-   * argument as the other caches — executor is bound to one (session,
-   * revision). Key is {@code groupField|filterField|filterOp|filterValue}.
+   * Per-(group, filter) cache of filtered-group-by-count. Same validity argument as the other caches
+   * — executor is bound to one (session, revision). Key is
+   * {@code groupField|filterField|filterOp|filterValue}.
    */
   private final ConcurrentHashMap<String, Sequence> filteredGroupByCountCache = new ConcurrentHashMap<>();
 
   /**
-   * Cache for the generalized (multi-key / renamed-output / typed-key)
-   * group-by-count results. Same validity argument — bound to one
-   * (session, revision). Key encodes fields, output names, count name and
-   * the predicate signature.
+   * Cache for the generalized (multi-key / renamed-output / typed-key) group-by-count results. Same
+   * validity argument — bound to one (session, revision). Key encodes fields, output names, count
+   * name and the predicate signature.
    */
   private final ConcurrentHashMap<String, Sequence> multiGroupByCountCache = new ConcurrentHashMap<>();
 
   /**
-   * Double-typed aggregate stats for columns carrying non-integral numbers —
-   * parallel to {@code aggregateCache}; same (session, revision) validity.
-   * Layout: {@code [count, sum, min, max]} as doubles.
+   * Double-typed aggregate stats for columns carrying non-integral numbers — parallel to
+   * {@code aggregateCache}; same (session, revision) validity. Layout: {@code [count, sum, min, max]}
+   * as doubles.
    */
   private final ConcurrentHashMap<String, MixedAgg> aggregateDblCache = new ConcurrentHashMap<>();
 
   /**
-   * Served double-column aggregate results (§11-8), keyed {@code func + '#' + cacheKey}
-   * (per-func — each function serves a different Sequence). Probed BEFORE
-   * {@link #aggregateDblCache} so a served answer is stable across repeats and can never
-   * be shadowed by a MixedAgg cached while the projection was still hydrating.
+   * Served double-column aggregate results (§11-8), keyed {@code func + '#' + cacheKey} (per-func —
+   * each function serves a different Sequence). Probed BEFORE {@link #aggregateDblCache} so a served
+   * answer is stable across repeats and can never be shadowed by a MixedAgg cached while the
+   * projection was still hydrating.
    */
   private final ConcurrentHashMap<String, Sequence> servedDoubleAggCache = new ConcurrentHashMap<>();
 
   /**
-   * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the
-   * fully-qualified query path. Hot queries (dashboards that re-issue the
-   * same aggregate/filter) pay the path-summary walk once; subsequent lookups
-   * are a {@link ConcurrentHashMap} probe. Value {@code -1L} records the
-   * "no such path" decision so we don't re-attempt resolution.
+   * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the fully-qualified query
+   * path. Hot queries (dashboards that re-issue the same aggregate/filter) pay the path-summary walk
+   * once; subsequent lookups are a {@link ConcurrentHashMap} probe. Value {@code -1L} records the "no
+   * such path" decision so we don't re-attempt resolution.
    *
-   * <p>Safe for the executor's (session, revision) lifetime because the path
-   * summary is immutable for a read-only revision.
+   * <p>
+   * Safe for the executor's (session, revision) lifetime because the path summary is immutable for a
+   * read-only revision.
    */
   private final ConcurrentHashMap<String, Long> pathNodeKeyCache = new ConcurrentHashMap<>();
 
   /**
-   * Cache of {@link #tryPathSummaryStats(String[], String, String)} results,
-   * keyed by {@code pathNodeKey + "#" + func}. The executor is bound to a
-   * single (session, revision) so each PathNode's statistics are stable for
-   * its lifetime; we don't need to reopen the PathSummary for repeat aggregate
-   * queries on the same path. Without this cache every {@code sum($doc[].age)}
-   * call paid the cost of {@code beginNodeReadOnlyTrx + openPathSummary} —
-   * roughly 0.5–1 ms per query on 10 M records, completely dominating the
-   * µs-level stats lookup itself.
+   * Cache of {@link #tryPathSummaryStats(String[], String, String)} results, keyed by
+   * {@code pathNodeKey + "#" + func}. The executor is bound to a single (session, revision) so each
+   * PathNode's statistics are stable for its lifetime; we don't need to reopen the PathSummary for
+   * repeat aggregate queries on the same path. Without this cache every {@code sum($doc[].age)} call
+   * paid the cost of {@code beginNodeReadOnlyTrx + openPathSummary} — roughly 0.5–1 ms per query on
+   * 10 M records, completely dominating the µs-level stats lookup itself.
    */
   private final ConcurrentHashMap<String, Sequence> pathStatsCache = new ConcurrentHashMap<>();
 
   /**
-   * Cache of count-distinct results (HLL estimate) per source path + field.
-   * Same rationale as {@link #pathStatsCache}: the underlying HLL sketch is
-   * immutable for the executor's (session, revision), so there's no reason
-   * to reopen the PathSummary on repeat calls. Key is
+   * Cache of count-distinct results (HLL estimate) per source path + field. Same rationale as
+   * {@link #pathStatsCache}: the underlying HLL sketch is immutable for the executor's (session,
+   * revision), so there's no reason to reopen the PathSummary on repeat calls. Key is
    * {@code pathCacheKey(sourcePath, field)}.
    */
   private final ConcurrentHashMap<String, Sequence> countDistinctResultCache = new ConcurrentHashMap<>();
@@ -464,19 +448,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
 
   /**
-   * Full {@code [count, sum, min, max]} stats per (path, field, predicate) — keyed WITHOUT
-   * the aggregate function, so {@code min}+{@code max}+{@code avg} over the same shape in
-   * one query (or across queries) share ONE kernel scan (P5b stage 6). Only successful
-   * servings are cached; a decline is never negative-cached (it can be transient).
+   * Full {@code [count, sum, min, max]} stats per (path, field, predicate) — keyed WITHOUT the
+   * aggregate function, so {@code min}+{@code max}+{@code avg} over the same shape in one query (or
+   * across queries) share ONE kernel scan (P5b stage 6). Only successful servings are cached; a
+   * decline is never negative-cached (it can be transient).
    */
   private final ConcurrentHashMap<String, long[]> predicateStatsCache = new ConcurrentHashMap<>();
 
   /**
-   * Benchmark/test hook: drop every memoized query RESULT (aggregates, counts, group-bys,
-   * path stats) so the next query re-runs its kernel scan instead of answering from a
-   * result cache. Compilation and physical-layer caches (field keys, path-node keys,
-   * compiled predicates, page region tables, projection column slices) are deliberately
-   * untouched — they are the machinery under measurement, not the memoization above it.
+   * Benchmark/test hook: drop every memoized query RESULT (aggregates, counts, group-bys, path stats)
+   * so the next query re-runs its kernel scan instead of answering from a result cache. Compilation
+   * and physical-layer caches (field keys, path-node keys, compiled predicates, page region tables,
+   * projection column slices) are deliberately untouched — they are the machinery under measurement,
+   * not the memoization above it.
    */
   public void clearAggregateResultCachesForBenchmarks() {
     aggregateCache.clear();
@@ -510,19 +494,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Per-predicate cache of generated {@link BatchPredicate} instances. Key is
-   * {@code predicateCacheKey} plus a field-layout suffix so two predicates with
-   * structurally identical trees but different field indices get distinct
-   * classes. The generated class is a hidden class loaded under an anonymous
-   * Lookup — it is GC'd when its last reference (this map entry) is cleared.
+   * {@code predicateCacheKey} plus a field-layout suffix so two predicates with structurally
+   * identical trees but different field indices get distinct classes. The generated class is a hidden
+   * class loaded under an anonymous Lookup — it is GC'd when its last reference (this map entry) is
+   * cleared.
    */
   private final ConcurrentHashMap<String, BatchPredicate> compiledPredicateCache = new ConcurrentHashMap<>();
 
   /**
-   * Keys recorded in this set represent predicates whose
-   * {@link #compileToClass(CompiledPredicate)} attempt threw. We fall back to
-   * the interpreter on every subsequent lookup rather than re-trying the
-   * bytecode build — failures are pathological (classfile API bug, unsupported
-   * shape) and should never hot-spin.
+   * Keys recorded in this set represent predicates whose {@link #compileToClass(CompiledPredicate)}
+   * attempt threw. We fall back to the interpreter on every subsequent lookup rather than re-trying
+   * the bytecode build — failures are pathological (classfile API bug, unsupported shape) and should
+   * never hot-spin.
    */
   private final Set<String> skipCompileSet = ConcurrentHashMap.newKeySet();
 
@@ -531,18 +514,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Default worker-thread count, resolved from {@code -Dsirix.vec.threads=N}
-   * or the number of available CPUs. Lower thread counts reduce concurrent
-   * page-load pressure on the page-cache evictor, which matters when the
-   * working set approaches the buffer budget and the ClockSweeper struggles
-   * to keep up with allocations.
+   * Default worker-thread count, resolved from {@code -Dsirix.vec.threads=N} or the number of
+   * available CPUs. Lower thread counts reduce concurrent page-load pressure on the page-cache
+   * evictor, which matters when the working set approaches the buffer budget and the ClockSweeper
+   * struggles to keep up with allocations.
    */
   private static int defaultThreadCount() {
     final String prop = System.getProperty("sirix.vec.threads");
     if (prop != null && !prop.isEmpty()) {
       try {
         final int n = Integer.parseInt(prop.trim());
-        if (n > 0) return n;
+        if (n > 0)
+          return n;
       } catch (NumberFormatException ignored) {
       }
     }
@@ -554,14 +537,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Wtx-visible executor: serves projection-backed analytics from the given
-   * OPEN write transaction's uncommitted state (see {@link #wtx}). The
-   * transaction's contract is that each intermediate commit REPLACES its
-   * storage engine with one bound to the successor revision (and rebinds its
-   * index controller/listeners); this executor honors that by resolving the
-   * writer and controller through the transaction facade PER CALL — it
-   * follows the transaction across intermediate commits and reverts for as
-   * long as the transaction stays open, no re-construction needed.
+   * Wtx-visible executor: serves projection-backed analytics from the given OPEN write transaction's
+   * uncommitted state (see {@link #wtx}). The transaction's contract is that each intermediate commit
+   * REPLACES its storage engine with one bound to the successor revision (and rebinds its index
+   * controller/listeners); this executor honors that by resolving the writer and controller through
+   * the transaction facade PER CALL — it follows the transaction across intermediate commits and
+   * reverts for as long as the transaction stays open, no re-construction needed.
    */
   public SirixVectorizedExecutor(final JsonNodeTrx wtx, final int threads) {
     this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx);
@@ -593,18 +574,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Release what this executor OWNS: its record transaction and its worker pool.
    *
-   * <p>It deliberately does not touch the session's shared read-only transactions. Those are
-   * session state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)}
-   * for the whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
+   * <p>
+   * It deliberately does not touch the session's shared read-only transactions. Those are session
+   * state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)} for the
+   * whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
    * revision, not this executor's. Calling it here closed transactions that a concurrently running
    * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
    * that scan; and closing became routine once executors are retired on a revision advance and
    * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
    * {@code workerThreads + 1} per revision in the meantime.
    *
-   * <p>What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans
-   * run on the calling thread, and the record transaction is reopened on demand. A query compiled
-   * against an executor that has since been retired therefore keeps answering.
+   * <p>
+   * What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans run
+   * on the calling thread, and the record transaction is reopened on demand. A query compiled against
+   * an executor that has since been retired therefore keeps answering.
    */
   public void close() {
     // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
@@ -640,20 +623,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Decline an ORDERING comparison over a column that holds JSON {@code null}.
    *
-   * <p>JSONiq gives null a total comparison order: it is equal only to itself, and for
+   * <p>
+   * JSONiq gives null a total comparison order: it is equal only to itself, and for
    * {@code lt/le/gt/ge} it is "the smallest possible value (like in JavaScript)". Equality lines up
-   * with what these kernels already do — a null is not the string or number being matched, so the
-   * row does not qualify — but "smallest" does not: a null row satisfies {@code $u.f lt 5}, and the
+   * with what these kernels already do — a null is not the string or number being matched, so the row
+   * does not qualify — but "smallest" does not: a null row satisfies {@code $u.f lt 5}, and the
    * kernels, which cannot tell a null apart from an absent field, drop it.
    *
-   * <p>Teaching every kernel that null is a value BELOW every number (rather than the absence of
-   * one) means separating null from missing in the record loaders, the column-batched evaluator,
-   * the generated predicate classes and the region path — four places that today agree only because
-   * they agree on nothing being there. Declining hands those queries back to the pipeline that
-   * defines the semantics, and costs the fast path only for an ordering comparison against a column
-   * that actually contains nulls.
+   * <p>
+   * Teaching every kernel that null is a value BELOW every number (rather than the absence of one)
+   * means separating null from missing in the record loaders, the column-batched evaluator, the
+   * generated predicate classes and the region path — four places that today agree only because they
+   * agree on nothing being there. Declining hands those queries back to the pipeline that defines the
+   * semantics, and costs the fast path only for an ordering comparison against a column that actually
+   * contains nulls.
    *
-   * <p>Answered from the maintained per-path {@code nullCount} — one summary lookup, never a scan.
+   * <p>
+   * Answered from the maintained per-path {@code nullCount} — one summary lookup, never a scan.
    * Without path statistics nothing can be proven and the predicate is served as before.
    */
   @Override
@@ -666,8 +652,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // point at which "cannot compute the totals" can still mean "generic pipeline" rather than
     // "wrong answer or runtime error".
     if (predicate instanceof PredicateNode.Not not) {
-      return topLevelRecordCountOrUnknown(sourcePath) >= 0L
-          && acceptsPredicate(sourcePath, not.child());
+      return topLevelRecordCountOrUnknown(sourcePath) >= 0L && acceptsPredicate(sourcePath, not.child());
     }
     if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
       if (or.children().size() < 2 || or.children().size() > MAX_UNION_BRANCHES_LINEAR) {
@@ -710,15 +695,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.NumCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.FpCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
-      case PredicateNode.StrEq ignored -> { }
+      case PredicateNode.StrEq ignored -> {
+      }
       // Equality-shaped, like StrEq: no ordering, so nothing to collect.
-      case PredicateNode.ArrayContains ignored -> { }
-      case PredicateNode.BoolRef ignored -> { }
+      case PredicateNode.ArrayContains ignored -> {
+      }
+      case PredicateNode.BoolRef ignored -> {
+      }
       case PredicateNode.And n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
       case PredicateNode.Or n -> n.children().forEach(c -> collectOrderedComparisonFields(c, out));
       case PredicateNode.Not n -> collectOrderedComparisonFields(n.child(), out);
-      case PredicateNode.AlwaysTrue ignored -> { }
-      case PredicateNode.AlwaysFalse ignored -> { }
+      case PredicateNode.AlwaysTrue ignored -> {
+      }
+      case PredicateNode.AlwaysFalse ignored -> {
+      }
     }
   }
 
@@ -731,12 +721,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Whether any of {@code fields} carries at least one JSON null on its path. Answered from the
    * maintained per-path statistics — ONE transaction and ONE path summary for the whole predicate,
-   * never a scan. Opening them per field instead would put a transaction begin and a summary open
-   * per compared field on every compile, which is what the aggregate path next door already avoids.
+   * never a scan. Opening them per field instead would put a transaction begin and a summary open per
+   * compared field on every compile, which is what the aggregate path next door already avoids.
    */
   private boolean anyPathHoldsNull(final String[] sourcePath, final Set<String> fields) {
     try (var rtx = session.beginNodeReadOnlyTrx(revision);
-         PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision)) {
+        PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision)) {
       for (final String field : fields) {
         final long pathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
         if (pathNodeKey == -1L) {
@@ -755,14 +745,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Confine serving to the resource this executor is bound to. Brackit's optimizer lifts each
    * vectorizable scan's source identity into a {@link SourceRef}; this executor is bound at
-   * construction to a single {@code (session, revision)}, so answering a scan over a <em>different</em>
-   * document from its own projection/columns would return the wrong resource's data. Fails <b>closed</b>:
-   * only a document scan that provably matches the bound {@code (database, resource, revision)} — or the
-   * request's own context item — may serve; a mismatched resource, a mismatched (or bare-latest against
-   * a non-latest binding) revision, an unprovable {@link SourceRef.Kind#UNKNOWN} source, or any resolution
-   * failure declines, and the translator builds the generic (always-correct) pipeline instead.
+   * construction to a single {@code (session, revision)}, so answering a scan over a
+   * <em>different</em> document from its own projection/columns would return the wrong resource's
+   * data. Fails <b>closed</b>: only a document scan that provably matches the bound
+   * {@code (database, resource, revision)} — or the request's own context item — may serve; a
+   * mismatched resource, a mismatched (or bare-latest against a non-latest binding) revision, an
+   * unprovable {@link SourceRef.Kind#UNKNOWN} source, or any resolution failure declines, and the
+   * translator builds the generic (always-correct) pipeline instead.
    *
-   * <p>A decline only ever costs the fast path, never correctness.
+   * <p>
+   * A decline only ever costs the fast path, never correctness.
    */
   @Override
   public boolean acceptsSource(final SourceRef source) {
@@ -786,13 +778,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Runtime source gate for the two kinds whose actual binding is only knowable once a
-   * {@link QueryContext} is in hand: a {@link SourceRef.Kind#VARIABLE} ref (an external variable
-   * such as {@code declare variable $doc external}, invisible to the compile-time resolver since
-   * brackit 1.0-alpha9) and a {@link SourceRef.Kind#CONTEXT_ITEM} ref. Both resolve to a concrete
-   * item, which must be a Sirix JSON item over this executor's own resource at its own revision —
-   * AND must be the document's top-level node. Every other kind keeps the compile-time answer.
+   * {@link QueryContext} is in hand: a {@link SourceRef.Kind#VARIABLE} ref (an external variable such
+   * as {@code declare variable $doc external}, invisible to the compile-time resolver since brackit
+   * 1.0-alpha9) and a {@link SourceRef.Kind#CONTEXT_ITEM} ref. Both resolve to a concrete item, which
+   * must be a Sirix JSON item over this executor's own resource at its own revision — AND must be the
+   * document's top-level node. Every other kind keeps the compile-time answer.
    *
-   * <p><b>Why the root check.</b> The source path the scan then serves
+   * <p>
+   * <b>Why the root check.</b> The source path the scan then serves
    * ({@code VECTORIZED_SOURCE_PATH_PREFIX}) is written relative to the binding but resolved
    * ABSOLUTELY by both consumers: {@code ProjectionIndexCatalog.canonicalSourcePath} matches it
    * against the projection definition's root path, and {@link #computeTargetPathNodeKey}
@@ -803,8 +796,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * binding" and "absolute from the root" the same thing, which is the assumption the rest of the
    * path machinery is built on.
    *
-   * <p>Never throws — an unresolvable or foreign binding simply declines, and the serving exprs
-   * fall back to the generic pipeline, which reads the same binding and stays correct.
+   * <p>
+   * Never throws — an unresolvable or foreign binding simply declines, and the serving exprs fall
+   * back to the generic pipeline, which reads the same binding and stays correct.
    */
   @Override
   public boolean acceptsSource(final SourceRef source, final QueryContext ctx) {
@@ -831,19 +825,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * TOP-LEVEL node — the only binding for which an absolutely-resolved source path means what the
    * scan assumes it means.
    *
-   * <p>A document item is created on the document root's first child (see
-   * {@code JsonDBCollectionImpl.getItem}), so "top level" is {@code parentKey == DOCUMENT_NODE_KEY}
-   * — the same test {@code XmlDBNode.isRoot} uses.
+   * <p>
+   * A document item is created on the document root's first child (see
+   * {@code JsonDBCollectionImpl.getItem}), so "top level" is {@code parentKey == DOCUMENT_NODE_KEY} —
+   * the same test {@code XmlDBNode.isRoot} uses.
    */
   private boolean servesWholeDocument(final JsonDBItem item) {
     final JsonNodeReadOnlyTrx itemTrx = item.getTrx();
     return itemTrx.getRevisionNumber() == revision
-        && itemTrx.getResourceSession().getResourceConfig().getResource()
-            .equals(session.getResourceConfig().getResource())
+        && itemTrx.getResourceSession()
+                  .getResourceConfig()
+                  .getResource()
+                  .equals(session.getResourceConfig().getResource())
         && itemTrx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty();
   }
 
-  /** Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource. */
+  /**
+   * Whether a concrete {@code jn:doc}/{@code jn:open} source matches this executor's bound resource.
+   */
   private boolean acceptsDocument(final SourceRef source) {
     try {
       final Path resourcePath = session.getResourceConfig().getResource();
@@ -886,7 +885,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final Sequence projected = tryProjectionIndexGroupByCountOnly(sourcePath, groupField);
         if (projected != null) {
           cached = groupByCountCache.putIfAbsent(cacheKey, projected);
-          if (cached == null) cached = projected;
+          if (cached == null)
+            cached = projected;
           return cached;
         }
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, groupField);
@@ -895,11 +895,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Number/boolean/null-keyed column: go straight to the typed kernel
           // (columnar NumberRegion/BooleanRegion page paths inside) — the string
           // kernel would full-scan, mismatch, and redo anyway.
-          fresh = typedGroupByCount(sourcePath,
-                                    null,
-                                    new String[] { groupField },
-                                    new String[] { groupField },
-                                    "count");
+          fresh = typedGroupByCount(sourcePath, null, new String[] {groupField}, new String[] {groupField}, "count");
         } else {
           // String fast path first (StringRegion / byte-key kernel) — then VERIFY:
           // it only understands STRING values, so any visited record that did not
@@ -916,48 +912,47 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long[] scanStats = new long[2];
           fresh = parallelGroupByCount(groupField, targetPathNodeKey, scanStats);
           final boolean pathScopingSound = targetPathNodeKey != -1L || resolveFieldKey(groupField) == -1;
-          final long recordCount = pathScopingSound ? topLevelRecordCountOrUnknown(sourcePath) : -1L;
+          final long recordCount = pathScopingSound
+              ? topLevelRecordCountOrUnknown(sourcePath)
+              : -1L;
           final boolean sparseGap = recordCount >= 0 && scanStats[0] != recordCount;
           if (sparseGap || scanStats[0] != scanStats[1]) {
-            fresh = typedGroupByCount(sourcePath,
-                                      null,
-                                      new String[] { groupField },
-                                      new String[] { groupField },
-                                      "count");
+            fresh = typedGroupByCount(sourcePath, null, new String[] {groupField}, new String[] {groupField}, "count");
           }
         }
         cached = groupByCountCache.putIfAbsent(cacheKey, fresh);
-        if (cached == null) cached = fresh;
+        if (cached == null)
+          cached = fresh;
       }
       return cached;
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized group-by-count failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized group-by-count failed: %s",
+          e.getMessage());
     }
   }
 
   /**
-   * Unpredicated group-by-count via the projection index — no filter, just
-   * aggregate the {@code groupField} column across all rows. Returns
-   * {@code null} when the projection isn't usable (no handle, group column
-   * not STRING_DICT, etc.) so the caller falls back to the generic slot-walk.
+   * Unpredicated group-by-count via the projection index — no filter, just aggregate the
+   * {@code groupField} column across all rows. Returns {@code null} when the projection isn't usable
+   * (no handle, group column not STRING_DICT, etc.) so the caller falls back to the generic
+   * slot-walk.
    *
-   * <p>The zero-predicate path re-uses {@link ProjectionIndexByteScan#conjunctiveCountByGroup}
-   * with an empty {@code ColumnPredicate[]}: the evaluator fills an
-   * all-true mask and the grouping loop immediately bumps every row. That
-   * makes it a pure columnar read over 100 M dict-ids with no per-leaf
-   * predicate tree to evaluate.
+   * <p>
+   * The zero-predicate path re-uses {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an
+   * empty {@code ColumnPredicate[]}: the evaluator fills an all-true mask and the grouping loop
+   * immediately bumps every row. That makes it a pure columnar read over 100 M dict-ids with no
+   * per-leaf predicate tree to evaluate.
    */
   private Sequence tryProjectionIndexGroupByCountOnly(final String[] sourcePath, final String groupField) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle =
-        lookupProjection(sourcePath, new String[] { groupField });
-    if (handle == null) return null;
+    if (resourceKey == null)
+      return null;
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, new String[] {groupField});
+    if (handle == null)
+      return null;
     final int groupColumn = handle.columnOf(groupField);
-    if (groupColumn < 0) return null;
+    if (groupColumn < 0)
+      return null;
     // Sparse-evidence gate: the group column must carry presence data in
     // every leaf and never hold unrepresentable values (null/object/array/
     // kind mismatch) — otherwise missing-vs-default and null-vs-missing are
@@ -973,46 +968,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } catch (final IllegalStateException ise) {
       return null;
     }
-    if (agg == null) return null;
+    if (agg == null)
+      return null;
     final ArrayList<Item> outItems = new ArrayList<>(agg.size() + 1);
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
     final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
     while (it.hasNext()) {
       final Object2LongMap.Entry<String> e = it.next();
-      final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {new Str(e.getKey()), new Int64(e.getLongValue())};
       outItems.add(new ArrayObject(keys, vals));
     }
     if (missing[0] > 0) {
       // Records lacking the group field — the interpreter groups them under
       // the empty key, which serializes as a null group value.
-      final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { Null.INSTANCE, new Int64(missing[0]) };
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {Null.INSTANCE, new Int64(missing[0])};
       outItems.add(new ArrayObject(keys, vals));
     }
     return new ItemSequence(outItems.toArray(new Item[0]));
   }
 
   /**
-   * Generic predicate-tree count, Umbra/DuckDB/ClickHouse-style. The tree is
-   * compiled once to a flat {@link CompiledPredicate} form and the hot-loop
-   * walks it record-by-record, evaluating leaves via primitive scratch arrays.
+   * Generic predicate-tree count, Umbra/DuckDB/ClickHouse-style. The tree is compiled once to a flat
+   * {@link CompiledPredicate} form and the hot-loop walks it record-by-record, evaluating leaves via
+   * primitive scratch arrays.
    *
-   * <p>This is the single entry point for all filter-count queries; the
-   * legacy shape-specific kernels (executeFilterCount, executeFilterCount2,
-   * executeFilterCountAndBool, executeFilterCount2AndBool) are kept only for
-   * backward compatibility with executors that haven't migrated.
+   * <p>
+   * This is the single entry point for all filter-count queries; the legacy shape-specific kernels
+   * (executeFilterCount, executeFilterCount2, executeFilterCountAndBool, executeFilterCount2AndBool)
+   * are kept only for backward compatibility with executors that haven't migrated.
    */
   @Override
   public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
       throws QueryException {
-    if (predicate == null) return null;
+    if (predicate == null)
+      return null;
     // Wtx mode serves unpredicated projection queries only — predicate
     // compilation resolves name keys against committed-revision state.
-    if (wtx != null) return null;
+    if (wtx != null)
+      return null;
     try {
-      if (predicate instanceof PredicateNode.AlwaysFalse) return new Int64(0L);
+      if (predicate instanceof PredicateNode.AlwaysFalse)
+        return new Int64(0L);
       if (predicate instanceof PredicateNode.AlwaysTrue) {
         // count(*) requires a known field to anchor the PathSummary lookup; without one
         // we fall through to the generic pipeline (caller handles this).
@@ -1023,17 +1022,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (cached == null) {
         final long fresh = countPredicateTree(sourcePath, predicate);
         if (fresh < 0L) {
-          return null;  // undecomposable here — the translator's accepts gate should have declined
+          return null; // undecomposable here — the translator's accepts gate should have declined
         }
         cached = filterCountCache.putIfAbsent(cacheKey, fresh);
-        if (cached == null) cached = fresh;
+        if (cached == null)
+          cached = fresh;
       }
       return new Int64(cached);
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized predicate-count failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-count failed: %s",
+          e.getMessage());
     }
   }
 
@@ -1041,38 +1039,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Count matches of an arbitrary predicate tree, decomposing the shapes an anchored scan cannot
    * iterate.
    *
-   * <p>An anchored scan visits records via one field's slots and so cannot answer a predicate that
-   * can hold on a record missing every referenced field. Those counts are still exactly computable
-   * — as algebra over anchored counts rather than as iteration:
+   * <p>
+   * An anchored scan visits records via one field's slots and so cannot answer a predicate that can
+   * hold on a record missing every referenced field. Those counts are still exactly computable — as
+   * algebra over anchored counts rather than as iteration:
    *
    * <ul>
-   *   <li>{@code not(X)} is {@code N - count(X)}: a record satisfies exactly one side. {@code N}
-   *       is the source's record total, which the PATH SUMMARY proves for a top-level array —
-   *       every array element is a record, whatever fields it carries. This is what finally serves
-   *       {@code where not($u.active)}: the bit column answers {@code count($u.active)} with
-   *       popcounts, and the complement needs no record visited at all.</li>
-   *   <li>{@code A or B} is {@code count(A) + count(B) - count(A and B)} by inclusion-exclusion —
-   *       three anchored scans for the two-branch case, seven for three. Every intersection term
-   *       contains an anchored branch and is therefore anchored itself; a record missing a
-   *       referenced field simply fails the leaves on it, which is what makes each term's anchored
-   *       count exact.</li>
+   * <li>{@code not(X)} is {@code N - count(X)}: a record satisfies exactly one side. {@code N} is the
+   * source's record total, which the PATH SUMMARY proves for a top-level array — every array element
+   * is a record, whatever fields it carries. This is what finally serves
+   * {@code where not($u.active)}: the bit column answers {@code count($u.active)} with popcounts, and
+   * the complement needs no record visited at all.</li>
+   * <li>{@code A or B} is {@code count(A) + count(B) - count(A and B)} by inclusion-exclusion — three
+   * anchored scans for the two-branch case, seven for three. Every intersection term contains an
+   * anchored branch and is therefore anchored itself; a record missing a referenced field simply
+   * fails the leaves on it, which is what makes each term's anchored count exact.</li>
    * </ul>
    *
    * @return the count, or {@code -1} when this tree cannot be served (the translate-time
    *         {@link #acceptsPredicate} gate exists to keep such trees from being claimed at all)
    */
-  private long countPredicateTree(final String[] sourcePath, final PredicateNode predicate)
-      throws Exception {
+  private long countPredicateTree(final String[] sourcePath, final PredicateNode predicate) throws Exception {
     if (predicate instanceof PredicateNode.AlwaysFalse) {
       return 0L;
     }
     if (predicate instanceof PredicateNode.Not not) {
       final long total = topLevelRecordCountOrUnknown(sourcePath);
       if (total < 0L) {
-        return -1L;  // no provable record total — the complement has nothing to subtract from
+        return -1L; // no provable record total — the complement has nothing to subtract from
       }
       final long inner = countPredicateTree(sourcePath, not.child());
-      return inner < 0L ? -1L : total - inner;
+      return inner < 0L
+          ? -1L
+          : total - inner;
     }
     if (predicate instanceof PredicateNode.Or or && predicate.findSoundAnchorField() == null) {
       // An ANCHORED disjunction (single-field ranges, string IN-lists) is one scan through the
@@ -1094,8 +1093,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Inclusion-exclusion: 2^k - 1 terms, each a PURE conjunction the columnar kernels can serve. The
    * right trade at two or three branches, exponential past them.
    */
-  private long countUnionByInclusionExclusion(final String[] sourcePath,
-      final List<PredicateNode> branches, final int k) throws Exception {
+  private long countUnionByInclusionExclusion(final String[] sourcePath, final List<PredicateNode> branches,
+      final int k) throws Exception {
     long total = 0;
     for (int mask = 1; mask < (1 << k); mask++) {
       final List<PredicateNode> term = new ArrayList<>(Integer.bitCount(mask));
@@ -1104,12 +1103,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           term.add(branches.get(b));
         }
       }
-      final PredicateNode conj = term.size() == 1 ? term.get(0) : PredicateNode.and(term);
+      final PredicateNode conj = term.size() == 1
+          ? term.get(0)
+          : PredicateNode.and(term);
       if (conj.findSoundAnchorField() == null) {
-        return -1L;  // an unanchored branch slipped through — refuse rather than under-count
+        return -1L; // an unanchored branch slipped through — refuse rather than under-count
       }
       final long c = parallelGenericPredicateCount(sourcePath, conj);
-      total += Integer.bitCount(mask) % 2 == 1 ? c : -c;
+      total += Integer.bitCount(mask) % 2 == 1
+          ? c
+          : -c;
     }
     return total;
   }
@@ -1118,12 +1121,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Disjoint decomposition, LINEAR in the branch count: {@code |A or B or C| = |A| + |B and not A| +
    * |C and not A and not B|}.
    *
-   * <p>Each term is anchored by its own branch — an And is anchored the moment ANY child is — so
-   * each is one sound scan; the negated conjuncts push the term to per-record evaluation rather
-   * than the pure column kernels, which is the price of k scans instead of 2^k.
+   * <p>
+   * Each term is anchored by its own branch — an And is anchored the moment ANY child is — so each is
+   * one sound scan; the negated conjuncts push the term to per-record evaluation rather than the pure
+   * column kernels, which is the price of k scans instead of 2^k.
    */
-  private long countUnionByDisjointTerms(final String[] sourcePath,
-      final List<PredicateNode> branches, final int k) throws Exception {
+  private long countUnionByDisjointTerms(final String[] sourcePath, final List<PredicateNode> branches, final int k)
+      throws Exception {
     long total = 0;
     for (int i = 0; i < k; i++) {
       final PredicateNode branch = branches.get(i);
@@ -1148,59 +1152,56 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Inclusion-exclusion branch ceiling: {@code 2^k - 1} scans is a fine trade at two or three
-   * branches and a terrible one much past that, and a predicate with more belongs to the record
-   * path anyway.
+   * branches and a terrible one much past that, and a predicate with more belongs to the record path
+   * anyway.
    */
   private static final int MAX_UNION_BRANCHES = 3;
 
   /**
-   * Ceiling for the linear disjoint decomposition: one scan per branch, so the cost grows with
-   * the query rather than exponentially. Past eight, a predicate is complex enough that the
-   * generic pipeline's single per-record pass wins anyway.
+   * Ceiling for the linear disjoint decomposition: one scan per branch, so the cost grows with the
+   * query rather than exponentially. Past eight, a predicate is complex enough that the generic
+   * pipeline's single per-record pass wins anyway.
    */
   private static final int MAX_UNION_BRANCHES_LINEAR = 8;
 
   /**
-   * Generic predicate-tree group-by-count. Applies {@code predicate} to every
-   * record; for those that pass, reads the {@code groupField} string value and
-   * increments the count for that group. Returns a {@link Sequence} of
-   * {@code {"groupField": value, "count": n}} objects — same shape as
+   * Generic predicate-tree group-by-count. Applies {@code predicate} to every record; for those that
+   * pass, reads the {@code groupField} string value and increments the count for that group. Returns
+   * a {@link Sequence} of {@code {"groupField": value, "count": n}} objects — same shape as
    * {@link #executeGroupByCount}.
    */
   @Override
   public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String groupField) throws QueryException {
-    if (predicate == null || groupField == null) return null;
+    if (predicate == null || groupField == null)
+      return null;
     // Wtx mode serves unpredicated projection queries only — see
     // executePredicateCount.
-    if (wtx != null) return null;
+    if (wtx != null)
+      return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return new ItemSequence();
       }
-      final String cacheKey =
-          "gb:" + pathCacheKey(sourcePath, groupField) + "#" + predicateCacheKey(predicate);
+      final String cacheKey = "gb:" + pathCacheKey(sourcePath, groupField) + "#" + predicateCacheKey(predicate);
       Sequence cached = filteredGroupByCountCache.get(cacheKey);
-      if (cached != null) return cached;
+      if (cached != null)
+        return cached;
       // String kernel first, then VERIFY: rows that passed the predicate but did
       // not group (non-string / null / missing group value) force a typed redo —
       // previously they were dropped silently (wrong results).
       final long[] scanStats = new long[2];
       Sequence fresh = parallelGenericPredicateGroupByCount(sourcePath, predicate, groupField, scanStats);
       if (fresh == null || scanStats[0] != scanStats[1]) {
-        fresh = typedGroupByCount(sourcePath,
-                                  predicate,
-                                  new String[] { groupField },
-                                  new String[] { groupField },
-                                  "count");
+        fresh = typedGroupByCount(sourcePath, predicate, new String[] {groupField}, new String[] {groupField}, "count");
       }
       cached = filteredGroupByCountCache.putIfAbsent(cacheKey, fresh);
-      return cached == null ? fresh : cached;
+      return cached == null
+          ? fresh
+          : cached;
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized predicate-group-by-count failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-group-by-count failed: %s",
+          e.getMessage());
     }
   }
 
@@ -1215,13 +1216,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Withdraw (or restore) the multi-key group-by capability.
    *
-   * <p>Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
+   * <p>
+   * Unlike every other entry point, this one is substituted at TRANSLATE time and has no generic
    * pipeline behind it: brackit's {@code VectorizedGroupByExpr} turns a {@code null} result into a
    * query failure rather than a fallback. Anything the kernel cannot answer therefore has to be
    * answered anyway or raised — which is why a sparse multi-key grouping is completed by
    * {@link #completeSparseMultiKeyGroups} rather than declined.
    *
-   * <p>Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
+   * <p>
+   * Kept as a switch for bisecting a suspected grouping regression: turning it off routes every
    * multi-key group-by through the generic pipeline without touching the query.
    *
    * @param enabled whether {@link #executeGroupByCountMulti} may be substituted for a scan
@@ -1241,10 +1244,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Generalized group-by-count entry point: one or more key fields, query-defined
-   * output names, optional predicate, and — unlike the string-only kernels — group
-   * key values keep their JSON types (numbers group as numbers, booleans as
-   * booleans). See the {@code VectorizedExecutor} RESULT ENVELOPE CONTRACT.
+   * Generalized group-by-count entry point: one or more key fields, query-defined output names,
+   * optional predicate, and — unlike the string-only kernels — group key values keep their JSON types
+   * (numbers group as numbers, booleans as booleans). See the {@code VectorizedExecutor} RESULT
+   * ENVELOPE CONTRACT.
    */
   @Override
   public Sequence executeGroupByCountMulti(QueryContext ctx, String[] sourcePath, String[] groupFields,
@@ -1263,16 +1266,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         final Object2LongOpenHashMap<String> wtxProjected =
             tryProjectionMultiGroupCounts(sourcePath, groupFields, null);
-        return wtxProjected == null ? null : buildTypedGroupRecords(wtxProjected, outNames, countName);
+        return wtxProjected == null
+            ? null
+            : buildTypedGroupRecords(wtxProjected, outNames, countName);
       }
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return new ItemSequence();
       }
       final String cacheKey = "gbm:" + pathCacheKey(sourcePath, String.join("\u0001", groupFields)) + "|"
-          + String.join("\u0001", outNames) + "|" + countName + "#"
-          + (predicate == null ? "-" : predicateCacheKey(predicate));
+          + String.join("\u0001", outNames) + "|" + countName + "#" + (predicate == null
+              ? "-"
+              : predicateCacheKey(predicate));
       Sequence cached = multiGroupByCountCache.get(cacheKey);
-      if (cached != null) return cached;
+      if (cached != null)
+        return cached;
       // Projection fast path: when a covering projection carries EVERY group field
       // as a STRING_DICT column (and the predicate, if any, is projection-evaluable),
       // the composite grouping is a dict-id sweep over in-memory columnar leaves —
@@ -1288,14 +1295,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         fresh = typedGroupByCount(sourcePath, predicate, groupFields, outNames, countName);
       }
       cached = multiGroupByCountCache.putIfAbsent(cacheKey, fresh);
-      return cached == null ? fresh : cached;
+      return cached == null
+          ? fresh
+          : cached;
     } catch (final QueryException qe) {
       throw qe;
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized multi-key group-by-count failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized multi-key group-by-count failed: %s",
+          e.getMessage());
     }
   }
 
@@ -1310,11 +1317,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final byte TK_COMPLEX = 7;
 
   /**
-   * Per-record typed view of the fields in a {@link CompiledPredicate} layout.
-   * Parallel to {@link EvalScratch} but WITHOUT the legacy lossy conventions:
-   * doubles stay doubles (EvalScratch truncates to long for the integer-only
-   * predicate ops), JSON null is distinguished from a missing field, and
-   * object/array values are tagged complex instead of dropped.
+   * Per-record typed view of the fields in a {@link CompiledPredicate} layout. Parallel to
+   * {@link EvalScratch} but WITHOUT the legacy lossy conventions: doubles stay doubles (EvalScratch
+   * truncates to long for the integer-only predicate ops), JSON null is distinguished from a missing
+   * field, and object/array values are tagged complex instead of dropped.
    */
   private static final class TypedGroupScratch {
     final byte[] kind;
@@ -1333,77 +1339,82 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Typed grouping kernel: anchor-slot walk + per-record predicate evaluation
-   * (identical semantics to the string kernels), but the group key is a TYPED
-   * composite of one or more field values, so numeric / boolean / null / missing
-   * keys group and emit correctly instead of being silently dropped.
+   * Typed grouping kernel: anchor-slot walk + per-record predicate evaluation (identical semantics to
+   * the string kernels), but the group key is a TYPED composite of one or more field values, so
+   * numeric / boolean / null / missing keys group and emit correctly instead of being silently
+   * dropped.
    *
-   * <p>Anchor visibility caveat (shared with every anchor-based kernel here):
-   * records lacking the anchor field are never visited. For the UNPREDICATED
-   * top-level-array case this is detected via {@link #requireDenseGroupField}
-   * and surfaces as a loud error rather than silently missing groups.
+   * <p>
+   * Anchor visibility caveat (shared with every anchor-based kernel here): records lacking the anchor
+   * field are never visited. For the UNPREDICATED top-level-array case this is detected via
+   * {@link #requireDenseGroupField} and surfaces as a loud error rather than silently missing groups.
    */
   /**
-   * Projection-backed numeric aggregate: a NUMERIC_LONG column sweep over the
-   * covering projection's leaves. Returns {@code [count, sum, min, max]} or
-   * {@code null} when the projection cannot serve it (no handle, field not a
-   * NUMERIC_LONG column, predicate not a supported conjunction).
+   * Projection-backed numeric aggregate: a NUMERIC_LONG column sweep over the covering projection's
+   * leaves. Returns {@code [count, sum, min, max]} or {@code null} when the projection cannot serve
+   * it (no handle, field not a NUMERIC_LONG column, predicate not a supported conjunction).
    */
   /**
    * Which accumulator slots {@code func} actually reads, per {@link #longStatsToSequence}.
    *
-   * <p>{@code count} rides along everywhere because it is a popcount of the mask the scan already
-   * has. The extrema do not: without AVX-512 a masked 64-bit min/max is an emulated
-   * compare-and-blend, ~35-40 % of the fold, so {@code count}/{@code sum}/{@code avg} skip it.
+   * <p>
+   * {@code count} rides along everywhere because it is a popcount of the mask the scan already has.
+   * The extrema do not: without AVX-512 a masked 64-bit min/max is an emulated compare-and-blend,
+   * ~35-40 % of the fold, so {@code count}/{@code sum}/{@code avg} skip it.
    *
-   * <p>Only safe where the accumulator is NOT shared between functions. The predicate-stats cache
-   * keys without {@code func} deliberately — one entry serves min/max/avg/sum — so that path must
-   * keep asking for every slot or a later {@code min} would read back an unfolded sentinel.
+   * <p>
+   * Only safe where the accumulator is NOT shared between functions. The predicate-stats cache keys
+   * without {@code func} deliberately — one entry serves min/max/avg/sum — so that path must keep
+   * asking for every slot or a later {@code min} would read back an unfolded sentinel.
    */
   private static int aggMaskFor(final String func) {
     return switch (func) {
       case "count" -> ProjectionColumnSegmentFoldScan.AGG_COUNT;
-      case "sum", "avg" ->
-          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM;
-      case "min" ->
-          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN;
-      case "max" ->
-          ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX;
+      case "sum", "avg" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_SUM;
+      case "min" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MIN;
+      case "max" -> ProjectionColumnSegmentFoldScan.AGG_COUNT | ProjectionColumnSegmentFoldScan.AGG_MAX;
       default -> ProjectionColumnSegmentFoldScan.AGG_ALL;
     };
   }
 
   private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull) {
-    return tryProjectionAggregate(sourcePath, field, predicateOrNull,
-        ProjectionColumnSegmentFoldScan.AGG_ALL);
+    return tryProjectionAggregate(sourcePath, field, predicateOrNull, ProjectionColumnSegmentFoldScan.AGG_ALL);
   }
 
   private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull, final int aggMask) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
+    if (resourceKey == null)
+      return null;
     // Existence probe first: resources without any projection (the common
     // case) must not pay predicate compilation for a lookup that cannot hit.
-    if (!anyProjectionAvailable()) return null;
+    if (!anyProjectionAvailable())
+      return null;
     // Compile the predicate BEFORE handle selection so the covering lookup
     // can pick among several installed projections by the full field set
     // (aggregate column + predicate columns).
-    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
-    final String[] required = requiredFields(new String[] { field }, cp);
+    final CompiledPredicate cp = predicateOrNull == null
+        ? null
+        : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] {field}, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
-    if (handle == null) return null;
+    if (handle == null)
+      return null;
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     // Session-bound sources built from THIS executor's own live session, threaded into the
     // shared handle's fill calls (no session-scoped state on the cached handle).
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     final int col = handle.columnOf(field);
-    if (col < 0) return null;
+    if (col < 0)
+      return null;
     // One kind-check path for both handle tiers; columnKindOf never materializes a
     // column-lazy handle (descriptor truth).
-    if (handle.rowGroupCount() == 0) return null;
-    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) return null;
+    if (handle.rowGroupCount() == 0)
+      return null;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG)
+      return null;
     // Value-exact gate: the builder truncates non-integral numbers into the
     // NUMERIC_LONG column (Number#longValue). Serve aggregates only when the
     // column is PROVABLY integral; unknown provenance falls back. On a lazy
@@ -1420,7 +1431,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
     } else {
-      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
+        return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
       if (extracted == null) {
         // Not a pure conjunction — AND/OR trees serve through the fold kernels' tree
@@ -1444,7 +1456,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int rowGroupCount = rowGroupPayloads.size();
     try {
       if (rowGroupCount < 64) {
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads, preds, col, acc);
         return acc;
       }
@@ -1454,18 +1466,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        if (from >= to)
+          return;
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads.subList(from, to), preds, col, acc);
         perThread[idx] = acc;
       });
-      final long[] merged = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
       for (final long[] a : perThread) {
-        if (a == null || a[0] == 0) continue;
+        if (a == null || a[0] == 0)
+          continue;
         merged[0] += a[0];
         merged[1] += a[1];
-        if (a[2] < merged[2]) merged[2] = a[2];
-        if (a[3] > merged[3]) merged[3] = a[3];
+        if (a[2] < merged[2])
+          merged[2] = a[2];
+        if (a[3] > merged[3])
+          merged[3] = a[3];
       }
       return merged;
     } catch (final IllegalStateException ise) {
@@ -1475,15 +1491,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Resolved serving context for one double-column aggregate query
-   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-8): the covering handle, the
-   * column, the compiled conjunctive predicates, and whether the pure-double-source gate
-   * held. Resolved ONCE per query so no gate (and in particular no purity probe or leaf
-   * scan) runs twice, and none runs at all for a query the gates reject.
+   * (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.6, §11-8): the covering handle, the column, the
+   * compiled conjunctive predicates, and whether the pure-double-source gate held. Resolved ONCE per
+   * query so no gate (and in particular no purity probe or leaf scan) runs twice, and none runs at
+   * all for a query the gates reject.
    */
   private record DoubleAggServing(ProjectionIndexRegistry.Handle handle, int col,
-      ProjectionIndexScan.ColumnPredicate[] preds, ProjectionColumnStore sliceStore,
-      boolean pure, ProjectionColumnStore.ColumnSegmentFetcher fetcher,
-      Supplier<List<byte[]>> materializer) {
+      ProjectionIndexScan.ColumnPredicate[] preds, ProjectionColumnStore sliceStore, boolean pure,
+      ProjectionColumnStore.ColumnSegmentFetcher fetcher, Supplier<List<byte[]>> materializer) {
     List<byte[]> rowGroupPayloads() {
       return handle.rowGroupPayloads(materializer);
     }
@@ -1502,8 +1517,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Chunked parallel slice count — mirrors {@link #parallelConjunctiveCount}'s dispatch shape. */
-  private long sliceCountParallel(final ProjectionColumnStore store,
-      final ProjectionIndexScan.ColumnPredicate[] preds,
+  private long sliceCountParallel(final ProjectionColumnStore store, final ProjectionIndexScan.ColumnPredicate[] preds,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     final int rowGroupCount = store.rowGroupCount();
     // Fold-during-decode first (P5b stage 4): counts stream straight from the verified
@@ -1520,7 +1534,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         perThread[idx] = ProjectionColumnSegmentFoldScan.conjunctiveCount(store, preds, from, to, fetcher);
       });
       long total = 0;
@@ -1543,7 +1558,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
-      if (from >= to) return;
+      if (from >= to)
+        return;
       perThread[idx] = ProjectionColumnScan.conjunctiveCount(store, preds, from, to, sharedCols);
     });
     long total = 0;
@@ -1561,9 +1577,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Fold-during-decode first (P5b stage 4) — same merge shape, byte substrate.
     if (ProjectionColumnSegmentFoldScan.eligible(store, preds, col, fetcher)) {
       if (rowGroupCount < 64) {
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher,
-            aggMask);
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher, aggMask);
         return acc;
       }
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
@@ -1572,17 +1587,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to,
-            fetcher, aggMask);
+        if (from >= to)
+          return;
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+        ProjectionColumnSegmentFoldScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to, fetcher, aggMask);
         perThread[idx] = acc;
       });
       return mergeLongAgg(perThread);
     }
     prefillColumns(store, preds, col, fetcher);
     if (rowGroupCount < 64) {
-      final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
       ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, fetcher);
       return acc;
     }
@@ -1592,8 +1607,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
-      if (from >= to) return;
-      final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+      if (from >= to)
+        return;
+      final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
       ProjectionColumnScan.conjunctiveAggregateNumeric(store, preds, col, acc, from, to, fetcher);
       perThread[idx] = acc;
     });
@@ -1602,13 +1618,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators. */
   private static long[] mergeLongAgg(final long[][] perThread) {
-    final long[] merged = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+    final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
     for (final long[] a : perThread) {
-      if (a == null || a[0] == 0) continue;
+      if (a == null || a[0] == 0)
+        continue;
       merged[0] += a[0];
       merged[1] += a[1];
-      if (a[2] < merged[2]) merged[2] = a[2];
-      if (a[3] > merged[3]) merged[3] = a[3];
+      if (a[2] < merged[2])
+        merged[2] = a[2];
+      if (a[3] > merged[3])
+        merged[3] = a[3];
     }
     return merged;
   }
@@ -1620,7 +1639,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int rowGroupCount = store.rowGroupCount();
     prefillColumns(store, preds, col, fetcher);
     if (rowGroupCount < 64) {
-      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      final double[] acc = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
       ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, fetcher);
       return acc;
     }
@@ -1630,27 +1649,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
-      if (from >= to) return;
-      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to,
-          fetcher);
+      if (from >= to)
+        return;
+      final double[] acc = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+      ProjectionColumnScan.conjunctiveAggregateNumericDouble(store, preds, col, acc, from, to, fetcher);
       perThread[idx] = acc;
     });
-    final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+    final double[] merged = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
     for (final double[] a : perThread) {
-      if (a == null || a[0] == 0) continue;
+      if (a == null || a[0] == 0)
+        continue;
       merged[0] += a[0];
       merged[1] += a[1];
-      if (Double.compare(a[2], merged[2]) < 0) merged[2] = a[2];
-      if (Double.compare(a[3], merged[3]) > 0) merged[3] = a[3];
+      if (Double.compare(a[2], merged[2]) < 0)
+        merged[2] = a[2];
+      if (Double.compare(a[3], merged[3]) > 0)
+        merged[3] = a[3];
     }
     return merged;
   }
 
   /**
-   * Materialized whole leaves, or {@code null} when a lazy handle's materializer fails
-   * (dead-session window before the catalog's next rebind, truncated/corrupt store) —
-   * callers decline serving and the generic pipeline answers.
+   * Materialized whole leaves, or {@code null} when a lazy handle's materializer fails (dead-session
+   * window before the catalog's next rebind, truncated/corrupt store) — callers decline serving and
+   * the generic pipeline answers.
    */
   private List<byte[]> leafPayloadsOrNull(final ProjectionIndexRegistry.Handle handle) {
     try {
@@ -1661,10 +1683,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality,
-   * and string equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT
-   * entries) instead of hydrating whole leaves, which used to be the one predicate kind that
-   * forced the whole-leaf byte scan.
+   * All predicate columns servable from slices: numeric compare/BETWEEN, boolean equality, and string
+   * equality — the string leaf reads two segments per leaf (BODY dict-ids + DICT entries) instead of
+   * hydrating whole leaves, which used to be the one predicate kind that forced the whole-leaf byte
+   * scan.
    */
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
@@ -1680,38 +1702,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
       if (stringColumn) {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
-          return false;  // the sliced string kernel serves equality-with-literal, nothing else
+          return false; // the sliced string kernel serves equality-with-literal, nothing else
         }
       } else if (p.stringLitBytes != null) {
-        return false;  // a string literal against a non-string column is the record path's case
+        return false; // a string literal against a non-string column is the record path's case
       }
     }
     return true;
   }
 
   /**
-   * Gate chain for double-column aggregate serving. {@code needsPurity} is true for
-   * sum/avg/min/max (value serving requires the §11-8 pure-double-source proof; the check
-   * runs BEFORE any leaf work so impure columns decline at metadata cost) and false for
-   * count (exact regardless of purity — the probe is skipped entirely, keeping wtx-mode
-   * counts free of a per-query purity walk). Returns {@code null} to fall back.
+   * Gate chain for double-column aggregate serving. {@code needsPurity} is true for sum/avg/min/max
+   * (value serving requires the §11-8 pure-double-source proof; the check runs BEFORE any leaf work
+   * so impure columns decline at metadata cost) and false for count (exact regardless of purity — the
+   * probe is skipped entirely, keeping wtx-mode counts free of a per-query purity walk). Returns
+   * {@code null} to fall back.
    */
   private DoubleAggServing resolveDoubleAggServing(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull, final boolean needsPurity) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
-    if (!anyProjectionAvailable()) return null;
-    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
-    final String[] required = requiredFields(new String[] { field }, cp);
+    if (resourceKey == null)
+      return null;
+    if (!anyProjectionAvailable())
+      return null;
+    final CompiledPredicate cp = predicateOrNull == null
+        ? null
+        : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] {field}, cp);
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
-    if (handle == null) return null;
+    if (handle == null)
+      return null;
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     final int col = handle.columnOf(field);
-    if (col < 0) return null;
+    if (col < 0)
+      return null;
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
-    if (handle.rowGroupCount() == 0) return null;
-    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) return null;
+    if (handle.rowGroupCount() == 0)
+      return null;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE)
+      return null;
     if (!handle.numericColumnIsIntegral(col, fetcher)) {
       return null; // not provably value-exact — fail closed
     }
@@ -1726,22 +1756,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
     } else {
-      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
+        return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-      if (extracted == null) return null;
+      if (extracted == null)
+        return null;
       preds = fuseRangePredicates(extracted);
     }
-    final ProjectionColumnStore sliceStore =
-        store != null && predsSliceable(store, preds) ? store : null;
+    final ProjectionColumnStore sliceStore = store != null && predsSliceable(store, preds)
+        ? store
+        : null;
     return new DoubleAggServing(handle, col, preds, sliceStore, pure, fetcher, materializer);
   }
 
   /**
-   * Parallel kernel stats {@code [count, sum, min, max]} for a resolved double-column
-   * serving. count is exact; min/max use {@code Double.compare} total order in the kernel
-   * (identical winner to the interpreter's {@code MinMaxAggregator}) and are
-   * merge-order-insensitive; the kernel {@code sum} is NOT served (association order is
-   * not the interpreter's — served sums go through {@link #serveDoubleSumAvg}).
+   * Parallel kernel stats {@code [count, sum, min, max]} for a resolved double-column serving. count
+   * is exact; min/max use {@code Double.compare} total order in the kernel (identical winner to the
+   * interpreter's {@code MinMaxAggregator}) and are merge-order-insensitive; the kernel {@code sum}
+   * is NOT served (association order is not the interpreter's — served sums go through
+   * {@link #serveDoubleSumAvg}).
    */
   private double[] doubleKernelStats(final DoubleAggServing s) {
     if (s.sliceStore() != null) {
@@ -1755,7 +1788,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final List<byte[]> rowGroupPayloads = s.rowGroupPayloads();
     final int rowGroupCount = rowGroupPayloads.size();
     if (rowGroupCount < 64) {
-      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+      final double[] acc = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
       ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(rowGroupPayloads, s.preds(), s.col(), acc);
       return acc;
     }
@@ -1765,39 +1798,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
-      if (from >= to) return;
-      final double[] acc = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
-      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(rowGroupPayloads.subList(from, to), s.preds(), s.col(), acc);
+      if (from >= to)
+        return;
+      final double[] acc = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
+      ProjectionIndexByteScan.conjunctiveAggregateNumericDouble(rowGroupPayloads.subList(from, to), s.preds(), s.col(),
+          acc);
       perThread[idx] = acc;
     });
-    final double[] merged = { 0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY };
+    final double[] merged = {0, 0, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY};
     for (final double[] a : perThread) {
-      if (a == null || a[0] == 0) continue;
+      if (a == null || a[0] == 0)
+        continue;
       merged[0] += a[0];
       merged[1] += a[1];
-      if (Double.compare(a[2], merged[2]) < 0) merged[2] = a[2];
-      if (Double.compare(a[3], merged[3]) > 0) merged[3] = a[3];
+      if (Double.compare(a[2], merged[2]) < 0)
+        merged[2] = a[2];
+      if (Double.compare(a[3], merged[3]) > 0)
+        merged[3] = a[3];
     }
     return merged;
   }
 
   /**
    * Serve sum/avg over a pure double column with a SEED-FIRST sequential fold over the
-   * predicate-matched cells in document order: {@code s1 = v1; si = si-1 + vi}. This is
-   * bit-identical to the pairwise {@code Numeric.add} left fold the interpreter performs
-   * for document-derived number items — including the lone-{@code -0.0} case a 0.0-seeded
-   * accumulator would absorb ({@code 0.0 + -0.0 == +0.0}) and ill-conditioned sums where
-   * association order changes digits.
+   * predicate-matched cells in document order: {@code s1 = v1; si = si-1 + vi}. This is bit-identical
+   * to the pairwise {@code Numeric.add} left fold the interpreter performs for document-derived
+   * number items — including the lone-{@code -0.0} case a 0.0-seeded accumulator would absorb
+   * ({@code 0.0 + -0.0 == +0.0}) and ill-conditioned sums where association order changes digits.
    *
-   * <p>Why not delegate to {@code Aggregate.SUM.aggregator()}: {@code fn:sum} does build a
-   * {@code SumAvgAggregator}, but its batched double fast path (seed + 1024-slot buffer +
-   * SIMD reduction — a DIFFERENT association order) only engages for {@code Dbl}-typed
-   * items, which the document pipeline's number items are not — empirically the fallback
-   * folds pairwise. {@code illConditionedSumMatchesInterpreterExactly} pins that premise:
-   * if the pipeline's item typing ever changes, that test fails loudly and this fold must
-   * follow suit.
+   * <p>
+   * Why not delegate to {@code Aggregate.SUM.aggregator()}: {@code fn:sum} does build a
+   * {@code SumAvgAggregator}, but its batched double fast path (seed + 1024-slot buffer + SIMD
+   * reduction — a DIFFERENT association order) only engages for {@code Dbl}-typed items, which the
+   * document pipeline's number items are not — empirically the fallback folds pairwise.
+   * {@code illConditionedSumMatchesInterpreterExactly} pins that premise: if the pipeline's item
+   * typing ever changes, that test fails loudly and this fold must follow suit.
    *
-   * <p>Empty-match semantics mirror {@code fn:sum}/{@code fn:avg}: sum → 0, avg → empty.
+   * <p>
+   * Empty-match semantics mirror {@code fn:sum}/{@code fn:avg}: sum → 0, avg → empty.
    */
   private Sequence serveDoubleSumAvg(final DoubleAggServing s, final boolean avg) {
     long count = 0;
@@ -1805,17 +1843,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (s.sliceStore() != null) {
       try {
         final ProjectionColumnScan.MatchingDoubleCursor cursor =
-            new ProjectionColumnScan.MatchingDoubleCursor(s.sliceStore(), s.preds(), s.col(),
-                s.fetcher());
+            new ProjectionColumnScan.MatchingDoubleCursor(s.sliceStore(), s.preds(), s.col(), s.fetcher());
         while (cursor.advance()) {
           final double v = cursor.value();
-          sum = count == 0 ? v : sum + v;
+          sum = count == 0
+              ? v
+              : sum + v;
           count++;
         }
         if (count == 0) {
-          return avg ? new ItemSequence() : new Int64(0L);
+          return avg
+              ? new ItemSequence()
+              : new Int64(0L);
         }
-        return avg ? new Dbl(sum / count) : new Dbl(sum);
+        return avg
+            ? new Dbl(sum / count)
+            : new Dbl(sum);
       } catch (final IllegalStateException ise) {
         // Corrupt/missing slices — restart the fold over the eager whole-leaf cursor.
         count = 0;
@@ -1826,22 +1869,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         new ProjectionIndexByteScan.MatchingDoubleCursor(s.rowGroupPayloads(), s.preds(), s.col());
     while (cursor.advance()) {
       final double v = cursor.value();
-      sum = count == 0 ? v : sum + v;
+      sum = count == 0
+          ? v
+          : sum + v;
       count++;
     }
     if (count == 0) {
-      return avg ? new ItemSequence() : new Int64(0L);
+      return avg
+          ? new ItemSequence()
+          : new Int64(0L);
     }
-    return avg ? new Dbl(sum / count) : new Dbl(sum);
+    return avg
+        ? new Dbl(sum / count)
+        : new Dbl(sum);
   }
 
   /**
-   * Full double-column aggregate serving dispatch (§11-8): {@code count} from the parallel
-   * kernel (exact, purity-free); {@code min}/{@code max} from the kernel's
-   * {@code Double.compare} stats; {@code sum}/{@code avg} via {@link #serveDoubleSumAvg}.
-   * Value aggregates require the pure-double-source gate, enforced inside
-   * {@link #resolveDoubleAggServing} BEFORE any leaf is touched. Returns {@code null} to
-   * fall back.
+   * Full double-column aggregate serving dispatch (§11-8): {@code count} from the parallel kernel
+   * (exact, purity-free); {@code min}/{@code max} from the kernel's {@code Double.compare} stats;
+   * {@code sum}/{@code avg} via {@link #serveDoubleSumAvg}. Value aggregates require the
+   * pure-double-source gate, enforced inside {@link #resolveDoubleAggServing} BEFORE any leaf is
+   * touched. Returns {@code null} to fall back.
    */
   private Sequence tryServeDoubleAggregate(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull, final String func) {
@@ -1849,8 +1897,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     switch (func) {
-      case "count", "sum", "avg", "min", "max" -> { /* servable */ }
-      default -> { return null; }
+      case "count", "sum", "avg", "min", "max" -> {
+        /* servable */ }
+      default -> {
+        return null;
+      }
     }
     final boolean needsPurity = !"count".equals(func);
     final DoubleAggServing s = resolveDoubleAggServing(sourcePath, field, predicateOrNull, needsPurity);
@@ -1864,7 +1915,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case "count" -> served = new Int64((long) doubleKernelStats(s)[0]);
         default -> {
           final double[] stats = doubleKernelStats(s);
-          served = stats[0] == 0 ? new ItemSequence() : new Dbl(stats["min".equals(func) ? 2 : 3]);
+          served = stats[0] == 0
+              ? new ItemSequence()
+              : new Dbl(stats["min".equals(func)
+                  ? 2
+                  : 3]);
         }
       }
       if (!"count".equals(func)) {
@@ -1878,26 +1933,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Multi-key projection group-by: composite dict-id counting over the covering
-   * projection's columnar leaves. Returns composite-encoded group counts (the
-   * typed-kernel key encoding), or {@code null} when the projection cannot serve
-   * this query (no handle, a group field missing or not STRING_DICT, predicate
-   * not a supported conjunction) — callers then use the typed slot-walk kernel.
+   * Multi-key projection group-by: composite dict-id counting over the covering projection's columnar
+   * leaves. Returns composite-encoded group counts (the typed-kernel key encoding), or {@code null}
+   * when the projection cannot serve this query (no handle, a group field missing or not STRING_DICT,
+   * predicate not a supported conjunction) — callers then use the typed slot-walk kernel.
    */
   private Object2LongOpenHashMap<String> tryProjectionMultiGroupCounts(final String[] sourcePath,
       final String[] groupFields, final PredicateNode predicateOrNull) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
+    if (resourceKey == null)
+      return null;
     // Existence probe first — see tryProjectionAggregate.
-    if (!anyProjectionAvailable()) return null;
-    final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
-    final ProjectionIndexRegistry.Handle handle =
-        lookupProjection(sourcePath, requiredFields(groupFields, cp));
-    if (handle == null) return null;
+    if (!anyProjectionAvailable())
+      return null;
+    final CompiledPredicate cp = predicateOrNull == null
+        ? null
+        : compile(predicateOrNull);
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, requiredFields(groupFields, cp));
+    if (handle == null)
+      return null;
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty()) return null;
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty())
+      return null;
     final int[] cols = new int[groupFields.length];
     final byte[] firstRowGroup = rowGroupPayloads.get(0);
     for (int i = 0; i < groupFields.length; i++) {
@@ -1918,9 +1977,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (cp == null) {
       preds = new ProjectionIndexScan.ColumnPredicate[0];
     } else {
-      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
+        return null;
       final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-      if (extracted == null) return null;
+      if (extracted == null)
+        return null;
       preds = fuseRangePredicates(extracted);
     }
     final int rowGroupCount = rowGroupPayloads.size();
@@ -1937,8 +1998,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         boolean denseEligible = true;
         long cellCount = 1L;
         for (int i = 0; i < cols.length; i++) {
-          canon[i] = handle.canonicalDict(cols[i], DENSE_GROUPBY_PROBE_LEAVES,
-              DENSE_GROUPBY_CARD_LIMIT, materializer);
+          canon[i] = handle.canonicalDict(cols[i], DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT, materializer);
           if (canon[i] == null) {
             denseEligible = false;
             break;
@@ -1966,14 +2026,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
         ProjectionIndexByteScan.conjunctiveCountByGroupMulti(rowGroupPayloads.subList(from, to), preds, cols, local);
         perThread[idx] = local;
       });
       for (final var m : perThread) {
-        if (m == null) continue;
+        if (m == null)
+          continue;
         final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
         while (it.hasNext()) {
           final Object2LongMap.Entry<String> e = it.next();
@@ -1990,17 +2052,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Parallel driver + decode for the dense composite group-by kernel: one
-   * mixed-radix {@code long[cellCount]} accumulator per worker, summed on
-   * merge, then each non-zero cell is decoded ONCE into the executor's
-   * composite key encoding ({@code 's<len>:<utf8>'} per column, {@code 'm'}
-   * for missing — identical to the composite hashmap kernel). Per-leaf
-   * fallbacks (out-of-canon dict values) land in per-worker hashmaps merged
-   * the same way as the legacy path.
+   * Parallel driver + decode for the dense composite group-by kernel: one mixed-radix
+   * {@code long[cellCount]} accumulator per worker, summed on merge, then each non-zero cell is
+   * decoded ONCE into the executor's composite key encoding ({@code 's<len>:<utf8>'} per column,
+   * {@code 'm'} for missing — identical to the composite hashmap kernel). Per-leaf fallbacks
+   * (out-of-canon dict values) land in per-worker hashmaps merged the same way as the legacy path.
    */
   private Object2LongOpenHashMap<String> denseMultiGroupCounts(final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final int[] cols, final byte[][][] canon,
-      final int cellCount, final Object2LongOpenHashMap<String> merged) {
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int[] cols, final byte[][][] canon, final int cellCount,
+      final Object2LongOpenHashMap<String> merged) {
     final int rowGroupCount = rowGroupPayloads.size();
     final long[] totals = new long[cellCount];
     if (rowGroupCount < 64) {
@@ -2014,23 +2074,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final long[] localCounts = new long[cellCount];
         final Object2LongOpenHashMap<String> localFallback = new Object2LongOpenHashMap<>();
         localFallback.defaultReturnValue(0L);
-        ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(
-            rowGroupPayloads.subList(from, to), preds, cols, canon, localCounts, localFallback);
+        ProjectionIndexByteScan.conjunctiveCountByGroupMultiDense(rowGroupPayloads.subList(from, to), preds, cols,
+            canon, localCounts, localFallback);
         perThreadCounts[idx] = localCounts;
         perThreadFallback[idx] = localFallback;
       });
       for (final long[] c : perThreadCounts) {
-        if (c == null) continue;
+        if (c == null)
+          continue;
         for (int i = 0; i < cellCount; i++) {
           totals[i] += c[i];
         }
       }
       for (final var m : perThreadFallback) {
-        if (m == null) continue;
+        if (m == null)
+          continue;
         final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
         while (it.hasNext()) {
           final Object2LongMap.Entry<String> e = it.next();
@@ -2044,7 +2107,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] ids = new int[cols.length];
     for (int cell = 0; cell < cellCount; cell++) {
       final long count = totals[cell];
-      if (count == 0L) continue;
+      if (count == 0L)
+        continue;
       int rem = cell;
       for (int g = cols.length - 1; g >= 0; g--) {
         final int radix = canon[g].length + 1;
@@ -2066,16 +2130,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Slot kind of the FIRST anchor slot found for {@code field}, or {@code -1}
-   * when none exists. One page probe in the common case — used to route
-   * number/boolean-keyed group-bys straight to the typed kernel instead of
-   * paying a doomed full string-kernel scan first. Mixed-type columns stay
-   * safe regardless of the probe's answer: the string path verifies
-   * visited-vs-contributed, and the typed path is type-complete.
+   * Slot kind of the FIRST anchor slot found for {@code field}, or {@code -1} when none exists. One
+   * page probe in the common case — used to route number/boolean-keyed group-bys straight to the
+   * typed kernel instead of paying a doomed full string-kernel scan first. Mixed-type columns stay
+   * safe regardless of the probe's answer: the string path verifies visited-vs-contributed, and the
+   * typed path is type-complete.
    */
   private int probeFirstAnchorSlotKind(final String field) {
     final int fieldKey = resolveFieldKey(field);
-    if (fieldKey == -1) return -1;
+    if (fieldKey == -1)
+      return -1;
     try {
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
@@ -2083,7 +2147,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long totalPages = (getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
       for (long pk = 0; pk < totalPages; pk++) {
         final var res = reader.getRecordPage(key.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         if (matches.length > 0) {
           return kv.getSlotNodeKindId(matches[0]);
@@ -2103,18 +2168,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private Sequence typedGroupByCount(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] groupFields, final String[] outNames, final String countName) throws Exception {
-    final Object2LongOpenHashMap<String> merged =
-        typedGroupKeyCounts(sourcePath, predicateOrNull, groupFields);
+    final Object2LongOpenHashMap<String> merged = typedGroupKeyCounts(sourcePath, predicateOrNull, groupFields);
     return buildTypedGroupRecords(merged, outNames, countName);
   }
 
   /**
-   * The typed grouping scan shared by {@link #typedGroupByCount} and the
-   * count-distinct redo: returns composite-encoded group keys → counts.
+   * The typed grouping scan shared by {@link #typedGroupByCount} and the count-distinct redo: returns
+   * composite-encoded group keys → counts.
    */
   private Object2LongOpenHashMap<String> typedGroupKeyCounts(final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields) throws Exception {
-    final PredicateNode effective = predicateOrNull == null ? PredicateNode.AlwaysTrue.INSTANCE : predicateOrNull;
+    final PredicateNode effective = predicateOrNull == null
+        ? PredicateNode.AlwaysTrue.INSTANCE
+        : predicateOrNull;
     // DENSE-ANCHOR SELECTION (unpredicated multi-key only). The scan iterates
     // the anchor field's slots, so records missing the anchor are never visited
     // — fatal for a SPARSE anchor whose absent records carry the OTHER group
@@ -2134,7 +2200,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         anchorOrderedFields[0] = groupFields[denseIdx];
         int w = 1;
         for (int i = 0; i < groupFields.length; i++) {
-          if (i != denseIdx) anchorOrderedFields[w++] = groupFields[i];
+          if (i != denseIdx)
+            anchorOrderedFields[w++] = groupFields[i];
         }
       } else {
         anchorOrderedFields = groupFields;
@@ -2180,8 +2247,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
     // A predicate over the group-by field itself can be applied by the page kernel rather than
     // per record; anything else stays null and the columnar path is skipped exactly as before.
-    final RegionCountPlan regionFilter =
-        predicateOrNull == null ? null : regionGroupFilter(cp, groupIdxs);
+    final RegionCountPlan regionFilter = predicateOrNull == null
+        ? null
+        : regionGroupFilter(cp, groupIdxs);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -2211,25 +2279,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // tuples that per-field PAX regions don't provide. A predicate needs per-record evaluation
       // UNLESS it constrains the group-by field itself — then the filter and the key read the same
       // tag, and the page kernel applies it with a selection vector instead (regionGroupFilter).
-      final boolean regionEligible =
-          groupIdxs.length == 1 && (predicateOrNull == null || regionFilter != null);
-      final RegionGroupScratch regionScratch = regionEligible ? new RegionGroupScratch() : null;
+      final boolean regionEligible = groupIdxs.length == 1 && (predicateOrNull == null || regionFilter != null);
+      final RegionGroupScratch regionScratch = regionEligible
+          ? new RegionGroupScratch()
+          : null;
       while (true) {
         final long s = cursor.getAndAdd(STRIDE);
-        if (s >= scheduleSize) break;
+        if (s >= scheduleSize)
+          break;
         final long e = Math.min(s + STRIDE, scheduleSize);
         prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
         for (long j = s; j < e; j++) {
           final long pk = schedule.pageAt(j);
           final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+            continue;
           final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
           final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-          if (matches.length == 0) continue;
-          if (recordBuf != null) recordBuf.add((int) pk);
-          if (regionEligible
-              && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local,
-                                      regionScratch, regionFilter, evidence)) {
+          if (matches.length == 0)
+            continue;
+          if (recordBuf != null)
+            recordBuf.add((int) pk);
+          if (regionEligible && tryRegionGroupByPage(kv, matches.length, anchorPathNodeKey, anchorNameKey, local,
+              regionScratch, regionFilter, evidence)) {
             continue;
           }
           for (final int slot : matches) {
@@ -2238,10 +2310,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
               continue;
             }
-            if (!rtx.moveTo(anchorObjectKey)) continue;
-            if (!rtx.moveToParent()) continue;
+            if (!rtx.moveTo(anchorObjectKey))
+              continue;
+            if (!rtx.moveToParent())
+              continue;
             loadFieldsTypedGroups(rtx, cp, scratch, typed);
-            if (!evalCompiled(cp, 0, scratch)) continue;
+            if (!evalCompiled(cp, 0, scratch))
+              continue;
             keyBuf.setLength(0);
             encodeTypedGroupKey(typed, groupIdxs, groupFields, keyBuf, evidence);
             local.addTo(keyBuf.toString(), 1L);
@@ -2256,7 +2331,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     merged.defaultReturnValue(0L);
     long counted = 0L;
     for (final Object2LongOpenHashMap<String> m : perThread) {
-      if (m == null) continue;
+      if (m == null)
+        continue;
       final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> e = it.next();
@@ -2284,8 +2360,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (recordCount >= 0 && counted < recordCount) {
         if (groupFields.length == 1) {
           merged.addTo("m", recordCount - counted);
-        } else if (!completeSparseMultiKeyGroups(sourcePath, cp, groupFields, groupIdxs, recordCount, merged,
-                                                 counted, mergedEvidence)) {
+        } else if (!completeSparseMultiKeyGroups(sourcePath, cp, groupFields, groupIdxs, recordCount, merged, counted,
+            mergedEvidence)) {
           // The completion could not be trusted — keep the historical loud bail.
           requireDenseGroupField(sourcePath, cp.fieldNames[0], true, counted);
         }
@@ -2298,23 +2374,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Second phase of a multi-key grouping whose anchor scan left records unvisited, completing
    * {@code merged} in place.
    *
-   * <p>The anchor walk iterates ONE field's slots, so a record lacking that field is never seen —
-   * and unlike the single-key case its OTHER key values are then unknown, which is why this used to
-   * fail loudly rather than under-report. It does not have to. The anchor pass IS the pass for
-   * {@code groupFields[0]}, so running the same pass for each remaining key field visits every
-   * record carrying at least one key; the records carrying none are all one group — the all-missing
-   * key — and how many there are follows from the record total.
+   * <p>
+   * The anchor walk iterates ONE field's slots, so a record lacking that field is never seen — and
+   * unlike the single-key case its OTHER key values are then unknown, which is why this used to fail
+   * loudly rather than under-report. It does not have to. The anchor pass IS the pass for
+   * {@code groupFields[0]}, so running the same pass for each remaining key field visits every record
+   * carrying at least one key; the records carrying none are all one group — the all-missing key —
+   * and how many there are follows from the record total.
    *
-   * <p>A record carrying several key fields is reached by several passes, and is counted by exactly
-   * one of them under a rule that needs no coordination between workers: field {@code g}'s pass
-   * counts a record only when every EARLIER key field is missing from it, i.e. when {@code g} is the
-   * first key the record carries. {@link #loadFieldsTypedGroups} has already read every key field by
-   * that point, so the test is local to the record and independent of which worker, page or field
-   * arrived first.
+   * <p>
+   * A record carrying several key fields is reached by several passes, and is counted by exactly one
+   * of them under a rule that needs no coordination between workers: field {@code g}'s pass counts a
+   * record only when every EARLIER key field is missing from it, i.e. when {@code g} is the first key
+   * the record carries. {@link #loadFieldsTypedGroups} has already read every key field by that
+   * point, so the test is local to the record and independent of which worker, page or field arrived
+   * first.
    *
-   * <p>Cost is one extra slot walk per remaining key field, each parallel and page-skip-scheduled
-   * exactly like the anchor walk. It is only paid when a gap was actually OBSERVED — a grouping
-   * whose anchor turns out to be dense never gets here, so the fast path is unchanged.
+   * <p>
+   * Cost is one extra slot walk per remaining key field, each parallel and page-skip-scheduled
+   * exactly like the anchor walk. It is only paid when a gap was actually OBSERVED — a grouping whose
+   * anchor turns out to be dense never gets here, so the fast path is unchanged.
    *
    * @return {@code false} when the completion cannot be trusted and the caller should keep the loud
    *         error: a key field whose path does not resolve (nested same-name fields would then be
@@ -2323,8 +2402,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private boolean completeSparseMultiKeyGroups(final String[] sourcePath, final CompiledPredicate cp,
       final String[] groupFields, final int[] groupIdxs, final long recordCount,
-      final Object2LongOpenHashMap<String> merged, final long countedByAnchor,
-      final GroupKeyEvidence mergedEvidence) throws Exception {
+      final Object2LongOpenHashMap<String> merged, final long countedByAnchor, final GroupKeyEvidence mergedEvidence)
+      throws Exception {
     final int groupCount = groupIdxs.length;
     // Reusing the anchor pass as pass 0 is only sound when the anchor WAS groupFields[0]. A
     // reordered (provably dense) anchor cannot produce a gap, so this is belt and braces.
@@ -2371,21 +2450,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         perThreadEvidence[idx] = evidence;
         while (true) {
           final long s = cursor.getAndAdd(stride);
-          if (s >= scheduleSize) break;
+          if (s >= scheduleSize)
+            break;
           final long e = Math.min(s + stride, scheduleSize);
           prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+              continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
-            if (recordBuf != null) recordBuf.add((int) pk);
+            if (matches.length == 0)
+              continue;
+            if (recordBuf != null)
+              recordBuf.add((int) pk);
             for (final int slot : matches) {
-              tallySparseGroupSlot(rtx, kv, slot, base + slot, anchorPathNodeKey, cp, scratch,
-                                   typed, groupIdxs, fieldIdx, groupFields, keyBuf, evidence,
-                                   local);
+              tallySparseGroupSlot(rtx, kv, slot, base + slot, anchorPathNodeKey, cp, scratch, typed, groupIdxs,
+                  fieldIdx, groupFields, keyBuf, evidence, local);
             }
           }
         }
@@ -2418,8 +2500,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * dictionary knows has no resolvable path, which no pass can be scoped to.
    */
   private boolean resolveGroupFieldKeys(final String[] sourcePath, final CompiledPredicate cp,
-      final String[] groupFields, final int[] groupIdxs, final int[] nameKeys,
-      final long[] pathNodeKeys) {
+      final String[] groupFields, final int[] groupIdxs, final int[] nameKeys, final long[] pathNodeKeys) {
     for (int g = 0; g < groupIdxs.length; g++) {
       nameKeys[g] = cp.fieldNameKeys[groupIdxs[g]];
       if (nameKeys[g] == -1) {
@@ -2439,15 +2520,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Tally one anchor slot into this worker's map, or skip it.
    *
-   * <p>A record is counted by the pass for the FIRST key field it carries, so a record carrying
-   * several is counted once — and by a rule no worker has to agree on.
+   * <p>
+   * A record is counted by the pass for the FIRST key field it carries, so a record carrying several
+   * is counted once — and by a rule no worker has to agree on.
    */
-  private void tallySparseGroupSlot(final JsonNodeReadOnlyTrx rtx, final KeyValueLeafPage kv,
-      final int slot, final long anchorObjectKey, final long anchorPathNodeKey,
-      final CompiledPredicate cp, final EvalScratch scratch, final TypedGroupScratch typed,
-      final int[] groupIdxs, final int fieldIdx, final String[] groupFields,
-      final StringBuilder keyBuf, final GroupKeyEvidence evidence,
-      final Object2LongOpenHashMap<String> local) {
+  private void tallySparseGroupSlot(final JsonNodeReadOnlyTrx rtx, final KeyValueLeafPage kv, final int slot,
+      final long anchorObjectKey, final long anchorPathNodeKey, final CompiledPredicate cp, final EvalScratch scratch,
+      final TypedGroupScratch typed, final int[] groupIdxs, final int fieldIdx, final String[] groupFields,
+      final StringBuilder keyBuf, final GroupKeyEvidence evidence, final Object2LongOpenHashMap<String> local) {
     if (kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
       return;
     }
@@ -2457,7 +2537,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     loadFieldsTypedGroups(rtx, cp, scratch, typed);
     for (int earlier = 0; earlier < fieldIdx; earlier++) {
       if (typed.kind[groupIdxs[earlier]] != TK_MISSING) {
-        return;  // an earlier pass already owns this record
+        return; // an earlier pass already owns this record
       }
     }
     if (!evalCompiled(cp, 0, scratch)) {
@@ -2477,8 +2557,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (m == null) {
         continue;
       }
-      final ObjectIterator<Object2LongMap.Entry<String>> it =
-          m.object2LongEntrySet().fastIterator();
+      final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> entry = it.next();
         merged.addTo(entry.getKey(), entry.getLongValue());
@@ -2498,11 +2577,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Loud guard for the anchor-visibility gap: an anchor-based scan never sees a
-   * record that lacks the anchor field, while the generic pipeline groups such
-   * records under the empty key. Only enforceable when the record total is
-   * cheaply known (top-level array source) and path scoping is sound (otherwise
-   * nested same-name fields could legitimately inflate the visited count).
+   * Loud guard for the anchor-visibility gap: an anchor-based scan never sees a record that lacks the
+   * anchor field, while the generic pipeline groups such records under the empty key. Only
+   * enforceable when the record total is cheaply known (top-level array source) and path scoping is
+   * sound (otherwise nested same-name fields could legitimately inflate the visited count).
    */
   private void requireDenseGroupField(final String[] sourcePath, final String groupField,
       final boolean pathScopingSound, final long visited) throws QueryException {
@@ -2514,18 +2592,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return;
     }
     throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                             "Vectorized group-by requires group field '%s' on every record: %s of %s records carry it"
-                                 + " (nameKey=%s)",
-                             groupField,
-                             visited,
-                             recordCount,
-                             resolveFieldKey(groupField));
+        "Vectorized group-by requires group field '%s' on every record: %s of %s records carry it" + " (nameKey=%s)",
+        groupField, visited, recordCount, resolveFieldKey(groupField));
   }
 
   /**
-   * Record count of the loop source when it is the TOP-LEVEL ARRAY
-   * ({@code sourcePath == ["[]"]}); -1 when unknown (nested or unrepresentable
-   * sources — callers must then skip completeness checks).
+   * Record count of the loop source when it is the TOP-LEVEL ARRAY ({@code sourcePath == ["[]"]}); -1
+   * when unknown (nested or unrepresentable sources — callers must then skip completeness checks).
    */
   private long topLevelRecordCountOrUnknown(final String[] sourcePath) {
     if (sourcePath == null || sourcePath.length != 1 || !"[]".equals(sourcePath[0])) {
@@ -2547,23 +2620,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Number of records of a TOP-LEVEL ARRAY source that carry {@code field}, or
-   * {@code -1} when this cannot be PROVED cheaply and soundly. Used to choose a
-   * dense scan anchor among group-by fields (see {@link #provablyDenseAnchor}).
+   * Number of records of a TOP-LEVEL ARRAY source that carry {@code field}, or {@code -1} when this
+   * cannot be PROVED cheaply and soundly. Used to choose a dense scan anchor among group-by fields
+   * (see {@link #provablyDenseAnchor}).
    *
-   * <p>Density evidence comes from the PATH SUMMARY: an OBJECT_KEY path node's
-   * reference count is incremented once per node that references it
-   * ({@link io.sirix.index.path.summary.PathSummaryWriter#incrementReferenceCount}),
-   * so for a top-level array of objects — where a key occurs at most once per
-   * record — {@code getReferences()} is EXACTLY the count of records carrying
-   * the field at that path. {@link #resolveTargetPathNodeKey} already fails
-   * closed (returns {@code -1}) on an ambiguous or unresolvable path, so a
-   * non-negative path node key means the count is unambiguous and scoped to the
-   * query path (no nested same-name field can inflate it).
+   * <p>
+   * Density evidence comes from the PATH SUMMARY: an OBJECT_KEY path node's reference count is
+   * incremented once per node that references it
+   * ({@link io.sirix.index.path.summary.PathSummaryWriter#incrementReferenceCount}), so for a
+   * top-level array of objects — where a key occurs at most once per record — {@code getReferences()}
+   * is EXACTLY the count of records carrying the field at that path.
+   * {@link #resolveTargetPathNodeKey} already fails closed (returns {@code -1}) on an ambiguous or
+   * unresolvable path, so a non-negative path node key means the count is unambiguous and scoped to
+   * the query path (no nested same-name field can inflate it).
    *
-   * <p>Returns {@code -1} (caller must NOT treat the field as dense) when the
-   * source is not a top-level array, the path summary is unavailable, the path
-   * is ambiguous/absent, or the reader cannot be read — never a guess.
+   * <p>
+   * Returns {@code -1} (caller must NOT treat the field as dense) when the source is not a top-level
+   * array, the path summary is unavailable, the path is ambiguous/absent, or the reader cannot be
+   * read — never a guess.
    */
   private long recordsCarryingFieldOrUnknown(final String[] sourcePath, final String field) {
     if (sourcePath == null || sourcePath.length != 1 || !"[]".equals(sourcePath[0])) {
@@ -2588,31 +2662,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Index into {@code groupFields} of a field PROVABLY present on every record
-   * of a top-level array source, or {@code -1} when re-anchoring is unsafe or
-   * no field can be proved dense. Anchors the multi-key scan on a DENSE field so
-   * the slot walk visits EVERY relevant record; the remaining (possibly sparse)
-   * group keys then fall out as their per-record values — including the
-   * {@code 'm'} missing bucket the typed encoder already emits for absent
-   * fields. A field is dense iff the path summary proves its scoped occurrence
-   * count equals the array's record total (see
+   * Index into {@code groupFields} of a field PROVABLY present on every record of a top-level array
+   * source, or {@code -1} when re-anchoring is unsafe or no field can be proved dense. Anchors the
+   * multi-key scan on a DENSE field so the slot walk visits EVERY relevant record; the remaining
+   * (possibly sparse) group keys then fall out as their per-record values — including the {@code 'm'}
+   * missing bucket the typed encoder already emits for absent fields. A field is dense iff the path
+   * summary proves its scoped occurrence count equals the array's record total (see
    * {@link #recordsCarryingFieldOrUnknown}).
    *
-   * <p><b>First-key collapse veto.</b> brackit's interpreter has an
-   * order-dependent quirk: when the FIRST grouping variable evaluates to the
-   * EMPTY SEQUENCE on EVERY tuple (the first group field is absent on every
-   * record), the whole grouping degenerates to a single all-null tuple
-   * (verified: {@code group by $ghost, $dept} yields one {@code {null,null}}
-   * group, while {@code group by $dept, $ghost} yields proper per-dept groups).
-   * A dense-anchored scan would visit every record and emit the per-group
-   * tuples — diverging from that collapse. So if {@code groupFields[0]} is
-   * entirely absent we REFUSE to re-anchor and let the existing loud bail fire
-   * (fail-closed, exactly the historical behavior). A first key present on only
-   * SOME records is fine — those rows group into the null/missing bucket
-   * normally, which the typed kernel reproduces.
+   * <p>
+   * <b>First-key collapse veto.</b> brackit's interpreter has an order-dependent quirk: when the
+   * FIRST grouping variable evaluates to the EMPTY SEQUENCE on EVERY tuple (the first group field is
+   * absent on every record), the whole grouping degenerates to a single all-null tuple (verified:
+   * {@code group by $ghost, $dept} yields one {@code {null,null}} group, while
+   * {@code group by $dept, $ghost} yields proper per-dept groups). A dense-anchored scan would visit
+   * every record and emit the per-group tuples — diverging from that collapse. So if
+   * {@code groupFields[0]} is entirely absent we REFUSE to re-anchor and let the existing loud bail
+   * fire (fail-closed, exactly the historical behavior). A first key present on only SOME records is
+   * fine — those rows group into the null/missing bucket normally, which the typed kernel reproduces.
    *
-   * <p>Returns the FIRST provably-dense field (group-field order) so the choice
-   * is deterministic and stable across runs; never guesses density.
+   * <p>
+   * Returns the FIRST provably-dense field (group-field order) so the choice is deterministic and
+   * stable across runs; never guesses density.
    */
   private int provablyDenseAnchor(final String[] sourcePath, final String[] groupFields) {
     final long recordCount = topLevelRecordCountOrUnknown(sourcePath);
@@ -2630,7 +2701,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1;
     }
     for (int i = 0; i < groupFields.length; i++) {
-      final long carrying = i == 0 ? firstCarrying : recordsCarryingFieldOrUnknown(sourcePath, groupFields[i]);
+      final long carrying = i == 0
+          ? firstCarrying
+          : recordsCarryingFieldOrUnknown(sourcePath, groupFields[i]);
       if (carrying == recordCount) {
         return i;
       }
@@ -2639,9 +2712,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Append {@code extraFields} to a compiled predicate's field layout (skipping
-   * fields the predicate already references) so one {@code loadFields} sweep
-   * covers predicate and group fields together.
+   * Append {@code extraFields} to a compiled predicate's field layout (skipping fields the predicate
+   * already references) so one {@code loadFields} sweep covers predicate and group fields together.
    */
   private CompiledPredicate compileWithExtraFields(final PredicateNode root, final String[] extraFields) {
     CompiledPredicate cp = compile(root);
@@ -2652,11 +2724,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Clone of {@link #loadFields} that ADDITIONALLY fills a typed view of every
-   * field. The legacy {@link EvalScratch} fills keep their exact historical
-   * semantics (numbers truncate to long, null and complex values read as
-   * missing) because the integer-only predicate evaluator depends on them; the
-   * typed view is what the group-key encoder consumes.
+   * Clone of {@link #loadFields} that ADDITIONALLY fills a typed view of every field. The legacy
+   * {@link EvalScratch} fills keep their exact historical semantics (numbers truncate to long, null
+   * and complex values read as missing) because the integer-only predicate evaluator depends on them;
+   * the typed view is what the group-key encoder consumes.
    */
   private static void loadFieldsTypedGroups(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
       final EvalScratch scratch, final TypedGroupScratch typed) {
@@ -2665,13 +2736,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       typed.kind[i] = TK_MISSING;
       typed.str[i] = null;
     }
-    if (!rtx.moveToFirstChild()) return;
+    if (!rtx.moveToFirstChild())
+      return;
     final int[] wantKeys = cp.fieldNameKeys;
     do {
       final int nk = rtx.getNameKey();
       int fi = -1;
-      for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
-      if (fi < 0) continue;
+      for (int i = 0; i < wantKeys.length; i++)
+        if (wantKeys[i] == nk) {
+          fi = i;
+          break;
+        }
+      if (fi < 0)
+        continue;
       final NodeKind anchorKind = rtx.getKind();
       switch (anchorKind) {
         case OBJECT_NAMED_NUMBER -> {
@@ -2703,9 +2780,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           typed.kind[fi] = TK_NULL;
           continue;
         }
-        default -> { /* OBJECT_KEY — descend */ }
+        default -> {
+          /* OBJECT_KEY — descend */ }
       }
-      if (!rtx.moveToFirstChild()) { continue; }
+      if (!rtx.moveToFirstChild()) {
+        continue;
+      }
       final NodeKind kind = rtx.getKind();
       switch (kind) {
         case NUMBER_VALUE -> {
@@ -2754,14 +2834,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final double TWO_POW_53 = 9007199254740992.0d;
 
   /**
-   * Per-scan, per-group-field evidence for the numeric-key canonicalization's
-   * fail-closed guards. The interpreter's grouping equality is
-   * {@code hash(doubleValue bits)} + {@code atomicCmp} — NON-TRANSITIVE when
-   * values of different numeric types share a double image without being
-   * exactly equal (the >=2^53 long plateau; non-shortest-form decimals), and
-   * the merged group's RENDERED key is the first tuple's lexical form. Both
-   * are unreproducible by an unordered parallel scan, so such mixtures fail
-   * LOUDLY instead of silently grouping differently. One instance per worker;
+   * Per-scan, per-group-field evidence for the numeric-key canonicalization's fail-closed guards. The
+   * interpreter's grouping equality is {@code hash(doubleValue bits)} + {@code atomicCmp} —
+   * NON-TRANSITIVE when values of different numeric types share a double image without being exactly
+   * equal (the >=2^53 long plateau; non-shortest-form decimals), and the merged group's RENDERED key
+   * is the first tuple's lexical form. Both are unreproducible by an unordered parallel scan, so such
+   * mixtures fail LOUDLY instead of silently grouping differently. One instance per worker;
    * {@link #mergeFrom} folds them post-scan.
    */
   private static final class GroupKeyEvidence {
@@ -2780,43 +2858,48 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     void addDoubleImage(final int g, final double d) {
-      if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      if (doubleImages[g] == null)
+        doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
       doubleImages[g].add(d);
     }
 
     void addInexactDecImage(final int g, final double d) {
-      if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+      if (inexactDecImages[g] == null)
+        inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
       inexactDecImages[g].add(d);
     }
 
     void mergeFrom(final GroupKeyEvidence o) {
-      if (o == null) return;
+      if (o == null)
+        return;
       for (int g = 0; g < longEncoded.length; g++) {
         longEncoded[g] |= o.longEncoded[g];
         largeIntegralDoubleImage[g] |= o.largeIntegralDoubleImage[g];
         inexactDecIntegralImage[g] |= o.inexactDecIntegralImage[g];
         if (o.doubleImages[g] != null) {
-          if (doubleImages[g] == null) doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          if (doubleImages[g] == null)
+            doubleImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
           doubleImages[g].addAll(o.doubleImages[g]);
         }
         if (o.inexactDecImages[g] != null) {
-          if (inexactDecImages[g] == null) inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
+          if (inexactDecImages[g] == null)
+            inexactDecImages[g] = new it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet(8);
           inexactDecImages[g].addAll(o.inexactDecImages[g]);
         }
       }
     }
 
     /**
-     * Fail loudly on the mixtures whose interpreter grouping is order-dependent
-     * (non-transitive equality and/or first-tuple key rendering):
+     * Fail loudly on the mixtures whose interpreter grouping is order-dependent (non-transitive
+     * equality and/or first-tuple key rendering):
      * <ol>
-     * <li>long-encoded keys + an INTEGRAL double image at or above 2^53 — the
-     * plateau: one double is atomicCmp-equal to several distinct longs;</li>
-     * <li>long-encoded keys + a non-shortest-form decimal whose image is a
-     * small integral — it merges with image-equal doubles (which canonicalize
-     * into the long space) but not with the equal longs themselves;</li>
-     * <li>a double image colliding with a non-shortest-form decimal's image —
-     * they merge in the interpreter while their lexical renderings differ.</li>
+     * <li>long-encoded keys + an INTEGRAL double image at or above 2^53 — the plateau: one double is
+     * atomicCmp-equal to several distinct longs;</li>
+     * <li>long-encoded keys + a non-shortest-form decimal whose image is a small integral — it merges
+     * with image-equal doubles (which canonicalize into the long space) but not with the equal longs
+     * themselves;</li>
+     * <li>a double image colliding with a non-shortest-form decimal's image — they merge in the
+     * interpreter while their lexical renderings differ.</li>
      * </ol>
      */
     void requireConsistent(final String[] groupFields) {
@@ -2832,8 +2915,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final var it = inexactDecImages[g].iterator();
           while (it.hasNext()) {
             if (doubleImages[g].contains(it.nextDouble())) {
-              throw inconsistent(groupFields[g],
-                  "double keys image-colliding with non-shortest-form decimal keys");
+              throw inconsistent(groupFields[g], "double keys image-colliding with non-shortest-form decimal keys");
             }
           }
         }
@@ -2842,36 +2924,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     private static QueryException inconsistent(final String field, final String why) {
       return new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                                "Vectorized group-by over field '%s': %s — the generic pipeline's grouping is "
-                                    + "order-dependent here and a parallel scan cannot reproduce it; rewrite the "
-                                    + "query or disable vectorization",
-                                field,
-                                why);
+          "Vectorized group-by over field '%s': %s — the generic pipeline's grouping is "
+              + "order-dependent here and a parallel scan cannot reproduce it; rewrite the "
+              + "query or disable vectorization",
+          field, why);
     }
   }
 
   /**
-   * Encode the typed values of the group fields into an unambiguous composite
-   * key: one tag char per part; longs/doubles are NUL-terminated (their digits
-   * never contain NUL), strings and decimal literals are length-prefixed.
+   * Encode the typed values of the group fields into an unambiguous composite key: one tag char per
+   * part; longs/doubles are NUL-terminated (their digits never contain NUL), strings and decimal
+   * literals are length-prefixed.
    *
-   * <p>NUMERIC CANONICALIZATION (interpreter grouping parity): XQuery group-by
-   * merges keys under {@code eq}-style equality, so {@code 18}, {@code 18.0}
-   * and {@code 18.00} are ONE group while the historical encoding split them
-   * by type tag. Canonical mapping:
+   * <p>
+   * NUMERIC CANONICALIZATION (interpreter grouping parity): XQuery group-by merges keys under
+   * {@code eq}-style equality, so {@code 18}, {@code 18.0} and {@code 18.00} are ONE group while the
+   * historical encoding split them by type tag. Canonical mapping:
    * <ul>
-   * <li>integral doubles with {@code |d| < 2^53} (the unique-long zone)
-   * encode as the equal long ({@code 'l'});</li>
-   * <li>decimals that are integral and long-representable encode as the
-   * equal long; other decimals that EQUAL their shortest double form
-   * ({@code Double.toString} round-trip — rendering-identical) encode in the
-   * double image space ({@code 'd'}); the rest keep the exact decimal
-   * encoding ({@code 'D'}) canonicalized via {@code stripTrailingZeros} (so
-   * {@code 2.5} and {@code 2.50} merge);</li>
-   * <li>a {@code -0.0} double key fails loudly: the interpreter merges it
-   * with {@code 0} (its grouping canonicalizes negative zero) but renders
-   * the FIRST tuple's lexical ({@code "-0"} vs {@code "0"}) — order-dependent
-   * and unreproducible by a parallel scan.</li>
+   * <li>integral doubles with {@code |d| < 2^53} (the unique-long zone) encode as the equal long
+   * ({@code 'l'});</li>
+   * <li>decimals that are integral and long-representable encode as the equal long; other decimals
+   * that EQUAL their shortest double form ({@code Double.toString} round-trip — rendering-identical)
+   * encode in the double image space ({@code 'd'}); the rest keep the exact decimal encoding
+   * ({@code 'D'}) canonicalized via {@code stripTrailingZeros} (so {@code 2.5} and {@code 2.50}
+   * merge);</li>
+   * <li>a {@code -0.0} double key fails loudly: the interpreter merges it with {@code 0} (its
+   * grouping canonicalizes negative zero) but renders the FIRST tuple's lexical ({@code "-0"} vs
+   * {@code "0"}) — order-dependent and unreproducible by a parallel scan.</li>
    * </ul>
    * {@code evidence} collects the fail-closed signals — see
    * {@link GroupKeyEvidence#requireConsistent}.
@@ -2883,7 +2962,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       switch (typed.kind[fi]) {
         case TK_MISSING -> out.append('m');
         case TK_NULL -> out.append('z');
-        case TK_BOOL -> out.append('b').append(typed.bool[fi] ? '1' : '0');
+        case TK_BOOL -> out.append('b')
+                           .append(typed.bool[fi]
+                               ? '1'
+                               : '0');
         case TK_LONG -> {
           out.append('l').append(typed.lng[fi]).append('\u0000');
           evidence.longEncoded[g] = true;
@@ -2895,23 +2977,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           out.append('s').append(s.length()).append(':').append(s);
         }
         default -> throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                                            "Vectorized group-by: group field '%s' has a non-atomic (object/array) value",
-                                            groupFields[g]);
+            "Vectorized group-by: group field '%s' has a non-atomic (object/array) value", groupFields[g]);
       }
     }
   }
 
   /** Double-key encoding — canonicalizes small integral doubles into the long key space. */
-  private static void encodeDoubleKey(final double d, final int g, final String[] groupFields,
-      final StringBuilder out, final GroupKeyEvidence evidence) {
+  private static void encodeDoubleKey(final double d, final int g, final String[] groupFields, final StringBuilder out,
+      final GroupKeyEvidence evidence) {
     if (d == 0.0d && Double.doubleToRawLongBits(d) != 0L) {
       // -0.0: the interpreter MERGES it with 0 but renders the group key as
       // the first tuple's lexical ("-0" vs "0") — order-dependent.
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                               "Vectorized group-by over field '%s': a -0.0 group key merges with 0 in the generic "
-                                   + "pipeline but its rendered key depends on tuple order — rewrite the query or "
-                                   + "disable vectorization",
-                               groupFields[g]);
+          "Vectorized group-by over field '%s': a -0.0 group key merges with 0 in the generic "
+              + "pipeline but its rendered key depends on tuple order — rewrite the query or "
+              + "disable vectorization",
+          groupFields[g]);
     }
     final boolean integral = d == Math.rint(d) && !Double.isInfinite(d);
     if (integral && Math.abs(d) < TWO_POW_53) {
@@ -2928,9 +3009,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Decimal-key encoding — canonicalizes long-representable integrals into the
-   * long key space and shortest-double-form decimals into the double image
-   * space; everything else keeps the exact decimal encoding (scale-canonical).
+   * Decimal-key encoding — canonicalizes long-representable integrals into the long key space and
+   * shortest-double-form decimals into the double image space; everything else keeps the exact
+   * decimal encoding (scale-canonical).
    */
   private static void encodeDecimalKey(final String lexical, final int g, final StringBuilder out,
       final GroupKeyEvidence evidence) {
@@ -2972,8 +3053,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /**
      * Selection vector for the filtered group-by kernel: the region indices that survived the
-     * predicate. Sized to a full page's slots on first use and reused, so a filtered group-by
-     * allocates nothing per page — the same rule the rest of this scratch follows.
+     * predicate. Sized to a full page's slots on first use and reused, so a filtered group-by allocates
+     * nothing per page — the same rule the rest of this scratch follows.
      */
     private int[] selection;
 
@@ -2991,33 +3072,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Columnar (PAX-region) page kernels for single-key unpredicated typed group-by:
-   * numbers via {@link NumberRegion} (zone-map single-value shortcut, else a
-   * decoded column sweep into a per-page distinct map), booleans via
-   * {@link io.sirix.page.pax.BooleanRegion#countTrue} (branch-free popcount).
-   * A page commits ONLY when the region's per-tag count equals the page's anchor
-   * slot count — the same completeness oracle as the StringRegion paths: any
-   * straggler (cross-page record, double value the long-only number region
-   * skipped, null) falls back to the per-record typed slot walk for that page.
+   * Columnar (PAX-region) page kernels for single-key unpredicated typed group-by: numbers via
+   * {@link NumberRegion} (zone-map single-value shortcut, else a decoded column sweep into a per-page
+   * distinct map), booleans via {@link io.sirix.page.pax.BooleanRegion#countTrue} (branch-free
+   * popcount). A page commits ONLY when the region's per-tag count equals the page's anchor slot
+   * count — the same completeness oracle as the StringRegion paths: any straggler (cross-page record,
+   * double value the long-only number region skipped, null) falls back to the per-record typed slot
+   * walk for that page.
    *
    * @return {@code true} when the page was fully accounted via a region
    */
   /**
-   * Per-thread scratch for bulk-decoding a delta-encoded ({@link
-   * NumberRegion#ENC_DELTA_ZM}) number region once. Delta random access is
-   * O(index), so the aggregation / group-by fallback loops decode the whole
-   * region up front (O(n)) and index this array — otherwise a per-value
-   * {@link NumberRegion#decodeValueAt} loop would be O(n²). Sized to the max
-   * slots per page; grown defensively. Other encodings never touch it.
+   * Per-thread scratch for bulk-decoding a delta-encoded ({@link NumberRegion#ENC_DELTA_ZM}) number
+   * region once. Delta random access is O(index), so the aggregation / group-by fallback loops decode
+   * the whole region up front (O(n)) and index this array — otherwise a per-value
+   * {@link NumberRegion#decodeValueAt} loop would be O(n²). Sized to the max slots per page; grown
+   * defensively. Other encodings never touch it.
    */
   private static final ThreadLocal<long[]> NUMBER_DECODE_SCRATCH =
       ThreadLocal.withInitial(() -> new long[Constants.NDP_NODE_COUNT]);
 
   /**
-   * When {@code nh} is delta-encoded, returns a per-thread array holding every
-   * value decoded once (so callers index it in O(1)); otherwise returns
-   * {@code null} and callers keep the direct O(1) {@link
-   * NumberRegion#decodeValueAt} path with no bulk decode or allocation.
+   * When {@code nh} is delta-encoded, returns a per-thread array holding every value decoded once (so
+   * callers index it in O(1)); otherwise returns {@code null} and callers keep the direct O(1)
+   * {@link NumberRegion#decodeValueAt} path with no bulk decode or allocation.
    */
   private static long[] deltaDecodedOrNull(final MemorySegment payload, final NumberRegion.Header nh) {
     if (!NumberRegion.isDelta(nh.encodingKind)) {
@@ -3033,13 +3111,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Tally the {@code n} values of one tag (starting at {@code start}) into
-   * {@code pc}. Delta-encoded regions are bulk-decoded once (O(n)); every other
-   * encoding uses the direct O(1) {@link NumberRegion#decodeValueAt}. Kept
-   * separate so callers stay below the complexity budget.
+   * Tally the {@code n} values of one tag (starting at {@code start}) into {@code pc}. Delta-encoded
+   * regions are bulk-decoded once (O(n)); every other encoding uses the direct O(1)
+   * {@link NumberRegion#decodeValueAt}. Kept separate so callers stay below the complexity budget.
    */
-  private static void fillNumberRegionCounts(final MemorySegment payload, final NumberRegion.Header nh,
-      final int start, final int n, final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc) {
+  private static void fillNumberRegionCounts(final MemorySegment payload, final NumberRegion.Header nh, final int start,
+      final int n, final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap pc) {
     final long[] deltaVals = deltaDecodedOrNull(payload, nh);
     if (deltaVals != null) {
       for (int i = 0; i < n; i++) {
@@ -3055,21 +3132,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Pages a group-by answered entirely from the PAX regions, without reconstructing a record.
    *
-   * <p>Split from the predicate counters because the group-by path has its own eligibility rules
-   * and its own way of losing them: {@code regionEligible} is computed once per scan, so a shape
-   * that silently stops qualifying shows up here as a flat zero rather than as a slowdown nobody
-   * measures. That is exactly how the predicated group-by went unserved.
+   * <p>
+   * Split from the predicate counters because the group-by path has its own eligibility rules and its
+   * own way of losing them: {@code regionEligible} is computed once per scan, so a shape that
+   * silently stops qualifying shows up here as a flat zero rather than as a slowdown nobody measures.
+   * That is exactly how the predicated group-by went unserved.
    */
   private static final LongAdder REGION_GROUPBY_PAGES = new LongAdder();
 
   /**
-   * Pages whose group-by filter was applied by the selection kernel rather than settled by the
-   * tag's zone map.
+   * Pages whose group-by filter was applied by the selection kernel rather than settled by the tag's
+   * zone map.
    *
-   * <p>Counted separately from {@link #REGION_GROUPBY_PAGES} because the two zone-map arms answer
-   * a page without ever calling {@link NumberRegionSimd#selectMatching}. On a corpus whose pages
-   * all happen to fall wholly inside or outside the interval, the served counter would sit
-   * comfortably above zero while the kernel this path exists for never ran once.
+   * <p>
+   * Counted separately from {@link #REGION_GROUPBY_PAGES} because the two zone-map arms answer a page
+   * without ever calling {@link NumberRegionSimd#selectMatching}. On a corpus whose pages all happen
+   * to fall wholly inside or outside the interval, the served counter would sit comfortably above
+   * zero while the kernel this path exists for never ran once.
    */
   private static final LongAdder REGION_GROUPBY_SELECTED = new LongAdder();
 
@@ -3090,10 +3169,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private static boolean tryRegionGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
-      final RegionGroupScratch scratch, final RegionCountPlan filter,
-      final GroupKeyEvidence evidence) {
-    final boolean served = tryRegionGroupByPage0(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey,
-                                                 counts, scratch, filter, evidence);
+      final RegionGroupScratch scratch, final RegionCountPlan filter, final GroupKeyEvidence evidence) {
+    final boolean served =
+        tryRegionGroupByPage0(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey, counts, scratch, filter, evidence);
     if (served) {
       REGION_GROUPBY_PAGES.increment();
     }
@@ -3102,13 +3180,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private static boolean tryRegionGroupByPage0(final KeyValueLeafPage kv, final int anchorSlotCount,
       final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
-      final RegionGroupScratch scratch, final RegionCountPlan filter,
-      final GroupKeyEvidence evidence) {
+      final RegionGroupScratch scratch, final RegionCountPlan filter, final GroupKeyEvidence evidence) {
     // ---- numbers (long-typed values only by construction) ----
     final NumberRegion.Header nh = kv.getNumberRegionHeader();
     if (nh != null) {
-      final int verdict = tryNumberGroupByPage(kv, nh, anchorSlotCount, targetPathNodeKey,
-                                               anchorNameKey, counts, scratch, filter, evidence);
+      final int verdict = tryNumberGroupByPage(kv, nh, anchorSlotCount, targetPathNodeKey, anchorNameKey, counts,
+          scratch, filter, evidence);
       if (verdict != GROUP_ARM_NOT_MINE) {
         return verdict == GROUP_ARM_DONE;
       }
@@ -3119,8 +3196,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // committing a page through them would count records the predicate excludes.
       return false;
     }
-    return tryBooleanGroupByPage(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey, counts,
-                                 scratch);
+    return tryBooleanGroupByPage(kv, anchorSlotCount, targetPathNodeKey, anchorNameKey, counts, scratch);
   }
 
   /** The anchor's values are not in this region, or its tag does not cover every anchor slot. */
@@ -3135,12 +3211,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * What the tag's zone map settles about the group-by filter.
    *
-   * <p>The interval is over this same tag, so the bounds settle the page outright in both
-   * directions: disjoint means no group on this page gained a record, contained means every value
-   * survives and the unfiltered tally is already the right answer.
+   * <p>
+   * The interval is over this same tag, so the bounds settle the page outright in both directions:
+   * disjoint means no group on this page gained a record, contained means every value survives and
+   * the unfiltered tally is already the right answer.
    */
-  private static int groupFilterZoneOutcome(final NumberRegion.Header nh, final int tag,
-      final RegionCountPlan filter, final boolean hasZones) {
+  private static int groupFilterZoneOutcome(final NumberRegion.Header nh, final int tag, final RegionCountPlan filter,
+      final boolean hasZones) {
     if (!hasZones) {
       return FUSED_ZONE_UNDECIDED;
     }
@@ -3155,11 +3232,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Tally a page whose anchor values live in the number region. */
   private static int tryNumberGroupByPage(final KeyValueLeafPage kv, final NumberRegion.Header nh,
       final int anchorSlotCount, final long targetPathNodeKey, final int anchorNameKey,
-      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
-      final RegionCountPlan filter, final GroupKeyEvidence evidence) {
-    final int lookup = regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE,
-                                       targetPathNodeKey, anchorNameKey);
-    final int tag = lookup == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(nh, lookup);
+      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch, final RegionCountPlan filter,
+      final GroupKeyEvidence evidence) {
+    final int lookup = regionLookupTag(nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, targetPathNodeKey, anchorNameKey);
+    final int tag = lookup == Integer.MIN_VALUE
+        ? -1
+        : NumberRegion.lookupTag(nh, lookup);
     if (tag < 0 || nh.tagCount[tag] != anchorSlotCount) {
       return GROUP_ARM_NOT_MINE;
     }
@@ -3170,7 +3248,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (filter != null) {
       final int zone = groupFilterZoneOutcome(nh, tag, filter, hasZones);
       if (zone == FUSED_ZONE_EMPTY) {
-        return GROUP_ARM_DONE;  // page fully accounted, and nothing on it survived
+        return GROUP_ARM_DONE; // page fully accounted, and nothing on it survived
       }
       if (zone != FUSED_ZONE_ALL) {
         return filteredNumberGroupByPage(kv, nh, start, n, counts, scratch, filter, evidence)
@@ -3205,64 +3283,66 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Tally a page whose anchor values live in the boolean region: bit-packed, so a popcount. */
   private static boolean tryBooleanGroupByPage(final KeyValueLeafPage kv, final int anchorSlotCount,
-      final long targetPathNodeKey, final int anchorNameKey,
-      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch) {
+      final long targetPathNodeKey, final int anchorNameKey, final Object2LongOpenHashMap<String> counts,
+      final RegionGroupScratch scratch) {
     final MemorySegment boolPayload = kv.getBooleanRegionPayload();
     if (boolPayload == null) {
       return false;
     }
     final io.sirix.page.pax.BooleanRegion.Header bh = scratch.boolHeader.parseInto(boolPayload);
     final int lookup = regionLookupTag(bh.tagKind == io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE,
-                                       targetPathNodeKey,
-                                       anchorNameKey);
-    final int tag =
-        lookup == Integer.MIN_VALUE ? -1 : io.sirix.page.pax.BooleanRegion.lookupTag(bh, lookup);
+        targetPathNodeKey, anchorNameKey);
+    final int tag = lookup == Integer.MIN_VALUE
+        ? -1
+        : io.sirix.page.pax.BooleanRegion.lookupTag(bh, lookup);
     if (tag < 0 || bh.tagCount[tag] != anchorSlotCount) {
       return false;
     }
     final int start = bh.tagStart[tag];
     final int n = bh.tagCount[tag];
     final int trues = io.sirix.page.pax.BooleanRegion.countTrue(boolPayload, bh, start, n);
-    if (trues > 0) counts.addTo("b1", trues);
-    if (n - trues > 0) counts.addTo("b0", n - trues);
+    if (trues > 0)
+      counts.addTo("b1", trues);
+    if (n - trues > 0)
+      counts.addTo("b0", n - trues);
     return true;
   }
 
   /**
    * Tally one page's group counts over only the values that satisfy {@code filter}.
    *
-   * <p>This is what {@link NumberRegionSimd#selectMatching} exists for. The counting kernels answer
-   * "how many", which is enough for a filtered count and useless for a filtered group-by: the
-   * groups are built from the surviving <em>values</em>, so the kernel has to say which positions
-   * survived. {@code selectMatching} produces exactly that selection vector straight out of the
-   * encoded column, packing surviving lanes with {@link jdk.incubator.vector.LongVector#compress}
-   * rather than branching per lane — the same operator hand-off DuckDB and Umbra push between
-   * pipeline stages. Before this, {@code regionEligible} excluded every predicated group-by and the
-   * whole page went through {@code rtx.moveTo} record reconstruction.
+   * <p>
+   * This is what {@link NumberRegionSimd#selectMatching} exists for. The counting kernels answer "how
+   * many", which is enough for a filtered count and useless for a filtered group-by: the groups are
+   * built from the surviving <em>values</em>, so the kernel has to say which positions survived.
+   * {@code selectMatching} produces exactly that selection vector straight out of the encoded column,
+   * packing surviving lanes with {@link jdk.incubator.vector.LongVector#compress} rather than
+   * branching per lane — the same operator hand-off DuckDB and Umbra push between pipeline stages.
+   * Before this, {@code regionEligible} excluded every predicated group-by and the whole page went
+   * through {@code rtx.moveTo} record reconstruction.
    *
-   * <p>Soundness rests on the predicate and the group key being the same field, checked in
-   * {@link #regionGroupFilter}: position {@code i} of the tag is both the value tested and the
-   * value grouped, so no record identity is needed and no column is joined against another.
+   * <p>
+   * Soundness rests on the predicate and the group key being the same field, checked in
+   * {@link #regionGroupFilter}: position {@code i} of the tag is both the value tested and the value
+   * grouped, so no record identity is needed and no column is joined against another.
    *
    * @param start first region index of the tag
    * @param n the tag's value count, already checked against the page's anchor slot count
    * @return {@code true} when the page was fully accounted, {@code false} to fall back to records
    */
-  private static boolean filteredNumberGroupByPage(final KeyValueLeafPage kv,
-      final NumberRegion.Header nh, final int start, final int n,
-      final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
+  private static boolean filteredNumberGroupByPage(final KeyValueLeafPage kv, final NumberRegion.Header nh,
+      final int start, final int n, final Object2LongOpenHashMap<String> counts, final RegionGroupScratch scratch,
       final RegionCountPlan filter, final GroupKeyEvidence evidence) {
     if (filter.isEmpty()) {
-      return true;  // no value can satisfy it — the page is accounted, with no group touched
+      return true; // no value can satisfy it — the page is accounted, with no group touched
     }
     final MemorySegment payload = kv.getNumberRegionPayload();
     if (payload == null) {
       return false;
     }
     final int[] selection = scratch.selectionFor(n);
-    final int matched = NumberRegionSimd.selectMatching(payload, nh, start, start + n,
-                                                       VectorOperators.GE, filter.lo(),
-                                                       VectorOperators.LE, filter.hi(), selection);
+    final int matched = NumberRegionSimd.selectMatching(payload, nh, start, start + n, VectorOperators.GE, filter.lo(),
+        VectorOperators.LE, filter.hi(), selection);
     if (matched < 0) {
       // Shapes the selection kernel declines — delta-of-delta, which has no random access, and bit
       // widths past its two-load window. The record path is correct for them; guessing is not.
@@ -3285,43 +3365,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * The shared tag-dispatch rule of every region fast path: unscoped queries
-   * look up by nameKey; path-scoped queries may only use a PATH-tagged region
-   * (a nameKey-tagged region cannot prove per-slot path membership).
+   * The shared tag-dispatch rule of every region fast path: unscoped queries look up by nameKey;
+   * path-scoped queries may only use a PATH-tagged region (a nameKey-tagged region cannot prove
+   * per-slot path membership).
    */
   /**
-   * Tag lookup with the key-space refusal FILTERED, not probed. {@code regionLookupTag} refuses
-   * with {@link Integer#MIN_VALUE}, which is also a value {@code String.hashCode} can produce — a
+   * Tag lookup with the key-space refusal FILTERED, not probed. {@code regionLookupTag} refuses with
+   * {@link Integer#MIN_VALUE}, which is also a value {@code String.hashCode} can produce — a
    * name-tagged dictionary containing a field that hashes there would match the refusal itself and
    * count the wrong column. The older call sites always filtered; the newer ones inlined the probe
    * and lost it, which is exactly the kind of drift a single helper exists to end.
    */
-  private static int tagInKeySpace(final NumberRegion.Header h, final boolean pathTagged,
-      final long pathNodeKey, final int nameKey) {
-    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
-    return key == Integer.MIN_VALUE ? -1 : NumberRegion.lookupTag(h, key);
-  }
-
-  private static int tagInKeySpace(final DoubleRegion.Header h, final boolean pathTagged,
-      final long pathNodeKey, final int nameKey) {
-    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
-    return key == Integer.MIN_VALUE ? -1 : DoubleRegion.lookupTag(h, key);
-  }
-
-  private static int tagInKeySpace(final BooleanRegion.Header h, final boolean pathTagged,
-      final long pathNodeKey, final int nameKey) {
-    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
-    return key == Integer.MIN_VALUE ? -1 : BooleanRegion.lookupTag(h, key);
-  }
-
-  private static int tagInKeySpace(final StringRegion.Header h, final boolean pathTagged,
-      final long pathNodeKey, final int nameKey) {
-    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
-    return key == Integer.MIN_VALUE ? -1 : StringRegion.lookupTag(h, key);
-  }
-
-  private static int regionLookupTag(final boolean regionPathTagged, final long targetPathNodeKey,
+  private static int tagInKeySpace(final NumberRegion.Header h, final boolean pathTagged, final long pathNodeKey,
       final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE
+        ? -1
+        : NumberRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final DoubleRegion.Header h, final boolean pathTagged, final long pathNodeKey,
+      final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE
+        ? -1
+        : DoubleRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final BooleanRegion.Header h, final boolean pathTagged, final long pathNodeKey,
+      final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE
+        ? -1
+        : BooleanRegion.lookupTag(h, key);
+  }
+
+  private static int tagInKeySpace(final StringRegion.Header h, final boolean pathTagged, final long pathNodeKey,
+      final int nameKey) {
+    final int key = regionLookupTag(pathTagged, pathNodeKey, nameKey);
+    return key == Integer.MIN_VALUE
+        ? -1
+        : StringRegion.lookupTag(h, key);
+  }
+
+  private static int regionLookupTag(final boolean regionPathTagged, final long targetPathNodeKey, final int nameKey) {
     if (regionPathTagged) {
       // A path-tagged dictionary may ONLY be probed with a pathNodeKey. Probing it with a nameKey
       // — as the -1 arm used to for unscoped queries — puts a String.hashCode into pathNodeKey
@@ -3334,7 +3421,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     // A name-tagged dictionary cannot prove per-slot path membership, so a path-scoped query may
     // not use it; unscoped queries probe it by nameKey, which is its own key space.
-    return targetPathNodeKey == -1L ? nameKey : Integer.MIN_VALUE;
+    return targetPathNodeKey == -1L
+        ? nameKey
+        : Integer.MIN_VALUE;
   }
 
   /** Decode the composite keys and emit {@code {out1: k1, ..., countName: n}} records. */
@@ -3353,7 +3442,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final char tag = enc.charAt(pos++);
         switch (tag) {
           case 'm', 'z' -> vals[g] = Null.INSTANCE;
-          case 'b' -> vals[g] = enc.charAt(pos++) == '1' ? Bool.TRUE : Bool.FALSE;
+          case 'b' -> vals[g] = enc.charAt(pos++) == '1'
+              ? Bool.TRUE
+              : Bool.FALSE;
           case 'l' -> {
             final int end = enc.indexOf('\u0000', pos);
             vals[g] = new Int64(Long.parseLong(enc.substring(pos, end)));
@@ -3369,7 +3460,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final int len = Integer.parseInt(enc.substring(pos, colon));
             final String v = enc.substring(colon + 1, colon + 1 + len);
             pos = colon + 1 + len;
-            vals[g] = tag == 's' ? new Str(v) : new Dec(v);
+            vals[g] = tag == 's'
+                ? new Str(v)
+                : new Dec(v);
           }
           default -> throw new IllegalStateException("bad group-key tag " + tag);
         }
@@ -3382,11 +3475,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Walk every leaf page in parallel; per-record evaluate the compiled
-   * predicate; on match, bump the per-group counter. The group field is
-   * compiled into the same {@link CompiledPredicate} via an extra field slot
-   * so the per-record load pass covers both predicate fields and the group
-   * field in one sweep.
+   * Walk every leaf page in parallel; per-record evaluate the compiled predicate; on match, bump the
+   * per-group counter. The group field is compiled into the same {@link CompiledPredicate} via an
+   * extra field slot so the per-record load pass covers both predicate fields and the group field in
+   * one sweep.
    */
   private Sequence parallelGenericPredicateGroupByCount(final String[] sourcePath, final PredicateNode predicate,
       final String groupField, final long[] statsOut) throws Exception {
@@ -3402,12 +3494,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // cost on a miss is negligible against a millisecond-scale fallback.
     {
       final Sequence projected = tryProjectionIndexGroupByFastPath(sourcePath, cp, groupField);
-      if (projected != null) return projected;
+      if (projected != null)
+        return projected;
     }
     // The anchor is still the predicate's first field — the group field is
     // not necessarily selective, so we don't drive from it.
     final int anchorNameKey = cp.fieldNameKeys[0];
-    if (anchorNameKey == -1) return new ItemSequence();
+    if (anchorNameKey == -1)
+      return new ItemSequence();
     final int groupFieldIdx = indexOfStr(cp.fieldNames, groupField);
     if (groupFieldIdx < 0 || cp.fieldNameKeys[groupFieldIdx] == -1) {
       // Group field unresolvable in the dictionary — rows can still pass the
@@ -3437,7 +3531,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] passedPerThread = new long[eff];
     // Compile once, share across workers. Key disambiguates by field layout.
     final String compileKey = compiledClassKey(predicate, cp) + "#gb:" + groupField;
-    final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
+    final BatchPredicate compiled = useBatch
+        ? resolveCompiledPredicate(compileKey, cp)
+        : null;
     // Page-skip index: reuse bitmap from prior scans anchored on the same
     // nameKey, or build it as a side-effect of this scan.
     final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
@@ -3464,19 +3560,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] rootOut = new long[batch.bitmapStride];
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= scheduleSize) break;
+          if (s >= scheduleSize)
+            break;
           final long e = Math.min(s + STRIDE, scheduleSize);
           prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+              continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
-            if (recordBuf != null) recordBuf.add((int) pk);
+            if (matches.length == 0)
+              continue;
+            if (recordBuf != null)
+              recordBuf.add((int) pk);
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
-            if (batch.size == 0) continue;
+            if (batch.size == 0)
+              continue;
             final long[] bitmap;
             if (compiled != null && !batch.hasDecimalRows) {
               compiled.evaluate(batch, rootOut);
@@ -3496,7 +3597,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               while (word != 0L) {
                 final int bit = Long.numberOfTrailingZeros(word);
                 final int rowIdx = (w << 6) + bit;
-                if (rowIdx >= size) break;
+                if (rowIdx >= size)
+                  break;
                 passed++;
                 if (gpk[rowIdx] == 3) {
                   final String gv = gvs[rowIdx];
@@ -3513,37 +3615,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= scheduleSize) break;
+          if (s >= scheduleSize)
+            break;
           final long e = Math.min(s + STRIDE, scheduleSize);
           prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+              continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
-            if (recordBuf != null) recordBuf.add((int) pk);
-            for (final int slot : matches) {
-            final long anchorObjectKey = base + slot;
-            // Path-scope filter: reject anchor slots whose pathNodeKey is not
-            // the one the query targets. Cheap (one varint decode off the page)
-            // and branch-predictable because anchorPathNodeKey is loop-invariant.
-            if (anchorPathNodeKey != -1L
-                && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+            if (matches.length == 0)
               continue;
+            if (recordBuf != null)
+              recordBuf.add((int) pk);
+            for (final int slot : matches) {
+              final long anchorObjectKey = base + slot;
+              // Path-scope filter: reject anchor slots whose pathNodeKey is not
+              // the one the query targets. Cheap (one varint decode off the page)
+              // and branch-predictable because anchorPathNodeKey is loop-invariant.
+              if (anchorPathNodeKey != -1L
+                  && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+                continue;
+              }
+              if (!rtx.moveTo(anchorObjectKey))
+                continue;
+              if (!rtx.moveToParent())
+                continue;
+              loadFields(rtx, cp, scratch);
+              if (!evalCompiled(cp, 0, scratch))
+                continue;
+              passed++;
+              // Read the group field's value from the same scratch.
+              if (scratch.fieldKind[groupFieldIdx] != 3)
+                continue; // require string group
+              final String gv = scratch.strVals[groupFieldIdx];
+              if (gv == null)
+                continue;
+              local.addTo(gv, 1L);
             }
-            if (!rtx.moveTo(anchorObjectKey)) continue;
-            if (!rtx.moveToParent()) continue;
-            loadFields(rtx, cp, scratch);
-            if (!evalCompiled(cp, 0, scratch)) continue;
-            passed++;
-            // Read the group field's value from the same scratch.
-            if (scratch.fieldKind[groupFieldIdx] != 3) continue;  // require string group
-            final String gv = scratch.strVals[groupFieldIdx];
-            if (gv == null) continue;
-            local.addTo(gv, 1L);
-          }
           }
         }
       }
@@ -3556,7 +3667,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
     for (final Object2LongOpenHashMap<String> m : perThread) {
-      if (m == null) continue;
+      if (m == null)
+        continue;
       final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> e = it.next();
@@ -3569,18 +3681,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
     long counted = 0L;
-    final ObjectIterator<Object2LongMap.Entry<String>> mergedIt =
-        merged.object2LongEntrySet().fastIterator();
+    final ObjectIterator<Object2LongMap.Entry<String>> mergedIt = merged.object2LongEntrySet().fastIterator();
     while (mergedIt.hasNext()) {
       final Object2LongMap.Entry<String> e = mergedIt.next();
       counted += e.getLongValue();
-      final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {new Str(e.getKey()), new Int64(e.getLongValue())};
       out.add(new ArrayObject(keys, vals));
     }
     if (statsOut != null && statsOut.length >= 2) {
       long totalPassed = 0L;
-      for (final long p : passedPerThread) totalPassed += p;
+      for (final long p : passedPerThread)
+        totalPassed += p;
       statsOut[0] = totalPassed;
       statsOut[1] = counted;
     }
@@ -3588,18 +3700,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Generic predicate-tree aggregate: walks every record with the compiled
-   * predicate + an extra aggregate field; on match, accumulates sum/count/
-   * min/max over the aggregate field. Replaces the filter-then-aggregate
-   * Volcano pipeline with a single parallel scan.
+   * Generic predicate-tree aggregate: walks every record with the compiled predicate + an extra
+   * aggregate field; on match, accumulates sum/count/ min/max over the aggregate field. Replaces the
+   * filter-then-aggregate Volcano pipeline with a single parallel scan.
    */
   @Override
-  public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
-      String func, String field) throws QueryException {
-    if (predicate == null || func == null) return null;
+  public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate, String func,
+      String field) throws QueryException {
+    if (predicate == null || func == null)
+      return null;
     // Wtx mode serves unpredicated projection queries only — see
     // executePredicateCount.
-    if (wtx != null) return null;
+    if (wtx != null)
+      return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return switch (func) {
@@ -3612,17 +3725,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       // "count" doesn't require a field — fall through to generic handling,
       // but a null `field` for any other func means we can't run the scan.
-      if (!"count".equals(func) && field == null) return null;
-      final String cacheKey = "pa:" + func + "#" + pathCacheKey(sourcePath, field) + "@@"
-          + predicateCacheKey(predicate);
+      if (!"count".equals(func) && field == null)
+        return null;
+      final String cacheKey =
+          "pa:" + func + "#" + pathCacheKey(sourcePath, field) + "@@" + predicateCacheKey(predicate);
       Sequence cached = predicateAggregateCache.get(cacheKey);
-      if (cached != null) return cached;
+      if (cached != null)
+        return cached;
       Sequence fresh = null;
       if (!"count".equals(func)) {
         // Stats-level cache first (keyed without func): min/max/avg/sum over the same
         // (path, field, predicate) fold from ONE kernel scan.
-        final String statsKey = "ps:" + pathCacheKey(sourcePath, field) + "@@"
-            + predicateCacheKey(predicate);
+        final String statsKey = "ps:" + pathCacheKey(sourcePath, field) + "@@" + predicateCacheKey(predicate);
         long[] projected = predicateStatsCache.get(statsKey);
         if (projected == null) {
           projected = tryProjectionAggregate(sourcePath, field, predicate);
@@ -3647,39 +3761,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (fresh == null) {
         fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
       }
-      if (fresh == null) return null;
+      if (fresh == null)
+        return null;
       cached = predicateAggregateCache.putIfAbsent(cacheKey, fresh);
-      return cached == null ? fresh : cached;
+      return cached == null
+          ? fresh
+          : cached;
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized predicate-aggregate failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized predicate-aggregate failed: %s",
+          e.getMessage());
     }
   }
 
   /** Per-worker prefetch window sized by the backend, or {@code null} when it cannot prefetch. */
   private static long @Nullable [] prefetchWindowOrNull(final StorageEngineReader reader) {
     final int batch = reader.recordPagePrefetchBatch();
-    return batch > 0 ? new long[batch] : null;
+    return batch > 0
+        ? new long[batch]
+        : null;
   }
 
   /**
-   * Hand the scheduled pages of {@code [from, to)} — at most one backend batch of them — to
-   * the storage tier's batched prefetch ({@link StorageEngineReader#prefetchRecordPages}).
-   * Callers hold a non-null window only on prefetch-capable backends, and passing
-   * {@code null} is a no-op, so scans on plain buffered storage pay a single null test per
-   * window rather than any per-page work. Resident pages are skipped in the storage tier; a
-   * cold O_DIRECT scan collapses its two-round-trips-per-page loop into two round trips per
-   * window.
+   * Hand the scheduled pages of {@code [from, to)} — at most one backend batch of them — to the
+   * storage tier's batched prefetch ({@link StorageEngineReader#prefetchRecordPages}). Callers hold a
+   * non-null window only on prefetch-capable backends, and passing {@code null} is a no-op, so scans
+   * on plain buffered storage pay a single null test per window rather than any per-page work.
+   * Resident pages are skipped in the storage tier; a cold O_DIRECT scan collapses its
+   * two-round-trips-per-page loop into two round trips per window.
    *
-   * <p>Called once per claimed chunk (or per window of a contiguous range), never per page —
-   * the boundary is a property of the caller's loop structure, so testing it per iteration
-   * would only add a division to the hottest loop in the executor.
+   * <p>
+   * Called once per claimed chunk (or per window of a contiguous range), never per page — the
+   * boundary is a property of the caller's loop structure, so testing it per iteration would only add
+   * a division to the hottest loop in the executor.
    */
-  private static void prefetchScheduledPages(final StorageEngineReader reader,
-      final PageScanSchedule schedule, final long from, final long to,
-      final long @Nullable [] window) {
+  private static void prefetchScheduledPages(final StorageEngineReader reader, final PageScanSchedule schedule,
+      final long from, final long to, final long @Nullable [] window) {
     if (window == null) {
       return;
     }
@@ -3697,12 +3813,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Walk every leaf page in parallel; per-record evaluate the compiled
-   * predicate; on match, read the aggregate {@code field}'s value from the
-   * shared scratch and fold it into the per-thread accumulator. The aggregate
-   * field is compiled into the predicate's field set via
-   * {@link #compileWithExtraField} so a single {@code loadFields} sweep covers
-   * every value we need for this record.
+   * Walk every leaf page in parallel; per-record evaluate the compiled predicate; on match, read the
+   * aggregate {@code field}'s value from the shared scratch and fold it into the per-thread
+   * accumulator. The aggregate field is compiled into the predicate's field set via
+   * {@link #compileWithExtraField} so a single {@code loadFields} sweep covers every value we need
+   * for this record.
    */
   private Sequence parallelGenericPredicateAggregate(final String[] sourcePath, final PredicateNode predicate,
       final String func, final String aggField) throws Exception {
@@ -3710,7 +3825,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final CompiledPredicate cp = isCount && aggField == null
         ? compile(predicate)
         : compileWithExtraField(predicate, aggField);
-    if (cp.fieldNames.length == 0) return null;
+    if (cp.fieldNames.length == 0)
+      return null;
     // Projection-index fast-path for aggregate-count — ONLY when no aggregate
     // field is involved: count(... return $u.f) counts records where f is
     // PRESENT among the matches, which the plain conjunctive count cannot
@@ -3730,7 +3846,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         default -> null;
       };
     }
-    final int aggFieldIdx = aggField == null ? -1 : indexOfStr(cp.fieldNames, aggField);
+    final int aggFieldIdx = aggField == null
+        ? -1
+        : indexOfStr(cp.fieldNames, aggField);
     if (aggField != null && (aggFieldIdx < 0 || cp.fieldNameKeys[aggFieldIdx] == -1)) {
       // Aggregate field not in this document — zero rows would contribute.
       return switch (func) {
@@ -3776,7 +3894,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Contiguous range: advance the prefetch window as the scan walks it (a division-free
       // counter, not a per-page modulo). The stride loops above hand their whole claimed
       // chunk to one call instead, which submits as many windows as the chunk needs.
-      final int prefetchStep = prefetchWindow != null ? prefetchWindow.length : 0;
+      final int prefetchStep = prefetchWindow != null
+          ? prefetchWindow.length
+          : 0;
       long nextPrefetch = s;
       for (long j = s; j < e; j++) {
         if (prefetchStep > 0 && j >= nextPrefetch) {
@@ -3785,21 +3905,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         final long pk = schedule.pageAt(j);
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-        if (matches.length == 0) continue;
-        if (recordBuf != null) recordBuf.add((int) pk);
+        if (matches.length == 0)
+          continue;
+        if (recordBuf != null)
+          recordBuf.add((int) pk);
         for (final int slot : matches) {
           final long anchorObjectKey = base + slot;
           if (anchorPathNodeKey != -1L
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
             continue;
           }
-          if (!rtx.moveTo(anchorObjectKey)) continue;
-          if (!rtx.moveToParent()) continue;
+          if (!rtx.moveTo(anchorObjectKey))
+            continue;
+          if (!rtx.moveToParent())
+            continue;
           loadFieldsTypedGroups(rtx, cp, scratch, typed);
-          if (!evalCompiled(cp, 0, scratch)) continue;
+          if (!evalCompiled(cp, 0, scratch))
+            continue;
           if (isCount) {
             // count(... return $u.f) counts non-empty derefs among the
             // matches: a record missing f contributes ZERO items. Any
@@ -3822,7 +3948,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             case TK_LONG -> acc.addLong(typed.lng[aggFieldIdx]);
             case TK_DBL -> acc.addDouble(typed.dbl[aggFieldIdx]);
             case TK_DECSTR -> acc.addDecimal(new BigDecimal(typed.str[aggFieldIdx]));
-            default -> { /* non-numeric value on this row — skip (legacy semantics) */ }
+            default -> {
+              /* non-numeric value on this row — skip (legacy semantics) */ }
           }
         }
       }
@@ -3831,7 +3958,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     if (isCount) {
       long count = 0L;
-      for (final long c : countPerThread) count += c;
+      for (final long c : countPerThread)
+        count += c;
       return new Int64(count);
     }
     final MixedAgg merged = new MixedAgg();
@@ -3842,10 +3970,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Matching rows carried the aggregate field, but never as a number —
       // the interpreter applies string/error semantics here. Fail loudly.
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                               "Vectorized %s over field '%s': matching records hold no numeric values — "
-                                   + "string/boolean/null aggregation is not supported by the vectorized executor",
-                               func,
-                               aggField);
+          "Vectorized %s over field '%s': matching records hold no numeric values — "
+              + "string/boolean/null aggregation is not supported by the vectorized executor",
+          func, aggField);
     }
     // MixedAgg#result mirrors the interpreter's numeric promotion: pure
     // long/decimal columns produce EXACT decimal results (incl. Dec#div for
@@ -3855,47 +3982,53 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Cache key combining the query's sourcePath with a local field name.
-   * Null and empty sourcePaths produce a fixed prefix so the legacy
-   * "no path context" code path still caches deterministically.
+   * Cache key combining the query's sourcePath with a local field name. Null and empty sourcePaths
+   * produce a fixed prefix so the legacy "no path context" code path still caches deterministically.
    */
   private static String pathCacheKey(final String[] sourcePath, final String field) {
     final StringBuilder sb = new StringBuilder(32);
     if (sourcePath != null) {
       for (final String seg : sourcePath) {
-        sb.append(seg == null ? "" : seg).append('/');
+        sb.append(seg == null
+            ? ""
+            : seg)
+          .append('/');
       }
     }
     sb.append('|');
-    if (field != null) sb.append(field);
+    if (field != null)
+      sb.append(field);
     return sb.toString();
   }
 
   /**
-   * Resolve the unique pathNodeKey matching the fully-qualified query path
-   * formed by {@code sourcePath + field}. The PathSummary only creates
-   * PathNodes for ELEMENT and OBJECT_KEY, so {@code "[]"} entries in the
-   * source path (array descent) don't correspond to PathNode ancestors —
+   * Resolve the unique pathNodeKey matching the fully-qualified query path formed by
+   * {@code sourcePath + field}. The PathSummary only creates PathNodes for ELEMENT and OBJECT_KEY, so
+   * {@code "[]"} entries in the source path (array descent) don't correspond to PathNode ancestors —
    * they're filtered out before matching. Returns {@code -1L} when:
    * <ul>
-   *   <li>the resource has no path summary,</li>
-   *   <li>no PathNode's ancestor chain matches the expected named prefix, or</li>
-   *   <li>more than one PathNode matches (shouldn't happen with a consistent
-   *       summary, but we fail closed).</li>
+   * <li>the resource has no path summary,</li>
+   * <li>no PathNode's ancestor chain matches the expected named prefix, or</li>
+   * <li>more than one PathNode matches (shouldn't happen with a consistent summary, but we fail
+   * closed).</li>
    * </ul>
    *
-   * <p>Result is cached per (sourcePath, field) — hot queries pay the walk
-   * once, subsequent resolutions are a {@link ConcurrentHashMap} probe.
+   * <p>
+   * Result is cached per (sourcePath, field) — hot queries pay the walk once, subsequent resolutions
+   * are a {@link ConcurrentHashMap} probe.
    */
   private long resolveTargetPathNodeKey(final String[] sourcePath, final String field) {
-    if (field == null) return -1L;
+    if (field == null)
+      return -1L;
     // Path resolution needs only the path summary structure — statistics are
     // a separate opt-in. Conflating the two was the cause of path scoping
     // silently falling back to name-only whenever stats were disabled.
-    if (!session.getResourceConfig().withPathSummary) return -1L;
+    if (!session.getResourceConfig().withPathSummary)
+      return -1L;
     final String cacheKey = pathCacheKey(sourcePath, field);
     final Long cached = pathNodeKeyCache.get(cacheKey);
-    if (cached != null) return cached.longValue();
+    if (cached != null)
+      return cached.longValue();
     final long resolved = computeTargetPathNodeKey(sourcePath, field);
     pathNodeKeyCache.putIfAbsent(cacheKey, Long.valueOf(resolved));
     return resolved;
@@ -3905,17 +4038,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Build the expected named-ancestor chain: sourcePath with "[]" entries
     // stripped (array-descent nodes aren't materialised in the PathSummary),
     // reversed so walking up getParent() from a candidate yields it in order.
-    final int srcLen = sourcePath == null ? 0 : sourcePath.length;
+    final int srcLen = sourcePath == null
+        ? 0
+        : sourcePath.length;
     int namedCount = 0;
     for (int i = 0; i < srcLen; i++) {
       final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg)) namedCount++;
+      if (seg != null && !"[]".equals(seg))
+        namedCount++;
     }
     final String[] expectedAncestors = new String[namedCount];
     int w = 0;
     for (int i = 0; i < srcLen; i++) {
       final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg)) expectedAncestors[w++] = seg;
+      if (seg != null && !"[]".equals(seg))
+        expectedAncestors[w++] = seg;
     }
     // Ancestor chain is walked from deepest (closest to the candidate) upward;
     // compare against `expectedAncestors` in reverse order (last source-path
@@ -3924,7 +4061,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
         final List<PathNode> candidates = summary.findPathsByLocalName(field);
-        if (candidates.isEmpty()) return -1L;
+        if (candidates.isEmpty())
+          return -1L;
         long onlyMatch = -1L;
         for (final PathNode candidate : candidates) {
           PathNode cursor = candidate.getParent();
@@ -3934,12 +4072,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             while (cursor != null && resolvedLocalName(summary, cursor) == null) {
               cursor = cursor.getParent();
             }
-            if (cursor == null) { ok = false; break; }
+            if (cursor == null) {
+              ok = false;
+              break;
+            }
             final String name = resolvedLocalName(summary, cursor);
-            if (!expectedAncestors[i].equals(name)) { ok = false; break; }
+            if (!expectedAncestors[i].equals(name)) {
+              ok = false;
+              break;
+            }
             cursor = cursor.getParent();
           }
-          if (!ok) continue;
+          if (!ok)
+            continue;
           // Post-condition: after consuming expectedAncestors, the remaining
           // ancestor chain must contain NO more named ancestors (otherwise the
           // candidate lives deeper than the query path — e.g. pet.dept when
@@ -3948,7 +4093,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           while (cursor != null && resolvedLocalName(summary, cursor) == null) {
             cursor = cursor.getParent();
           }
-          if (cursor != null) continue;  // extra named ancestor — too deep
+          if (cursor != null)
+            continue; // extra named ancestor — too deep
           if (onlyMatch != -1L) {
             // Ambiguous — two PathNodes share the same qualified prefix.
             // Can't happen with a consistent summary; fail closed.
@@ -3963,7 +4109,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // array-valued field visits nothing at all. Answer "unscoped" instead: -1 is the state
         // every caller here already handles (it is what a resource without a path summary gives),
         // and it degrades to name-only matching rather than to a silent empty scan.
-        return onlyMatch != -1L && hasAnonymousArrayChild(summary, onlyMatch) ? -1L : onlyMatch;
+        return onlyMatch != -1L && hasAnonymousArrayChild(summary, onlyMatch)
+            ? -1L
+            : onlyMatch;
       } finally {
         summary.close();
       }
@@ -3973,8 +4121,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * The path node key of the anonymous ARRAY layer beneath {@code field}, or {@code -1}.
    *
-   * <p>A fused OBJECT_NAMED_ARRAY slot, and therefore the element values tagged by it, carries THAT
-   * key rather than the field's own — `/[]/genres/[]`, not `/[]/genres`. Resolved once per scan.
+   * <p>
+   * A fused OBJECT_NAMED_ARRAY slot, and therefore the element values tagged by it, carries THAT key
+   * rather than the field's own — `/[]/genres/[]`, not `/[]/genres`. Resolved once per scan.
    */
   private long arrayLayerPathNodeKey(final String[] sourcePath, final String field) {
     if (field == null || !session.getResourceConfig().withPathSummary) {
@@ -3989,15 +4138,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
-        candidates:
-        for (final PathNode candidate : summary.findPathsByLocalName(field)) {
+        candidates: for (final PathNode candidate : summary.findPathsByLocalName(field)) {
           if (!summary.moveTo(candidate.getNodeKey()) || !summary.moveToFirstChild()) {
             continue;
           }
           do {
             if (resolvedLocalName(summary, summary.getPathNode()) == null) {
               if (resolved != -1L) {
-                resolved = -1L;   // two array layers under this name: ambiguous, fail closed
+                resolved = -1L; // two array layers under this name: ambiguous, fail closed
                 break candidates;
               }
               resolved = summary.getNodeKey();
@@ -4018,8 +4166,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Whether the path-summary node at {@code pathNodeKey} has an anonymous ARRAY layer beneath it —
    * i.e. the field is array-valued somewhere in the resource.
    */
-  private static boolean hasAnonymousArrayChild(final PathSummaryReader summary,
-      final long pathNodeKey) {
+  private static boolean hasAnonymousArrayChild(final PathSummaryReader summary, final long pathNodeKey) {
     final long saved = summary.getNodeKey();
     try {
       if (!summary.moveTo(pathNodeKey) || !summary.moveToFirstChild()) {
@@ -4034,7 +4181,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       } while (summary.moveToRightSibling());
       return false;
     } catch (final RuntimeException e) {
-      return false;  // an unreadable summary scopes nothing; never fail a scan over it
+      return false; // an unreadable summary scopes nothing; never fail a scan over it
     } finally {
       summary.moveTo(saved);
     }
@@ -4046,19 +4193,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Local name of a path-summary node, or {@code null} for anonymous layers.
    *
-   * <p>{@link PathNode#getName()} is only populated for nodes created in
-   * THIS process — a deserialized summary carries nameKeys, and reading the
-   * raw field made every named ancestor look anonymous after re-open (the
-   * chain matcher then failed and the aggregate fell back to an UNSCOPED
-   * name sweep — over-counting same-named fields under other roots). Resolve
-   * through the positioned reader instead, and treat the {@code __array__}
-   * sentinel as anonymous so fresh and re-opened summaries walk identically.
+   * <p>
+   * {@link PathNode#getName()} is only populated for nodes created in THIS process — a deserialized
+   * summary carries nameKeys, and reading the raw field made every named ancestor look anonymous
+   * after re-open (the chain matcher then failed and the aggregate fell back to an UNSCOPED name
+   * sweep — over-counting same-named fields under other roots). Resolve through the positioned reader
+   * instead, and treat the {@code __array__} sentinel as anonymous so fresh and re-opened summaries
+   * walk identically.
    */
   private static String resolvedLocalName(final PathSummaryReader summary, final PathNode node) {
     final QNm inMemory = node.getName();
     if (inMemory != null) {
       final String local = inMemory.getLocalName();
-      return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
+      return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local)
+          ? null
+          : local;
     }
     if (!summary.moveTo(node.getNodeKey())) {
       return null;
@@ -4068,13 +4217,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     final String local = resolved.getLocalName();
-    return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local) ? null : local;
+    return local.isEmpty() || ARRAY_PATH_LOCAL_NAME.equals(local)
+        ? null
+        : local;
   }
 
   /**
-   * Compile a predicate tree with an extra {@code groupField} appended to its
-   * field set. This ensures {@code loadFields} also reads the group field in
-   * the same per-record sweep, so we don't need a second pass.
+   * Compile a predicate tree with an extra {@code groupField} appended to its field set. This ensures
+   * {@code loadFields} also reads the group field in the same per-record sweep, so we don't need a
+   * second pass.
    */
   private CompiledPredicate compileWithExtraField(final PredicateNode root, final String extraField) {
     return appendFieldIfMissing(compile(root), extraField);
@@ -4083,7 +4234,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Append one field to a compiled predicate's layout unless already referenced. */
   private CompiledPredicate appendFieldIfMissing(final CompiledPredicate base, final String extraField) {
     for (int i = 0; i < base.fieldNames.length; i++) {
-      if (base.fieldNames[i].equals(extraField)) return base;
+      if (base.fieldNames[i].equals(extraField))
+        return base;
     }
     final int n = base.fieldNames.length + 1;
     final String[] newNames = new String[n];
@@ -4094,7 +4246,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     System.arraycopy(base.fieldUsedInPredicate, 0, newUsed, 0, base.fieldUsedInPredicate.length);
     newNames[n - 1] = extraField;
     newKeys[n - 1] = resolveFieldKey(extraField);
-    newUsed[n - 1] = false;  // group-key / aggregate fields are not predicate operands
+    newUsed[n - 1] = false; // group-key / aggregate fields are not predicate operands
     base.fieldNames = newNames;
     base.fieldNameKeys = newKeys;
     base.fieldUsedInPredicate = newUsed;
@@ -4102,15 +4254,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private static int indexOfStr(final String[] arr, final String s) {
-    for (int i = 0; i < arr.length; i++) if (arr[i].equals(s)) return i;
+    for (int i = 0; i < arr.length; i++)
+      if (arr[i].equals(s))
+        return i;
     return -1;
   }
 
   /**
-   * Structural, allocation-light cache key for a {@link PredicateNode} tree.
-   * Equal trees produce equal keys. Uses a StringBuilder so the same field
-   * names / literals don't each create a new interned string — matters for
-   * dashboards that re-issue the same predicate.
+   * Structural, allocation-light cache key for a {@link PredicateNode} tree. Equal trees produce
+   * equal keys. Uses a StringBuilder so the same field names / literals don't each create a new
+   * interned string — matters for dashboards that re-issue the same predicate.
    */
   private static String predicateCacheKey(final PredicateNode p) {
     final StringBuilder sb = new StringBuilder(64);
@@ -4120,27 +4273,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private static void appendKey(final StringBuilder sb, final PredicateNode p) {
     switch (p) {
-      case PredicateNode.NumCmp nc -> sb.append('N').append(nc.field()).append(':').append(nc.op()).append(':')
-                                        .append(nc.value()).append(';');
-      case PredicateNode.FpCmp fc -> sb.append('D').append(fc.field()).append(':').append(fc.op()).append(':')
-                                       .append(Double.doubleToRawLongBits(fc.value())).append(';');
-      case PredicateNode.DecCmp dc -> sb.append('C').append(dc.field()).append(':').append(dc.op()).append(':')
-                                        .append(dc.value().toPlainString()).append(';');
+      case PredicateNode.NumCmp nc ->
+        sb.append('N').append(nc.field()).append(':').append(nc.op()).append(':').append(nc.value()).append(';');
+      case PredicateNode.FpCmp fc -> sb.append('D')
+                                       .append(fc.field())
+                                       .append(':')
+                                       .append(fc.op())
+                                       .append(':')
+                                       .append(Double.doubleToRawLongBits(fc.value()))
+                                       .append(';');
+      case PredicateNode.DecCmp dc -> sb.append('C')
+                                        .append(dc.field())
+                                        .append(':')
+                                        .append(dc.op())
+                                        .append(':')
+                                        .append(dc.value().toPlainString())
+                                        .append(';');
       case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
       // A DISTINCT key from StrEq on purpose: the two ask different questions of the same field
       // and value, so sharing a memo entry would answer one with the other's count.
-      case PredicateNode.ArrayContains ac -> sb.append('A').append(ac.field()).append(':')
-                                               .append(ac.value()).append(';');
+      case PredicateNode.ArrayContains ac ->
+        sb.append('A').append(ac.field()).append(':').append(ac.value()).append(';');
       case PredicateNode.BoolRef br -> sb.append('B').append(br.field()).append(';');
-      case PredicateNode.Not n -> { sb.append("!("); appendKey(sb, n.child()); sb.append(");"); }
+      case PredicateNode.Not n -> {
+        sb.append("!(");
+        appendKey(sb, n.child());
+        sb.append(");");
+      }
       case PredicateNode.And a -> {
         sb.append("&(");
-        for (PredicateNode c : a.children()) appendKey(sb, c);
+        for (PredicateNode c : a.children())
+          appendKey(sb, c);
         sb.append(");");
       }
       case PredicateNode.Or o -> {
         sb.append("|(");
-        for (PredicateNode c : o.children()) appendKey(sb, c);
+        for (PredicateNode c : o.children())
+          appendKey(sb, c);
         sb.append(");");
       }
       case PredicateNode.AlwaysTrue t -> sb.append('T').append(';');
@@ -4149,13 +4318,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Compiled form of a {@link PredicateNode} tree: operator opcodes as a byte
-   * array, ancillary operands in parallel arrays. Interpreting this in the
-   * hot loop is branch-predictable int-dispatch, no Object allocation, no
-   * String comparison, no Integer/Long/Boolean boxing.
+   * Compiled form of a {@link PredicateNode} tree: operator opcodes as a byte array, ancillary
+   * operands in parallel arrays. Interpreting this in the hot loop is branch-predictable
+   * int-dispatch, no Object allocation, no String comparison, no Integer/Long/Boolean boxing.
    *
-   * <p>Encoding (one entry per tree node, stored post-order / bottom-up is
-   * not used — we recurse via child indices):
+   * <p>
+   * Encoding (one entry per tree node, stored post-order / bottom-up is not used — we recurse via
+   * child indices):
+   * 
    * <pre>
    *   opcode        payload
    *   ───────────────────────────────────────────
@@ -4168,10 +4338,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *   OP_STR_EQ     fieldIdx, strIdx (index into strLiterals)
    *   OP_BOOL_REF   fieldIdx
    * </pre>
-   * The flat array layout was chosen because JIT-inlining of the hot predicate
-   * evaluator requires a small, type-stable representation; record-dispatch
-   * over {@link PredicateNode} reuses the switch but pays one indirection +
-   * a virtual call per node.
+   * 
+   * The flat array layout was chosen because JIT-inlining of the hot predicate evaluator requires a
+   * small, type-stable representation; record-dispatch over {@link PredicateNode} reuses the switch
+   * but pays one indirection + a virtual call per node.
    */
   private static final class CompiledPredicate {
     static final byte OP_ALWAYS_T = 0;
@@ -4188,15 +4358,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     static final byte OP_DEC_CMP = 9;
     /**
      * Membership in an array-valued field: {@code some $g in $u.f[] satisfies $g eq "lit"}. Uses
-     * {@code fieldIdx} and {@code strIdx} like {@link #OP_STR_EQ}, but tests every ELEMENT the
-     * record's array holds rather than one value.
+     * {@code fieldIdx} and {@code strIdx} like {@link #OP_STR_EQ}, but tests every ELEMENT the record's
+     * array holds rather than one value.
      */
     static final byte OP_ARRAY_CONTAINS = 10;
 
     /**
-     * Whether any node is an {@link #OP_ARRAY_CONTAINS}. The column-batched evaluator and the
-     * bytecode kernel both hold ONE value per field per row, which an array-valued field is not;
-     * they decline on this rather than meet an opcode they cannot represent.
+     * Whether any node is an {@link #OP_ARRAY_CONTAINS}. The column-batched evaluator and the bytecode
+     * kernel both hold ONE value per field per row, which an array-valued field is not; they decline on
+     * this rather than meet an opcode they cannot represent.
      */
     boolean hasArrayContains;
 
@@ -4225,10 +4395,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * The tree this predicate was compiled FROM, kept rather than discarded.
      *
-     * <p>Compiling flattens {@code And}/{@code Or}/{@code Not} into whichever interval shape the
-     * folder could express, which is lossy: a shape it cannot express becomes unservable rather
-     * than merely unoptimised. Keeping the source tree lets a page fall back to bitmap algebra over
-     * per-leaf selections instead of all the way to the record heap.
+     * <p>
+     * Compiling flattens {@code And}/{@code Or}/{@code Not} into whichever interval shape the folder
+     * could express, which is lossy: a shape it cannot express becomes unservable rather than merely
+     * unoptimised. Keeping the source tree lets a page fall back to bitmap algebra over per-leaf
+     * selections instead of all the way to the record heap.
      */
     PredicateNode tree;
 
@@ -4243,11 +4414,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Per-node EXACT decimal literal (for DecCmp), null if N/A. */
     BigDecimal[] decLit;
     /**
-     * Per-node precomputed long-row evaluation of a DecCmp: the exact decimal
-     * comparison {@code L <op> c} collapses to a pure long-space predicate
-     * ({@link #DEC_ARM_GE}/{@link #DEC_ARM_LE}/{@link #DEC_ARM_EQ} against
-     * {@link #decLongLit}, or a constant) — computed once at compile time so
-     * the per-row hot path never touches BigDecimal for integer rows.
+     * Per-node precomputed long-row evaluation of a DecCmp: the exact decimal comparison
+     * {@code L <op> c} collapses to a pure long-space predicate
+     * ({@link #DEC_ARM_GE}/{@link #DEC_ARM_LE}/{@link #DEC_ARM_EQ} against {@link #decLongLit}, or a
+     * constant) — computed once at compile time so the per-row hot path never touches BigDecimal for
+     * integer rows.
      */
     byte[] decLongArm;
     long[] decLongLit;
@@ -4261,10 +4432,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Resolved nameKeys in the same order as {@link #fieldNames}; -1 = not found in document. */
     int[] fieldNameKeys;
     /**
-     * Per-field flag: the field is referenced by a PREDICATE leaf (as opposed
-     * to being appended for group-key / aggregate loading). Loaders use it to
-     * fail LOUDLY when a predicate-referenced field carries a number the
-     * vectorized evaluator cannot compare exactly (BigDecimal / BigInteger /
+     * Per-field flag: the field is referenced by a PREDICATE leaf (as opposed to being appended for
+     * group-key / aggregate loading). Loaders use it to fail LOUDLY when a predicate-referenced field
+     * carries a number the vectorized evaluator cannot compare exactly (BigDecimal / BigInteger /
      * float) — silently truncating it would change results.
      */
     boolean[] fieldUsedInPredicate;
@@ -4275,9 +4445,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Compile a {@link PredicateNode} tree to the flat {@link CompiledPredicate}
-   * form. Called once per query; the compiled form is then consumed by the
-   * hot loop below without any allocation.
+   * Compile a {@link PredicateNode} tree to the flat {@link CompiledPredicate} form. Called once per
+   * query; the compiled form is then consumed by the hot loop below without any allocation.
    */
   private CompiledPredicate compile(final PredicateNode root) {
     // First pass: collect unique fields and string literals in deterministic order.
@@ -4296,10 +4465,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String soundAnchor = root.findSoundAnchorField();
       if (soundAnchor == null) {
         throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                                 "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
-                                     + "referenced field. The query detection should not have claimed it — "
-                                     + "update brackit or rewrite the predicate.",
-                                 predicateCacheKey(root));
+            "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
+                + "referenced field. The query detection should not have claimed it — "
+                + "update brackit or rewrite the predicate.",
+            predicateCacheKey(root));
       }
       if (!soundAnchor.equals(fieldSet.iterator().next())) {
         final LinkedHashSet<String> reordered = new LinkedHashSet<>();
@@ -4318,7 +4487,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       cp.fieldNameKeys[i] = resolveFieldKey(cp.fieldNames[i]);
     }
     cp.fieldUsedInPredicate = new boolean[cp.fieldNames.length];
-    Arrays.fill(cp.fieldUsedInPredicate, true);  // every collected field comes from a leaf
+    Arrays.fill(cp.fieldUsedInPredicate, true); // every collected field comes from a leaf
     cp.strLiterals = strSet.toArray(new String[0]);
     cp.strLiteralBytes = new byte[cp.strLiterals.length][];
     for (int i = 0; i < cp.strLiterals.length; i++) {
@@ -4337,10 +4506,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ArrayList<BigDecimal> decLit = new ArrayList<>();
     final ArrayList<Integer> strIdx = new ArrayList<>();
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
-            dblLit, decLit, strIdx);
+        dblLit, decLit, strIdx);
 
     cp.ops = new byte[ops.size()];
-    for (int i = 0; i < ops.size(); i++) cp.ops[i] = ops.get(i);
+    for (int i = 0; i < ops.size(); i++)
+      cp.ops[i] = ops.get(i);
     // Which fields hold ELEMENT LISTS rather than one value, and whether any do. The loader walks
     // a field's elements only when the predicate asked about them, and the batched/bytecode
     // evaluators — one value per field per row — decline the whole predicate on the flag.
@@ -4355,19 +4525,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     cp.children = new int[children.size()];
-    for (int i = 0; i < children.size(); i++) cp.children[i] = children.get(i);
+    for (int i = 0; i < children.size(); i++)
+      cp.children[i] = children.get(i);
     cp.childStart = new int[childStart.size()];
-    for (int i = 0; i < childStart.size(); i++) cp.childStart[i] = childStart.get(i);
+    for (int i = 0; i < childStart.size(); i++)
+      cp.childStart[i] = childStart.get(i);
     cp.childCount = new int[childCount.size()];
-    for (int i = 0; i < childCount.size(); i++) cp.childCount[i] = childCount.get(i);
+    for (int i = 0; i < childCount.size(); i++)
+      cp.childCount[i] = childCount.get(i);
     cp.fieldIdx = new int[fieldIdx.size()];
-    for (int i = 0; i < fieldIdx.size(); i++) cp.fieldIdx[i] = fieldIdx.get(i);
+    for (int i = 0; i < fieldIdx.size(); i++)
+      cp.fieldIdx[i] = fieldIdx.get(i);
     cp.cmpOp = new int[cmpOp.size()];
-    for (int i = 0; i < cmpOp.size(); i++) cp.cmpOp[i] = cmpOp.get(i);
+    for (int i = 0; i < cmpOp.size(); i++)
+      cp.cmpOp[i] = cmpOp.get(i);
     cp.longLit = new long[longLit.size()];
-    for (int i = 0; i < longLit.size(); i++) cp.longLit[i] = longLit.get(i);
+    for (int i = 0; i < longLit.size(); i++)
+      cp.longLit[i] = longLit.get(i);
     cp.dblLit = new double[dblLit.size()];
-    for (int i = 0; i < dblLit.size(); i++) cp.dblLit[i] = dblLit.get(i);
+    for (int i = 0; i < dblLit.size(); i++)
+      cp.dblLit[i] = dblLit.get(i);
     cp.decLit = new BigDecimal[decLit.size()];
     cp.decLongArm = new byte[decLit.size()];
     cp.decLongLit = new long[decLit.size()];
@@ -4381,21 +4558,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     cp.strIdx = new int[strIdx.size()];
-    for (int i = 0; i < strIdx.size(); i++) cp.strIdx[i] = strIdx.get(i);
+    for (int i = 0; i < strIdx.size(); i++)
+      cp.strIdx[i] = strIdx.get(i);
     return cp;
   }
 
   /**
-   * Precompute the long-row arm of a DEC_CMP node: the EXACT decimal
-   * comparison {@code L <op> c} over a long {@code L} reduces to a long-space
-   * predicate via floor/ceil of {@code c} (clamped at the long range):
-   * {@code L > c ⟺ L >= floor(c)+1}, {@code L >= c ⟺ L >= ceil(c)},
-   * {@code L < c ⟺ L <= ceil(c)-1}, {@code L <= c ⟺ L <= floor(c)},
-   * {@code L == c ⟺ L == c} only for integral in-range {@code c} (DecCmp is
-   * normalized to NumCmp there at detection — defensive handling stays).
+   * Precompute the long-row arm of a DEC_CMP node: the EXACT decimal comparison {@code L <op> c} over
+   * a long {@code L} reduces to a long-space predicate via floor/ceil of {@code c} (clamped at the
+   * long range): {@code L > c ⟺ L >= floor(c)+1}, {@code L >= c ⟺ L >= ceil(c)},
+   * {@code L < c ⟺ L <= ceil(c)-1}, {@code L <= c ⟺ L <= floor(c)}, {@code L == c ⟺ L == c} only for
+   * integral in-range {@code c} (DecCmp is normalized to NumCmp there at detection — defensive
+   * handling stays).
    */
-  private static void precomputeDecLongArm(final CompiledPredicate cp, final int nodeIdx,
-      final BigDecimal c) {
+  private static void precomputeDecLongArm(final CompiledPredicate cp, final int nodeIdx, final BigDecimal c) {
     final BigDecimal floor = c.setScale(0, RoundingMode.FLOOR);
     final BigDecimal ceil = c.setScale(0, RoundingMode.CEILING);
     switch (cp.cmpOp[nodeIdx]) {
@@ -4423,8 +4599,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** {@code L >= threshold} with clamping: below long range → always true; above → always false. */
-  private static void setDecArmGe(final CompiledPredicate cp, final int nodeIdx,
-      final BigDecimal threshold) {
+  private static void setDecArmGe(final CompiledPredicate cp, final int nodeIdx, final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MIN) <= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MAX) > 0) {
@@ -4436,8 +4611,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** {@code L <= threshold} with clamping: above long range → always true; below → always false. */
-  private static void setDecArmLe(final CompiledPredicate cp, final int nodeIdx,
-      final BigDecimal threshold) {
+  private static void setDecArmLe(final CompiledPredicate cp, final int nodeIdx, final BigDecimal threshold) {
     if (threshold.compareTo(BD_LONG_MAX) >= 0) {
       cp.decLongArm[nodeIdx] = CompiledPredicate.DEC_ARM_TRUE;
     } else if (threshold.compareTo(BD_LONG_MIN) < 0) {
@@ -4460,8 +4634,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Exact decimal-row evaluation of a DEC_CMP node. */
-  private static boolean evalDecOnDecimal(final CompiledPredicate cp, final int nodeIdx,
-      final BigDecimal v) {
+  private static boolean evalDecOnDecimal(final CompiledPredicate cp, final int nodeIdx, final BigDecimal v) {
     final int c = v.compareTo(cp.decLit[nodeIdx]);
     return switch (cp.cmpOp[nodeIdx]) {
       case OP_GT -> c > 0;
@@ -4479,14 +4652,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.NumCmp nc -> fields.add(nc.field());
       case PredicateNode.FpCmp fc -> fields.add(fc.field());
       case PredicateNode.DecCmp dc -> fields.add(dc.field());
-      case PredicateNode.StrEq se -> { fields.add(se.field()); strs.add(se.value()); }
-      case PredicateNode.ArrayContains ac -> { fields.add(ac.field()); strs.add(ac.value()); }
+      case PredicateNode.StrEq se -> {
+        fields.add(se.field());
+        strs.add(se.value());
+      }
+      case PredicateNode.ArrayContains ac -> {
+        fields.add(ac.field());
+        strs.add(ac.value());
+      }
       case PredicateNode.BoolRef br -> fields.add(br.field());
       case PredicateNode.Not nt -> collectLiterals(nt.child(), fields, strs);
-      case PredicateNode.And a -> { for (PredicateNode c : a.children()) collectLiterals(c, fields, strs); }
-      case PredicateNode.Or o -> { for (PredicateNode c : o.children()) collectLiterals(c, fields, strs); }
-      case PredicateNode.AlwaysTrue t -> { }
-      case PredicateNode.AlwaysFalse f -> { }
+      case PredicateNode.And a -> {
+        for (PredicateNode c : a.children())
+          collectLiterals(c, fields, strs);
+      }
+      case PredicateNode.Or o -> {
+        for (PredicateNode c : o.children())
+          collectLiterals(c, fields, strs);
+      }
+      case PredicateNode.AlwaysTrue t -> {
+      }
+      case PredicateNode.AlwaysFalse f -> {
+      }
     }
   }
 
@@ -4494,8 +4681,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static int flatten(final PredicateNode n, final String[] fieldNames, final String[] strLits,
       final ArrayList<Byte> ops, final ArrayList<Integer> children, final ArrayList<Integer> childStart,
       final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx, final ArrayList<Integer> cmpOp,
-      final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
-      final ArrayList<BigDecimal> decLit, final ArrayList<Integer> strIdx) {
+      final ArrayList<Long> longLit, final ArrayList<Double> dblLit, final ArrayList<BigDecimal> decLit,
+      final ArrayList<Integer> strIdx) {
     final int myIdx = ops.size();
     // Reserve slot.
     ops.add((byte) 0);
@@ -4546,7 +4733,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.Not nt -> {
         ops.set(myIdx, CompiledPredicate.OP_NOT);
         final int childIdx = flatten(nt.child(), fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
-                                     cmpOp, longLit, dblLit, decLit, strIdx);
+            cmpOp, longLit, dblLit, decLit, strIdx);
         childStart.set(myIdx, children.size());
         children.add(childIdx);
         childCount.set(myIdx, 1);
@@ -4555,10 +4742,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ops.set(myIdx, CompiledPredicate.OP_AND);
         final int start = children.size();
         // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
-        for (int i = 0; i < a.children().size(); i++) children.add(-1);
+        for (int i = 0; i < a.children().size(); i++)
+          children.add(-1);
         for (int i = 0; i < a.children().size(); i++) {
           children.set(start + i, flatten(a.children().get(i), fieldNames, strLits, ops, children, childStart,
-                                          childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
+              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
         }
         childStart.set(myIdx, start);
         childCount.set(myIdx, a.children().size());
@@ -4566,10 +4754,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.Or o -> {
         ops.set(myIdx, CompiledPredicate.OP_OR);
         final int start = children.size();
-        for (int i = 0; i < o.children().size(); i++) children.add(-1);
+        for (int i = 0; i < o.children().size(); i++)
+          children.add(-1);
         for (int i = 0; i < o.children().size(); i++) {
           children.set(start + i, flatten(o.children().get(i), fieldNames, strLits, ops, children, childStart,
-                                          childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
+              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
         }
         childStart.set(myIdx, start);
         childCount.set(myIdx, o.children().size());
@@ -4579,18 +4768,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private static int indexOf(final String[] arr, final String s) {
-    for (int i = 0; i < arr.length; i++) if (arr[i].equals(s)) return i;
+    for (int i = 0; i < arr.length; i++)
+      if (arr[i].equals(s))
+        return i;
     return -1;
   }
 
   /**
-   * Scratch space consumed by the hot evaluator — pre-allocated per worker,
-   * reused across every record. All arrays are indexed by fieldIdx.
+   * Scratch space consumed by the hot evaluator — pre-allocated per worker, reused across every
+   * record. All arrays are indexed by fieldIdx.
    *
-   * <p>{@code longVals} / {@code boolVals} / {@code strVals} hold the per-record
-   * decoded value; {@code present} marks whether the field exists on the
-   * record. The loader fills them by a single pass over the object's child
-   * OBJECT_KEY slots, so we avoid one rtx.moveTo per field (N fields ⇒ 1 pass).
+   * <p>
+   * {@code longVals} / {@code boolVals} / {@code strVals} hold the per-record decoded value;
+   * {@code present} marks whether the field exists on the record. The loader fills them by a single
+   * pass over the object's child OBJECT_KEY slots, so we avoid one rtx.moveTo per field (N fields ⇒ 1
+   * pass).
    */
   private static final class EvalScratch {
     long[] longVals;
@@ -4598,13 +4790,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     BigDecimal[] decVals;
     boolean[] boolVals;
     String[] strVals;
-    byte[] fieldKind;  // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
+    byte[] fieldKind; // 0 = missing, 1 = long num, 2 = bool, 3 = str, 4 = double num, 5 = decimal
     /**
      * Per field, the STRING ELEMENTS of an array-valued field, and how many are live.
      *
-     * <p>Only filled for fields an {@code ArrayContains} actually tests — the loader walks a
-     * field's element list at all only when the predicate asked about it. The rows are grown and
-     * reused rather than reallocated, because this sits on the record fallback's per-record path.
+     * <p>
+     * Only filled for fields an {@code ArrayContains} actually tests — the loader walks a field's
+     * element list at all only when the predicate asked about it. The rows are grown and reused rather
+     * than reallocated, because this sits on the record fallback's per-record path.
      */
     String[][] arrayVals;
     int[] arrayCounts;
@@ -4635,14 +4828,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final byte FK_DECIMAL = 5;
 
   /**
-   * Classify a document number for predicate evaluation: {@link #FK_LONG} for
-   * exact integers, {@link #FK_DOUBLE} for doubles, {@link #FK_DECIMAL} for
-   * BigDecimal/BigInteger (kept EXACT — the interpreter compares them in
-   * decimal space; the historical {@code Number#longValue()} coercion
-   * silently truncated them), and a LOUD failure for Float when the field is
-   * referenced by a predicate leaf. For fields NOT used by the predicate
-   * (appended group/aggregate fields) unsupported kinds stay out of the
-   * scratch ({@link #FK_MISSING}) — the typed view carries them for
+   * Classify a document number for predicate evaluation: {@link #FK_LONG} for exact integers,
+   * {@link #FK_DOUBLE} for doubles, {@link #FK_DECIMAL} for BigDecimal/BigInteger (kept EXACT — the
+   * interpreter compares them in decimal space; the historical {@code Number#longValue()} coercion
+   * silently truncated them), and a LOUD failure for Float when the field is referenced by a
+   * predicate leaf. For fields NOT used by the predicate (appended group/aggregate fields)
+   * unsupported kinds stay out of the scratch ({@link #FK_MISSING}) — the typed view carries them for
    * grouping/aggregation.
    */
   private static byte classifyNumberForPredicate(final Number n, final boolean usedInPredicate,
@@ -4666,8 +4857,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // cannot reproduce ((double) 0.1f != 0.1d). JSON ingestion has not
     // produced floats since the alpha13 narrowing removal — fail loudly.
     throw new IllegalStateException(
-        "Vectorized predicate over field '" + fieldName + "' hit a " + n.getClass().getSimpleName()
-            + " value (" + n + ") that cannot be compared exactly in the vectorized representation — "
+        "Vectorized predicate over field '" + fieldName + "' hit a " + n.getClass().getSimpleName() + " value (" + n
+            + ") that cannot be compared exactly in the vectorized representation — "
             + "failing loudly instead of silently truncating. Rewrite the query or disable vectorization.");
   }
 
@@ -4680,38 +4871,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Generic per-record predicate evaluator. Walks every leaf page in parallel;
-   * for each record it descends to each referenced field via the rtx cursor
-   * and evaluates the {@link PredicateNode} tree recursively. Much slower than
-   * the specialized PAX kernels but handles arbitrary shapes (OR, NOT,
+   * Generic per-record predicate evaluator. Walks every leaf page in parallel; for each record it
+   * descends to each referenced field via the rtx cursor and evaluates the {@link PredicateNode} tree
+   * recursively. Much slower than the specialized PAX kernels but handles arbitrary shapes (OR, NOT,
    * 3+ conjuncts, StrEq, cross-field ANDs).
    *
-   * <p>Hot-loop design:
+   * <p>
+   * Hot-loop design:
    * <ul>
-   *   <li>Compile the predicate once into {@link CompiledPredicate} — flat
-   *       arrays, no allocations per record.</li>
-   *   <li>Pre-resolve nameKeys once at compile time.</li>
-   *   <li>Anchor on the first referenced field; iterate its OBJECT_KEY slots
-   *       via {@code getObjectKeySlotsForNameKey}.</li>
-   *   <li>Per record: single pass over child OBJECT_KEYs loads all needed
-   *       field values into primitive scratch arrays. Then the evaluator
-   *       walks the compiled predicate using an iterative stack — zero
-   *       allocation, no boxing.</li>
+   * <li>Compile the predicate once into {@link CompiledPredicate} — flat arrays, no allocations per
+   * record.</li>
+   * <li>Pre-resolve nameKeys once at compile time.</li>
+   * <li>Anchor on the first referenced field; iterate its OBJECT_KEY slots via
+   * {@code getObjectKeySlotsForNameKey}.</li>
+   * <li>Per record: single pass over child OBJECT_KEYs loads all needed field values into primitive
+   * scratch arrays. Then the evaluator walks the compiled predicate using an iterative stack — zero
+   * allocation, no boxing.</li>
    * </ul>
    */
   /**
-   * If a covering projection index is installed in
-   * {@link ProjectionIndexRegistry} for this {@code (session, sourcePath)}
-   * and the predicate is a conjunctive tree over supported leaf shapes
+   * If a covering projection index is installed in {@link ProjectionIndexRegistry} for this
+   * {@code (session, sourcePath)} and the predicate is a conjunctive tree over supported leaf shapes
    * (NUM_CMP, STR_EQ, BOOL_REF), returns the count produced by
-   * {@link ProjectionIndexByteScan#conjunctiveCount}. Returns {@code null}
-   * otherwise, triggering the generic predicate path below.
+   * {@link ProjectionIndexByteScan#conjunctiveCount}. Returns {@code null} otherwise, triggering the
+   * generic predicate path below.
    *
-   * <p>Supported conjunctive shapes: a single NUM_CMP / STR_EQ / BOOL_REF
-   * leaf, or OP_AND whose direct children are all such leaves. Nested
-   * ANDs, ORs, NOTs, or comparisons against literals that aren't integer /
-   * UTF-8 string are intentionally not matched — they fall back rather
-   * than silently mis-evaluate.
+   * <p>
+   * Supported conjunctive shapes: a single NUM_CMP / STR_EQ / BOOL_REF leaf, or OP_AND whose direct
+   * children are all such leaves. Nested ANDs, ORs, NOTs, or comparisons against literals that aren't
+   * integer / UTF-8 string are intentionally not matched — they fall back rather than silently
+   * mis-evaluate.
    */
   private Long tryProjectionIndexFastPath(final String[] sourcePath, final CompiledPredicate cp) {
     final Long served = tryProjectionIndexFastPath0(sourcePath, cp);
@@ -4726,14 +4915,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // per-query toString() or try/catch on the hot path.
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) {
-      if (PROJ_DIAG) System.err.println("[proj] null resourceKey");
+      if (PROJ_DIAG)
+        System.err.println("[proj] null resourceKey");
       return null;
     }
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, cp.fieldNames);
     if (handle == null) {
-      if (PROJ_DIAG) System.err.println("[proj] no covering handle for key=" + resourceKey
-          + " path=" + Arrays.toString(sourcePath)
-          + " fields=" + Arrays.toString(cp.fieldNames));
+      if (PROJ_DIAG)
+        System.err.println("[proj] no covering handle for key=" + resourceKey + " path=" + Arrays.toString(sourcePath)
+            + " fields=" + Arrays.toString(cp.fieldNames));
       return null;
     }
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
@@ -4741,7 +4931,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (extracted == null) {
       // Not a pure conjunction — AND/OR trees serve through the fold kernels (stage 6).
       final Long treeCount = tryTreeCount(cp, handle, fetcher);
-      if (treeCount == null && PROJ_DIAG) System.err.println("[proj] unsupported shape");
+      if (treeCount == null && PROJ_DIAG)
+        System.err.println("[proj] unsupported shape");
       return treeCount;
     }
     // iter#07 range fusion: collapse same-column (GT|GE, LT|LE) pairs
@@ -4768,8 +4959,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (DICT_COUNT_ENABLED && preds.length == 1 && preds[0].stringLitBytes != null
         && preds[0].op == ProjectionIndexScan.Op.EQ && store != null
         && store.columnKind(preds[0].column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-      final Long fromMetadata = handle.setValueRowCount(
-          preds[0].column, new String(preds[0].stringLitBytes, java.nio.charset.StandardCharsets.UTF_8));
+      final Long fromMetadata = handle.setValueRowCount(preds[0].column,
+          new String(preds[0].stringLitBytes, java.nio.charset.StandardCharsets.UTF_8));
       if (fromMetadata != null) {
         if (PROJ_DIAG) {
           System.err.println("[proj] metadata count SERVED: " + fromMetadata);
@@ -4785,9 +4976,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         && preds[0].op == ProjectionIndexScan.Op.EQ
         && store.columnKind(preds[0].column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
       try {
-        final long fromDict = ProjectionColumnScan.countSetMembership(store, preds[0].column,
-                                                                      preds[0].stringLitBytes,
-                                                                      fetcher);
+        final long fromDict =
+            ProjectionColumnScan.countSetMembership(store, preds[0].column, preds[0].stringLitBytes, fetcher);
         if (fromDict >= 0) {
           if (PROJ_DIAG) {
             System.err.println("[proj] dictionary count SERVED: " + fromDict);
@@ -4816,30 +5006,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-    return rowGroupPayloads == null ? null : parallelConjunctiveCount(rowGroupPayloads, preds);
+    return rowGroupPayloads == null
+        ? null
+        : parallelConjunctiveCount(rowGroupPayloads, preds);
   }
 
   /**
-   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCount}.
-   * At 100M records the projection index holds ~100K leaves (~2 GB of
-   * {@code byte[]}s); a single-threaded iteration spends most of its
-   * time in per-leaf overhead (header decode + zone-map probe + mask
-   * reset + SIMD evaluate) rather than payload bandwidth. Chunking the
-   * leaf list across the executor's worker pool turns this into a
-   * parallel reduction — essentially free given we already have the
-   * threads, and roughly {@code threads}× throughput on scans where
-   * per-leaf work dominates.
+   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCount}. At 100M records the
+   * projection index holds ~100K leaves (~2 GB of {@code byte[]}s); a single-threaded iteration
+   * spends most of its time in per-leaf overhead (header decode + zone-map probe + mask reset + SIMD
+   * evaluate) rather than payload bandwidth. Chunking the leaf list across the executor's worker pool
+   * turns this into a parallel reduction — essentially free given we already have the threads, and
+   * roughly {@code threads}× throughput on scans where per-leaf work dominates.
    *
-   * <p>The chunks are materialised as {@link java.util.List} sub-views
-   * (no copy). Each worker gets its own per-chunk scratch (long[],
-   * mask buffers) — the underlying {@code countRowGroup} is already
-   * zero-alloc per leaf so the only allocation is the per-worker
-   * scratch, amortised over {@code rowGroupCount / threads} leaves.
+   * <p>
+   * The chunks are materialised as {@link java.util.List} sub-views (no copy). Each worker gets its
+   * own per-chunk scratch (long[], mask buffers) — the underlying {@code countRowGroup} is already
+   * zero-alloc per leaf so the only allocation is the per-worker scratch, amortised over
+   * {@code rowGroupCount / threads} leaves.
    */
   private long parallelConjunctiveCount(final java.util.List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     final int rowGroupCount = rowGroupPayloads.size();
-    if (rowGroupCount == 0) return 0L;
+    if (rowGroupCount == 0)
+      return 0L;
     // For very small leaf counts (e.g. small datasets) the fan-out cost
     // dominates; fall back to single-threaded scan.
     if (rowGroupCount < 64) {
@@ -4853,42 +5043,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         // subList is a view — no copy. The underlying List is immutable
         // (installed once, read many), so concurrent subList iteration is
         // safe.
-        perThread[idx] = ProjectionIndexByteScan.conjunctiveCount(
-            rowGroupPayloads.subList(from, to), preds);
+        perThread[idx] = ProjectionIndexByteScan.conjunctiveCount(rowGroupPayloads.subList(from, to), preds);
       });
     } catch (final Exception e) {
       throw projectionWorkerFailure("parallel projection conjunctiveCount failed", e);
     }
 
     long total = 0L;
-    for (final long c : perThread) total += c;
+    for (final long c : perThread)
+      total += c;
     return total;
   }
 
   /**
    * Rethrow what a projection worker threw, preserving a DECLINE as a decline.
    *
-   * <p>The projection kernels signal "this leaf is not mine to serve" — a group column that is not
-   * a string dictionary, a malformed leaf, a width no plan covers — by throwing
-   * {@link IllegalStateException}, and every caller of these parallel drivers catches exactly that
-   * to fall back to the generic pipeline. A worker's throwable arrives here inside an
+   * <p>
+   * The projection kernels signal "this leaf is not mine to serve" — a group column that is not a
+   * string dictionary, a malformed leaf, a width no plan covers — by throwing
+   * {@link IllegalStateException}, and every caller of these parallel drivers catches exactly that to
+   * fall back to the generic pipeline. A worker's throwable arrives here inside an
    * {@link java.util.concurrent.ExecutionException}, and wrapping that in a plain
-   * {@link RuntimeException} put the decline where no caller looks: the fallback turned into a
-   * failed query.
+   * {@link RuntimeException} put the decline where no caller looks: the fallback turned into a failed
+   * query.
    *
-   * <p>And it did so only past the fan-out threshold. Below 64 row groups these drivers run the
-   * scan inline, where the same decline propagates unwrapped and is caught — so a projection that
-   * declines answers correctly on a small corpus and throws on a large one, which is the shape of
-   * bug that survives a test suite. Measured: {@code count(... group by $year)} over a 3.48M-record
-   * corpus with a projection on a numeric column failed outright, while the same query with the
-   * same projection over a few thousand records fell back and answered.
+   * <p>
+   * And it did so only past the fan-out threshold. Below 64 row groups these drivers run the scan
+   * inline, where the same decline propagates unwrapped and is caught — so a projection that declines
+   * answers correctly on a small corpus and throws on a large one, which is the shape of bug that
+   * survives a test suite. Measured: {@code count(... group by $year)} over a 3.48M-record corpus
+   * with a projection on a numeric column failed outright, while the same query with the same
+   * projection over a few thousand records fell back and answered.
    *
-   * <p>Anything that is not a decline keeps its wrapper: a genuine failure inside a worker must not
-   * be quietly downgraded into "the fast path passed on it".
+   * <p>
+   * Anything that is not a decline keeps its wrapper: a genuine failure inside a worker must not be
+   * quietly downgraded into "the fast path passed on it".
    *
    * @return the exception to throw, when the cause was not a decline
    */
@@ -4906,130 +5100,117 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * iter#10 feature flag: route the group-by accumulator through a dense
-   * {@code long[N]} indexed by canonical-dict position instead of an
-   * {@code Object2LongOpenHashMap<String>} when the group column's
-   * cardinality is bounded.
+   * iter#10 feature flag: route the group-by accumulator through a dense {@code long[N]} indexed by
+   * canonical-dict position instead of an {@code Object2LongOpenHashMap<String>} when the group
+   * column's cardinality is bounded.
    *
    * <h2>Why it's <em>not</em> the default</h2>
    *
-   * On the iter#09 post-commit JVM (C2 + {@code -XX:-UseJVMCICompiler} +
-   * AppCDS + install-time JIT pre-warm of
-   * {@code conjunctiveCountByGroup}), the hashmap path under C2 is
-   * already near-optimal: pre-warm + stable type profile collapse the
-   * theoretical {@code Object2LongOpenHashMap.addTo + String.equals +
-   * String.hashCode} cost (iter#09 measured ~11 % of cold CPU) to a
-   * ~7-8 % steady-state frame.
+   * On the iter#09 post-commit JVM (C2 + {@code -XX:-UseJVMCICompiler} + AppCDS + install-time JIT
+   * pre-warm of {@code conjunctiveCountByGroup}), the hashmap path under C2 is already near-optimal:
+   * pre-warm + stable type profile collapse the theoretical
+   * {@code Object2LongOpenHashMap.addTo + String.equals +
+   * String.hashCode} cost (iter#09 measured ~11 % of cold CPU) to a ~7-8 % steady-state frame.
    *
-   * <p>The dense path trades that 7-8 % for a per-leaf {@code dictId → canonId}
-   * remap (8×8 byte-compares per bench leaf × 97,657 leaves), which
-   * consumes ~7-8 % of CPU on its own. Net-even CPU-wise. And the
-   * dense-path method requires its own JIT tier-up; even with
-   * install-time pre-warm the per-call cost is marginally higher than
-   * the fully-intrinsified hashmap path.
+   * <p>
+   * The dense path trades that 7-8 % for a per-leaf {@code dictId → canonId} remap (8×8 byte-compares
+   * per bench leaf × 97,657 leaves), which consumes ~7-8 % of CPU on its own. Net-even CPU-wise. And
+   * the dense-path method requires its own JIT tier-up; even with install-time pre-warm the per-call
+   * cost is marginally higher than the fully-intrinsified hashmap path.
    *
-   * <p>Measurement from 16-run 8×8 A/B (iter#10 validation):
+   * <p>
+   * Measurement from 16-run 8×8 A/B (iter#10 validation):
    * <ul>
-   *   <li>dense=true median 2.32 s; hashmap=false median 2.07 s
-   *       (dense +12 % slower);</li>
-   *   <li>{@code groupByDept} min: dense 0.46 ms vs hashmap 0.42 ms;</li>
-   *   <li>CPU profile: dense path eliminates the ~180 samples of
-   *       addTo/String.equals but absorbs the same ~180 samples in
-   *       {@code conjunctiveCountByGroupDense} self-time.</li>
+   * <li>dense=true median 2.32 s; hashmap=false median 2.07 s (dense +12 % slower);</li>
+   * <li>{@code groupByDept} min: dense 0.46 ms vs hashmap 0.42 ms;</li>
+   * <li>CPU profile: dense path eliminates the ~180 samples of addTo/String.equals but absorbs the
+   * same ~180 samples in {@code conjunctiveCountByGroupDense} self-time.</li>
    * </ul>
    *
-   * <p><b>Kept as opt-in</b> because future workloads may benefit:
-   * workloads with much higher cardinality on canonical dict (where the
-   * hashmap hit rate falls and {@code String.equals} collision chains
-   * grow); runtimes where {@code String.equals} is not aggressively
-   * intrinsified (e.g. GraalVM native-image with graal#13377 unresolved,
-   * where all {@link java.lang.foreign.MemorySegment} paths are slower
-   * than their byte[]-based dense equivalents); or future rewrites of
-   * the dense path that eliminate the per-leaf remap via a cached
-   * {@code leafRemaps: int[][]} on the Handle (the dict is stable per
-   * leaf, so the remap need only be computed once).
+   * <p>
+   * <b>Kept as opt-in</b> because future workloads may benefit: workloads with much higher
+   * cardinality on canonical dict (where the hashmap hit rate falls and {@code String.equals}
+   * collision chains grow); runtimes where {@code String.equals} is not aggressively intrinsified
+   * (e.g. GraalVM native-image with graal#13377 unresolved, where all
+   * {@link java.lang.foreign.MemorySegment} paths are slower than their byte[]-based dense
+   * equivalents); or future rewrites of the dense path that eliminate the per-leaf remap via a cached
+   * {@code leafRemaps: int[][]} on the Handle (the dict is stable per leaf, so the remap need only be
+   * computed once).
    *
-   * <p>Enable with {@code -Dsirix.projection.denseGroupBy=true}.
+   * <p>
+   * Enable with {@code -Dsirix.projection.denseGroupBy=true}.
    */
   private static final boolean DENSE_GROUPBY_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
 
   /**
-   * Dense COMPOSITE group-by gate. Unlike the single-key case (where the
-   * hashmap path's one intrinsified probe per row is competitive at tiny
-   * cardinality — see {@link #DENSE_GROUPBY_ENABLED}), the composite kernel
-   * replaces TWO hash probes plus lazy composite-String assembly per row
-   * with a single mixed-radix array increment, which wins outright; hence
-   * default ON. Disable via {@code -Dsirix.projection.denseMultiGroupBy=false}.
+   * Dense COMPOSITE group-by gate. Unlike the single-key case (where the hashmap path's one
+   * intrinsified probe per row is competitive at tiny cardinality — see
+   * {@link #DENSE_GROUPBY_ENABLED}), the composite kernel replaces TWO hash probes plus lazy
+   * composite-String assembly per row with a single mixed-radix array increment, which wins outright;
+   * hence default ON. Disable via {@code -Dsirix.projection.denseMultiGroupBy=false}.
    */
   private static final boolean MULTI_DENSE_GROUPBY_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.denseMultiGroupBy", "true"));
 
   /**
-   * Upper bound on the dense composite accumulator ({@code prod(canonLen+1)}
-   * cells, one {@code long} each, per worker). 1M cells = 8 MB per worker —
-   * beyond that the hashmap path is the better trade.
+   * Upper bound on the dense composite accumulator ({@code prod(canonLen+1)} cells, one {@code long}
+   * each, per worker). 1M cells = 8 MB per worker — beyond that the hashmap path is the better trade.
    */
   private static final long MULTI_DENSE_MAX_CELLS =
       Long.parseLong(System.getProperty("sirix.projection.denseMultiGroupBy.maxCells", String.valueOf(1L << 20)));
 
   /**
    * Cardinality bail-out for the dictionary-union count-distinct kernel
-   * ({@link ProjectionIndexByteScan#distinctPresentStrings}); beyond this the
-   * group-counting path (any cardinality) takes over.
+   * ({@link ProjectionIndexByteScan#distinctPresentStrings}); beyond this the group-counting path
+   * (any cardinality) takes over.
    */
   private static final int COUNT_DISTINCT_DICT_CARD_LIMIT =
       Integer.parseInt(System.getProperty("sirix.projection.countDistinct.cardLimit", "1024"));
 
   /**
-   * Probe-leaf cap for canonical-dict cardinality estimation. Default 16
-   * leaves is enough for the bench's 8-way uniform {dept, city}
-   * distribution (by row 100 on the first 1024-row leaf each distinct
-   * value has typically already appeared); larger installs tolerate a
-   * bigger probe without re-scanning the full 97K-leaf index.
+   * Probe-leaf cap for canonical-dict cardinality estimation. Default 16 leaves is enough for the
+   * bench's 8-way uniform {dept, city} distribution (by row 100 on the first 1024-row leaf each
+   * distinct value has typically already appeared); larger installs tolerate a bigger probe without
+   * re-scanning the full 97K-leaf index.
    *
-   * <p>Tune via {@code -Dsirix.projection.denseGroupBy.probeLeaves=N}.
+   * <p>
+   * Tune via {@code -Dsirix.projection.denseGroupBy.probeLeaves=N}.
    */
   private static final int DENSE_GROUPBY_PROBE_LEAVES =
       Integer.parseInt(System.getProperty("sirix.projection.denseGroupBy.probeLeaves", "16"));
 
   /**
-   * Hard cap on dense group-by cardinality. Each worker pays
-   * {@code N * 8 bytes} per scan for the {@code long[N]} accumulator;
-   * at the default 256 that's 2 KB per worker — negligible vs the
-   * per-thread scratch buffers already in
-   * {@link ProjectionIndexByteScan.ScanScratch}.
+   * Hard cap on dense group-by cardinality. Each worker pays {@code N * 8 bytes} per scan for the
+   * {@code long[N]} accumulator; at the default 256 that's 2 KB per worker — negligible vs the
+   * per-thread scratch buffers already in {@link ProjectionIndexByteScan.ScanScratch}.
    *
-   * <p>Values above this limit fall back to the existing hashmap path.
-   * Tune via {@code -Dsirix.projection.denseGroupBy.cardLimit=N}.
+   * <p>
+   * Values above this limit fall back to the existing hashmap path. Tune via
+   * {@code -Dsirix.projection.denseGroupBy.cardLimit=N}.
    */
   private static final int DENSE_GROUPBY_CARD_LIMIT =
       Integer.parseInt(System.getProperty("sirix.projection.denseGroupBy.cardLimit", "256"));
 
   /**
-   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCountByGroup}.
-   * Same rationale as {@link #parallelConjunctiveCount} — the per-leaf
-   * work is dominated by header decode + predicate eval, and a
-   * single-thread scan over 100K leaves leaves ~19 cores idle. Per-worker
+   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCountByGroup}. Same rationale
+   * as {@link #parallelConjunctiveCount} — the per-leaf work is dominated by header decode +
+   * predicate eval, and a single-thread scan over 100K leaves leaves ~19 cores idle. Per-worker
    * partial group-count maps are merged at the end.
    *
-   * <p>iter#10: when {@link #DENSE_GROUPBY_ENABLED} is {@code true} and
-   * the handle's canonical dict for {@code groupColumn} is known (built
-   * on first access via {@link ProjectionIndexRegistry.Handle#canonicalDict}),
-   * route through the dense accumulator via
-   * {@link ProjectionIndexByteScan#conjunctiveCountByGroupDense}; otherwise
-   * fall through to the legacy hashmap path.
+   * <p>
+   * iter#10: when {@link #DENSE_GROUPBY_ENABLED} is {@code true} and the handle's canonical dict for
+   * {@code groupColumn} is known (built on first access via
+   * {@link ProjectionIndexRegistry.Handle#canonicalDict}), route through the dense accumulator via
+   * {@link ProjectionIndexByteScan#conjunctiveCountByGroupDense}; otherwise fall through to the
+   * legacy hashmap path.
    */
-  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroup(
-      final ProjectionIndexRegistry.Handle handle,
-      final ProjectionIndexScan.ColumnPredicate[] preds,
-      final int groupColumn,
-      final long[] missingOut) {
+  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroup(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn, final long[] missingOut) {
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     final List<byte[]> rowGroupPayloads = handle.rowGroupPayloads(materializer);
     final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
-        ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT,
-            materializer)
+        ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT, materializer)
         : null;
     if (canonicalDict != null) {
       return parallelConjunctiveCountByGroupDense(rowGroupPayloads, preds, groupColumn, canonicalDict, missingOut);
@@ -5038,23 +5219,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Legacy hashmap-based group-by accumulator. Kept as the fallback when
-   * (a) dense group-by is disabled by flag, (b) canonical dict exceeds
-   * the cardinality limit, or (c) group column is not STRING_DICT.
+   * Legacy hashmap-based group-by accumulator. Kept as the fallback when (a) dense group-by is
+   * disabled by flag, (b) canonical dict exceeds the cardinality limit, or (c) group column is not
+   * STRING_DICT.
    *
-   * <p>{@code missingOut[0]} accumulates matching rows whose group field is
-   * MISSING (sparse data) — the caller emits them as the null-key group, the
-   * way the interpreter groups records lacking the field.
+   * <p>
+   * {@code missingOut[0]} accumulates matching rows whose group field is MISSING (sparse data) — the
+   * caller emits them as the null-key group, the way the interpreter groups records lacking the
+   * field.
    */
-  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(
-      final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] preds,
-      final int groupColumn,
-      final long[] missingOut) {
+  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn, final long[] missingOut) {
     final int rowGroupCount = rowGroupPayloads.size();
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
-    if (rowGroupCount == 0) return merged;
+    if (rowGroupCount == 0)
+      return merged;
     if (rowGroupCount < 64) {
       ProjectionIndexByteScan.conjunctiveCountByGroup(rowGroupPayloads, preds, groupColumn, merged, missingOut);
       return merged;
@@ -5069,12 +5249,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
         local.defaultReturnValue(0L);
-        final long[] localMissing = missingOut != null ? new long[1] : null;
-        ProjectionIndexByteScan.conjunctiveCountByGroup(
-            rowGroupPayloads.subList(from, to), preds, groupColumn, local, localMissing);
+        final long[] localMissing = missingOut != null
+            ? new long[1]
+            : null;
+        ProjectionIndexByteScan.conjunctiveCountByGroup(rowGroupPayloads.subList(from, to), preds, groupColumn, local,
+            localMissing);
         perThread[idx] = local;
         perThreadMissing[idx] = localMissing;
       });
@@ -5083,7 +5266,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     for (final var m : perThread) {
-      if (m == null) continue;
+      if (m == null)
+        continue;
       final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> e = it.next();
@@ -5092,43 +5276,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (missingOut != null) {
       for (final long[] lm : perThreadMissing) {
-        if (lm != null) missingOut[0] += lm[0];
+        if (lm != null)
+          missingOut[0] += lm[0];
       }
     }
     return merged;
   }
 
   /**
-   * Dense parallel group-by accumulator: per-worker {@code long[N]}
-   * indexed by canonical-dict position. Replaces the
-   * {@link Object2LongOpenHashMap#addTo} CPU cost (~5-11 % of cold CPU
-   * on the 100M bench's group-by queries) with a pure array-indexed
-   * increment on the per-matching-row hot path.
+   * Dense parallel group-by accumulator: per-worker {@code long[N]} indexed by canonical-dict
+   * position. Replaces the {@link Object2LongOpenHashMap#addTo} CPU cost (~5-11 % of cold CPU on the
+   * 100M bench's group-by queries) with a pure array-indexed increment on the per-matching-row hot
+   * path.
    *
-   * <p>A per-worker {@link Object2LongOpenHashMap} fallback catches any
-   * leaf whose dict contains a value NOT in {@code canonicalDict} (late-
-   * arriving value beyond what the probe found). The dense + fallback
-   * counts are merged together at the end.
+   * <p>
+   * A per-worker {@link Object2LongOpenHashMap} fallback catches any leaf whose dict contains a value
+   * NOT in {@code canonicalDict} (late- arriving value beyond what the probe found). The dense +
+   * fallback counts are merged together at the end.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupDense(
-      final java.util.List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] preds,
-      final int groupColumn,
-      final byte[][] canonicalDict,
-      final long[] missingOut) {
+      final java.util.List<byte[]> rowGroupPayloads, final ProjectionIndexScan.ColumnPredicate[] preds,
+      final int groupColumn, final byte[][] canonicalDict, final long[] missingOut) {
     final int rowGroupCount = rowGroupPayloads.size();
     final int canonLen = canonicalDict.length;
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
     merged.defaultReturnValue(0L);
-    if (rowGroupCount == 0) return merged;
+    if (rowGroupCount == 0)
+      return merged;
 
     if (rowGroupCount < 64) {
       // Serial dense path — small enough that parallelism overhead dominates.
       final long[] counts = new long[canonLen];
       final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
       fallback.defaultReturnValue(0L);
-      ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-          rowGroupPayloads, preds, groupColumn, canonicalDict, counts, fallback, missingOut);
+      ProjectionIndexByteScan.conjunctiveCountByGroupDense(rowGroupPayloads, preds, groupColumn, canonicalDict, counts,
+          fallback, missingOut);
       mergeDense(merged, canonicalDict, counts, fallback);
       return merged;
     }
@@ -5144,13 +5326,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final long[] counts = new long[canonLen];
         final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
         fallback.defaultReturnValue(0L);
-        final long[] localMissing = missingOut != null ? new long[1] : null;
-        ProjectionIndexByteScan.conjunctiveCountByGroupDense(
-            rowGroupPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback, localMissing);
+        final long[] localMissing = missingOut != null
+            ? new long[1]
+            : null;
+        ProjectionIndexByteScan.conjunctiveCountByGroupDense(rowGroupPayloads.subList(from, to), preds, groupColumn,
+            canonicalDict, counts, fallback, localMissing);
         perThreadCounts[idx] = counts;
         perThreadFallback[idx] = fallback;
         perThreadMissing[idx] = localMissing;
@@ -5160,7 +5345,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     if (missingOut != null) {
       for (final long[] lm : perThreadMissing) {
-        if (lm != null) missingOut[0] += lm[0];
+        if (lm != null)
+          missingOut[0] += lm[0];
       }
     }
 
@@ -5169,8 +5355,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // path for API parity — decode each canonical dict entry once here.
     final long[] totals = new long[canonLen];
     for (final long[] tc : perThreadCounts) {
-      if (tc == null) continue;
-      for (int i = 0; i < canonLen; i++) totals[i] += tc[i];
+      if (tc == null)
+        continue;
+      for (int i = 0; i < canonLen; i++)
+        totals[i] += tc[i];
     }
     for (int i = 0; i < canonLen; i++) {
       if (totals[i] != 0L) {
@@ -5179,7 +5367,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     // Accumulate per-thread fallback maps (values not in canonical dict).
     for (final var m : perThreadFallback) {
-      if (m == null) continue;
+      if (m == null)
+        continue;
       final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
       while (it.hasNext()) {
         final Object2LongMap.Entry<String> e = it.next();
@@ -5190,13 +5379,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Merge helper used by the serial ({@code rowGroupCount < 64}) dense path:
-   * accumulate {@code counts[i]} against the canonical dict keys and
-   * union any fallback entries.
+   * Merge helper used by the serial ({@code rowGroupCount < 64}) dense path: accumulate
+   * {@code counts[i]} against the canonical dict keys and union any fallback entries.
    */
-  private static void mergeDense(final Object2LongOpenHashMap<String> merged,
-      final byte[][] canonicalDict, final long[] counts,
-      final Object2LongOpenHashMap<String> fallback) {
+  private static void mergeDense(final Object2LongOpenHashMap<String> merged, final byte[][] canonicalDict,
+      final long[] counts, final Object2LongOpenHashMap<String> fallback) {
     for (int i = 0; i < canonicalDict.length; i++) {
       if (counts[i] != 0L) {
         merged.put(new String(canonicalDict[i], StandardCharsets.UTF_8), counts[i]);
@@ -5212,38 +5399,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Group-by-count analogue of {@link #tryProjectionIndexFastPath}. Returns
-   * a Brackit {@link Sequence} of {@code {"<groupField>": value, "count": n}}
-   * objects when the query can be answered entirely from a projection index;
-   * {@code null} otherwise (triggers fallback to the generic scan).
+   * Group-by-count analogue of {@link #tryProjectionIndexFastPath}. Returns a Brackit
+   * {@link Sequence} of {@code {"<groupField>": value, "count": n}} objects when the query can be
+   * answered entirely from a projection index; {@code null} otherwise (triggers fallback to the
+   * generic scan).
    *
-   * <p>Eligibility criteria:
+   * <p>
+   * Eligibility criteria:
    * <ul>
-   *   <li>A projection index is registered for the (resource, sourcePath).
-   *   <li>All predicate fields AND the group field are columns of that index.
-   *   <li>The predicate tree is a conjunction of supported leaves
-   *       (see {@link #extractConjunctivePredicates}).
-   *   <li>The group column is STRING_DICT — numeric / boolean group-by is
-   *       out of scope here and falls through.
+   * <li>A projection index is registered for the (resource, sourcePath).
+   * <li>All predicate fields AND the group field are columns of that index.
+   * <li>The predicate tree is a conjunction of supported leaves (see
+   * {@link #extractConjunctivePredicates}).
+   * <li>The group column is STRING_DICT — numeric / boolean group-by is out of scope here and falls
+   * through.
    * </ul>
    */
-  private Sequence tryProjectionIndexGroupByFastPath(
-      final String[] sourcePath, final CompiledPredicate cp, final String groupField) {
+  private Sequence tryProjectionIndexGroupByFastPath(final String[] sourcePath, final CompiledPredicate cp,
+      final String groupField) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
+    if (resourceKey == null)
+      return null;
     // cp.fieldNames includes the group field (compileWithExtraField), so the
     // covering lookup implicitly requires the group field to also be a
     // column of the selected projection.
     final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, cp.fieldNames);
-    if (handle == null) return null;
+    if (handle == null)
+      return null;
     final int groupColumn = handle.columnOf(groupField);
-    if (groupColumn < 0) return null;
+    if (groupColumn < 0)
+      return null;
     // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
     if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-    if (extracted == null) return null;
+    if (extracted == null)
+      return null;
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
     final long[] missing = new long[1];
@@ -5255,20 +5447,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // generic scan path rather than raise an executor-level error.
       return null;
     }
-    if (agg == null) return null;
+    if (agg == null)
+      return null;
     final ArrayList<Item> outItems = new ArrayList<>(agg.size() + 1);
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
     final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
     while (it.hasNext()) {
       final Object2LongMap.Entry<String> e = it.next();
-      final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {new Str(e.getKey()), new Int64(e.getLongValue())};
       outItems.add(new ArrayObject(keys, vals));
     }
     if (missing[0] > 0) {
-      final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { Null.INSTANCE, new Int64(missing[0]) };
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {Null.INSTANCE, new Int64(missing[0])};
       outItems.add(new ArrayObject(keys, vals));
     }
     return new ItemSequence(outItems.toArray(new Item[0]));
@@ -5277,18 +5470,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
 
   /**
-   * Whether a bare set-membership count may be answered from the dictionaries alone. On by default;
-   * a switch so the two routes can be INTERLEAVED in one build rather than compared across corpora.
+   * Whether a bare set-membership count may be answered from the dictionaries alone. On by default; a
+   * switch so the two routes can be INTERLEAVED in one build rather than compared across corpora.
    */
-  private static final boolean DICT_COUNT_ENABLED =
-      !"false".equals(System.getProperty("sirix.projection.dictCount"));
+  private static final boolean DICT_COUNT_ENABLED = !"false".equals(System.getProperty("sirix.projection.dictCount"));
 
   /**
    * Predicate counts answered from a PROJECTION INDEX rather than from storage.
    *
-   * <p>A route that silently declines is indistinguishable from one that works, because the
-   * fallback returns the same answer — which makes a differential test pass while proving nothing.
-   * This is what lets a test assert the route was actually taken.
+   * <p>
+   * A route that silently declines is indistinguishable from one that works, because the fallback
+   * returns the same answer — which makes a differential test pass while proving nothing. This is
+   * what lets a test assert the route was actually taken.
    */
   private static final LongAdder PROJECTION_COUNTS_SERVED = new LongAdder();
 
@@ -5303,21 +5496,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Page-skip scan plan: decides whether to scan all pages or only a
-   * cached subset, and whether to populate the page-skip bitmap as a
-   * side-effect of this scan.
+   * Page-skip scan plan: decides whether to scan all pages or only a cached subset, and whether to
+   * populate the page-skip bitmap as a side-effect of this scan.
    *
-   * <p>Layout:
+   * <p>
+   * Layout:
    * <ul>
-   *   <li>{@code pages != null}: iterate only these {@code int} page keys
-   *       (sorted ascending). No recording — the bitmap was already
-   *       built by a previous scan anchored on the same nameKey.</li>
-   *   <li>{@code pages == null && recordBuffers != null}: iterate all
-   *       pages [0, totalPages); each worker records the pages where
-   *       anchor nameKey matched into its own buffer. Buffers are
-   *       merged and published at scan end.</li>
-   *   <li>{@code pages == null && recordBuffers == null}: iterate all
-   *       pages; don't record (no resource key, or nameKey == -1).</li>
+   * <li>{@code pages != null}: iterate only these {@code int} page keys (sorted ascending). No
+   * recording — the bitmap was already built by a previous scan anchored on the same nameKey.</li>
+   * <li>{@code pages == null && recordBuffers != null}: iterate all pages [0, totalPages); each
+   * worker records the pages where anchor nameKey matched into its own buffer. Buffers are merged and
+   * published at scan end.</li>
+   * <li>{@code pages == null && recordBuffers == null}: iterate all pages; don't record (no resource
+   * key, or nameKey == -1).</li>
    * </ul>
    */
   private final class PageScanSchedule {
@@ -5333,25 +5524,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /** @return number of pages this scan should visit. */
     long scheduleSize() {
-      return pages != null ? pages.length : totalPages;
+      return pages != null
+          ? pages.length
+          : totalPages;
     }
 
     /** Map a schedule index to the actual page key. */
     long pageAt(final long scheduleIdx) {
-      return pages != null ? Integer.toUnsignedLong(pages[(int) scheduleIdx]) : scheduleIdx;
-    }
-
-    /** @return per-worker record buffer for the given worker index, or {@code null} if not recording. */
-    RoaringBitmap recordBufferOrNull(final int workerIdx) {
-      return recordBuffers == null ? null : recordBuffers[workerIdx];
+      return pages != null
+          ? Integer.toUnsignedLong(pages[(int) scheduleIdx])
+          : scheduleIdx;
     }
 
     /**
-     * Merge the per-worker record buffers and publish the resulting
-     * bitmap to the page-skip registry under {@code anchorNameKey}. A
-     * no-op when the schedule wasn't recording. First publisher wins
-     * (see {@link PageSkipRegistry.Handle#record}); concurrent publishes
-     * of the same {@code (resource, nameKey)} are safe and harmless.
+     * @return per-worker record buffer for the given worker index, or {@code null} if not recording.
+     */
+    RoaringBitmap recordBufferOrNull(final int workerIdx) {
+      return recordBuffers == null
+          ? null
+          : recordBuffers[workerIdx];
+    }
+
+    /**
+     * Merge the per-worker record buffers and publish the resulting bitmap to the page-skip registry
+     * under {@code anchorNameKey}. A no-op when the schedule wasn't recording. First publisher wins
+     * (see {@link PageSkipRegistry.Handle#record}); concurrent publishes of the same
+     * {@code (resource, nameKey)} are safe and harmless.
      */
     void publish(final int anchorNameKey) {
       // nameKeys are String hashes and may legitimately be NEGATIVE
@@ -5359,9 +5557,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // which is exactly -1, is unpublishable. The historical `< 0` check
       // silently excluded every negative-hash anchor from the page-skip
       // index, forcing full page sweeps on those fields forever.
-      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey == -1) return;
+      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey == -1)
+        return;
       final RoaringBitmap merged = new RoaringBitmap();
-      for (final RoaringBitmap b : recordBuffers) merged.or(b);
+      for (final RoaringBitmap b : recordBuffers)
+        merged.or(b);
       merged.runOptimize();
       PageSkipRegistry.handleFor(projectionRegistryKey).record(anchorNameKey, merged, totalPages);
     }
@@ -5370,21 +5570,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Build a {@link PageScanSchedule} for the given anchor.
    *
-   * <p>Three sources, in priority order:
+   * <p>
+   * Three sources, in priority order:
    * <ol>
-   *   <li><b>PathSummary bitmap</b> — if {@code anchorPathNodeKey} resolves
-   *       to a PathNode whose persisted presence bitmap is non-null, the
-   *       schedule iterates only those pages. This survives restarts and
-   *       is populated at write time.</li>
-   *   <li><b>In-memory registry</b> — if a previous scan in this session
-   *       already built the per-{@code nameKey} bitmap, reuse it.</li>
-   *   <li><b>Full scan + record</b> — iterate all pages and populate the
-   *       registry as a side effect, so subsequent scans in the same
-   *       session skip the pages where the anchor is absent.</li>
+   * <li><b>PathSummary bitmap</b> — if {@code anchorPathNodeKey} resolves to a PathNode whose
+   * persisted presence bitmap is non-null, the schedule iterates only those pages. This survives
+   * restarts and is populated at write time.</li>
+   * <li><b>In-memory registry</b> — if a previous scan in this session already built the
+   * per-{@code nameKey} bitmap, reuse it.</li>
+   * <li><b>Full scan + record</b> — iterate all pages and populate the registry as a side effect, so
+   * subsequent scans in the same session skip the pages where the anchor is absent.</li>
    * </ol>
    */
-  private PageScanSchedule planPageScan(final int anchorNameKey, final long anchorPathNodeKey,
-      final long totalPages, final int eff) {
+  private PageScanSchedule planPageScan(final int anchorNameKey, final long anchorPathNodeKey, final long totalPages,
+      final int eff) {
     // Source 1: PathSummary-persisted bitmap.
     if (anchorPathNodeKey > 0L) {
       try {
@@ -5416,21 +5615,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return new PageScanSchedule(cached, null, totalPages);
     }
     final RoaringBitmap[] buffers = new RoaringBitmap[eff];
-    for (int i = 0; i < eff; i++) buffers[i] = new RoaringBitmap();
+    for (int i = 0; i < eff; i++)
+      buffers[i] = new RoaringBitmap();
     return new PageScanSchedule(null, buffers, totalPages);
   }
 
   /**
    * Walk the {@link CompiledPredicate} tree and build a
-   * {@link ProjectionIndexScan.ColumnPredicate}{@code []} if the tree is a
-   * pure conjunction of supported leaves. Brackit's binary-AND folding
-   * produces nested trees like {@code AND(AND(a>30, a<50), active)} for a
-   * 3-way conjunction — we flatten those in place via a small array
-   * stack, no recursion, no boxing. {@code null} signals "unsupported
-   * shape; fall back to the generic path".
+   * {@link ProjectionIndexScan.ColumnPredicate}{@code []} if the tree is a pure conjunction of
+   * supported leaves. Brackit's binary-AND folding produces nested trees like
+   * {@code AND(AND(a>30, a<50), active)} for a 3-way conjunction — we flatten those in place via a
+   * small array stack, no recursion, no boxing. {@code null} signals "unsupported shape; fall back to
+   * the generic path".
    */
-  private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
-      final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
+  private ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle) {
     // Collect leaf node indices via a flat conjunction walk. Stack + out
     // arrays are sized to the full node count — bounded by the predicate's
     // tree size, which is small (tens of nodes max). One allocation per
@@ -5449,11 +5648,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (op == CompiledPredicate.OP_AND) {
         final int cs = cp.childStart[n];
         final int cc = cp.childCount[n];
-        for (int i = 0; i < cc; i++) stack[stackTop++] = cp.children[cs + i];
-      } else if (op == CompiledPredicate.OP_NUM_CMP
-          || op == CompiledPredicate.OP_FP_CMP
-          || op == CompiledPredicate.OP_STR_EQ
-          || op == CompiledPredicate.OP_BOOL_REF
+        for (int i = 0; i < cc; i++)
+          stack[stackTop++] = cp.children[cs + i];
+      } else if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP
+          || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF
           || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
         leaves[predicateLeafCount++] = n;
       } else {
@@ -5462,31 +5660,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return null;
       }
     }
-    if (predicateLeafCount == 0) return null;
+    if (predicateLeafCount == 0)
+      return null;
 
-    final ProjectionIndexScan.ColumnPredicate[] out =
-        new ProjectionIndexScan.ColumnPredicate[predicateLeafCount];
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[predicateLeafCount];
     for (int i = 0; i < predicateLeafCount; i++) {
       out[i] = convertPredicateLeaf(cp, leaves[i], handle);
-      if (out[i] == null) return null;
+      if (out[i] == null)
+        return null;
     }
     return out;
   }
 
   /**
    * Convert ONE compiled predicate leaf node to a {@link ProjectionIndexScan.ColumnPredicate},
-   * applying every serving gate (coverage, sparse evidence, integrality/transform rules for
-   * double columns). {@code null} = not servable — callers fall back. Shared by the flat
-   * conjunctive extractor and the AND/OR tree extractor so the gates can never diverge.
+   * applying every serving gate (coverage, sparse evidence, integrality/transform rules for double
+   * columns). {@code null} = not servable — callers fall back. Shared by the flat conjunctive
+   * extractor and the AND/OR tree extractor so the gates can never diverge.
    */
-  private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(
-      final CompiledPredicate cp, final int n, final ProjectionIndexRegistry.Handle handle) {
+  private ProjectionIndexScan.ColumnPredicate convertPredicateLeaf(final CompiledPredicate cp, final int n,
+      final ProjectionIndexRegistry.Handle handle) {
     {
       final byte op = cp.ops[n];
       final int fi = cp.fieldIdx[n];
-      if (fi < 0 || fi >= cp.fieldNames.length) return null;
+      if (fi < 0 || fi >= cp.fieldNames.length)
+        return null;
       final int column = handle.columnOf(cp.fieldNames[fi]);
-      if (column < 0) return null; // field not in index — should have been filtered by covers()
+      if (column < 0)
+        return null; // field not in index — should have been filtered by covers()
       // Session-bound sources built from THIS executor's own live session, threaded into the
       // shared handle's gate/fill calls.
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
@@ -5517,8 +5718,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final boolean numericColumn =
           doubleColumn || columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
       switch (op) {
-        case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP,
-            CompiledPredicate.OP_DEC_CMP -> {
+        case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP, CompiledPredicate.OP_DEC_CMP -> {
           if (!numericColumn) {
             return null;
           }
@@ -5549,11 +5749,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP -> {
           final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
-          if (translated == null) return null;
+          if (translated == null)
+            return null;
           if (doubleColumn) {
-            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
+            if (!handle.numericColumnIsIntegral(column, fetcher))
+              return null; // value-exact gate
             final double asDouble = (double) cp.longLit[n];
-            if ((long) asDouble != cp.longLit[n]) return null; // literal beyond 2^53 — inexact
+            if ((long) asDouble != cp.longLit[n])
+              return null; // literal beyond 2^53 — inexact
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated,
                 ProjectionDoubleEncoding.encode(asDouble));
           } else {
@@ -5562,7 +5765,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // e.g. `score > 2` would match 2.5 stored as 2 incorrectly. Unknown
             // provenance keeps the legacy behavior (no regression for re-encoded
             // handles); known-clean columns are exact.
-            if (handle.numericColumnKnownNonIntegral(column, fetcher)) return null;
+            if (handle.numericColumnKnownNonIntegral(column, fetcher))
+              return null;
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
           }
         }
@@ -5570,10 +5774,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (doubleColumn) {
             // Native double comparison: transform the literal, keep the operator — no
             // threshold rewrite needed (the transform is order-isomorphic).
-            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
-            if (Double.isNaN(cp.dblLit[n])) return null;
+            if (!handle.numericColumnIsIntegral(column, fetcher))
+              return null; // value-exact gate
+            if (Double.isNaN(cp.dblLit[n]))
+              return null;
             final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
-            if (translated == null) return null;
+            if (translated == null)
+              return null;
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated,
                 ProjectionDoubleEncoding.encode(cp.dblLit[n]));
           } else {
@@ -5582,9 +5789,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // unknown provenance fails closed, the column stores truncated
             // doubles otherwise). The threshold is rewritten into exact long
             // space (x > 9.99 ⟺ x >= 10) — see rewriteFpCmpForIntegralColumn.
-            if (!handle.numericColumnIsIntegral(column, fetcher)) return null;
+            if (!handle.numericColumnIsIntegral(column, fetcher))
+              return null;
             pred = rewriteFpCmpForIntegralColumn(column, cp.cmpOp[n], cp.dblLit[n]);
-            if (pred == null) return null;
+            if (pred == null)
+              return null;
           }
         }
         case CompiledPredicate.OP_DEC_CMP -> {
@@ -5594,35 +5803,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // with the original operator is exact parity, even for decimals that are not
             // binary-representable. The long-space arm below would compare untransformed
             // integers against transformed cells (silent wrong rows).
-            if (!handle.numericColumnIsIntegral(column, fetcher)) return null; // value-exact gate
+            if (!handle.numericColumnIsIntegral(column, fetcher))
+              return null; // value-exact gate
             final ProjectionIndexScan.Op translatedDec = translateCmpOp(cp.cmpOp[n]);
-            if (translatedDec == null || cp.decLit[n] == null) return null;
+            if (translatedDec == null || cp.decLit[n] == null)
+              return null;
             final double promoted = cp.decLit[n].doubleValue();
-            if (Double.isNaN(promoted)) return null;
+            if (Double.isNaN(promoted))
+              return null;
             pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translatedDec,
                 ProjectionDoubleEncoding.encode(promoted));
           } else {
-          // Exact-decimal threshold on a NUMERIC_LONG column: the compile
-          // step already collapsed the decimal comparison into a pure
-          // long-space arm — translate it. Same integrality gate as FP_CMP.
-          if (!handle.numericColumnIsIntegral(column, fetcher)) return null;
-          pred = switch (cp.decLongArm[n]) {
-            case CompiledPredicate.DEC_ARM_GE ->
+            // Exact-decimal threshold on a NUMERIC_LONG column: the compile
+            // step already collapsed the decimal comparison into a pure
+            // long-space arm — translate it. Same integrality gate as FP_CMP.
+            if (!handle.numericColumnIsIntegral(column, fetcher))
+              return null;
+            pred = switch (cp.decLongArm[n]) {
+              case CompiledPredicate.DEC_ARM_GE ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, cp.decLongLit[n]);
-            case CompiledPredicate.DEC_ARM_LE ->
+              case CompiledPredicate.DEC_ARM_LE ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, cp.decLongLit[n]);
-            case CompiledPredicate.DEC_ARM_EQ ->
+              case CompiledPredicate.DEC_ARM_EQ ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, cp.decLongLit[n]);
-            // Constant false: no long is greater than Long.MAX_VALUE.
-            case CompiledPredicate.DEC_ARM_FALSE ->
+              // Constant false: no long is greater than Long.MAX_VALUE.
+              case CompiledPredicate.DEC_ARM_FALSE ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-            // Constant true for PRESENT rows: every long >= Long.MIN_VALUE
-            // (presence bitmaps still exclude missing rows).
-            case CompiledPredicate.DEC_ARM_TRUE ->
+              // Constant true for PRESENT rows: every long >= Long.MIN_VALUE
+              // (presence bitmaps still exclude missing rows).
+              case CompiledPredicate.DEC_ARM_TRUE ->
                 ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, Long.MIN_VALUE);
-            default -> null;
-          };
-          if (pred == null) return null;
+              default -> null;
+            };
+            if (pred == null)
+              return null;
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
@@ -5649,31 +5863,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Build a {@link ProjectionIndexScan.PredicateTree} from an AND/OR composition of
-   * supported leaves (P5b stage 6). NOT and ALWAYS_* nodes fall back — {@code not()} over
-   * a missing-field comparison flips missing ⇒ {@code true}, which the mask algebra's
-   * missing ⇒ {@code false} leaves cannot express (see the tree type's contract). Pure
-   * conjunctions are expected to have been taken by {@link #extractConjunctivePredicates}
-   * first; this is the OR-bearing general case. {@code null} = fall back.
+   * Build a {@link ProjectionIndexScan.PredicateTree} from an AND/OR composition of supported leaves
+   * (P5b stage 6). NOT and ALWAYS_* nodes fall back — {@code not()} over a missing-field comparison
+   * flips missing ⇒ {@code true}, which the mask algebra's missing ⇒ {@code false} leaves cannot
+   * express (see the tree type's contract). Pure conjunctions are expected to have been taken by
+   * {@link #extractConjunctivePredicates} first; this is the OR-bearing general case. {@code null} =
+   * fall back.
    */
-  private ProjectionIndexScan.PredicateTree extractPredicateTree(
-      final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
+  private ProjectionIndexScan.PredicateTree extractPredicateTree(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle) {
     final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves = new ArrayList<>();
     final byte[] program = new byte[2 * cp.ops.length];
-    final int[] pc = { 0 };
+    final int[] pc = {0};
     if (!emitTreeNode(cp, 0, handle, leaves, program, pc) || leaves.isEmpty()) {
       return null;
     }
-    return ProjectionIndexScan.PredicateTree.of(
-        leaves.toArray(new ProjectionIndexScan.ColumnPredicate[0]),
+    return ProjectionIndexScan.PredicateTree.of(leaves.toArray(new ProjectionIndexScan.ColumnPredicate[0]),
         Arrays.copyOf(program, pc[0]));
   }
 
-  /** Recursive postfix emitter for {@link #extractPredicateTree}; {@code false} = unsupported shape. */
-  private boolean emitTreeNode(final CompiledPredicate cp, final int n,
-      final ProjectionIndexRegistry.Handle handle,
-      final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves, final byte[] program,
-      final int[] pc) {
+  /**
+   * Recursive postfix emitter for {@link #extractPredicateTree}; {@code false} = unsupported shape.
+   */
+  private boolean emitTreeNode(final CompiledPredicate cp, final int n, final ProjectionIndexRegistry.Handle handle,
+      final ArrayList<ProjectionIndexScan.ColumnPredicate> leaves, final byte[] program, final int[] pc) {
     final byte op = cp.ops[n];
     if (op == CompiledPredicate.OP_AND || op == CompiledPredicate.OP_OR) {
       final int cs = cp.childStart[n];
@@ -5695,9 +5908,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return true;
     }
-    if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP
-        || op == CompiledPredicate.OP_DEC_CMP || op == CompiledPredicate.OP_STR_EQ
-        || op == CompiledPredicate.OP_BOOL_REF) {
+    if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP
+        || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF) {
       if (leaves.size() >= ProjectionIndexScan.PredicateTree.MAX_LEAVES) {
         return false;
       }
@@ -5713,8 +5925,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** OR-tree count serving (stage 6): fold kernels only — the generic pipeline is the fallback. */
-  private Long tryTreeCount(final CompiledPredicate cp,
-      final ProjectionIndexRegistry.Handle handle,
+  private Long tryTreeCount(final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle,
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null || store.rowGroupCount() == 0) {
@@ -5738,7 +5949,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         perThread[idx] = ProjectionColumnSegmentFoldScan.treeCount(store, tree, from, to, fetcher);
       });
       long total = 0;
@@ -5753,9 +5965,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** OR-tree long-aggregate serving (stage 6) — same contract as {@link #tryTreeCount}. */
-  private long[] tryTreeAggregate(final CompiledPredicate cp,
-      final ProjectionIndexRegistry.Handle handle, final ProjectionColumnStore store,
-      final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+  private long[] tryTreeAggregate(final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle,
+      final ProjectionColumnStore store, final int col, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
     if (store == null || store.rowGroupCount() == 0) {
       return null;
     }
@@ -5769,7 +5980,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final int rowGroupCount = store.rowGroupCount();
       if (rowGroupCount < 64) {
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
         ProjectionColumnSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, fetcher);
         return acc;
       }
@@ -5779,8 +5990,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
-        final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+        if (from >= to)
+          return;
+        final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
         ProjectionColumnSegmentFoldScan.treeAggregateNumeric(store, tree, col, acc, from, to, fetcher);
         perThread[idx] = acc;
       });
@@ -5791,10 +6003,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Union of the primary fields (aggregate / group columns) and the compiled
-   * predicate's fields — the full column set a projection must cover to
-   * serve the query. Order/duplicates don't matter: coverage checks are
-   * membership tests.
+   * Union of the primary fields (aggregate / group columns) and the compiled predicate's fields — the
+   * full column set a projection must cover to serve the query. Order/duplicates don't matter:
+   * coverage checks are membership tests.
    */
   private static String[] requiredFields(final String[] primary, final CompiledPredicate cpOrNull) {
     if (cpOrNull == null || cpOrNull.fieldNames == null || cpOrNull.fieldNames.length == 0) {
@@ -5807,15 +6018,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Projection lookup for this executor's revision: the revision-scoped
-   * catalog + page layer first ({@link ProjectionIndexCatalog} — the same
-   * discovery route the other index families use, correct across commits,
-   * rollbacks and time travel by construction), then the in-memory registry
-   * pool as the bench/test fallback for stores without catalogued
-   * definitions.
+   * Projection lookup for this executor's revision: the revision-scoped catalog + page layer first
+   * ({@link ProjectionIndexCatalog} — the same discovery route the other index families use, correct
+   * across commits, rollbacks and time travel by construction), then the in-memory registry pool as
+   * the bench/test fallback for stores without catalogued definitions.
    */
-  private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath,
-      final String[] requiredFields) {
+  private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath, final String[] requiredFields) {
     if (projectionRegistryKey == null) {
       return null;
     }
@@ -5828,12 +6036,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // unlocked it would race a delay-scheduled auto-commit running the
       // same maintenance.
       final ProjectionIndexRegistry.Handle[] out = new ProjectionIndexRegistry.Handle[1];
-      wtx.runLocked(() -> out[0] = wtxIndexController().openProjectionIndex(
-          wtx.getStorageEngineWriter(), sourcePath, requiredFields));
+      wtx.runLocked(() -> out[0] =
+          wtxIndexController().openProjectionIndex(wtx.getStorageEngineWriter(), sourcePath, requiredFields));
       return out[0];
     }
-    final ProjectionIndexRegistry.Handle catalogued = ProjectionIndexCatalog.lookupCovering(
-        session, projectionRegistryKey, revision, sourcePath, requiredFields);
+    final ProjectionIndexRegistry.Handle catalogued =
+        ProjectionIndexCatalog.lookupCovering(session, projectionRegistryKey, revision, sourcePath, requiredFields);
     if (catalogued != null) {
       return catalogued;
     }
@@ -5847,33 +6055,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (ProjectionIndexCatalog.hasProjections(session, projectionRegistryKey, revision)) {
       return null;
     }
-    return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields,
-        revision);
+    return ProjectionIndexRegistry.lookupCovering(projectionRegistryKey, sourcePath, requiredFields, revision);
   }
 
   /**
    * A {@link ProjectionColumnStore.ColumnSegmentFetcher} bound to THIS executor's OWN live session
-   * and revision — threaded into a SHARED column-lazy handle's per-column fill calls so every
-   * fill reads through this reader's own transaction, never a since-closed sibling's. Cheap
-   * (a closure); a caller builds one per query and reuses it across the query's fill calls.
+   * and revision — threaded into a SHARED column-lazy handle's per-column fill calls so every fill
+   * reads through this reader's own transaction, never a since-closed sibling's. Cheap (a closure); a
+   * caller builds one per query and reuses it across the query's fill calls.
    */
   private ProjectionColumnStore.ColumnSegmentFetcher columnFetcher() {
     return ProjectionIndexCatalog.columnSegmentFetcher(session, revision);
   }
 
   /**
-   * A whole-leaf materializer bound to THIS executor's OWN live session and revision, or
-   * {@code null} for an eager handle whose leaves are already resident (the materializer is
-   * never consulted then). Threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads}
-   * so a lazy handle's hydrate uses this reader's own transaction.
+   * A whole-leaf materializer bound to THIS executor's OWN live session and revision, or {@code null}
+   * for an eager handle whose leaves are already resident (the materializer is never consulted then).
+   * Threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads} so a lazy handle's hydrate
+   * uses this reader's own transaction.
    */
   private Supplier<List<byte[]>> rowGroupMaterializer(final ProjectionIndexRegistry.Handle handle) {
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null) {
       return null;
     }
-    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
-        store.rowGroupCount());
+    return ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), store.rowGroupCount());
   }
 
   /** The write transaction's index controller (wtx mode only). */
@@ -5882,8 +6088,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Cheap existence probe — run BEFORE compiling predicates so resources
-   * without any projection skip the compilation entirely (the common case).
+   * Cheap existence probe — run BEFORE compiling predicates so resources without any projection skip
+   * the compilation entirely (the common case).
    */
   private boolean anyProjectionAvailable() {
     if (projectionRegistryKey == null) {
@@ -5898,29 +6104,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Range-fusion pass: detect same-column conjunctive pairs of the shape
-   * {@code (GT|GE, lowLit) AND (LT|LE, highLit)} and rewrite into a
-   * single fused {@link ProjectionIndexScan.Op#BETWEEN_GT_LT}
-   * (or sibling BETWEEN_*) predicate. Eliminates the redundant
-   * scalar-to-scratch load in
-   * {@link ProjectionIndexByteScan#evalNumericBytes} that the un-fused
-   * path runs twice on the same column.
+   * {@code (GT|GE, lowLit) AND (LT|LE, highLit)} and rewrite into a single fused
+   * {@link ProjectionIndexScan.Op#BETWEEN_GT_LT} (or sibling BETWEEN_*) predicate. Eliminates the
+   * redundant scalar-to-scratch load in {@link ProjectionIndexByteScan#evalNumericBytes} that the
+   * un-fused path runs twice on the same column.
    *
-   * <p>Conservative fusion policy: at most one pair per column is
-   * fused in a single pass. Extra predicates (a third GT, or an EQ,
-   * or a BOOL_REF on the same column) are left unchanged — correct by
-   * construction because AND is associative and the un-fused
-   * predicates still get AND'd into the final mask.
+   * <p>
+   * Conservative fusion policy: at most one pair per column is fused in a single pass. Extra
+   * predicates (a third GT, or an EQ, or a BOOL_REF on the same column) are left unchanged — correct
+   * by construction because AND is associative and the un-fused predicates still get AND'd into the
+   * final mask.
    *
-   * <p>Zero allocation when no fusion is possible: the method returns
-   * the input array unchanged. One fresh array is allocated when at
-   * least one fusion fires — amortised across the whole query
+   * <p>
+   * Zero allocation when no fusion is possible: the method returns the input array unchanged. One
+   * fresh array is allocated when at least one fusion fires — amortised across the whole query
    * execution, not per-leaf.
    *
-   * <p>Toggle: {@code -Dsirix.projection.rangeFusion=false} disables
-   * the pass (also used as the rollback switch for benchmarking).
+   * <p>
+   * Toggle: {@code -Dsirix.projection.rangeFusion=false} disables the pass (also used as the rollback
+   * switch for benchmarking).
    */
-  static ProjectionIndexScan.ColumnPredicate[] fuseRangePredicates(
-      final ProjectionIndexScan.ColumnPredicate[] preds) {
+  static ProjectionIndexScan.ColumnPredicate[] fuseRangePredicates(final ProjectionIndexScan.ColumnPredicate[] preds) {
     if (!RANGE_FUSION_ENABLED || preds == null || preds.length < 2) {
       return preds;
     }
@@ -5941,13 +6145,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     Arrays.fill(pairHigh, -1);
     int fusedPairs = 0;
     for (int i = 0; i < n; i++) {
-      if (role[i] != -1) continue;
+      if (role[i] != -1)
+        continue;
       final ProjectionIndexScan.ColumnPredicate pi = preds[i];
-      if (!isLowBound(pi.op) && !isHighBound(pi.op)) continue;
+      if (!isLowBound(pi.op) && !isHighBound(pi.op))
+        continue;
       for (int j = i + 1; j < n; j++) {
-        if (role[j] != -1) continue;
+        if (role[j] != -1)
+          continue;
         final ProjectionIndexScan.ColumnPredicate pj = preds[j];
-        if (pj.column != pi.column) continue;
+        if (pj.column != pi.column)
+          continue;
         // String literal + numeric compare can never clash — both must
         // be NumCmp to even be comparable. isLowBound/isHighBound
         // already excludes EQ / non-numeric ops.
@@ -5956,13 +6164,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final boolean iHigh = isHighBound(pi.op);
         final boolean jLow = isLowBound(pj.op);
         if (iLow && jHigh) {
-          role[i] = -3; pairLow[j] = i;
-          role[j] = -4; pairHigh[i] = j;
+          role[i] = -3;
+          pairLow[j] = i;
+          role[j] = -4;
+          pairHigh[i] = j;
           fusedPairs++;
           break;
         } else if (iHigh && jLow) {
-          role[j] = -3; pairLow[i] = j;
-          role[i] = -4; pairHigh[j] = i;
+          role[j] = -3;
+          pairLow[i] = j;
+          role[i] = -4;
+          pairHigh[j] = i;
           fusedPairs++;
           break;
         }
@@ -5970,15 +6182,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // leave both as-is and move on.
       }
     }
-    if (fusedPairs == 0) return preds;
+    if (fusedPairs == 0)
+      return preds;
     // Build the output array. Policy: emit each fused BETWEEN at the
     // FIRST occurrence of its pair in the input order; skip at the
     // second occurrence. Non-fused predicates pass through unchanged.
     // This preserves overall ordering: relative positions of non-fused
     // predicates are stable, and the fused predicate takes the slot of
     // whichever bound appeared earlier.
-    final ProjectionIndexScan.ColumnPredicate[] out =
-        new ProjectionIndexScan.ColumnPredicate[n - fusedPairs];
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[n - fusedPairs];
     int w = 0;
     for (int i = 0; i < n; i++) {
       if (role[i] == -1) {
@@ -5986,7 +6198,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         continue;
       }
       // Fused bound — find the partner.
-      final int partnerIdx = role[i] == -3 ? pairHigh[i] : pairLow[i];
+      final int partnerIdx = role[i] == -3
+          ? pairHigh[i]
+          : pairLow[i];
       if (partnerIdx < i) {
         // Partner came earlier → fused predicate was already emitted
         // at partnerIdx. Drop this one.
@@ -5996,12 +6210,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Sort out which index holds which role so (lowOp, lowLit) comes
       // from the -3 slot and (highOp, highLit) from the -4 slot
       // regardless of input order.
-      final int lowIdx  = role[i] == -3 ? i : partnerIdx;
-      final int highIdx = role[i] == -4 ? i : partnerIdx;
+      final int lowIdx = role[i] == -3
+          ? i
+          : partnerIdx;
+      final int highIdx = role[i] == -4
+          ? i
+          : partnerIdx;
       final ProjectionIndexScan.ColumnPredicate lo = preds[lowIdx];
       final ProjectionIndexScan.ColumnPredicate hi = preds[highIdx];
-      out[w++] = ProjectionIndexScan.ColumnPredicate.numericBetween(
-          lo.column, lo.op, lo.longLit, hi.op, hi.longLit);
+      out[w++] = ProjectionIndexScan.ColumnPredicate.numericBetween(lo.column, lo.op, lo.longLit, hi.op, hi.longLit);
     }
     return out;
   }
@@ -6015,9 +6232,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Map the executor's internal cmpOp encoding ({@link #OP_GT}..{@link #OP_EQ})
-   * to {@link ProjectionIndexScan.Op}. Returns {@code null} for unrecognised
-   * codes (e.g. NE), which trigger fallback.
+   * Map the executor's internal cmpOp encoding ({@link #OP_GT}..{@link #OP_EQ}) to
+   * {@link ProjectionIndexScan.Op}. Returns {@code null} for unrecognised codes (e.g. NE), which
+   * trigger fallback.
    */
   private static ProjectionIndexScan.Op translateCmpOp(final int cmp) {
     return switch (cmp) {
@@ -6031,34 +6248,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Rewrite a double-threshold comparison over a PROVABLY-INTEGRAL
-   * NUMERIC_LONG column into an exact long-space {@link
-   * ProjectionIndexScan.ColumnPredicate}.
+   * Rewrite a double-threshold comparison over a PROVABLY-INTEGRAL NUMERIC_LONG column into an exact
+   * long-space {@link ProjectionIndexScan.ColumnPredicate}.
    *
-   * <p>A long {@code L} satisfies the FpCmp leaf iff
-   * {@code Double.compare((double) L, d) <op> 0} (the interpreter's numeric
-   * promotion — see {@link PredicateNode.FpCmp}). Because {@code (double) L}
-   * is monotone non-decreasing in {@code L}, {@code Double.compare((double) L, d)}
-   * partitions the long range into a {@code < 0} prefix, an optional
-   * {@code == 0} middle, and a {@code > 0} suffix. The boundaries are found
-   * by binary search over that TOTAL ORDER — exact for every edge the
-   * hand-derived floor/ceil arithmetic gets wrong (negative thresholds,
-   * ±0.0, exact integral doubles, thresholds beyond 2^53 where
-   * {@code (double) L} rounds, and the Long.MIN/MAX extremes):
+   * <p>
+   * A long {@code L} satisfies the FpCmp leaf iff {@code Double.compare((double) L, d) <op> 0} (the
+   * interpreter's numeric promotion — see {@link PredicateNode.FpCmp}). Because {@code (double) L} is
+   * monotone non-decreasing in {@code L}, {@code Double.compare((double) L, d)} partitions the long
+   * range into a {@code < 0} prefix, an optional {@code == 0} middle, and a {@code > 0} suffix. The
+   * boundaries are found by binary search over that TOTAL ORDER — exact for every edge the
+   * hand-derived floor/ceil arithmetic gets wrong (negative thresholds, ±0.0, exact integral doubles,
+   * thresholds beyond 2^53 where {@code (double) L} rounds, and the Long.MIN/MAX extremes):
    * <ul>
    * <li>{@code GT d ⟺ L >= firstGreater(d)} (unsatisfiable → constant-false);</li>
    * <li>{@code GE d ⟺ L >= firstGreaterOrEqual(d)};</li>
    * <li>{@code LT d ⟺ L <= lastLess(d)};</li>
    * <li>{@code LE d ⟺ L <= lastLessOrEqual(d)};</li>
-   * <li>{@code EQ d ⟺ L ∈ [firstGreaterOrEqual(d), lastLessOrEqual(d)]} —
-   * empty for fractional {@code d}, a single value for small integral
-   * {@code d}, and a RANGE above 2^53 where multiple longs share one double
-   * image (matching the interpreter exactly).</li>
+   * <li>{@code EQ d ⟺ L ∈ [firstGreaterOrEqual(d), lastLessOrEqual(d)]} — empty for fractional
+   * {@code d}, a single value for small integral {@code d}, and a RANGE above 2^53 where multiple
+   * longs share one double image (matching the interpreter exactly).</li>
    * </ul>
-   * Returns {@code null} only for unsupported cmp codes. Constant-false is
-   * expressed as {@code GT Long.MAX_VALUE} (no long satisfies it; the
-   * zone-map prunes every leaf), constant-true-for-present-rows as
-   * {@code GE Long.MIN_VALUE} (presence bitmaps still exclude missing rows).
+   * Returns {@code null} only for unsupported cmp codes. Constant-false is expressed as
+   * {@code GT Long.MAX_VALUE} (no long satisfies it; the zone-map prunes every leaf),
+   * constant-true-for-present-rows as {@code GE Long.MIN_VALUE} (presence bitmaps still exclude
+   * missing rows).
    */
   static ProjectionIndexScan.ColumnPredicate rewriteFpCmpForIntegralColumn(final int column, final int cmpOp,
       final double d) {
@@ -6108,8 +6321,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (lo == hi) {
           return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
         }
-        return ProjectionIndexScan.ColumnPredicate.numericBetween(column,
-            ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LE, hi);
+        return ProjectionIndexScan.ColumnPredicate.numericBetween(column, ProjectionIndexScan.Op.GE, lo,
+            ProjectionIndexScan.Op.LE, hi);
       }
       default:
         return null;
@@ -6117,16 +6330,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Smallest long {@code L} with {@code Double.compare((double) L, d) >= bound}
-   * (bound ∈ {0, 1}); returns {@code Long.MIN_VALUE} when even the smallest
-   * long satisfies it AND when none does — callers disambiguate by probing.
-   * Binary search over the monotone non-decreasing compare.
+   * Smallest long {@code L} with {@code Double.compare((double) L, d) >= bound} (bound ∈ {0, 1});
+   * returns {@code Long.MIN_VALUE} when even the smallest long satisfies it AND when none does —
+   * callers disambiguate by probing. Binary search over the monotone non-decreasing compare.
    */
   private static long firstLongWithCompareAtLeast(final double d, final int bound) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
     if (Double.compare((double) hi, d) < bound) {
-      return Long.MIN_VALUE;  // unsatisfiable — caller probes MIN_VALUE and detects
+      return Long.MIN_VALUE; // unsatisfiable — caller probes MIN_VALUE and detects
     }
     if (Double.compare((double) lo, d) >= bound) {
       return lo;
@@ -6148,15 +6360,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Largest long {@code L} with {@code Double.compare((double) L, d) <= bound}
-   * (bound ∈ {-1, 0}); returns {@code Long.MAX_VALUE} when every long
-   * satisfies it AND when none does — callers disambiguate by probing.
+   * Largest long {@code L} with {@code Double.compare((double) L, d) <= bound} (bound ∈ {-1, 0});
+   * returns {@code Long.MAX_VALUE} when every long satisfies it AND when none does — callers
+   * disambiguate by probing.
    */
   private static long lastLongWithCompareAtMost(final double d, final int bound) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
     if (Double.compare((double) lo, d) > bound) {
-      return Long.MAX_VALUE;  // unsatisfiable — caller probes MAX_VALUE and detects
+      return Long.MAX_VALUE; // unsatisfiable — caller probes MAX_VALUE and detects
     }
     if (Double.compare((double) hi, d) <= bound) {
       return hi;
@@ -6177,23 +6389,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private long parallelGenericPredicateCount(final String[] sourcePath, final PredicateNode predicate)
       throws Exception {
     final CompiledPredicate cp = compile(predicate);
-    if (cp.fieldNames.length == 0) return 0L;
+    if (cp.fieldNames.length == 0)
+      return 0L;
     // A predicate that is nothing but `some $g in $u.F[] satisfies $g eq lit`, anchored on F: the
     // scan lands on F itself, so the record hop and the field walk have nothing left to find.
-    final boolean singleArrayContains =
-        cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
+    final boolean singleArrayContains = cp.ops.length == 1 && cp.ops[0] == CompiledPredicate.OP_ARRAY_CONTAINS;
     // The path key of the ARRAY LAYER beneath the field — `/[]/genres/[]`, which is what the
     // element values are tagged by. The field's own key names `/[]/genres` and finds nothing.
-    final long arrayElementPathKey =
-        singleArrayContains && ARRAY_CONTAINS_COLUMNAR_ENABLED
-            ? arrayLayerPathNodeKey(sourcePath, cp.fieldNames[0])
-            : -1L;
-    final byte[] arrayContainsLiteralBytes =
-        singleArrayContains ? cp.strLiteralBytes[cp.strIdx[0]] : null;
+    final long arrayElementPathKey = singleArrayContains && ARRAY_CONTAINS_COLUMNAR_ENABLED
+        ? arrayLayerPathNodeKey(sourcePath, cp.fieldNames[0])
+        : -1L;
+    final byte[] arrayContainsLiteralBytes = singleArrayContains
+        ? cp.strLiteralBytes[cp.strIdx[0]]
+        : null;
     // ONE wrapper for the whole scan: the FSST literal memo keys on this array's IDENTITY, so a
     // per-page allocation would miss every time.
-    final byte[][] arrayContainsLiteralWrapper =
-        singleArrayContains ? new byte[][] { arrayContainsLiteralBytes } : null;
+    final byte[][] arrayContainsLiteralWrapper = singleArrayContains
+        ? new byte[][] {arrayContainsLiteralBytes}
+        : null;
     // Fast-path: if a covering projection index is installed for this
     // (resource, sourcePath), convert the predicate tree to ColumnPredicate[]
     // and route the count to the zero-copy SIMD byte-scan — no OBJECT_KEY
@@ -6211,7 +6424,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     // Anchor on the first field — its nameKey drives slot iteration.
     final int anchorNameKey = cp.fieldNameKeys[0];
-    if (anchorNameKey == -1) return 0L;
+    if (anchorNameKey == -1)
+      return 0L;
     // Resolve the fully-qualified pathNodeKey for the anchor. -1L ⇒ unresolvable;
     // fall back to name-only matching (legacy behaviour).
     final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
@@ -6230,7 +6444,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // in the cache key so two predicates with identical structure but
     // different resolved fieldIdx order don't alias.
     final String compileKey = compiledClassKey(predicate, cp);
-    final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
+    final BatchPredicate compiled = useBatch
+        ? resolveCompiledPredicate(compileKey, cp)
+        : null;
     // Pre-extract anchor-field NumCmp constraints for zone-map pruning.
     // Per-page we probe tagMin/tagMax of the anchor nameKey in the page's
     // NumberRegion and skip the whole page on a provable miss. Cost: a
@@ -6264,7 +6480,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final boolean fusedPlan = regionPlan != null && regionPlan.isFused();
     final int regionMask;
     if (stringPlan) {
-      regionMask = STRING_DICT_DEFER ? REGION_STRING_COUNT_MASK : REGION_STRING_SKETCH_MASK;
+      regionMask = STRING_DICT_DEFER
+          ? REGION_STRING_COUNT_MASK
+          : REGION_STRING_SKETCH_MASK;
     } else if (boolPlan) {
       regionMask = REGION_BOOL_COUNT_MASK;
     } else if (fusedPlan) {
@@ -6276,8 +6494,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int fusedMask = REGION_FUSED_COUNT_MASK;
       for (final FusedLeaf leaf : regionPlan.fusedLeaves()) {
         switch (leaf.kind()) {
-          case FusedLeaf.KIND_NUM -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_NUMBER)
-              | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP);
+          case FusedLeaf.KIND_NUM -> fusedMask |=
+              RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP);
           case FusedLeaf.KIND_BOOL -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_BOOLEAN);
           case FusedLeaf.KIND_STR -> fusedMask |= RegionTable.maskOf(RegionTable.KIND_STRING);
           // Explicit, not a default: a future leaf kind silently mapped to the string column
@@ -6292,7 +6510,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final int regionDeferMask;
     if (stringPlan) {
-      regionDeferMask = STRING_DICT_DEFER ? RegionTable.maskOf(RegionTable.KIND_STRING) : 0;
+      regionDeferMask = STRING_DICT_DEFER
+          ? RegionTable.maskOf(RegionTable.KIND_STRING)
+          : 0;
     } else if (boolPlan) {
       // The bit column is what the predicate reads; there is nothing to defer behind.
       regionDeferMask = 0;
@@ -6304,18 +6524,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else {
       // Leave the number column compressed. The zone map is materialized alongside it and settles
       // the page often enough that decompressing eagerly is work thrown away.
-      regionDeferMask = NUMBER_COLUMN_DEFER ? RegionTable.maskOf(RegionTable.KIND_NUMBER) : 0;
+      regionDeferMask = NUMBER_COLUMN_DEFER
+          ? RegionTable.maskOf(RegionTable.KIND_NUMBER)
+          : 0;
     }
     // Columns decoded by earlier scans over the same kinds; null when caching is switched off.
-    final Map<Long, RegionsOnlyPage> regionCache =
-        regionPlan == null ? null : regionCacheFor(regionMask);
+    final Map<Long, RegionsOnlyPage> regionCache = regionPlan == null
+        ? null
+        : regionCacheFor(regionMask);
     // Pages whose sketch could not rule them out get re-read WITH the dictionary. That read needs
     // its own cache: in skip mode regionCache is keyed by the sketch mask, which has no KIND_STRING
     // in it, so the dictionary read has nowhere to live there. Leaving it uncached meant precisely
     // the pages that can contain matches — every true hit, plus the Bloom false positives — went
     // back to disk on every single query, which is the cost the cache exists to remove.
-    final Map<Long, RegionsOnlyPage> dictCache =
-        stringPlan ? regionCacheFor(REGION_STRING_COUNT_MASK) : null;
+    final Map<Long, RegionsOnlyPage> dictCache = stringPlan
+        ? regionCacheFor(REGION_STRING_COUNT_MASK)
+        : null;
     // Page-skip index: if a previous scan built a bitmap of pages where
     // this anchor nameKey exists, iterate only those pages. Otherwise
     // iterate all pages AND populate the bitmap as a side effect (per-
@@ -6344,7 +6568,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // re-read warm bytes) — but columnarPageCount declines per page, and those pages fall
       // through to the record path. Arm the window on the first decline rather than forfeiting
       // prefetch for the whole scan.
-      long[] prefetchWindow = regionPlan == null ? prefetchWindowOrNull(reader) : null;
+      long[] prefetchWindow = regionPlan == null
+          ? prefetchWindowOrNull(reader)
+          : null;
       final boolean prefetchArmable = regionPlan != null;
       // Scratch for the column-only path; one set per worker, reused for every page it decodes.
       final int[] anchorSlotOut = new int[1];
@@ -6354,10 +6580,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int columnarServed = 0;
       boolean columnarWorthIt = true;
       if (fusedFieldNameKeys != null) {
-        System.arraycopy(fusedFieldNameKeys, 0, headerScratch.fusedFieldNameKey, 0,
-                         fusedFieldNameKeys.length);
+        System.arraycopy(fusedFieldNameKeys, 0, headerScratch.fusedFieldNameKey, 0, fusedFieldNameKeys.length);
         System.arraycopy(fusedFieldPathNodeKeys, 0, headerScratch.fusedFieldPathNodeKey, 0,
-                         fusedFieldPathNodeKeys.length);
+            fusedFieldPathNodeKeys.length);
       }
       long localCount = 0;
       if (useBatch) {
@@ -6367,20 +6592,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // only where a columnar route runs at all. Not keyed on the plan KIND: the predicate-tree
         // route hands a spanning record back for any plan it serves, so a fused-only scratch would
         // meet a standing slot with nothing to evaluate it against.
-        final EvalScratch patchScratch =
-            regionPlan != null ? new EvalScratch(cp.fieldNames.length, cp.ops.length) : null;
+        final EvalScratch patchScratch = regionPlan != null
+            ? new EvalScratch(cp.fieldNames.length, cp.ops.length)
+            : null;
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= scheduleSize) break;
+          if (s >= scheduleSize)
+            break;
           final long e = Math.min(s + STRIDE, scheduleSize);
           prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
             final long pk = schedule.pageAt(j);
             if (regionPlan != null) {
-              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
-                                               regionDeferMask, regionCache, dictCache,
-                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                                               headerScratch, recordBuf, rtx, cp, patchScratch);
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask, regionDeferMask,
+                  regionCache, dictCache, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch, recordBuf,
+                  rtx, cp, patchScratch);
               if (c >= 0L) {
                 localCount += c;
                 continue;
@@ -6392,10 +6618,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+              continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
+            if (matches.length == 0)
+              continue;
             // Zone-map pre-check: if the anchor field's per-page tagMin/tagMax
             // proves no row on this page can satisfy the conjunctive NumCmp
             // constraints, skip the entire page without decoding a single
@@ -6408,9 +6636,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (zoneProbe != null) {
               final NumberRegion.Header numHdr = kv.getNumberRegionHeader();
               if (numHdr != null && numHdr.tagMin != null) {
-                final int lookupKey = (numHdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE
-                    && anchorPathNodeKey > 0 && anchorPathNodeKey <= Integer.MAX_VALUE)
-                    ? (int) anchorPathNodeKey : anchorNameKey;
+                final int lookupKey = (numHdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE && anchorPathNodeKey > 0
+                    && anchorPathNodeKey <= Integer.MAX_VALUE)
+                        ? (int) anchorPathNodeKey
+                        : anchorNameKey;
                 final int tag = NumberRegion.lookupTag(numHdr, lookupKey);
                 if (tag >= 0 && numHdr.tagCount[tag] == matches.length
                     && canPruneByZone(zoneProbe, numHdr.tagMin[tag], numHdr.tagMax[tag])) {
@@ -6418,9 +6647,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 }
               }
             }
-            if (recordBuf != null) recordBuf.add((int) pk);
+            if (recordBuf != null)
+              recordBuf.add((int) pk);
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
-            if (batch.size == 0) continue;
+            if (batch.size == 0)
+              continue;
             final long[] bitmap;
             if (compiled != null && !batch.hasDecimalRows) {
               compiled.evaluate(batch, rootOut);
@@ -6438,7 +6669,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= scheduleSize) break;
+          if (s >= scheduleSize)
+            break;
           final long e = Math.min(s + STRIDE, scheduleSize);
           prefetchScheduledPages(reader, schedule, s, e, prefetchWindow);
           for (long j = s; j < e; j++) {
@@ -6446,10 +6678,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // Column-only fast path — the same helper the batch arm calls, so the two arms
             // cannot drift on the serve-and-patch protocol.
             if (regionPlan != null) {
-              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask,
-                                               regionDeferMask, regionCache, dictCache,
-                                               anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                                               headerScratch, recordBuf, rtx, cp, scratch);
+              final long c = columnarPageCount(reader, reusableKey, pk, regionPlan, regionMask, regionDeferMask,
+                  regionCache, dictCache, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch, recordBuf,
+                  rtx, cp, scratch);
               if (c >= 0L) {
                 localCount += c;
                 continue;
@@ -6465,12 +6696,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               // Try the COLUMNS before touching the record page. This is the one-shot cost of the
               // shape: getRecordPage below rebuilds the whole slotted page, which profiles at 78 %
               // of a cold scan, and a membership count needs three columns and none of the records.
-              final long fromColumns = countArrayContainsFromRegions(reader, reusableKey, pk,
-                                                                     anchorNameKey,
-                                                                     arrayElementPathKey,
-                                                                     arrayContainsLiteralBytes,
-                                                                     arrayContainsLiteralWrapper,
-                                                                     anchorSlotOut, headerScratch);
+              final long fromColumns =
+                  countArrayContainsFromRegions(reader, reusableKey, pk, anchorNameKey, arrayElementPathKey,
+                      arrayContainsLiteralBytes, arrayContainsLiteralWrapper, anchorSlotOut, headerScratch);
               if (fromColumns >= 0L) {
                 REGION_ONLY_PAGES.increment();
                 columnarServed++;
@@ -6485,7 +6713,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 headerScratch.clearPendingBoundary();
                 localCount += decideOneArrayContains(leading, pk, rtx, arrayContainsLiteralBytes)
                     + decideOneArrayContains(trailing, pk, rtx, arrayContainsLiteralBytes);
-                if (recordBuf != null && anchorSlotOut[0] > 0) recordBuf.add((int) pk);
+                if (recordBuf != null && anchorSlotOut[0] > 0)
+                  recordBuf.add((int) pk);
                 continue;
               }
               // A decline here has already paid the column read AND is about to pay the record
@@ -6501,29 +6730,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
             }
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-            if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+            if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+              continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-            if (matches.length == 0) continue;
-            if (recordBuf != null) recordBuf.add((int) pk);
+            if (matches.length == 0)
+              continue;
+            if (recordBuf != null)
+              recordBuf.add((int) pk);
             for (final int slot : matches) {
               final long anchorObjectKey = base + slot;
               if (anchorPathNodeKey != -1L
                   && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
                 continue;
               }
-              if (!rtx.moveTo(anchorObjectKey)) continue;
+              if (!rtx.moveTo(anchorObjectKey))
+                continue;
               if (singleArrayContains) {
                 // The scan is ALREADY standing on the field the predicate asks about — the anchor
                 // IS the array. Going up to the record and walking every one of its children to
                 // come back down to this same node is what the general loader must do; here it is
                 // pure overhead, paid once per record.
-                if (arrayContainsAt(rtx, arrayContainsLiteralBytes)) localCount++;
+                if (arrayContainsAt(rtx, arrayContainsLiteralBytes))
+                  localCount++;
                 continue;
               }
-              if (!rtx.moveToParent()) continue;  // enclosing object
+              if (!rtx.moveToParent())
+                continue; // enclosing object
               loadFields(rtx, cp, scratch);
-              if (evalCompiled(cp, 0, scratch)) localCount++;
+              if (evalCompiled(cp, 0, scratch))
+                localCount++;
             }
           }
         }
@@ -6532,30 +6768,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     });
     schedule.publish(anchorNameKey);
     long total = 0;
-    for (final long c : perThread) total += c;
+    for (final long c : perThread)
+      total += c;
     return total;
   }
 
   /**
-   * Single pass over the current object's child OBJECT_KEYs; for each nameKey
-   * we recognize, load its value into {@code scratch} as the appropriate
-   * primitive. Missing fields stay {@code fieldKind=0}.
+   * Single pass over the current object's child OBJECT_KEYs; for each nameKey we recognize, load its
+   * value into {@code scratch} as the appropriate primitive. Missing fields stay {@code fieldKind=0}.
    *
-   * <p>Assumes rtx is positioned on the enclosing OBJECT node.
+   * <p>
+   * Assumes rtx is positioned on the enclosing OBJECT node.
    */
-  private static void loadFields(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
-      final EvalScratch scratch) {
-    for (int i = 0; i < scratch.fieldKind.length; i++) scratch.fieldKind[i] = 0;
+  private static void loadFields(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp, final EvalScratch scratch) {
+    for (int i = 0; i < scratch.fieldKind.length; i++)
+      scratch.fieldKind[i] = 0;
     if (cp.hasArrayContains) {
-      for (int i = 0; i < scratch.arrayCounts.length; i++) scratch.arrayCounts[i] = 0;
+      for (int i = 0; i < scratch.arrayCounts.length; i++)
+        scratch.arrayCounts[i] = 0;
     }
-    if (!rtx.moveToFirstChild()) return;
+    if (!rtx.moveToFirstChild())
+      return;
     final int[] wantKeys = cp.fieldNameKeys;
     do {
       final int nk = rtx.getNameKey();
       int fi = -1;
-      for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
-      if (fi < 0) continue;
+      for (int i = 0; i < wantKeys.length; i++)
+        if (wantKeys[i] == nk) {
+          fi = i;
+          break;
+        }
+      if (fi < 0)
+        continue;
       // Fused OBJECT_NAMED_* carries the value inline — no descent. Legacy OBJECT_KEY falls through.
       final NodeKind anchorKind = rtx.getKind();
       switch (anchorKind) {
@@ -6587,9 +6831,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           continue;
         }
-        default -> { /* OBJECT_KEY — descend */ }
+        default -> {
+          /* OBJECT_KEY — descend */ }
       }
-      if (!rtx.moveToFirstChild()) { continue; }
+      if (!rtx.moveToFirstChild()) {
+        continue;
+      }
       final NodeKind kind = rtx.getKind();
       switch (kind) {
         case NUMBER_VALUE -> {
@@ -6611,47 +6858,48 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             loadArrayElements(rtx, scratch, fi);
           }
         }
-        default -> { /* unsupported field type — leave kind=0 (missing) */ }
+        default -> {
+          /* unsupported field type — leave kind=0 (missing) */ }
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
   }
 
   /**
-   * Count records whose array-valued field holds {@code literal}, from the page's COLUMNS —
-   * without rebuilding a single record.
+   * Count records whose array-valued field holds {@code literal}, from the page's COLUMNS — without
+   * rebuilding a single record.
    *
-   * <p>This is the shape's whole reason for being slow one-shot: the record route reconstructs
-   * every slotted page, which profiles at 78 % of a cold scan. Three columns answer it instead —
-   * the string column (the element values, tagged by their enclosing array's path), the field-name
-   * column (which slots are object-key-role) and the record-ordinal column (which record each of
-   * those belongs to).
+   * <p>
+   * This is the shape's whole reason for being slow one-shot: the record route reconstructs every
+   * slotted page, which profiles at 78 % of a cold scan. Three columns answer it instead — the string
+   * column (the element values, tagged by their enclosing array's path), the field-name column (which
+   * slots are object-key-role) and the record-ordinal column (which record each of those belongs to).
    *
    * <h2>Element to record, without a column that stores it</h2>
    *
-   * <p>The string column stores values per tag with no per-value slot, so occurrence {@code k}
-   * cannot be attributed directly. It does not need to be: object-key-role slots PARTITION the
-   * page, so the populated slots strictly between one and the next are that field's values — for a
-   * string array, its elements, in order. Walking the anchor's slots therefore segments the tag's
-   * values into one run per record, and the array's own record ordinal names the record.
+   * <p>
+   * The string column stores values per tag with no per-value slot, so occurrence {@code k} cannot be
+   * attributed directly. It does not need to be: object-key-role slots PARTITION the page, so the
+   * populated slots strictly between one and the next are that field's values — for a string array,
+   * its elements, in order. Walking the anchor's slots therefore segments the tag's values into one
+   * run per record, and the array's own record ordinal names the record.
    *
-   * <p>Verified rather than assumed, per page: the segments must account for exactly the tag's
-   * value count. Measured over 275 pages of the movie corpus the segmentation reproduces it on
-   * 260; the other 15 decline here and go through the records, which costs the fast path and
-   * nothing else.
+   * <p>
+   * Verified rather than assumed, per page: the segments must account for exactly the tag's value
+   * count. Measured over 275 pages of the movie corpus the segmentation reproduces it on 260; the
+   * other 15 decline here and go through the records, which costs the fast path and nothing else.
    *
    * @return the number of matching records on this page, or {@code -1} to fall back
    */
-  private long countArrayContainsFromRegions(final StorageEngineReader reader,
-      final IndexLogKey reusableKey, final long pageKey, final int anchorNameKey,
-      final long elementPathTag, final byte[] literal, final byte[][] literalWrapper,
-      final int[] anchorSlotOut, final RegionHeaderScratch scratch) {
+  private long countArrayContainsFromRegions(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pageKey, final int anchorNameKey, final long elementPathTag, final byte[] literal,
+      final byte[][] literalWrapper, final int[] anchorSlotOut, final RegionHeaderScratch scratch) {
     anchorSlotOut[0] = 0;
     if (elementPathTag <= 0L || elementPathTag > Integer.MAX_VALUE) {
       return declineArrayContains(ArrayContainsDecline.NO_ARRAY_PATH);
     }
-    final RegionsOnlyPage page = reader.getRecordPageRegionsOnly(
-        reusableKey.setRecordPageKey(pageKey), ARRAY_CONTAINS_REGION_MASK, 0);
+    final RegionsOnlyPage page =
+        reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pageKey), ARRAY_CONTAINS_REGION_MASK, 0);
     if (page == null || !page.hasSlotBitmap()) {
       return declineArrayContains(ArrayContainsDecline.NO_REGIONS);
     }
@@ -6674,15 +6922,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return declineArrayContains(ArrayContainsDecline.STRING_TAG_NOT_PATH);
     }
     final int tag = StringRegion.lookupTag(sh, (int) elementPathTag);
-    final int elementCount = tag < 0 ? 0 : sh.tagCount[tag];
+    final int elementCount = tag < 0
+        ? 0
+        : sh.tagCount[tag];
 
     // Segment the tag's values into one run per record, from the slot partition.
     final int okCount = ObjectKeyNameKeyRegion.count(nameKeys);
     if (okCount <= 0 || okCount > scratch.numberBitmapIdx.length) {
       return declineArrayContains(ArrayContainsDecline.OBJECT_KEY_COUNT);
     }
-    final int[] segmentRecord = scratch.numberBitmapIdx;   // record ordinal per segment
-    final int[] segmentEnd = scratch.boolBitmapIdx;        // exclusive value index per segment
+    final int[] segmentRecord = scratch.numberBitmapIdx; // record ordinal per segment
+    final int[] segmentEnd = scratch.boolBitmapIdx; // exclusive value index per segment
     int segments = 0;
     int covered = 0;
     int trailingSegment = -1;
@@ -6694,8 +6944,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // per-slot form was two bitmap walks times the page's ~800 object keys — measured, that alone
     // made a served page cost more than reconstructing its records.
     final int[] anchorIdx = scratch.anchorBitmapIdx;
-    final int anchorMatches =
-        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+    final int anchorMatches = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
     anchorSlotOut[0] = anchorMatches;
     // Expand the object-key bitmap ONCE. slotAt is a select-nth-set-bit, and the loop below wants
     // both the anchor's slot and its successor's, so the per-call form paid ~140 rank scans over
@@ -6713,7 +6962,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // still counted here, so the certificate below stays exact; the record itself is handed to
       // the record path, which is one reconstruction per page seam against refusing the page.
       final boolean trailing = i + 1 >= okCount;
-      final int to = trailing ? Constants.NDP_NODE_COUNT : okSlots[i + 1];
+      final int to = trailing
+          ? Constants.NDP_NODE_COUNT
+          : okSlots[i + 1];
       if (trailing) {
         trailingSegment = segments;
         trailingSlot = from;
@@ -6733,8 +6984,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // From the array the SIMD pass above already filled, not by re-extracting each ordinal
         // from the bit-packed column: decodeOrdinalsInto unpacks the whole page vectorized and its
         // result was being discarded while this loop paid a scalar decode per lookup.
-        final int here = i < oh.skipCount ? -1 : (int) decodedOrdinals[i - oh.skipCount];
-        final int next = i + 1 < oh.skipCount ? -1 : (int) decodedOrdinals[i + 1 - oh.skipCount];
+        final int here = i < oh.skipCount
+            ? -1
+            : (int) decodedOrdinals[i - oh.skipCount];
+        final int next = i + 1 < oh.skipCount
+            ? -1
+            : (int) decodedOrdinals[i + 1 - oh.skipCount];
         final int boundaries = next - here;
         if (boundaries > 0) {
           covered -= boundaries;
@@ -6775,19 +7030,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // holds something this segmentation does not model — a nested structure inside the array,
       // say — and attributing values by it would credit them to the wrong record.
       return declineArrayContains(covered > elementCount
-                                      ? ArrayContainsDecline.CERTIFICATE_GAPS_TOO_WIDE
-                                      : ArrayContainsDecline.CERTIFICATE_VALUES_UNCLAIMED);
+          ? ArrayContainsDecline.CERTIFICATE_GAPS_TOO_WIDE
+          : ArrayContainsDecline.CERTIFICATE_VALUES_UNCLAIMED);
     }
     if (elementCount == 0) {
       // Arrays present, none of them holding a value ON THIS PAGE: nothing here satisfies an
       // existential. The seam still can, though — a page ending just after an array node keeps
       // every element of it on the NEXT page.
-      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal,
-                                    literalWrapper, scratch);
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal, literalWrapper, scratch);
     }
     final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
-                                               scratch.literalsFor(page.getFsstSymbolTableId(),
-                                                                   literalWrapper, reader)[0]);
+        scratch.literalsFor(page.getFsstSymbolTableId(), literalWrapper, reader)[0]);
     if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
       return declineArrayContains(ArrayContainsDecline.DICT_UNDECIDABLE);
     }
@@ -6797,8 +7050,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // literals rare enough to be absent from a page at all: measured on the movies corpus,
       // "Drama" (on nearly every page) lost none and "Short" lost 11. Validating against a common
       // literal is what let it hide.
-      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal,
-                                    literalWrapper, scratch);
+      return settleTrailingSeamOnly(reader, reusableKey, pageKey, trailingSlot, literal, literalWrapper, scratch);
     }
     final long[] hits = scratch.sparseOccRows;
     if (elementCount > hits.length << 6) {
@@ -6855,8 +7107,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if ((matchedRecords[record >>> 6] & (1L << (record & 63))) == 0L) {
           // Nothing on THIS page settles it, so ask the next page's orphan elements before falling
           // back to rebuilding a whole slotted page for this one record.
-          final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
-                                                        literalWrapper, scratch);
+          final int fromOrphans =
+              orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
           if (fromOrphans == ORPHANS_CONTAIN) {
             matchedRecords[record >>> 6] |= 1L << (record & 63);
           } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
@@ -6874,38 +7126,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // so its elements can continue on the next one. Undecided ONLY if nothing here matched — a
       // witness on this page settles it just as it does for the trailing case above — and the next
       // page's orphans get the same chance to settle it before the record path does.
-      final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
-                                                    literalWrapper, scratch);
+      final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
       if (fromOrphans == ORPHANS_CONTAIN) {
         leadingMatched = true;
       } else if (fromOrphans == ORPHANS_UNDECIDABLE) {
         scratch.pendingFusedAnchorSlot = leadingSlot;
       }
     }
-    return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount)
-        + (leadingMatched ? 1L : 0L);
+    return PredicateBitmapEvaluator.popcount(matchedRecords, oh.recordCount) + (leadingMatched
+        ? 1L
+        : 0L);
   }
 
   /**
    * Answer a page on which nothing matched, settling only the array that runs off its end.
    *
-   * <p>Two paths reach this: no elements on the page at all, and the literal absent from the ones
-   * there are. Both used to return a bare zero, and both were wrong for the same reason — an array
-   * whose elements continue on the next page is not described by this page's columns, so "not here"
-   * is not "not anywhere". One of the two was fixed on its own and the other kept leaking, which is
-   * why they now share a single exit.
+   * <p>
+   * Two paths reach this: no elements on the page at all, and the literal absent from the ones there
+   * are. Both used to return a bare zero, and both were wrong for the same reason — an array whose
+   * elements continue on the next page is not described by this page's columns, so "not here" is not
+   * "not anywhere". One of the two was fixed on its own and the other kept leaking, which is why they
+   * now share a single exit.
    *
    * @param trailingSlot page-local slot of the array running off the page end, or {@code -1}
    * @return {@code 1} if the seam record matches, {@code 0} otherwise
    */
-  private long settleTrailingSeamOnly(final StorageEngineReader reader,
-      final IndexLogKey reusableKey, final long pageKey, final int trailingSlot,
-      final byte[] literal, final byte[][] literalWrapper, final RegionHeaderScratch scratch) {
+  private long settleTrailingSeamOnly(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pageKey, final int trailingSlot, final byte[] literal, final byte[][] literalWrapper,
+      final RegionHeaderScratch scratch) {
     if (trailingSlot < 0) {
       return 0L;
     }
-    final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal,
-                                                  literalWrapper, scratch);
+    final int fromOrphans = orphanElementsContain(reader, reusableKey, pageKey + 1, literal, literalWrapper, scratch);
     if (fromOrphans == ORPHANS_CONTAIN) {
       return 1L;
     }
@@ -6928,24 +7180,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Settle an array that runs off the end of its page from the following pages' orphan elements,
    * walking forward for as long as the orphan run keeps covering a whole page.
    *
-   * <p>This is the whole point of the orphan tag. Profiled cold at a 98.9 % serve rate, deciding
-   * these records through the records was 69 % of the query — one full slotted-page rebuild, ~800
-   * records reconstructed, to inspect ONE. A second REGIONS read costs ~3 % instead.
+   * <p>
+   * This is the whole point of the orphan tag. Profiled cold at a 98.9 % serve rate, deciding these
+   * records through the records was 69 % of the query — one full slotted-page rebuild, ~800 records
+   * reconstructed, to inspect ONE. A second REGIONS read costs ~3 % instead.
    *
-   * <p>An absent orphan tag means "this array ended on the previous page" ONLY when the next page
+   * <p>
+   * An absent orphan tag means "this array ended on the previous page" ONLY when the next page
    * actually collected elements, which is what {@link StringRegion#ENC_DICT_BITPACKED_ZM_ELEMENTS}
-   * promises. Without that promise the two indistinguishable cases — no spill, versus nobody
-   * looked — would have to be treated as the worse one on every page.
+   * promises. Without that promise the two indistinguishable cases — no spill, versus nobody looked —
+   * would have to be treated as the worse one on every page.
    */
   private int orphanElementsContain(final StorageEngineReader reader, final IndexLogKey reusableKey,
-      final long nextPageKey, final byte[] literal, final byte[][] literalWrapper,
-      final RegionHeaderScratch scratch) {
+      final long nextPageKey, final byte[] literal, final byte[][] literalWrapper, final RegionHeaderScratch scratch) {
     long pageKey = nextPageKey;
     while (true) {
-      final RegionsOnlyPage next = reader.getRecordPageRegionsOnly(
-          reusableKey.setRecordPageKey(pageKey), 1 << RegionTable.KIND_STRING, 0);
+      final RegionsOnlyPage next =
+          reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pageKey), 1 << RegionTable.KIND_STRING, 0);
       if (next == null) {
-        return ORPHANS_UNDECIDABLE;   // no next page, or it published no regions
+        return ORPHANS_UNDECIDABLE; // no next page, or it published no regions
       }
       final MemorySegment strings = next.stringPayload();
       if (strings == null) {
@@ -6953,15 +7206,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final StringRegion.Header sh = next.stringHeaderInto(scratch.stringNext);
       if (sh == null || sh.encodingKind != StringRegion.ENC_DICT_BITPACKED_ZM_ELEMENTS) {
-        return ORPHANS_UNDECIDABLE;   // written before the promise existed, or staging gave up
+        return ORPHANS_UNDECIDABLE; // written before the promise existed, or staging gave up
       }
       final int tag = StringRegion.lookupTag(sh, StringRegion.TAG_ORPHAN_ELEMENTS);
       if (tag < 0) {
-        return ORPHANS_ABSENT;        // it looked and found none: the array ended on the page before
+        return ORPHANS_ABSENT; // it looked and found none: the array ended on the page before
       }
       final int dictId = StringRegion.findDictId(strings, sh, tag, literal,
-                                                 scratch.literalsFor(next.getFsstSymbolTableId(),
-                                                                     literalWrapper, reader)[0]);
+          scratch.literalsFor(next.getFsstSymbolTableId(), literalWrapper, reader)[0]);
       if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
         return ORPHANS_UNDECIDABLE;
       }
@@ -6979,10 +7231,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int populated = next.populatedInRange(0, Constants.NDP_NODE_COUNT);
       final int orphanCount = sh.tagCount[tag];
       if (populated > orphanCount) {
-        return ORPHANS_ABSENT;        // the run ended on this page, and the literal was not in it
+        return ORPHANS_ABSENT; // the run ended on this page, and the literal was not in it
       }
       if (populated < orphanCount) {
-        return ORPHANS_UNDECIDABLE;   // more orphans than slots: a shape this does not model
+        return ORPHANS_UNDECIDABLE; // more orphans than slots: a shape this does not model
       }
       pageKey++;
     }
@@ -6991,26 +7243,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Decide ONE record's array membership through the records, or {@code 0} for no slot.
    *
-   * <p>Both page seams come here, for the same reason {@code decideOneRecord} exists for the fused
+   * <p>
+   * Both page seams come here, for the same reason {@code decideOneRecord} exists for the fused
    * kernel: a record whose slots straddle a page boundary cannot be decided from either page's
    * columns alone, and reconstructing that one record is what buys the rest of the page.
    *
    * @param anchorSlot page-local slot of the array node, or {@code -1} for nothing pending
    * @return {@code 1} if that record's array holds the literal, {@code 0} otherwise
    */
-  private static long decideOneArrayContains(final int anchorSlot, final long pk,
-      final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
+  private static long decideOneArrayContains(final int anchorSlot, final long pk, final JsonNodeReadOnlyTrx rtx,
+      final byte[] literal) {
     if (anchorSlot < 0) {
       return 0L;
     }
     final long arrayKey = (pk << Constants.INP_REFERENCE_COUNT_EXPONENT) + anchorSlot;
-    return rtx.moveTo(arrayKey) && arrayContainsAt(rtx, literal) ? 1L : 0L;
+    return rtx.moveTo(arrayKey) && arrayContainsAt(rtx, literal)
+        ? 1L
+        : 0L;
   }
 
   /**
-   * Segment marker for the record spanning in from the previous page: its values sit on this page
-   * but it owns no record ordinal here, so it takes no bit in the columnar answer and is decided
-   * through the records instead.
+   * Segment marker for the record spanning in from the previous page: its values sit on this page but
+   * it owns no record ordinal here, so it takes no bit in the columnar answer and is decided through
+   * the records instead.
    */
   private static final int SEGMENT_NO_RECORD = -1;
 
@@ -7023,32 +7278,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Whether the array-membership COLUMN route is attempted at all.
    *
-   * <p>Off by default. It is correct — its answers match the record path — but on the corpus it was
-   * built against it serves only ~43 % of pages, and a declining page pays the column read on top
-   * of the record page it still has to read. The adaptive bail-out bounds that cost, but "bounded"
-   * is not "a win", and a route that does not beat the one it replaces should not be the default.
-   * The remaining declines are not yet diagnosed; the flag is how the next round measures them.
+   * <p>
+   * Off by default. It is correct — its answers match the record path — but on the corpus it was
+   * built against it serves only ~43 % of pages, and a declining page pays the column read on top of
+   * the record page it still has to read. The adaptive bail-out bounds that cost, but "bounded" is
+   * not "a win", and a route that does not beat the one it replaces should not be the default. The
+   * remaining declines are not yet diagnosed; the flag is how the next round measures them.
    *
-   * <p>Not final: a JMH {@code @Param} has to flip it BETWEEN forks to put both arms in one run
-   * with shared statistics, and a value read once at class initialisation cannot be flipped.
+   * <p>
+   * Not final: a JMH {@code @Param} has to flip it BETWEEN forks to put both arms in one run with
+   * shared statistics, and a value read once at class initialisation cannot be flipped.
    */
-  public static boolean ARRAY_CONTAINS_COLUMNAR_ENABLED =
-      Boolean.getBoolean("sirix.scan.arrayContainsColumnar");
+  public static boolean ARRAY_CONTAINS_COLUMNAR_ENABLED = Boolean.getBoolean("sirix.scan.arrayContainsColumnar");
 
   /** The three columns an array-membership count reads, and nothing else. */
-  private static final int ARRAY_CONTAINS_REGION_MASK =
-      (1 << RegionTable.KIND_STRING) | (1 << RegionTable.KIND_OBJECT_KEY_NAMEKEY)
-          | (1 << RegionTable.KIND_RECORD_ORDINAL);
+  private static final int ARRAY_CONTAINS_REGION_MASK = (1 << RegionTable.KIND_STRING)
+      | (1 << RegionTable.KIND_OBJECT_KEY_NAMEKEY) | (1 << RegionTable.KIND_RECORD_ORDINAL);
 
   /**
    * Whether the array {@code rtx} is positioned on holds {@code literal} as a string element.
    *
-   * <p>Allocation-free and short-circuiting: no scratch, no element list, and it stops at the first
+   * <p>
+   * Allocation-free and short-circuiting: no scratch, no element list, and it stops at the first
    * match — an existential needs nothing more. The cursor is left where it was found.
    */
   private static boolean arrayContainsAt(final JsonNodeReadOnlyTrx rtx, final byte[] literal) {
     if (!rtx.moveToFirstChild()) {
-      return false;  // an EMPTY array satisfies no existential
+      return false; // an EMPTY array satisfies no existential
     }
     boolean found = false;
     do {
@@ -7070,16 +7326,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Collect the STRING elements of the array {@code rtx} is positioned on into
    * {@code scratch.arrayVals[fi]}, leaving the cursor where it was.
    *
-   * <p>Only string elements: the one shape {@code ArrayContains} tests. A non-string element is
-   * skipped rather than stringified — comparing {@code 3} against {@code "3"} is a match the
-   * interpreter does not make.
+   * <p>
+   * Only string elements: the one shape {@code ArrayContains} tests. A non-string element is skipped
+   * rather than stringified — comparing {@code 3} against {@code "3"} is a match the interpreter does
+   * not make.
    *
-   * <p>The row is grown and reused across records; this runs once per record on the fallback path.
+   * <p>
+   * The row is grown and reused across records; this runs once per record on the fallback path.
    */
-  private static void loadArrayElements(final JsonNodeReadOnlyTrx rtx, final EvalScratch scratch,
-      final int fi) {
+  private static void loadArrayElements(final JsonNodeReadOnlyTrx rtx, final EvalScratch scratch, final int fi) {
     if (!rtx.moveToFirstChild()) {
-      return;  // an EMPTY array satisfies no existential, which is what a count of 0 means here
+      return; // an EMPTY array satisfies no existential, which is what a count of 0 means here
     }
     String[] values = scratch.arrayVals[fi];
     int count = 0;
@@ -7088,7 +7345,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         continue;
       }
       if (values == null || count == values.length) {
-        final String[] grown = new String[values == null ? 8 : values.length << 1];
+        final String[] grown = new String[values == null
+            ? 8
+            : values.length << 1];
         if (values != null) {
           System.arraycopy(values, 0, grown, 0, count);
         }
@@ -7105,26 +7364,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Consume the column route's pending boundary slots, if any are standing, and decide those anchor
    * occurrences through the records.
    *
-   * <p>At most one per page seam, and a page has two. The LEADING one belongs to a record spanning
-   * in from the page before it, whose other values are out of every column's reach. The TRAILING
-   * one belongs to the record this page leaves open, handed back only by a scattered leaf — the
-   * dense arm refuses a page whose field misses any record in the window, so it never has to ask
-   * whether the miss was a seam.
+   * <p>
+   * At most one per page seam, and a page has two. The LEADING one belongs to a record spanning in
+   * from the page before it, whose other values are out of every column's reach. The TRAILING one
+   * belongs to the record this page leaves open, handed back only by a scattered leaf — the dense arm
+   * refuses a page whose field misses any record in the window, so it never has to ask whether the
+   * miss was a seam.
    *
-   * <p>Semantics mirror the record fallback exactly — same path filter, same parent hop, same
-   * evaluator — because this IS the record fallback, narrowed to the records that need it.
+   * <p>
+   * Semantics mirror the record fallback exactly — same path filter, same parent hop, same evaluator
+   * — because this IS the record fallback, narrowed to the records that need it.
    *
-   * <p>The check-and-clear lives here, not at the call sites, so the pending-slot protocol has ONE
-   * consume point: a missed clear would leak a slot onto the next served page, and both worker
-   * arms would have to keep that ordering in step by hand. With nothing pending this is two
-   * branches, so the call is unconditional in both arms — {@code evalScratch} may then be null for
-   * plans that can never set a slot.
+   * <p>
+   * The check-and-clear lives here, not at the call sites, so the pending-slot protocol has ONE
+   * consume point: a missed clear would leak a slot onto the next served page, and both worker arms
+   * would have to keep that ordering in step by hand. With nothing pending this is two branches, so
+   * the call is unconditional in both arms — {@code evalScratch} may then be null for plans that can
+   * never set a slot.
    *
    * @return how many of the pending records satisfy the predicate
    */
-  private static long patchBoundaryAnchor(final RegionHeaderScratch headerScratch,
-      final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp, final EvalScratch evalScratch,
-      final long pk, final long anchorPathNodeKey) {
+  private static long patchBoundaryAnchor(final RegionHeaderScratch headerScratch, final JsonNodeReadOnlyTrx rtx,
+      final CompiledPredicate cp, final EvalScratch evalScratch, final long pk, final long anchorPathNodeKey) {
     final int leading = headerScratch.pendingFusedAnchorSlot;
     final int trailing = headerScratch.pendingTrailingAnchorSlot;
     headerScratch.clearPendingBoundary();
@@ -7135,14 +7396,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Decide the record at one anchor slot through the records, or {@code 0} for no slot.
    *
-   * <p>Both seams come here: the record spanning IN from the page before, whose earlier values no
-   * column on this page holds, and the record still open at the page's end, whose later values sit
-   * on the next one. Same path filter, same parent hop, same evaluator as the record fallback,
-   * because this IS the record fallback narrowed to one record.
+   * <p>
+   * Both seams come here: the record spanning IN from the page before, whose earlier values no column
+   * on this page holds, and the record still open at the page's end, whose later values sit on the
+   * next one. Same path filter, same parent hop, same evaluator as the record fallback, because this
+   * IS the record fallback narrowed to one record.
    */
-  private static long decideOneRecord(final int patchSlot, final JsonNodeReadOnlyTrx rtx,
-      final CompiledPredicate cp, final EvalScratch evalScratch, final long pk,
-      final long anchorPathNodeKey) {
+  private static long decideOneRecord(final int patchSlot, final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final EvalScratch evalScratch, final long pk, final long anchorPathNodeKey) {
     if (patchSlot < 0) {
       return 0L;
     }
@@ -7154,10 +7415,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return 0L;
     }
     if (!rtx.moveToParent()) {
-      return 0L;  // enclosing object
+      return 0L; // enclosing object
     }
     loadFields(rtx, cp, evalScratch);
-    return evalCompiled(cp, 0, evalScratch) ? 1L : 0L;
+    return evalCompiled(cp, 0, evalScratch)
+        ? 1L
+        : 0L;
   }
 
   /** Typed number load for the record-at-a-time scratch — see {@link #classifyNumberForPredicate}. */
@@ -7177,27 +7440,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         scratch.decVals[fi] = decimalOfNumber(n);
         scratch.fieldKind[fi] = FK_DECIMAL;
       }
-      default -> { /* unsupported + unused by the predicate — stays missing in the scratch */ }
+      default -> {
+        /* unsupported + unused by the predicate — stays missing in the scratch */ }
     }
   }
 
   /**
-   * Recursive evaluator over the compiled predicate. Tail-recursive in the
-   * AND/OR cases; the JIT inlines this heavily because it's shape-monomorphic
-   * per query.
+   * Recursive evaluator over the compiled predicate. Tail-recursive in the AND/OR cases; the JIT
+   * inlines this heavily because it's shape-monomorphic per query.
    */
   private static boolean evalCompiled(final CompiledPredicate cp, final int nodeIdx, final EvalScratch scratch) {
     final byte op = cp.ops[nodeIdx];
     switch (op) {
-      case CompiledPredicate.OP_ALWAYS_T: return true;
-      case CompiledPredicate.OP_ALWAYS_F: return false;
+      case CompiledPredicate.OP_ALWAYS_T:
+        return true;
+      case CompiledPredicate.OP_ALWAYS_F:
+        return false;
       case CompiledPredicate.OP_NOT:
         return !evalCompiled(cp, cp.children[cp.childStart[nodeIdx]], scratch);
       case CompiledPredicate.OP_AND: {
         final int start = cp.childStart[nodeIdx];
         final int n = cp.childCount[nodeIdx];
         for (int i = 0; i < n; i++) {
-          if (!evalCompiled(cp, cp.children[start + i], scratch)) return false;
+          if (!evalCompiled(cp, cp.children[start + i], scratch))
+            return false;
         }
         return true;
       }
@@ -7205,7 +7471,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int start = cp.childStart[nodeIdx];
         final int n = cp.childCount[nodeIdx];
         for (int i = 0; i < n; i++) {
-          if (evalCompiled(cp, cp.children[start + i], scratch)) return true;
+          if (evalCompiled(cp, cp.children[start + i], scratch))
+            return true;
         }
         return false;
       }
@@ -7218,9 +7485,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return switch (scratch.fieldKind[fi]) {
           case FK_LONG -> scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
           case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], (double) cp.longLit[nodeIdx]);
-          case FK_DECIMAL -> scalarEvalCmp(
-              scratch.decVals[fi].compareTo(BigDecimal.valueOf(cp.longLit[nodeIdx])),
-              cp.cmpOp[nodeIdx]);
+          case FK_DECIMAL ->
+            scalarEvalCmp(scratch.decVals[fi].compareTo(BigDecimal.valueOf(cp.longLit[nodeIdx])), cp.cmpOp[nodeIdx]);
           default -> false;
         };
       }
@@ -7233,8 +7499,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return switch (scratch.fieldKind[fi]) {
           case FK_LONG -> scalarEvalDbl((double) scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
           case FK_DOUBLE -> scalarEvalDbl(scratch.dblVals[fi], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
-          case FK_DECIMAL -> scalarEvalDbl(scratch.decVals[fi].doubleValue(), cp.cmpOp[nodeIdx],
-              cp.dblLit[nodeIdx]);
+          case FK_DECIMAL -> scalarEvalDbl(scratch.decVals[fi].doubleValue(), cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
           default -> false;
         };
       }
@@ -7252,12 +7517,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       case CompiledPredicate.OP_STR_EQ: {
         final int fi = cp.fieldIdx[nodeIdx];
-        if (scratch.fieldKind[fi] != 3) return false;
+        if (scratch.fieldKind[fi] != 3)
+          return false;
         return cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
       }
       case CompiledPredicate.OP_BOOL_REF: {
         final int fi = cp.fieldIdx[nodeIdx];
-        if (scratch.fieldKind[fi] != 2) return false;
+        if (scratch.fieldKind[fi] != 2)
+          return false;
         return scratch.boolVals[fi];
       }
       case CompiledPredicate.OP_ARRAY_CONTAINS: {
@@ -7305,10 +7572,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ------------------------------------------------------------------
 
   /**
-   * Per-field primitive columns for a single page's worth of matching records.
-   * Sized for the typical page slot count (~256) and grown on demand by
-   * {@link #ensureCapacity}. All per-worker reusable — allocated once, reset
-   * {@code size} between pages.
+   * Per-field primitive columns for a single page's worth of matching records. Sized for the typical
+   * page slot count (~256) and grown on demand by {@link #ensureCapacity}. All per-worker reusable —
+   * allocated once, reset {@code size} between pages.
    */
   static final class EvalBatch {
     int size;
@@ -7324,10 +7590,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** [fieldIdx] → BigDecimal[capacity] — valid iff presentKind[fieldIdx][i] == 5. */
     final BigDecimal[][] decCols;
     /**
-     * Whether the CURRENT page loaded any {@code FK_DECIMAL} row. Reset per
-     * page in {@link #collectColumns}; routes evaluation to the
-     * decimal-aware interpreter (the generated classes and fused kernels
-     * only model long/double rows).
+     * Whether the CURRENT page loaded any {@code FK_DECIMAL} row. Reset per page in
+     * {@link #collectColumns}; routes evaluation to the decimal-aware interpreter (the generated
+     * classes and fused kernels only model long/double rows).
      */
     boolean hasDecimalRows;
     /** [fieldIdx] → boolean[capacity] — valid iff presentKind[fieldIdx][i] == 2. */
@@ -7342,55 +7607,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** Work bitmap for NOT etc. */
     final long[] workBitmap;
     /**
-     * Scratch indices array consumed by
-     * {@link VectorizedPredicate#filterIndices} — capacity sized; reused across
-     * every OP_NUM_CMP node on every page. One allocation per worker lifetime.
+     * Scratch indices array consumed by {@link VectorizedPredicate#filterIndices} — capacity sized;
+     * reused across every OP_NUM_CMP node on every page. One allocation per worker lifetime.
      */
     final int[] indicesScratch;
     /**
-     * Scratch long[] used by OP_NUM_CMP to overwrite missing rows with a
-     * sentinel that cannot match the current comparison (e.g. Long.MIN_VALUE
-     * for GT/GE/EQ, Long.MAX_VALUE for LT/LE). Keeps the SIMD compare
-     * branchless — the JIT auto-vectorises `compare + filterIndices` into an
-     * AVX2 masked lane-write. One allocation per worker lifetime, rewritten
-     * per OP_NUM_CMP leaf evaluation.
+     * Scratch long[] used by OP_NUM_CMP to overwrite missing rows with a sentinel that cannot match the
+     * current comparison (e.g. Long.MIN_VALUE for GT/GE/EQ, Long.MAX_VALUE for LT/LE). Keeps the SIMD
+     * compare branchless — the JIT auto-vectorises `compare + filterIndices` into an AVX2 masked
+     * lane-write. One allocation per worker lifetime, rewritten per OP_NUM_CMP leaf evaluation.
      */
     final long[] maskedColScratch;
     /**
-     * Parent-OBJECT nodeKey → row index. Populated in {@link #collectColumns}
-     * pass 1 so pass 2 can join sibling fields in O(1) per slot without an
-     * rtx cursor walk. Reused across pages — {@code clear()} per page.
+     * Parent-OBJECT nodeKey → row index. Populated in {@link #collectColumns} pass 1 so pass 2 can join
+     * sibling fields in O(1) per slot without an rtx cursor walk. Reused across pages — {@code clear()}
+     * per page.
      */
     final Long2IntOpenHashMap parentKeyToRow;
     /**
-     * Scratch byte[] for direct-slot string reads in pass 2. Sized to a
-     * typical JSON string payload; oversized values fall back to rtx.
+     * Scratch byte[] for direct-slot string reads in pass 2. Sized to a typical JSON string payload;
+     * oversized values fall back to rtx.
      */
     final byte[] strScratch;
     /**
-     * Bulk-decoded {@code pathNodeKey} / {@code parentKey} / {@code firstChildKey}
-     * columns produced by {@link KeyValueLeafPage#bulkDecodeObjectKeyColumns}.
-     * Indexed by anchor-slot position (not row) — pass 1 walks these in
-     * lock-step with the input {@code anchorSlots} array. Reused across
-     * pages; sized to {@code capacity}, which matches the max anchor match
-     * count per page (INP_REFERENCE_COUNT).
+     * Bulk-decoded {@code pathNodeKey} / {@code parentKey} / {@code firstChildKey} columns produced by
+     * {@link KeyValueLeafPage#bulkDecodeObjectKeyColumns}. Indexed by anchor-slot position (not row) —
+     * pass 1 walks these in lock-step with the input {@code anchorSlots} array. Reused across pages;
+     * sized to {@code capacity}, which matches the max anchor match count per page
+     * (INP_REFERENCE_COUNT).
      */
     final long[] slotPathNodeKeys;
     final long[] slotParentKeys;
     final long[] slotFirstChildKeys;
     /**
-     * Canonical-String dedup cache for column-read string values. Analytical
-     * group-by queries typically target low-cardinality columns (e.g. 8
-     * departments over 10M records) but {@code readFieldValueDirect}
-     * allocates a fresh {@link String} per row. The cache is keyed by a
-     * 64-bit content hash of the decoded bytes; on hit we reuse the
-     * canonical String reference, avoiding both the allocation and the
-     * downstream {@code String.hashCode} recompute that the group-by
-     * accumulator pays on insert.
+     * Canonical-String dedup cache for column-read string values. Analytical group-by queries typically
+     * target low-cardinality columns (e.g. 8 departments over 10M records) but
+     * {@code readFieldValueDirect} allocates a fresh {@link String} per row. The cache is keyed by a
+     * 64-bit content hash of the decoded bytes; on hit we reuse the canonical String reference,
+     * avoiding both the allocation and the downstream {@code String.hashCode} recompute that the
+     * group-by accumulator pays on insert.
      *
-     * <p>Scope: per-worker (EvalBatch is per-worker). Unbounded to keep the
-     * code simple — for the analytical workloads the executor targets the
-     * distinct-value count is bounded by column cardinality, which is small.
+     * <p>
+     * Scope: per-worker (EvalBatch is per-worker). Unbounded to keep the code simple — for the
+     * analytical workloads the executor targets the distinct-value count is bounded by column
+     * cardinality, which is small.
      */
     final Long2ObjectOpenHashMap<String> canonicalStrings;
 
@@ -7428,45 +7688,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /**
-     * Assert that we have room for {@code n} rows. EvalBatch is sized for the
-     * maximum page slot count at construction (caller uses INP_REFERENCE_COUNT);
-     * anchor match sets are bounded by that, so this method only catches bugs.
+     * Assert that we have room for {@code n} rows. EvalBatch is sized for the maximum page slot count
+     * at construction (caller uses INP_REFERENCE_COUNT); anchor match sets are bounded by that, so this
+     * method only catches bugs.
      */
     void ensureCapacity(final int n) {
-      if (n <= capacity) return;
-      throw new IllegalStateException(
-          "EvalBatch capacity exceeded (" + capacity + " < " + n + "); "
-              + "initial capacity must be >= max page slot count");
+      if (n <= capacity)
+        return;
+      throw new IllegalStateException("EvalBatch capacity exceeded (" + capacity + " < " + n + "); "
+          + "initial capacity must be >= max page slot count");
     }
   }
 
   /**
-   * Phase 1: collect per-row column values for the current page. Returns the
-   * number of rows stored in {@code batch.size}.
+   * Phase 1: collect per-row column values for the current page. Returns the number of rows stored in
+   * {@code batch.size}.
    *
-   * <p>Strategy (multi-field, direct-slot default):
+   * <p>
+   * Strategy (multi-field, direct-slot default):
    * <ol>
-   *   <li>Pass 1 — anchor: iterate the candidate anchor OBJECT_KEY slots,
-   *       filter by pathNodeKey, read the anchor value via direct-slot
-   *       primitives. Record (parentOBJ nodeKey → row) in
-   *       {@link EvalBatch#parentKeyToRow} so pass 2 can join.</li>
-   *   <li>Pass 2 — one pass per sibling field: iterate that field's
-   *       {@code getObjectKeySlotsForNameKey}, decode the OBJECT_KEY's
-   *       parentKey directly, look up the row index; if in-batch, read the
-   *       value node via direct-slot primitives (same-page fast path).</li>
-   *   <li>Pass 3 — rtx fallback: for any row whose anchor value couldn't be
-   *       read direct (cross-page / FSST string oversize / float payload),
-   *       walk the rtx cursor for that row only.</li>
+   * <li>Pass 1 — anchor: iterate the candidate anchor OBJECT_KEY slots, filter by pathNodeKey, read
+   * the anchor value via direct-slot primitives. Record (parentOBJ nodeKey → row) in
+   * {@link EvalBatch#parentKeyToRow} so pass 2 can join.</li>
+   * <li>Pass 2 — one pass per sibling field: iterate that field's
+   * {@code getObjectKeySlotsForNameKey}, decode the OBJECT_KEY's parentKey directly, look up the row
+   * index; if in-batch, read the value node via direct-slot primitives (same-page fast path).</li>
+   * <li>Pass 3 — rtx fallback: for any row whose anchor value couldn't be read direct (cross-page /
+   * FSST string oversize / float payload), walk the rtx cursor for that row only.</li>
    * </ol>
    *
-   * <p>Single-field predicates keep the existing anchor-only fast path.
+   * <p>
+   * Single-field predicates keep the existing anchor-only fast path.
    */
   private static void collectColumns(final KeyValueLeafPage kv, final long pageBase, final int[] anchorSlots,
-      final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch,
-      final JsonNodeReadOnlyTrx rtx) {
+      final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch, final JsonNodeReadOnlyTrx rtx) {
     batch.size = 0;
     batch.hasDecimalRows = false;
-    if (anchorSlots.length == 0) return;
+    if (anchorSlots.length == 0)
+      return;
     batch.ensureCapacity(anchorSlots.length);
     final int[] fieldKeys = cp.fieldNameKeys;
     final int nFields = fieldKeys.length;
@@ -7477,7 +7736,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // it per-page). Keeps allocation off the hot loop.
     final long[] rowNeedsRtx = batch.workBitmap;
     final int stride = batch.bitmapStride;
-    for (int i = 0; i < stride; i++) rowNeedsRtx[i] = 0L;
+    for (int i = 0; i < stride; i++)
+      rowNeedsRtx[i] = 0L;
 
     // ---------------------------------------------------------------------
     // Pass 1: anchor scan — fills anchorSlots/anchorObjectKeys/longCols[0]
@@ -7501,8 +7761,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] slotParentKeys = batch.slotParentKeys;
     final long[] slotFirstChildKeys = batch.slotFirstChildKeys;
     if (useBulk) {
-      kv.bulkDecodeObjectKeyColumns(anchorSlots, anchorSlots.length, pageBase,
-          slotPathNodeKeys, slotParentKeys, slotFirstChildKeys);
+      kv.bulkDecodeObjectKeyColumns(anchorSlots, anchorSlots.length, pageBase, slotPathNodeKeys, slotParentKeys,
+          slotFirstChildKeys);
     }
     int row = 0;
     for (int si = 0, nSlots = anchorSlots.length; si < nSlots; si++) {
@@ -7513,7 +7773,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       // Reset this row's presence bits for all fields. (Anchor will be set
       // below; sibling rows default to missing unless pass 2 fills them.)
-      for (int f = 0; f < nFields; f++) batch.presentKind[f][row] = 0;
+      for (int f = 0; f < nFields; f++)
+        batch.presentKind[f][row] = 0;
 
       // Anchor value — direct slot first. Fused OBJECT_NAMED_* slots carry the value inline.
       // Non-fused legacy slots no longer have a direct-read fast path and defer to rtx.
@@ -7523,9 +7784,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!anchorDirect) {
         // Single-field: fall back to rtx right here (legacy behaviour kept).
         if (!multi) {
-          if (!rtx.moveTo(anchorObjectKey)) continue;
-          if (!rtx.moveToParent()) continue;
-          if (!loadFieldsIntoBatch(rtx, cp, batch, row)) continue;
+          if (!rtx.moveTo(anchorObjectKey))
+            continue;
+          if (!rtx.moveToParent())
+            continue;
+          if (!loadFieldsIntoBatch(rtx, cp, batch, row))
+            continue;
         } else {
           // Multi-field: mark the row for pass-3 rtx fallback.
           rowNeedsRtx[row >>> 6] |= 1L << (row & 63);
@@ -7537,12 +7801,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (needParent) {
         // Record parent-OBJECT nodeKey → row so pass 2 can join by parentKey.
         final long parentKey = slotParentKeys[si];
-        if (parentKey != -1L) parentToRow.put(parentKey, row);
+        if (parentKey != -1L)
+          parentToRow.put(parentKey, row);
       }
       row++;
     }
     batch.size = row;
-    if (row == 0) return;
+    if (row == 0)
+      return;
 
     // ---------------------------------------------------------------------
     // Pass 2: sibling fields via direct-slot join on parentKey.
@@ -7557,35 +7823,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[] siblingFirstChildKeys = batch.slotFirstChildKeys;
       for (int fi = 1; fi < nFields; fi++) {
         final int nameKey = fieldKeys[fi];
-        if (nameKey == -1) continue;
+        if (nameKey == -1)
+          continue;
         final int[] siblingSlots = kv.getObjectKeySlotsForNameKey(nameKey);
         final int nSibs = siblingSlots.length;
-        if (nSibs == 0) continue;
-        kv.bulkDecodeObjectKeyParentAndChildKeys(siblingSlots, nSibs, pageBase,
-            siblingParentKeys, siblingFirstChildKeys);
+        if (nSibs == 0)
+          continue;
+        kv.bulkDecodeObjectKeyParentAndChildKeys(siblingSlots, nSibs, pageBase, siblingParentKeys,
+            siblingFirstChildKeys);
         for (int k = 0; k < nSibs; k++) {
           final long parentKey = siblingParentKeys[k];
-          if (parentKey == -1L) continue;
+          if (parentKey == -1L)
+            continue;
           final int rowIdx = parentToRow.get(parentKey);
-          if (rowIdx < 0) continue;  // not in batch
+          if (rowIdx < 0)
+            continue; // not in batch
           // Non-fused sibling — direct-slot path subsumed by fused; defer to rtx.
           rowNeedsRtx[rowIdx >>> 6] |= 1L << (rowIdx & 63);
         }
       }
     } else if (multi) {
       // Direct-slot disabled: every row needs rtx for its sibling fields.
-      for (int i = 0; i < row; i++) rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
+      for (int i = 0; i < row; i++)
+        rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
     }
 
     // ---------------------------------------------------------------------
     // Pass 3: rtx fallback. Two reasons a row needs it:
-    //   (a) anchor value couldn't be direct-read (cross-page, FSST oversize,
-    //       float/double payload) — flagged in rowNeedsRtx during pass 1.
-    //   (b) a required sibling OBJECT_KEY lives on a DIFFERENT page from
-    //       its anchor (the enclosing object's children straddle pages) —
-    //       pass 2 can't see it, so the row's sibling field stays
-    //       presentKind == 0. We detect this here by scanning sibling
-    //       fields and marking any row with an unresolved field for rtx.
+    // (a) anchor value couldn't be direct-read (cross-page, FSST oversize,
+    // float/double payload) — flagged in rowNeedsRtx during pass 1.
+    // (b) a required sibling OBJECT_KEY lives on a DIFFERENT page from
+    // its anchor (the enclosing object's children straddle pages) —
+    // pass 2 can't see it, so the row's sibling field stays
+    // presentKind == 0. We detect this here by scanning sibling
+    // fields and marking any row with an unresolved field for rtx.
     //
     // Note: the scan is conservative — if a field is genuinely absent in
     // the source JSON, rtx.loadFieldsIntoBatch will also leave it at
@@ -7597,15 +7868,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (int fi = 1; fi < nFields; fi++) {
           final byte[] pk = batch.presentKind[fi];
           for (int i = 0; i < row; i++) {
-            if (pk[i] == 0) rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
+            if (pk[i] == 0)
+              rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
           }
         }
       }
       for (int i = 0; i < row; i++) {
-        if ((rowNeedsRtx[i >>> 6] & (1L << (i & 63))) == 0L) continue;
+        if ((rowNeedsRtx[i >>> 6] & (1L << (i & 63))) == 0L)
+          continue;
         final long anchorObjectKey = batch.anchorObjectKeys[i];
-        if (!rtx.moveTo(anchorObjectKey)) continue;
-        if (!rtx.moveToParent()) continue;
+        if (!rtx.moveTo(anchorObjectKey))
+          continue;
+        if (!rtx.moveToParent())
+          continue;
         // loadFieldsIntoBatch overwrites all fields for this row, including
         // any that pass 2 already populated — benign (rtx is the source of
         // truth) and avoids branching inside the inner loader.
@@ -7615,16 +7890,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Return a canonical {@link String} for the decoded bytes in
-   * {@code scratch[0..n)}. Uses a 64-bit content hash keyed lookup on the
-   * per-worker {@link EvalBatch#canonicalStrings} cache so low-cardinality
-   * group-by columns (e.g. 8 department names over 10M rows) allocate only
-   * one String per distinct value instead of one per row.
+   * Return a canonical {@link String} for the decoded bytes in {@code scratch[0..n)}. Uses a 64-bit
+   * content hash keyed lookup on the per-worker {@link EvalBatch#canonicalStrings} cache so
+   * low-cardinality group-by columns (e.g. 8 department names over 10M rows) allocate only one String
+   * per distinct value instead of one per row.
    *
-   * <p>The hash is a simple xor-multiply FNV-like accumulator — fast to
-   * inline and collision-resistant enough that a collision would require a
-   * content mismatch, which we defend against with a byte-by-byte verify
-   * before returning the cached String.
+   * <p>
+   * The hash is a simple xor-multiply FNV-like accumulator — fast to inline and collision-resistant
+   * enough that a collision would require a content mismatch, which we defend against with a
+   * byte-by-byte verify before returning the cached String.
    */
   private static String canonicalize(final EvalBatch batch, final byte[] scratch, final int n) {
     // Hash the scratch bytes. FNV-1a-ish 64-bit mix — cheap and avoids a
@@ -7645,39 +7919,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Allocation-free verify that {@code s}'s ASCII encoding matches
-   * {@code bytes[0..n)}. Returns {@code false} if {@code s} contains any
-   * non-ASCII character so the caller falls back to a fresh decoded String
-   * — safe for the UTF-8 general case at the cost of cache misses on
-   * multi-byte strings. Group-by keys in analytical workloads are almost
-   * always ASCII (enumerations, product codes, department names), so the
-   * ASCII path covers the common case without a {@code byte[]} allocation.
+   * Allocation-free verify that {@code s}'s ASCII encoding matches {@code bytes[0..n)}. Returns
+   * {@code false} if {@code s} contains any non-ASCII character so the caller falls back to a fresh
+   * decoded String — safe for the UTF-8 general case at the cost of cache misses on multi-byte
+   * strings. Group-by keys in analytical workloads are almost always ASCII (enumerations, product
+   * codes, department names), so the ASCII path covers the common case without a {@code byte[]}
+   * allocation.
    */
   private static boolean stringMatchesBytes(final String s, final byte[] bytes, final int n) {
-    if (s.length() != n) return false;
+    if (s.length() != n)
+      return false;
     for (int i = 0; i < n; i++) {
       final char c = s.charAt(i);
-      if (c >= 0x80 || ((byte) c) != bytes[i]) return false;
+      if (c >= 0x80 || ((byte) c) != bytes[i])
+        return false;
     }
     return true;
   }
 
   /**
-   * Direct-slot value read for a fused {@code OBJECT_NAMED_*} anchor. The value is
-   * inline on the fused record itself — no child descent — so dispatch on the kind
-   * and pull the primitive via the page's inline-slot getters.
+   * Direct-slot value read for a fused {@code OBJECT_NAMED_*} anchor. The value is inline on the
+   * fused record itself — no child descent — so dispatch on the kind and pull the primitive via the
+   * page's inline-slot getters.
    *
-   * @return {@code true} on success, {@code false} when the payload encoding falls
-   *         outside the direct-read fast path (e.g. unsupported number subtype),
-   *         forcing the caller to the rtx fallback.
+   * @return {@code true} on success, {@code false} when the payload encoding falls outside the
+   *         direct-read fast path (e.g. unsupported number subtype), forcing the caller to the rtx
+   *         fallback.
    */
-  private static boolean readFusedAnchorValueDirect(final KeyValueLeafPage kv,
-      final int kindId, final int slot, final int fieldIdx, final int row,
-      final EvalBatch batch) {
+  private static boolean readFusedAnchorValueDirect(final KeyValueLeafPage kv, final int kindId, final int slot,
+      final int fieldIdx, final int row, final EvalBatch batch) {
     switch (kindId) {
       case KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID: {
         final long v = kv.getFusedObjectNamedNumberValueLongFromSlot(slot);
-        if (v == Long.MIN_VALUE) return false; // float/double/BigDecimal → rtx fallback
+        if (v == Long.MIN_VALUE)
+          return false; // float/double/BigDecimal → rtx fallback
         batch.longCols[fieldIdx][row] = v;
         batch.presentKind[fieldIdx][row] = 1;
         return true;
@@ -7703,20 +7978,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Variant of {@link #loadFields} that writes into {@link EvalBatch}'s
-   * column arrays at the given {@code row} rather than into a single scratch.
-   * Returns {@code false} iff the enclosing object has no children (caller
-   * must skip this row).
+   * Variant of {@link #loadFields} that writes into {@link EvalBatch}'s column arrays at the given
+   * {@code row} rather than into a single scratch. Returns {@code false} iff the enclosing object has
+   * no children (caller must skip this row).
    */
   private static boolean loadFieldsIntoBatch(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
       final EvalBatch batch, final int row) {
-    if (!rtx.moveToFirstChild()) return false;
+    if (!rtx.moveToFirstChild())
+      return false;
     final int[] wantKeys = cp.fieldNameKeys;
     do {
       final int nk = rtx.getNameKey();
       int fi = -1;
-      for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
-      if (fi < 0) continue;
+      for (int i = 0; i < wantKeys.length; i++)
+        if (wantKeys[i] == nk) {
+          fi = i;
+          break;
+        }
+      if (fi < 0)
+        continue;
       // Fused OBJECT_NAMED_* carries the value inline — no descent. Legacy OBJECT_KEY falls through.
       final NodeKind anchorKind = rtx.getKind();
       switch (anchorKind) {
@@ -7741,9 +8021,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Null never satisfies numeric/bool/string-eq ops — leave presentKind=0 (missing).
           continue;
         }
-        default -> { /* OBJECT_KEY — descend */ }
+        default -> {
+          /* OBJECT_KEY — descend */ }
       }
-      if (!rtx.moveToFirstChild()) { continue; }
+      if (!rtx.moveToFirstChild()) {
+        continue;
+      }
       final NodeKind kind = rtx.getKind();
       switch (kind) {
         case NUMBER_VALUE -> {
@@ -7760,7 +8043,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           batch.strCols[fi][row] = rtx.getValue();
           batch.presentKind[fi][row] = FK_STR;
         }
-        default -> { /* unsupported — leave presentKind[fi][row] = 0 */ }
+        default -> {
+          /* unsupported — leave presentKind[fi][row] = 0 */ }
       }
       rtx.moveToParent();
     } while (rtx.moveToRightSibling());
@@ -7785,14 +8069,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         batch.presentKind[fi][row] = FK_DECIMAL;
         batch.hasDecimalRows = true;
       }
-      default -> { /* unsupported + unused by the predicate — stays missing in the batch */ }
+      default -> {
+        /* unsupported + unused by the predicate — stays missing in the batch */ }
     }
   }
 
   /**
-   * Phase 2: evaluate the compiled predicate over the columns into a bitmap.
-   * Returns the root node's bitmap (stored in
-   * {@code batch.nodeBitmaps[0]}). Valid bits are [0, batch.size).
+   * Phase 2: evaluate the compiled predicate over the columns into a bitmap. Returns the root node's
+   * bitmap (stored in {@code batch.nodeBitmaps[0]}). Valid bits are [0, batch.size).
    */
   private static long[] evalCompiledBatch(final CompiledPredicate cp, final EvalBatch batch) {
     // Shape-specialised fast path for the common predicate trees. When the
@@ -7808,22 +8092,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // long/double rows and would silently skip them.
     if (!batch.hasDecimalRows) {
       final long[] specialized = evalCompiledBatchSpecialized(cp, batch);
-      if (specialized != null) return specialized;
+      if (specialized != null)
+        return specialized;
     }
     return evalCompiledBatchRec(cp, 0, batch);
   }
 
   /**
-   * Shape-specialised single-pass interpreters for the predicate trees that
-   * show up in the benchmark suite. Returns the result bitmap, or
-   * {@code null} if the compiled predicate doesn't match any specialisation.
+   * Shape-specialised single-pass interpreters for the predicate trees that show up in the benchmark
+   * suite. Returns the result bitmap, or {@code null} if the compiled predicate doesn't match any
+   * specialisation.
    *
-   * <p>Shapes handled:
+   * <p>
+   * Shapes handled:
    * <ul>
-   *   <li>{@code OP_AND(NUM_CMP(fi=0), BOOL_REF(fi=1))} — filterCount / filterGroupBy</li>
-   *   <li>{@code OP_AND(AND(NUM_CMP(fi=0), NUM_CMP(fi=0)), BOOL_REF(fi=2))} — compoundAndFilter</li>
-   *   <li>{@code OP_NUM_CMP(fi=0)} — single-leaf age range — uses OP_NUM_CMP's existing SIMD path</li>
-   *   <li>{@code OP_BOOL_REF(fi=0)} — single-leaf boolean filter</li>
+   * <li>{@code OP_AND(NUM_CMP(fi=0), BOOL_REF(fi=1))} — filterCount / filterGroupBy</li>
+   * <li>{@code OP_AND(AND(NUM_CMP(fi=0), NUM_CMP(fi=0)), BOOL_REF(fi=2))} — compoundAndFilter</li>
+   * <li>{@code OP_NUM_CMP(fi=0)} — single-leaf age range — uses OP_NUM_CMP's existing SIMD path</li>
+   * <li>{@code OP_BOOL_REF(fi=0)} — single-leaf boolean filter</li>
    * </ul>
    */
   private static long[] evalCompiledBatchSpecialized(final CompiledPredicate cp, final EvalBatch batch) {
@@ -7837,7 +8123,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int size = batch.size;
     final long[] out = batch.nodeBitmaps[0];
     final int stride = (size + 63) >>> 6;
-    for (int i = 0; i < stride; i++) out[i] = 0L;
+    for (int i = 0; i < stride; i++)
+      out[i] = 0L;
     final byte root = ops[0];
     // Shape: single OP_BOOL_REF leaf (just `$u.active`).
     if (root == CompiledPredicate.OP_BOOL_REF) {
@@ -7845,11 +8132,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final byte[] pk = batch.presentKind[fi];
       final boolean[] vals = batch.boolCols[fi];
       for (int i = 0; i < size; i++) {
-        if (pk[i] == 2 && vals[i]) out[i >>> 6] |= 1L << (i & 63);
+        if (pk[i] == 2 && vals[i])
+          out[i >>> 6] |= 1L << (i & 63);
       }
       return out;
     }
-    if (root != CompiledPredicate.OP_AND) return null;
+    if (root != CompiledPredicate.OP_AND)
+      return null;
     final int rootStart = childStart[0];
     final int rootCount = childCount[0];
     // Shape: OP_AND with exactly 2 leaves — NUM_CMP + BOOL_REF (filterCount shape).
@@ -7857,17 +8146,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int cA = children[rootStart];
       final int cB = children[rootStart + 1];
       if (ops[cA] == CompiledPredicate.OP_NUM_CMP && ops[cB] == CompiledPredicate.OP_BOOL_REF) {
-        return fusedNumCmpAndBool(batch, fieldIdx[cA], cmpOp[cA], longLit[cA],
-            fieldIdx[cB], out, size);
+        return fusedNumCmpAndBool(batch, fieldIdx[cA], cmpOp[cA], longLit[cA], fieldIdx[cB], out, size);
       }
       if (ops[cA] == CompiledPredicate.OP_BOOL_REF && ops[cB] == CompiledPredicate.OP_NUM_CMP) {
-        return fusedNumCmpAndBool(batch, fieldIdx[cB], cmpOp[cB], longLit[cB],
-            fieldIdx[cA], out, size);
+        return fusedNumCmpAndBool(batch, fieldIdx[cB], cmpOp[cB], longLit[cB], fieldIdx[cA], out, size);
       }
       // Shape: two NUM_CMP on same or different numeric fields (range query).
       if (ops[cA] == CompiledPredicate.OP_NUM_CMP && ops[cB] == CompiledPredicate.OP_NUM_CMP) {
-        return fusedTwoNumCmp(batch, fieldIdx[cA], cmpOp[cA], longLit[cA],
-            fieldIdx[cB], cmpOp[cB], longLit[cB], out, size);
+        return fusedTwoNumCmp(batch, fieldIdx[cA], cmpOp[cA], longLit[cA], fieldIdx[cB], cmpOp[cB], longLit[cB], out,
+            size);
       }
     }
     // Shape: OP_AND(nested-AND-of-NUM_CMPs, BOOL_REF) — compoundAndFilter.
@@ -7876,17 +8163,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int andChild = -1, boolChild = -1;
       for (int k = 0; k < 2; k++) {
         final int c = children[rootStart + k];
-        if (ops[c] == CompiledPredicate.OP_AND) andChild = c;
-        else if (ops[c] == CompiledPredicate.OP_BOOL_REF) boolChild = c;
+        if (ops[c] == CompiledPredicate.OP_AND)
+          andChild = c;
+        else if (ops[c] == CompiledPredicate.OP_BOOL_REF)
+          boolChild = c;
       }
-      if (andChild >= 0 && boolChild >= 0
-          && childCount[andChild] == 2) {
+      if (andChild >= 0 && boolChild >= 0 && childCount[andChild] == 2) {
         final int iA = children[childStart[andChild]];
         final int iB = children[childStart[andChild] + 1];
         if (ops[iA] == CompiledPredicate.OP_NUM_CMP && ops[iB] == CompiledPredicate.OP_NUM_CMP) {
-          return fusedTwoNumCmpAndBool(batch, fieldIdx[iA], cmpOp[iA], longLit[iA],
-              fieldIdx[iB], cmpOp[iB], longLit[iB],
-              fieldIdx[boolChild], out, size);
+          return fusedTwoNumCmpAndBool(batch, fieldIdx[iA], cmpOp[iA], longLit[iA], fieldIdx[iB], cmpOp[iB],
+              longLit[iB], fieldIdx[boolChild], out, size);
         }
       }
     }
@@ -7894,12 +8181,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Per-row numeric leg of the fused kernels: long rows compare in long
-   * space, double rows promote the integer literal to double (the
-   * interpreter's promotion) — missing/other kinds never match.
+   * Per-row numeric leg of the fused kernels: long rows compare in long space, double rows promote
+   * the integer literal to double (the interpreter's promotion) — missing/other kinds never match.
    */
-  private static boolean fusedNumLeg(final byte kind, final long lv, final double dv,
-      final int cmp, final long lit) {
+  private static boolean fusedNumLeg(final byte kind, final long lv, final double dv, final int cmp, final long lit) {
     if (kind == FK_LONG) {
       return switch (cmp) {
         case OP_GT -> lv > lit;
@@ -7917,11 +8202,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** {@code (num[fiNum] OP numLit) AND (bool[fiBool] == true)} — single pass. */
-  private static long[] fusedNumCmpAndBool(final EvalBatch batch,
-      final int fiNum, final int cmp, final long numLit,
+  private static long[] fusedNumCmpAndBool(final EvalBatch batch, final int fiNum, final int cmp, final long numLit,
       final int fiBool, final long[] out, final int size) {
     switch (cmp) {
-      case OP_GT, OP_LT, OP_GE, OP_LE, OP_EQ -> { /* supported */ }
+      case OP_GT, OP_LT, OP_GE, OP_LE, OP_EQ -> {
+        /* supported */ }
       default -> {
         return null; // unsupported cmpOp, fall back
       }
@@ -7940,10 +8225,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** {@code (num[fiA] OPA aLit) AND (num[fiB] OPB bLit)} — single pass. */
-  private static long[] fusedTwoNumCmp(final EvalBatch batch,
-      final int fiA, final int cmpA, final long aLit,
-      final int fiB, final int cmpB, final long bLit,
-      final long[] out, final int size) {
+  private static long[] fusedTwoNumCmp(final EvalBatch batch, final int fiA, final int cmpA, final long aLit,
+      final int fiB, final int cmpB, final long bLit, final long[] out, final int size) {
     final byte[] pkA = batch.presentKind[fiA];
     final long[] valsA = batch.longCols[fiA];
     final double[] dvalsA = batch.dblCols[fiA];
@@ -7951,7 +8234,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] valsB = batch.longCols[fiB];
     final double[] dvalsB = batch.dblCols[fiB];
     for (int i = 0; i < size; i++) {
-      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit)) continue;
+      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit))
+        continue;
       if (fusedNumLeg(pkB[i], valsB[i], dvalsB[i], cmpB, bLit)) {
         out[i >>> 6] |= 1L << (i & 63);
       }
@@ -7960,13 +8244,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * {@code (num[fiA] OPA aLit) AND (num[fiB] OPB bLit) AND (bool[fiBool] == true)}
-   * — compoundAndFilter shape.
+   * {@code (num[fiA] OPA aLit) AND (num[fiB] OPB bLit) AND (bool[fiBool] == true)} —
+   * compoundAndFilter shape.
    */
-  private static long[] fusedTwoNumCmpAndBool(final EvalBatch batch,
-      final int fiA, final int cmpA, final long aLit,
-      final int fiB, final int cmpB, final long bLit,
-      final int fiBool, final long[] out, final int size) {
+  private static long[] fusedTwoNumCmpAndBool(final EvalBatch batch, final int fiA, final int cmpA, final long aLit,
+      final int fiB, final int cmpB, final long bLit, final int fiBool, final long[] out, final int size) {
     final byte[] pkA = batch.presentKind[fiA];
     final long[] valsA = batch.longCols[fiA];
     final double[] dvalsA = batch.dblCols[fiA];
@@ -7976,8 +8258,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final byte[] pkBool = batch.presentKind[fiBool];
     final boolean[] bvals = batch.boolCols[fiBool];
     for (int i = 0; i < size; i++) {
-      if (pkBool[i] != 2 || !bvals[i]) continue;
-      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit)) continue;
+      if (pkBool[i] != 2 || !bvals[i])
+        continue;
+      if (!fusedNumLeg(pkA[i], valsA[i], dvalsA[i], cmpA, aLit))
+        continue;
       if (fusedNumLeg(pkB[i], valsB[i], dvalsB[i], cmpB, bLit)) {
         out[i >>> 6] |= 1L << (i & 63);
       }
@@ -7991,24 +8275,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int size = batch.size;
     final int stride = (size + 63) >>> 6;
     // Zero the valid portion of the output bitmap.
-    for (int i = 0; i < stride; i++) out[i] = 0L;
+    for (int i = 0; i < stride; i++)
+      out[i] = 0L;
     switch (op) {
       case CompiledPredicate.OP_ALWAYS_T: {
         // Set all valid bits.
         final int full = size >>> 6;
-        for (int i = 0; i < full; i++) out[i] = -1L;
+        for (int i = 0; i < full; i++)
+          out[i] = -1L;
         final int tail = size & 63;
-        if (tail > 0) out[full] = (1L << tail) - 1L;
+        if (tail > 0)
+          out[full] = (1L << tail) - 1L;
         return out;
       }
       case CompiledPredicate.OP_ALWAYS_F:
-        return out;  // already zeroed
+        return out; // already zeroed
       case CompiledPredicate.OP_NOT: {
         final long[] child = evalCompiledBatchRec(cp, cp.children[cp.childStart[nodeIdx]], batch);
         final int full = size >>> 6;
-        for (int i = 0; i < full; i++) out[i] = ~child[i];
+        for (int i = 0; i < full; i++)
+          out[i] = ~child[i];
         final int tail = size & 63;
-        if (tail > 0) out[full] = (~child[full]) & ((1L << tail) - 1L);
+        if (tail > 0)
+          out[full] = (~child[full]) & ((1L << tail) - 1L);
         return out;
       }
       case CompiledPredicate.OP_AND: {
@@ -8017,16 +8306,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (n == 0) {
           // vacuously true
           final int full = size >>> 6;
-          for (int i = 0; i < full; i++) out[i] = -1L;
+          for (int i = 0; i < full; i++)
+            out[i] = -1L;
           final int tail = size & 63;
-          if (tail > 0) out[full] = (1L << tail) - 1L;
+          if (tail > 0)
+            out[full] = (1L << tail) - 1L;
           return out;
         }
         final long[] first = evalCompiledBatchRec(cp, cp.children[start], batch);
-        for (int i = 0; i < stride; i++) out[i] = first[i];
+        for (int i = 0; i < stride; i++)
+          out[i] = first[i];
         for (int k = 1; k < n; k++) {
           final long[] child = evalCompiledBatchRec(cp, cp.children[start + k], batch);
-          for (int i = 0; i < stride; i++) out[i] &= child[i];
+          for (int i = 0; i < stride; i++)
+            out[i] &= child[i];
         }
         return out;
       }
@@ -8035,7 +8328,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int n = cp.childCount[nodeIdx];
         for (int k = 0; k < n; k++) {
           final long[] child = evalCompiledBatchRec(cp, cp.children[start + k], batch);
-          for (int i = 0; i < stride; i++) out[i] |= child[i];
+          for (int i = 0; i < stride; i++)
+            out[i] |= child[i];
         }
         return out;
       }
@@ -8053,28 +8347,54 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Missing/non-long rows (presentKind != 1) must never match the long
         // sweep. We overwrite them in a scratch column with a sentinel chosen
         // per-op so the SIMD compare trivially rejects them:
-        //   GT, GE, EQ → Long.MIN_VALUE  (lowest possible, >lit is false;
-        //                                 MIN_VALUE==lit would be a collision
-        //                                 only for lit == MIN_VALUE — guarded)
-        //   LT, LE     → Long.MAX_VALUE
+        // GT, GE, EQ → Long.MIN_VALUE (lowest possible, >lit is false;
+        // MIN_VALUE==lit would be a collision
+        // only for lit == MIN_VALUE — guarded)
+        // LT, LE → Long.MAX_VALUE
         // If the literal happens to coincide with the sentinel we fall back
         // to the presence-masked scalar loop — correctness over perf.
         final long sentinel;
         final boolean sentinelCollides;
         switch (cmp) {
-          case OP_GT, OP_GE, OP_EQ -> { sentinel = Long.MIN_VALUE; sentinelCollides = (lit == Long.MIN_VALUE); }
-          case OP_LT, OP_LE        -> { sentinel = Long.MAX_VALUE; sentinelCollides = (lit == Long.MAX_VALUE); }
-          default                  -> throw new IllegalStateException("bad cmpOp " + cmp);
+          case OP_GT, OP_GE, OP_EQ -> {
+            sentinel = Long.MIN_VALUE;
+            sentinelCollides = (lit == Long.MIN_VALUE);
+          }
+          case OP_LT, OP_LE -> {
+            sentinel = Long.MAX_VALUE;
+            sentinelCollides = (lit == Long.MAX_VALUE);
+          }
+          default -> throw new IllegalStateException("bad cmpOp " + cmp);
         }
         if (sentinelCollides) {
           // Fallback scalar path — matches the legacy behaviour exactly.
           switch (cmp) {
-            case OP_GT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] > lit)  out[i >>> 6] |= 1L << (i & 63); }
-            case OP_LT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] < lit)  out[i >>> 6] |= 1L << (i & 63); }
-            case OP_GE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] >= lit) out[i >>> 6] |= 1L << (i & 63); }
-            case OP_LE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] <= lit) out[i >>> 6] |= 1L << (i & 63); }
-            case OP_EQ -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] == lit) out[i >>> 6] |= 1L << (i & 63); }
-            default    -> throw new IllegalStateException("bad cmpOp " + cmp);
+            case OP_GT -> {
+              for (int i = 0; i < size; i++)
+                if (pk[i] == 1 && vals[i] > lit)
+                  out[i >>> 6] |= 1L << (i & 63);
+            }
+            case OP_LT -> {
+              for (int i = 0; i < size; i++)
+                if (pk[i] == 1 && vals[i] < lit)
+                  out[i >>> 6] |= 1L << (i & 63);
+            }
+            case OP_GE -> {
+              for (int i = 0; i < size; i++)
+                if (pk[i] == 1 && vals[i] >= lit)
+                  out[i >>> 6] |= 1L << (i & 63);
+            }
+            case OP_LE -> {
+              for (int i = 0; i < size; i++)
+                if (pk[i] == 1 && vals[i] <= lit)
+                  out[i >>> 6] |= 1L << (i & 63);
+            }
+            case OP_EQ -> {
+              for (int i = 0; i < size; i++)
+                if (pk[i] == 1 && vals[i] == lit)
+                  out[i >>> 6] |= 1L << (i & 63);
+            }
+            default -> throw new IllegalStateException("bad cmpOp " + cmp);
           }
         } else {
           // Fast path: copy col into maskedColScratch, overwrite misses with the
@@ -8084,7 +8404,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // OP_NUM_CMP reduces to two short linear sweeps.
           final long[] masked = batch.maskedColScratch;
           for (int i = 0; i < size; i++) {
-            masked[i] = (pk[i] == 1) ? vals[i] : sentinel;
+            masked[i] = (pk[i] == 1)
+                ? vals[i]
+                : sentinel;
           }
           final int[] idxs = batch.indicesScratch;
           final VectorizedPredicate.ComparisonOp vOp = toVecCmpOp(cmp);
@@ -8101,7 +8423,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final double dLit = (double) lit;
         final double[] dvals = batch.dblCols[fi];
         final BigDecimal[] decvals = batch.decCols[fi];
-        final BigDecimal bdLit = batch.hasDecimalRows ? BigDecimal.valueOf(lit) : null;
+        final BigDecimal bdLit = batch.hasDecimalRows
+            ? BigDecimal.valueOf(lit)
+            : null;
         for (int i = 0; i < size; i++) {
           if (pk[i] == FK_DOUBLE && scalarEvalDbl(dvals[i], cmp, dLit)) {
             out[i >>> 6] |= 1L << (i & 63);
@@ -8133,7 +8457,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           } else {
             match = false;
           }
-          if (match) out[i >>> 6] |= 1L << (i & 63);
+          if (match)
+            out[i >>> 6] |= 1L << (i & 63);
         }
         return out;
       }
@@ -8157,7 +8482,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           } else {
             match = false;
           }
-          if (match) out[i >>> 6] |= 1L << (i & 63);
+          if (match)
+            out[i >>> 6] |= 1L << (i & 63);
         }
         return out;
       }
@@ -8171,7 +8497,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // so the hot branch is the length mismatch case (common short-circuit).
         final int litLen = lit.length();
         for (int i = 0; i < size; i++) {
-          if (pk[i] != 3) continue;
+          if (pk[i] != 3)
+            continue;
           final String v = vals[i];
           if (v == lit || (v != null && v.length() == litLen && lit.equals(v))) {
             out[i >>> 6] |= 1L << (i & 63);
@@ -8185,7 +8512,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final boolean[] vals = batch.boolCols[fi];
         // Branchless / auto-vectorisable: produce a byte-per-row mask then
         // pack into bits. JIT lifts this into SIMD compares on hot paths.
-        for (int i = 0; i < size; i++) if (pk[i] == 2 && vals[i]) out[i >>> 6] |= 1L << (i & 63);
+        for (int i = 0; i < size; i++)
+          if (pk[i] == 2 && vals[i])
+            out[i >>> 6] |= 1L << (i & 63);
         return out;
       }
       default:
@@ -8194,16 +8523,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Popcount over the valid prefix of a match bitmap. Sums
-   * {@link Long#bitCount} per word; the final word is masked to only the
-   * valid tail bits.
+   * Popcount over the valid prefix of a match bitmap. Sums {@link Long#bitCount} per word; the final
+   * word is masked to only the valid tail bits.
    */
   private static int countBits(final long[] bitmap, final int size) {
     int c = 0;
     final int full = size >>> 6;
-    for (int i = 0; i < full; i++) c += Long.bitCount(bitmap[i]);
+    for (int i = 0; i < full; i++)
+      c += Long.bitCount(bitmap[i]);
     final int tail = size & 63;
-    if (tail > 0) c += Long.bitCount(bitmap[full] & ((1L << tail) - 1L));
+    if (tail > 0)
+      c += Long.bitCount(bitmap[full] & ((1L << tail) - 1L));
     return c;
   }
 
@@ -8216,7 +8546,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final String cdKey = pathCacheKey(sourcePath, field);
       final Sequence cached = countDistinctResultCache.get(cdKey);
-      if (cached != null) return cached;
+      if (cached != null)
+        return cached;
       // Projection fast path: if a covering projection index is installed
       // and carries {@code field} as a STRING_DICT column, count the global
       // dict via the in-memory projection rather than walking record pages.
@@ -8256,63 +8587,64 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long distinct;
       if (isTypedPrimitiveKind(probeFirstAnchorSlotKind(field))) {
         // Number/boolean/null column — typed kernel directly (columnar page paths).
-        final Object2LongOpenHashMap<String> groups =
-            typedGroupKeyCounts(sourcePath, null, new String[] { field });
-        distinct = groups.size() - (groups.containsKey("m") ? 1 : 0);
+        final Object2LongOpenHashMap<String> groups = typedGroupKeyCounts(sourcePath, null, new String[] {field});
+        distinct = groups.size() - (groups.containsKey("m")
+            ? 1
+            : 0);
       } else {
         final long[] cdStats = new long[2];
         distinct = parallelCountDistinct(fieldKey, targetPathNodeKey, cdStats);
         if (cdStats[0] != cdStats[1]) {
-          final Object2LongOpenHashMap<String> groups =
-              typedGroupKeyCounts(sourcePath, null, new String[] { field });
-          distinct = groups.size() - (groups.containsKey("m") ? 1 : 0);
+          final Object2LongOpenHashMap<String> groups = typedGroupKeyCounts(sourcePath, null, new String[] {field});
+          distinct = groups.size() - (groups.containsKey("m")
+              ? 1
+              : 0);
         }
       }
       final Sequence computed = new Int64(distinct);
       countDistinctResultCache.putIfAbsent(cdKey, computed);
       return computed;
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized count-distinct failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized count-distinct failed: %s",
+          e.getMessage());
     }
   }
 
   /**
    * Count-distinct via the projection index: reuses
-   * {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an empty
-   * predicate set, then returns the size of the resulting group map. The
-   * aggregator already de-duplicates the group values with a long-hash
-   * intern map, so the map's {@code size()} is the exact distinct count.
+   * {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an empty predicate set, then returns
+   * the size of the resulting group map. The aggregator already de-duplicates the group values with a
+   * long-hash intern map, so the map's {@code size()} is the exact distinct count.
    *
-   * <p>Returns {@code null} when the projection isn't usable for this
-   * field — caller falls back to the generic page-walk kernel.
+   * <p>
+   * Returns {@code null} when the projection isn't usable for this field — caller falls back to the
+   * generic page-walk kernel.
    */
   /**
    * Distinct present values of a NUMERIC_LONG projection column, exactly.
    *
-   * <p>Every other count-distinct route here needs a string dictionary, so a numeric column left
-   * the projection and rescanned the document. A column store already holds the values decoded and
-   * the presence bitmap beside them, which is all this needs.
+   * <p>
+   * Every other count-distinct route here needs a string dictionary, so a numeric column left the
+   * projection and rescanned the document. A column store already holds the values decoded and the
+   * presence bitmap beside them, which is all this needs.
    *
-   * <p>Exact, not sketched: the values are read, not hashed, so there is no collision probability to
-   * reason about. Two representations, chosen per column from the zone map the store already
-   * carries — a bitset when the value RANGE is narrow (a year, a status, an enum: the shapes a
-   * count-distinct is asked about), a hash set otherwise. The bitset arm is what makes this cheap
-   * enough to beat the memo it replaces.
+   * <p>
+   * Exact, not sketched: the values are read, not hashed, so there is no collision probability to
+   * reason about. Two representations, chosen per column from the zone map the store already carries
+   * — a bitset when the value RANGE is narrow (a year, a status, an enum: the shapes a count-distinct
+   * is asked about), a hash set otherwise. The bitset arm is what makes this cheap enough to beat the
+   * memo it replaces.
    *
    * @return the distinct count, or {@code null} when this column is not one it can serve
    */
-  private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle,
-      final int column) {
+  private @Nullable Long projectionNumericDistinct(final ProjectionIndexRegistry.Handle handle, final int column) {
     if (handle.rowGroupCount() == 0
         || handle.columnKindOf(column) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       return null;
     }
     final ProjectionColumnStore store = handle.columnStoreOrNull();
     if (store == null) {
-      return null;  // whole-leaf tier would hydrate every column to read one
+      return null; // whole-leaf tier would hydrate every column to read one
     }
     final ProjectionColumnStore.ColumnSlice[] slices;
     try {
@@ -8347,14 +8679,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Widest value range served by the bitset arm: 4M values is 512 KB of bits, which stays inside a
-   * modern L2/L3 and is more than any enumerated column needs. Beyond it the hash set is both
-   * smaller and faster.
+   * modern L2/L3 and is more than any enumerated column needs. Beyond it the hash set is both smaller
+   * and faster.
    */
   private static final long NUMERIC_DISTINCT_BITSET_SPAN = 1L << 22;
 
   /** Distinct count over a narrow value range, one bit per representable value. */
-  private static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices,
-      final long min, final long span) {
+  private static long distinctViaBitset(final ProjectionColumnStore.ColumnSlice[] slices, final long min,
+      final long span) {
     final long[] seen = new long[(int) ((span >> 6) + 1)];
     long distinct = 0L;
     for (final ProjectionColumnStore.ColumnSlice slice : slices) {
@@ -8414,12 +8746,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private Sequence tryProjectionIndexCountDistinct(final String[] sourcePath, final String field) {
     final String resourceKey = projectionRegistryKey;
-    if (resourceKey == null) return null;
-    final ProjectionIndexRegistry.Handle handle =
-        lookupProjection(sourcePath, new String[] { field });
-    if (handle == null) return null;
+    if (resourceKey == null)
+      return null;
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, new String[] {field});
+    if (handle == null)
+      return null;
     final int groupColumn = handle.columnOf(field);
-    if (groupColumn < 0) return null;
+    if (groupColumn < 0)
+      return null;
     // Sparse-evidence gate: without presence data, rows MISSING the field
     // would contribute the "" default as a phantom distinct value.
     if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
@@ -8456,28 +8790,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // kernel here).
       return null;
     }
-    if (agg == null) return null;
+    if (agg == null)
+      return null;
     return new Int64(agg.size());
   }
 
   /**
-   * Parallel driver for {@link ProjectionIndexByteScan#distinctPresentStrings}:
-   * per-worker dictionary unions over leaf chunks, merged with a final
-   * byte-wise dedupe (both sides are canonical-cardinality small). Returns
-   * the exact distinct-present count, or {@code -1} when any chunk declines
-   * (kind mismatch / malformed leaf / cardinality beyond
+   * Parallel driver for {@link ProjectionIndexByteScan#distinctPresentStrings}: per-worker dictionary
+   * unions over leaf chunks, merged with a final byte-wise dedupe (both sides are
+   * canonical-cardinality small). Returns the exact distinct-present count, or {@code -1} when any
+   * chunk declines (kind mismatch / malformed leaf / cardinality beyond
    * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) — callers fall back.
    */
-  private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle,
-      final int groupColumn) {
+  private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle, final int groupColumn) {
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-    if (rowGroupPayloads == null) return -1L;
-    if (rowGroupPayloads.isEmpty()) return 0L;
+    if (rowGroupPayloads == null)
+      return -1L;
+    if (rowGroupPayloads.isEmpty())
+      return 0L;
     final int rowGroupCount = rowGroupPayloads.size();
     if (rowGroupCount < 64) {
       final ArrayList<byte[]> set =
           ProjectionIndexByteScan.distinctPresentStrings(rowGroupPayloads, groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
-      return set == null ? -1L : set.size();
+      return set == null
+          ? -1L
+          : set.size();
     }
     final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
     @SuppressWarnings("unchecked")
@@ -8487,19 +8824,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
-      if (from >= to) return;
-      final ArrayList<byte[]> local = ProjectionIndexByteScan.distinctPresentStrings(
-          rowGroupPayloads.subList(from, to), groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
+      if (from >= to)
+        return;
+      final ArrayList<byte[]> local = ProjectionIndexByteScan.distinctPresentStrings(rowGroupPayloads.subList(from, to),
+          groupColumn, COUNT_DISTINCT_DICT_CARD_LIMIT);
       if (local == null) {
         declined[0] = true;
       } else {
         perThread[idx] = local;
       }
     });
-    if (declined[0]) return -1L;
+    if (declined[0])
+      return -1L;
     final ArrayList<byte[]> merged = new ArrayList<>(16);
     for (final ArrayList<byte[]> local : perThread) {
-      if (local == null) continue;
+      if (local == null)
+        continue;
       for (final byte[] value : local) {
         boolean present = false;
         for (int c = 0; c < merged.size(); c++) {
@@ -8509,7 +8849,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         if (!present) {
-          if (merged.size() >= COUNT_DISTINCT_DICT_CARD_LIMIT) return -1L;
+          if (merged.size() >= COUNT_DISTINCT_DICT_CARD_LIMIT)
+            return -1L;
           merged.add(value);
         }
       }
@@ -8518,29 +8859,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Dedicated count-distinct kernel. HFT-grade, zero-allocation on the
-   * per-page hot path:
+   * Dedicated count-distinct kernel. HFT-grade, zero-allocation on the per-page hot path:
    *
    * <ul>
-   *   <li>For pages with a {@link io.sirix.page.pax.StringRegion} that
-   *       knows about the anchor tag, iterate the per-page dict
-   *       directly (3–10 entries typical). The dict is already deduped
-   *       by the region build, so we pay one long-hash per distinct
-   *       value per page — not per record.</li>
-   *   <li>For pages without a region (or where the region has no tag
-   *       for our anchor), fall back to a slot-walk + value-read, still
-   *       feeding long-hashes into the set.</li>
+   * <li>For pages with a {@link io.sirix.page.pax.StringRegion} that knows about the anchor tag,
+   * iterate the per-page dict directly (3–10 entries typical). The dict is already deduped by the
+   * region build, so we pay one long-hash per distinct value per page — not per record.</li>
+   * <li>For pages without a region (or where the region has no tag for our anchor), fall back to a
+   * slot-walk + value-read, still feeding long-hashes into the set.</li>
    * </ul>
    *
-   * <p>The per-thread set is a fastutil {@link it.unimi.dsi.fastutil.longs.LongOpenHashSet}
-   * of 64-bit {@code xxHash3}s. Collision probability at 10 M distinct
-   * values is roughly {@code 10^-19} — two orders of magnitude below
-   * hardware error rates. If perfect correctness is required at
-   * billion-cardinality scale, swap to a 128-bit hash or a keyed-set
-   * variant.
+   * <p>
+   * The per-thread set is a fastutil {@link it.unimi.dsi.fastutil.longs.LongOpenHashSet} of 64-bit
+   * {@code xxHash3}s. Collision probability at 10 M distinct values is roughly {@code 10^-19} — two
+   * orders of magnitude below hardware error rates. If perfect correctness is required at
+   * billion-cardinality scale, swap to a 128-bit hash or a keyed-set variant.
    */
-  private long parallelCountDistinct(final int fieldKey, final long targetPathNodeKey,
-      final long[] statsOut) throws Exception {
+  private long parallelCountDistinct(final int fieldKey, final long targetPathNodeKey, final long[] statsOut)
+      throws Exception {
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
@@ -8562,11 +8898,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final var reader = rtx.getStorageEngineReader();
       final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
       final byte[] scratch = new byte[256];
-      final it.unimi.dsi.fastutil.longs.LongOpenHashSet local =
-          new it.unimi.dsi.fastutil.longs.LongOpenHashSet(16);
+      final it.unimi.dsi.fastutil.longs.LongOpenHashSet local = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(16);
       for (long pk = s; pk < e; pk++) {
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
         // Fast path: iterate the StringRegion's per-tag dict directly.
@@ -8579,8 +8915,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           fastLookupTag = Integer.MIN_VALUE;
         } else if (targetPathNodeKey == -1L) {
           fastLookupTag = fieldKey;
-        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE
-            && targetPathNodeKey > 0L
+        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE && targetPathNodeKey > 0L
             && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
           fastLookupTag = (int) targetPathNodeKey;
         } else {
@@ -8634,14 +8969,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             }
           }
         }
-        if (fastPathComplete) continue;
+        if (fastPathComplete)
+          continue;
 
         // Slow path: walk OBJECT_KEY / fused OBJECT_NAMED_* slots; read each value's bytes.
         // Since legacy OBJECT_*_VALUE kinds are gone, OBJECT_KEY only flags object/array-valued
         // fields (no string leaf), so the only string-leaf fast read is the fused inline path.
         // OBJECT_KEY slots accordingly fall through to the rtx fallback.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
-        if (matches.length == 0) continue;
+        if (matches.length == 0)
+          continue;
         for (final int slot : matches) {
           final long objectKeyNodeKey = base + slot;
           if (targetPathNodeKey != -1L
@@ -8664,10 +9001,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (valueBytes == null) {
             // OBJECT_KEY (object/array-valued field — leaf is not on this slot) or
             // FSST oversize — defer to rtx for the value read.
-            if (!rtx.moveTo(objectKeyNodeKey)) continue;
-            if (!rtx.moveToFirstChild()) continue;
+            if (!rtx.moveTo(objectKeyNodeKey))
+              continue;
+            if (!rtx.moveToFirstChild())
+              continue;
             final byte[] rawValue = rtx.getValueBytes();
-            if (rawValue == null || rawValue.length == 0) continue;
+            if (rawValue == null || rawValue.length == 0)
+              continue;
             valueBytes = rawValue;
             valueLen = rawValue.length;
           }
@@ -8682,10 +9022,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     // Merge per-thread long-hash sets. Union is O(total distinct), no
     // key copies. addAll on LongOpenHashSet bypasses autoboxing.
-    final it.unimi.dsi.fastutil.longs.LongOpenHashSet merged =
-        new it.unimi.dsi.fastutil.longs.LongOpenHashSet(32);
+    final it.unimi.dsi.fastutil.longs.LongOpenHashSet merged = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(32);
     for (final var localSet : perThread) {
-      if (localSet != null) merged.addAll(localSet);
+      if (localSet != null)
+        merged.addAll(localSet);
     }
     if (statsOut != null && statsOut.length >= 2) {
       long v = 0L, c = 0L;
@@ -8700,21 +9040,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * 64-bit FNV-1a hash over a byte slice. Stable across JVMs; good
-   * distribution for short strings. Matches the hash used in
-   * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder/decoder
-   * share the same key space when needed.
+   * 64-bit FNV-1a hash over a byte slice. Stable across JVMs; good distribution for short strings.
+   * Matches the hash used in {@link io.sirix.page.pax.StringRegion.Encoder} so encoder/decoder share
+   * the same key space when needed.
    */
   /**
    * Per-thread staging for a single dictionary entry read out of a payload segment.
    *
-   * <p>The group-by map and the hash both key on {@code byte[]}, and duplicating their probe logic
-   * for a segment-backed key would be two implementations of the same comparison — the kind of
-   * duplication that goes wrong on a boundary case years later. Dictionary entries are short, so
-   * copying one into a reusable buffer costs less than that risk.
+   * <p>
+   * The group-by map and the hash both key on {@code byte[]}, and duplicating their probe logic for a
+   * segment-backed key would be two implementations of the same comparison — the kind of duplication
+   * that goes wrong on a boundary case years later. Dictionary entries are short, so copying one into
+   * a reusable buffer costs less than that risk.
    */
-  private static final ThreadLocal<byte[]> DICT_ENTRY_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[256]);
+  private static final ThreadLocal<byte[]> DICT_ENTRY_SCRATCH = ThreadLocal.withInitial(() -> new byte[256]);
 
   /** Copy {@code len} bytes of a payload segment into the per-thread entry buffer. */
   private static byte[] stageDictEntry(final MemorySegment payload, final long off, final int len) {
@@ -8741,13 +9080,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Whether this executor implements {@code sum($m.a * $m.b)} — an aggregate over an ARITHMETIC
    * expression rather than over one field.
    *
-   * <p>Declared as "the shape is implemented", not "this query can be served": whether a columnar
-   * store actually covers both operand columns depends on the document the query is finally run
-   * against, which is not knowable when the translator asks. {@link #executeBinaryAggregate} answers
+   * <p>
+   * Declared as "the shape is implemented", not "this query can be served": whether a columnar store
+   * actually covers both operand columns depends on the document the query is finally run against,
+   * which is not knowable when the translator asks. {@link #executeBinaryAggregate} answers
    * {@code null} for the cases it cannot serve and brackit's {@code FallbackOnNullExpr} runs the
    * generic pipeline instead — the same decline-is-free contract every other route here keeps.
    *
-   * <p>Not in wtx mode, for {@link #supportsMultiKeyGroupBy()}'s reason: the columns are
+   * <p>
+   * Not in wtx mode, for {@link #supportsMultiKeyGroupBy()}'s reason: the columns are
    * committed-revision truth and would miss the transaction's own writes.
    */
   @Override
@@ -8758,28 +9099,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * {@code sum(for $m in ... return $m.a * $m.b)} from two projection columns.
    *
-   * <p>The shape the storage scan is furthest behind a column store on, and the reason is structural
+   * <p>
+   * The shape the storage scan is furthest behind a column store on, and the reason is structural
    * rather than a missing kernel: the record pipeline materializes every record to reach two fields
    * of it, which on a 3.48M-record corpus is ~150 ns per record against the ~3 ns a fused pass over
    * two long columns costs. Measured there at 530 ms.
    *
-   * <p>Serves from the SLICED projection tier only. The whole-leaf tier would hydrate every column
-   * of every row group — including the strings this aggregate never reads — which is how a
-   * projection ends up slower than the PAX regions it was meant to beat.
+   * <p>
+   * Serves from the SLICED projection tier only. The whole-leaf tier would hydrate every column of
+   * every row group — including the strings this aggregate never reads — which is how a projection
+   * ends up slower than the PAX regions it was meant to beat.
    *
    * <h2>What it refuses</h2>
    *
-   * <p>Anything but {@code sum} over two integral, sparse-clean {@code NUMERIC_LONG} columns, and
-   * any accumulation that would overflow. A row missing EITHER operand contributes nothing, which is
-   * what the interpreter does with {@code () * 3}; the presence bitmaps say which those are, and
-   * without them a missing value would fold in as a phantom zero.
+   * <p>
+   * Anything but {@code sum} over two integral, sparse-clean {@code NUMERIC_LONG} columns, and any
+   * accumulation that would overflow. A row missing EITHER operand contributes nothing, which is what
+   * the interpreter does with {@code () * 3}; the presence bitmaps say which those are, and without
+   * them a missing value would fold in as a phantom zero.
    *
    * @return the sum, or {@code null} when this executor cannot serve the shape
    */
   @Override
-  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath,
-      final String func, final String leftField, final String op, final String rightField)
-      throws QueryException {
+  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath, final String func,
+      final String leftField, final String op, final String rightField) throws QueryException {
     if (!"sum".equals(func)) {
       return null;
     }
@@ -8787,25 +9130,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * The binary slice fold's serving core: sum {@code leftField OP rightField} column-at-a-time
-   * from the two BODY slice chains, with presence intersection and exact arithmetic (decline on
-   * overflow). Factored out of {@link #executeBinaryAggregate} so
-   * {@link #executeComputedAggregate} can route the pure two-field shape here — the translator
-   * emits the computed expression for every arithmetic aggregate, leaving the dedicated binary
-   * entry point unreachable, and the computed route's whole-leaf assembly plus per-row program
-   * interpretation profiled at ~70 % of a cold product-sum that this fold serves from ~9 MB of
-   * body segments instead.
+   * The binary slice fold's serving core: sum {@code leftField OP rightField} column-at-a-time from
+   * the two BODY slice chains, with presence intersection and exact arithmetic (decline on overflow).
+   * Factored out of {@link #executeBinaryAggregate} so {@link #executeComputedAggregate} can route
+   * the pure two-field shape here — the translator emits the computed expression for every arithmetic
+   * aggregate, leaving the dedicated binary entry point unreachable, and the computed route's
+   * whole-leaf assembly plus per-row program interpretation profiled at ~70 % of a cold product-sum
+   * that this fold serves from ~9 MB of body segments instead.
    */
-  private @Nullable Sequence serveBinarySumFromSlices(final String[] sourcePath,
-      final String leftField, final String op, final String rightField) {
+  private @Nullable Sequence serveBinarySumFromSlices(final String[] sourcePath, final String leftField,
+      final String op, final String rightField) {
     if (wtx != null || leftField == null || rightField == null) {
       return null;
     }
     if (projectionRegistryKey == null || !anyProjectionAvailable()) {
       return null;
     }
-    final ProjectionIndexRegistry.Handle handle =
-        lookupProjection(sourcePath, new String[] { leftField, rightField });
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, new String[] {leftField, rightField});
     if (handle == null || handle.rowGroupCount() == 0) {
       return null;
     }
@@ -8836,8 +9177,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Both columns integral {@code NUMERIC_LONG} with per-row presence — see the gates' rationale. */
-  private boolean bothServableNumericColumns(final ProjectionIndexRegistry.Handle handle,
-      final int leftCol, final int rightCol) {
+  private boolean bothServableNumericColumns(final ProjectionIndexRegistry.Handle handle, final int leftCol,
+      final int rightCol) {
     if (handle.columnKindOf(leftCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
         || handle.columnKindOf(rightCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
       return false;
@@ -8846,8 +9187,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
     // Value-exact: the builder truncates non-integral numbers into a NUMERIC_LONG column, so an
     // unproven column would sum truncations of the values the query names.
-    return handle.numericColumnIsIntegral(leftCol, fetcher)
-        && handle.numericColumnIsIntegral(rightCol, fetcher)
+    return handle.numericColumnIsIntegral(leftCol, fetcher) && handle.numericColumnIsIntegral(rightCol, fetcher)
         && handle.columnSparseClean(leftCol, fetcher, materializer)
         && handle.columnSparseClean(rightCol, fetcher, materializer);
   }
@@ -8862,9 +9202,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Sum {@code left OP right} over rows where BOTH columns are present, exactly.
    *
-   * <p>Exact arithmetic throughout: a silent wrap would be a wrong answer that looks like a fast
-   * one, and the generic pipeline behind this route promotes rather than wraps. On overflow the
-   * fold declines and that pipeline answers.
+   * <p>
+   * Exact arithmetic throughout: a silent wrap would be a wrong answer that looks like a fast one,
+   * and the generic pipeline behind this route promotes rather than wraps. On overflow the fold
+   * declines and that pipeline answers.
    */
   private long foldBinaryNumeric(final ProjectionColumnStore.ColumnSlice[] left,
       final ProjectionColumnStore.ColumnSlice[] right, final String op) {
@@ -8904,7 +9245,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } catch (final ArithmeticException overflow) {
       return BINARY_FOLD_DECLINED;
     }
-    return total == BINARY_FOLD_DECLINED ? BINARY_FOLD_DECLINED : total;
+    return total == BINARY_FOLD_DECLINED
+        ? BINARY_FOLD_DECLINED
+        : total;
   }
 
   /** The closed set of operators whose column-at-a-time value is exactly its record-at-a-time one. */
@@ -8936,8 +9279,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // short-circuit ahead of it silently retired it the moment path statistics were switched on.
       final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
-        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2],
-                                   projectedFirst[3]);
+        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2], projectedFirst[3]);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -8954,8 +9296,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // one-per-record under the same root, maintained every commit; stale/mismatched
       // stores decline via the probe and fall through.
       if ("count".equals(func) && field == null && projectionRegistryKey != null) {
-        final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
-            session, projectionRegistryKey, revision, sourcePath);
+        final long fromDescriptors =
+            ProjectionIndexCatalog.countRowsFromDescriptors(session, projectionRegistryKey, revision, sourcePath);
         if (fromDescriptors >= 0) {
           return new Int64(fromDescriptors);
         }
@@ -8977,7 +9319,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
         if (projected != null) {
           stats = aggregateCache.putIfAbsent(cacheKey, projected);
-          if (stats == null) stats = projected;
+          if (stats == null)
+            stats = projected;
         } else {
           // Double-column serving (§11-8) runs BEFORE the MixedAgg cache below can be
           // populated for this key, and caches its own per-func result: repeats are O(1),
@@ -8987,7 +9330,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final Sequence served = tryServeDoubleAggregate(sourcePath, field, null, func);
           if (served != null) {
             final Sequence prior = servedDoubleAggCache.putIfAbsent(func + '#' + cacheKey, served);
-            return prior != null ? prior : served;
+            return prior != null
+                ? prior
+                : served;
           }
         }
       }
@@ -9009,10 +9354,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // reproduce — fail LOUDLY instead of fabricating 0/empty.
         if (!nonIntegral[0] && fresh[0] == 0 && fresh[4] > 0) {
           throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-                                   "Vectorized %s over field '%s': the field exists but holds no numeric values — "
-                                       + "string/boolean/null aggregation is not supported by the vectorized executor",
-                                   func,
-                                   field);
+              "Vectorized %s over field '%s': the field exists but holds no numeric values — "
+                  + "string/boolean/null aggregation is not supported by the vectorized executor",
+              func, field);
         }
         if (nonIntegral[0]) {
           // The column carries non-integral numbers — long accumulation TRUNCATES
@@ -9022,10 +9366,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // double space.
           final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
           dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
-          if (dblStats == null) dblStats = mfresh;
+          if (dblStats == null)
+            dblStats = mfresh;
         } else {
           stats = aggregateCache.putIfAbsent(cacheKey, fresh);
-          if (stats == null) stats = fresh;
+          if (stats == null)
+            stats = fresh;
         }
       }
       if (dblStats != null) {
@@ -9033,47 +9379,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
     } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized aggregate failed: %s",
-                               e.getMessage());
+      throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
     }
   }
 
   /**
-   * The SINGLE conversion from a {@code [count, sum, min, max]} long-stats
-   * accumulator to the aggregate result Sequence — used by the committed
-   * aggregate tail, the wtx-mode aggregate branch, and the predicated
-   * aggregate path, so the tuned semantics can never drift between them:
-   * integer avg is xs:decimal via brackit's own division (digit-for-digit
-   * with the generic pipeline), and avg/min/max over ZERO contributing rows
-   * are the EMPTY sequence, not 0. Unknown {@code func} → {@code null}
-   * (caller falls back).
+   * The SINGLE conversion from a {@code [count, sum, min, max]} long-stats accumulator to the
+   * aggregate result Sequence — used by the committed aggregate tail, the wtx-mode aggregate branch,
+   * and the predicated aggregate path, so the tuned semantics can never drift between them: integer
+   * avg is xs:decimal via brackit's own division (digit-for-digit with the generic pipeline), and
+   * avg/min/max over ZERO contributing rows are the EMPTY sequence, not 0. Unknown {@code func} →
+   * {@code null} (caller falls back).
    */
   /**
    * PER-GROUP aggregate serving (P5b stage 7a; gap item 1a widened it to MULTI-KEY):
    * {@code group by <string field(s)>} with any mix of {@code count($r)} and
    * {@code sum|min|max|avg($r.field)} record entries, folded per group by
    * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroup} (one key) or
-   * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupMulti} (2..5 keys) over the
-   * covering projection's leaves. Groups emit in DOCUMENT first-appearance order (the
-   * interpreter's grouping order); matching rows missing a group field carry the
-   * empty-sequence key for that component (single-key: the null-key group). Returns
-   * {@code null} to fall back (callers compile the generic pipeline alongside).
+   * {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupMulti} (2..5 keys) over the covering
+   * projection's leaves. Groups emit in DOCUMENT first-appearance order (the interpreter's grouping
+   * order); matching rows missing a group field carry the empty-sequence key for that component
+   * (single-key: the null-key group). Returns {@code null} to fall back (callers compile the generic
+   * pipeline alongside).
    */
   public Sequence executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames,
-      final String[] funcs, final String[] aggFields, final String[] outNames) {
+      final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
+      final String[] aggFields, final String[] outNames) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
       }
       final int keyCount = groupFields.length;
-      if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS
-          || keyNames.length != keyCount) {
+      if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
         return null;
       }
-      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
       final ArrayList<String> required = new ArrayList<>();
       for (final String g : groupFields) {
         if (!required.contains(g)) {
@@ -9095,8 +9437,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] groupCols = new int[keyCount];
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
-        if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
             || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
@@ -9113,10 +9454,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] aggCols = new int[distinctFields.size()];
       for (int i = 0; i < aggCols.length; i++) {
         final int col = handle.columnOf(distinctFields.get(i));
-        if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher)
-            || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         aggCols[i] = col;
@@ -9128,8 +9467,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
           return null;
         }
-        final ProjectionIndexScan.ColumnPredicate[] extracted =
-            extractConjunctivePredicates(cp, handle);
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
         if (extracted == null) {
           return null; // OR trees on the group path: later stage
         }
@@ -9154,11 +9492,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         parallel(eff, idx -> {
           final int from = idx * chunkSize;
           final int to = Math.min(from + chunkSize, rowGroupCount);
-          if (from >= to) return;
+          if (from >= to)
+            return;
           final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> local =
               new Object2ObjectOpenHashMap<>();
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(rowGroupPayloads.subList(from, to),
-              preds, groupCols, aggCols, local, from);
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(rowGroupPayloads.subList(from, to), preds, groupCols,
+              aggCols, local, from);
           perThreadMulti[idx] = local;
         });
         final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> mergedMulti =
@@ -9167,8 +9506,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (perThreadMulti[t] == null) {
             continue;
           }
-          for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e
-              : perThreadMulti[t].object2ObjectEntrySet()) {
+          for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : perThreadMulti[t].object2ObjectEntrySet()) {
             final long[] existing = mergedMulti.get(e.getKey());
             if (existing == null) {
               mergedMulti.put(e.getKey(), e.getValue());
@@ -9183,8 +9521,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         orderedMulti.sort(Comparator.comparingLong(e -> e.getValue()[1]));
         final ArrayList<Item> outMulti = new ArrayList<>(orderedMulti.size());
         for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : orderedMulti) {
-          outMulti.add(groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields,
-              outNames, distinctFields));
+          outMulti.add(
+              groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields, outNames, distinctFields));
         }
         GROUP_AGG_SERVED.increment();
         return new ItemSequence(outMulti.toArray(new Item[0]));
@@ -9195,11 +9533,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateByGroup(rowGroupPayloads.subList(from, to), preds,
-            groupCol, aggCols, local, missing, from);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroup(rowGroupPayloads.subList(from, to), preds, groupCol,
+            aggCols, local, missing, from);
         perThread[idx] = local;
         perThreadMissing[idx] = missing;
       });
@@ -9221,23 +9560,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       // Emit in document first-appearance order — the interpreter's grouping order.
-      final ArrayList<Object2ObjectMap.Entry<String, long[]>> ordered =
-          new ArrayList<>(merged.object2ObjectEntrySet());
+      final ArrayList<Object2ObjectMap.Entry<String, long[]>> ordered = new ArrayList<>(merged.object2ObjectEntrySet());
       ordered.sort(Comparator.comparingLong(e -> e.getValue()[1]));
       final ArrayList<Item> out = new ArrayList<>(ordered.size() + 1);
       int emittedMissing = 0;
       for (final Object2ObjectMap.Entry<String, long[]> e : ordered) {
         if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
-          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames,
-              distinctFields));
+          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields));
           emittedMissing = 1;
         }
-        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames,
-            distinctFields));
+        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames, distinctFields));
       }
       if (missingMerged[0] > 0 && emittedMissing == 0) {
-        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames,
-            distinctFields));
+        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields));
       }
       GROUP_AGG_SERVED.increment();
       return new ItemSequence(out.toArray(new Item[0]));
@@ -9259,18 +9594,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Sorted-scan serving (P5b stage 7b; gap 1b generalized to N order keys): matching
-   * {@code (sortTuple, recordKey)} rows collected from the covering projection, stably
-   * sorted by tuple with PER-KEY direction (document-order tiebreak — the collector
-   * appends in document order and the sort is stable), record keys returned for LAZY
-   * materialization by the caller. {@code null} = decline (callers evaluate the generic
-   * pipeline compiled alongside). A matching row MISSING any order field declines
-   * outright: the interpreter sorts empty order keys per the empty-least/greatest mode
-   * (default empty least — it does NOT error), a placement the long-tuple kernel cannot
-   * represent, so only the generic pipeline can emit those rows in the right position.
+   * {@code (sortTuple, recordKey)} rows collected from the covering projection, stably sorted by
+   * tuple with PER-KEY direction (document-order tiebreak — the collector appends in document order
+   * and the sort is stable), record keys returned for LAZY materialization by the caller.
+   * {@code null} = decline (callers evaluate the generic pipeline compiled alongside). A matching row
+   * MISSING any order field declines outright: the interpreter sorts empty order keys per the
+   * empty-least/greatest mode (default empty least — it does NOT error), a placement the long-tuple
+   * kernel cannot represent, so only the generic pipeline can emit those rows in the right position.
    *
-   * <p>Gap 3: {@code limit >= 0} caps the result to the first {@code limit} rows of the
-   * full stable sort — sole-consumer {@code fn:subsequence} truncation — selected via a
-   * bounded heap ({@code n log K}) instead of the full {@code n log n} sort.
+   * <p>
+   * Gap 3: {@code limit >= 0} caps the result to the first {@code limit} rows of the full stable sort
+   * — sole-consumer {@code fn:subsequence} truncation — selected via a bounded heap ({@code n log K})
+   * instead of the full {@code n log n} sort.
    *
    * @return record keys in emission order, or {@code null} to fall back
    */
@@ -9284,9 +9619,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (keyCount < 1 || descending.length != keyCount) {
         return null;
       }
-      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
-      final ProjectionIndexRegistry.Handle handle =
-          lookupProjection(sourcePath, requiredFields(orderFields, cp));
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
+      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, requiredFields(orderFields, cp));
       if (handle == null) {
         return null;
       }
@@ -9295,10 +9631,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] cols = new int[keyCount];
       for (int k = 0; k < keyCount; k++) {
         final int col = handle.columnOf(orderFields[k]);
-        if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher)
-            || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null;
         }
         cols[k] = col;
@@ -9310,8 +9644,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
           return null;
         }
-        final ProjectionIndexScan.ColumnPredicate[] extracted =
-            extractConjunctivePredicates(cp, handle);
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
         if (extracted == null) {
           return null;
         }
@@ -9330,10 +9663,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long kBound = Math.min(limit, totalRows);
         if (kBound <= Integer.MAX_VALUE) {
           final long[] top =
-              ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound,
-                                                  columnFetcher());
+              ProjectionColumnScan.topKRecordKeys(store, preds, cols, descending, (int) kBound, columnFetcher());
           if (top == null) {
-            return null;  // a matching row misses an order key — only the interpreter places it
+            return null; // a matching row misses an order key — only the interpreter places it
           }
           if (top.length == kBound) {
             // The heap actually bounded the result (or matched it exactly — the one drift from
@@ -9347,15 +9679,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final LongArrayList keys = new LongArrayList();
       final LongArrayList missingKeys = new LongArrayList();
       if (sliced) {
-        ProjectionColumnScan.collectMatchingSortTuples(store, preds, cols, values, keys,
-                                                       missingKeys, columnFetcher());
+        ProjectionColumnScan.collectMatchingSortTuples(store, preds, cols, values, keys, missingKeys, columnFetcher());
       } else {
         final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
         if (rowGroupPayloads == null) {
           return null;
         }
-        ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values,
-                                                          keys, missingKeys);
+        ProjectionIndexByteScan.collectMatchingSortTuples(rowGroupPayloads, preds, cols, values, keys, missingKeys);
       }
       if (!missingKeys.isEmpty()) {
         // The interpreter sorts rows with EMPTY order keys per the empty-least/greatest
@@ -9405,15 +9735,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       for (int i = 0; i < n; i++) {
         order[i] = i;
       }
-      final IntComparator byValue = (a, b) ->
-          compareSortRows(tuple, keyCount, descending, order[a], order[b]);
+      final IntComparator byValue = (a, b) -> compareSortRows(tuple, keyCount, descending, order[a], order[b]);
       it.unimi.dsi.fastutil.Arrays.mergeSort(0, n, byValue, (a, b) -> {
         final int tmp = order[a];
         order[a] = order[b];
         order[b] = tmp;
       });
       final long[] out = new long[n];
-      for (int i = 0; i < n; i++) out[i] = keys.getLong(order[i]);
+      for (int i = 0; i < n; i++)
+        out[i] = keys.getLong(order[i]);
       return out;
     } catch (final RuntimeException e) {
       SORTED_SCAN_FAILED.increment();
@@ -9425,33 +9755,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Row-index comparator for sorted-scan tuples: per-key direction over the row-major
-   * {@code tuple} values (stride {@code keyCount}), DOCUMENT-ORDER index tiebreak — a
-   * strict total order, so bounded selection and the full stable sort agree exactly.
+   * Row-index comparator for sorted-scan tuples: per-key direction over the row-major {@code tuple}
+   * values (stride {@code keyCount}), DOCUMENT-ORDER index tiebreak — a strict total order, so
+   * bounded selection and the full stable sort agree exactly.
    */
-  private static int compareSortRows(final long[] tuple, final int keyCount,
-      final boolean[] descending, final int a, final int b) {
+  private static int compareSortRows(final long[] tuple, final int keyCount, final boolean[] descending, final int a,
+      final int b) {
     final int ra = a * keyCount;
     final int rb = b * keyCount;
     for (int k = 0; k < keyCount; k++) {
       final int cmp = Long.compare(tuple[ra + k], tuple[rb + k]);
       if (cmp != 0) {
-        return descending[k] ? -cmp : cmp;
+        return descending[k]
+            ? -cmp
+            : cmp;
       }
     }
     return Integer.compare(a, b);
   }
 
   /** Max-heap sift-down (root = WORST kept row) under {@link #compareSortRows}. */
-  private static void siftDownWorst(final int[] heap, final int start, final int size,
-      final long[] tuple, final int keyCount, final boolean[] descending) {
+  private static void siftDownWorst(final int[] heap, final int start, final int size, final long[] tuple,
+      final int keyCount, final boolean[] descending) {
     int i = start;
     final int half = size >>> 1;
     while (i < half) {
       int child = (i << 1) + 1;
       final int right = child + 1;
-      if (right < size
-          && compareSortRows(tuple, keyCount, descending, heap[right], heap[child]) > 0) {
+      if (right < size && compareSortRows(tuple, keyCount, descending, heap[right], heap[child]) > 0) {
         child = right;
       }
       if (compareSortRows(tuple, keyCount, descending, heap[child], heap[i]) <= 0) {
@@ -9497,9 +9828,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private volatile JsonNodeReadOnlyTrx recordTrx;
 
   /**
-   * The executor's ONE cached record-materialization transaction — materialized items
-   * read fields through it lazily during serialization, so it lives until the executor
-   * closes (a per-query trx would leak one open transaction per served query).
+   * The executor's ONE cached record-materialization transaction — materialized items read fields
+   * through it lazily during serialization, so it lives until the executor closes (a per-query trx
+   * would leak one open transaction per served query).
    */
   public JsonNodeReadOnlyTrx recordTrx() {
     JsonNodeReadOnlyTrx trx = recordTrx;
@@ -9532,24 +9863,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * COVERED-ROW serving (P5b stage 7c): predicate-matching rows materialized as records
-   * straight from projection segments — the document store is never touched. Field values
-   * type exactly like the interpreter's derefs (Int64 / Dbl via the double transform /
-   * Bool / Str); a missing field stores the EMPTY sequence in the record, exactly like the
-   * interpreter's object constructor (serialized as JSON null, but empty under
-   * composition). {@code null} = decline; callers evaluate the generic pipeline compiled
-   * alongside.
+   * COVERED-ROW serving (P5b stage 7c): predicate-matching rows materialized as records straight from
+   * projection segments — the document store is never touched. Field values type exactly like the
+   * interpreter's derefs (Int64 / Dbl via the double transform / Bool / Str); a missing field stores
+   * the EMPTY sequence in the record, exactly like the interpreter's object constructor (serialized
+   * as JSON null, but empty under composition). {@code null} = decline; callers evaluate the generic
+   * pipeline compiled alongside.
    */
-  public Sequence executeRowMaterialize(final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String[] fields, final String[] outNames,
-      final int[] direct, final int[][] codes, final long[][] consts) {
+  public Sequence executeRowMaterialize(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String[] fields, final String[] outNames, final int[] direct, final int[][] codes, final long[][] consts) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
       }
-      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
-      final ProjectionIndexRegistry.Handle handle =
-          lookupProjection(sourcePath, requiredFields(fields, cp));
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
+      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, requiredFields(fields, cp));
       if (handle == null) {
         return null;
       }
@@ -9591,8 +9921,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Computed entries (gap 2): every operand slot must be an EXACT long column — the
       // program computes in long space with Math.*Exact semantics.
       final int entryCount = outNames.length;
-      if (direct.length != entryCount || codes.length != entryCount
-          || consts.length != entryCount) {
+      if (direct.length != entryCount || codes.length != entryCount || consts.length != entryCount) {
         return null;
       }
       int maxCodeLen = 0;
@@ -9624,8 +9953,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
           return null;
         }
-        final ProjectionIndexScan.ColumnPredicate[] extracted =
-            extractConjunctivePredicates(cp, handle);
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
         if (extracted == null) {
           return null;
         }
@@ -9668,10 +9996,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
               vals[e] = switch (kinds[d]) {
                 case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> new Str(stringVals[d]);
-                case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
-                    longVals[d] != 0 ? Bool.TRUE : Bool.FALSE;
+                case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> longVals[d] != 0
+                    ? Bool.TRUE
+                    : Bool.FALSE;
                 case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-                    new Dbl(ProjectionDoubleEncoding.decode(longVals[d]));
+                  new Dbl(ProjectionDoubleEncoding.decode(longVals[d]));
                 default -> new Int64(longVals[d]);
               };
             }
@@ -9693,12 +10022,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Covered-row serving materializes EAGERLY (a record per matching row, all heap-resident
-   * before the sequence returns). Stores above this many TOTAL rows decline to the
-   * streaming generic pipeline instead of risking an OOM on a broad predicate.
+   * Covered-row serving materializes EAGERLY (a record per matching row, all heap-resident before the
+   * sequence returns). Stores above this many TOTAL rows decline to the streaming generic pipeline
+   * instead of risking an OOM on a broad predicate.
    */
-  private static final long ROW_MAT_MAX_ROWS =
-      Long.getLong("sirix.projection.rowMaterializeMaxRows", 1_000_000L);
+  private static final long ROW_MAT_MAX_ROWS = Long.getLong("sirix.projection.rowMaterializeMaxRows", 1_000_000L);
 
   /** Computed-expression aggregate servings (gap 2) — test observability. */
   private static final LongAdder COMPUTED_AGG_SERVED = new LongAdder();
@@ -9719,16 +10047,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * COMPUTED-EXPRESSION aggregate serving (gap item 2):
    * {@code sum|avg|min|max|count(for $r in P [where p] return <+/-/* tree over $r.fields
-   * and int literals>)} folded by
-   * {@link ProjectionIndexByteScan#conjunctiveAggregateComputed} with EXACT arithmetic.
-   * Overflow anywhere (program or running sum) declines — Brackit's interpreter promotes
-   * overflowing integer math to exact decimal, so only the generic pipeline answers those
-   * digit-exactly. Rows missing any operand field contribute nothing (empty arithmetic).
-   * {@code null} = decline; callers evaluate the generic expression compiled alongside.
+   * and int literals>)} folded by {@link ProjectionIndexByteScan#conjunctiveAggregateComputed} with
+   * EXACT arithmetic. Overflow anywhere (program or running sum) declines — Brackit's interpreter
+   * promotes overflowing integer math to exact decimal, so only the generic pipeline answers those
+   * digit-exactly. Rows missing any operand field contribute nothing (empty arithmetic). {@code null}
+   * = decline; callers evaluate the generic expression compiled alongside.
    */
-  public Sequence executeComputedAggregate(final String[] sourcePath,
-      final PredicateNode predicateOrNull, final String func, final String[] fields,
-      final int[] code, final long[] consts) {
+  public Sequence executeComputedAggregate(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String func, final String[] fields, final int[] code, final long[] consts) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -9736,14 +10062,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!validProgram(code, consts, fields.length)) {
         return null; // untrusted-boundary re-validation, same as the row-materialize path
       }
-      final CompiledPredicate cp = predicateOrNull == null ? null : compile(predicateOrNull);
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
       // Pure two-field program with no predicate — exactly the binary slice fold's shape. Serve
       // it there first: the fold reads only the two BODY chains and folds with presence
       // intersection, where the route below assembles WHOLE leaves (keys plus every segment)
       // and interprets the program per row. A fold decline (non-integral column, sparse-dirty
       // evidence, overflow) falls through to this route unchanged.
-      if (cp == null && "sum".equals(func) && fields.length == 2 && code.length == 3
-          && code[0] >= 0 && code[0] <= 1 && code[1] >= 0 && code[1] <= 1 && code[0] != code[1]) {
+      if (cp == null && "sum".equals(func) && fields.length == 2 && code.length == 3 && code[0] >= 0 && code[0] <= 1
+          && code[1] >= 0 && code[1] <= 1 && code[0] != code[1]) {
         final String binaryOp = switch (code[2]) {
           case ProjectionIndexByteScan.COMPUTED_OP_ADD -> "+";
           case ProjectionIndexByteScan.COMPUTED_OP_SUB -> "-";
@@ -9751,15 +10079,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           default -> null;
         };
         if (binaryOp != null) {
-          final Sequence viaFold =
-              serveBinarySumFromSlices(sourcePath, fields[code[0]], binaryOp, fields[code[1]]);
+          final Sequence viaFold = serveBinarySumFromSlices(sourcePath, fields[code[0]], binaryOp, fields[code[1]]);
           if (viaFold != null) {
             return viaFold;
           }
         }
       }
-      final ProjectionIndexRegistry.Handle handle =
-          lookupProjection(sourcePath, requiredFields(fields, cp));
+      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, requiredFields(fields, cp));
       if (handle == null) {
         return null;
       }
@@ -9768,10 +10094,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int[] cols = new int[fields.length];
       for (int i = 0; i < fields.length; i++) {
         final int col = handle.columnOf(fields[i]);
-        if (col < 0
-            || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher)
-            || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
           return null; // value-exact gate, same as plain aggregate serving
         }
         cols[i] = col;
@@ -9783,8 +10107,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
           return null;
         }
-        final ProjectionIndexScan.ColumnPredicate[] extracted =
-            extractConjunctivePredicates(cp, handle);
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
         if (extracted == null) {
           return null;
         }
@@ -9796,16 +10119,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final int rowGroupCount = rowGroupPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
-      final int chunkSize = rowGroupCount == 0 ? 1 : (rowGroupCount + eff - 1) / eff;
+      final int chunkSize = rowGroupCount == 0
+          ? 1
+          : (rowGroupCount + eff - 1) / eff;
       final long[][] perThread = new long[eff][];
       // The kernel throws ArithmeticException on overflow; parallel() propagates it.
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
-        if (from >= to) return;
+        if (from >= to)
+          return;
         final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
-        ProjectionIndexByteScan.conjunctiveAggregateComputed(rowGroupPayloads.subList(from, to),
-            preds, cols, code, consts, acc);
+        ProjectionIndexByteScan.conjunctiveAggregateComputed(rowGroupPayloads.subList(from, to), preds, cols, code,
+            consts, acc);
         perThread[idx] = acc;
       });
       long count = 0;
@@ -9818,8 +10144,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         count += acc[0];
         sum = Math.addExact(sum, acc[1]);
-        if (acc[2] < min) min = acc[2];
-        if (acc[3] > max) max = acc[3];
+        if (acc[2] < min)
+          min = acc[2];
+        if (acc[3] > max)
+          max = acc[3];
       }
       final Sequence result = longStatsToSequence(func, count, sum, min, max);
       if (result == null) {
@@ -9841,11 +10169,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Re-validate a postfix program at the EXECUTOR boundary — AST properties are untrusted
-   * inputs (cached plans, foreign producers): every push slot in range, every opcode
-   * known, running depth never below 1, final depth exactly 1, non-empty. Anything else
-   * declines — a depth-surplus or empty program would otherwise SERVE a silently wrong
-   * value (the reused scratch stack's slot 0), not crash.
+   * Re-validate a postfix program at the EXECUTOR boundary — AST properties are untrusted inputs
+   * (cached plans, foreign producers): every push slot in range, every opcode known, running depth
+   * never below 1, final depth exactly 1, non-empty. Anything else declines — a depth-surplus or
+   * empty program would otherwise SERVE a silently wrong value (the reused scratch stack's slot 0),
+   * not crash.
    */
   private static boolean validProgram(final int[] code, final long[] consts, final int nFields) {
     if (code == null || consts == null || code.length == 0) {
@@ -9877,13 +10205,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Per-row postfix evaluation for a COMPUTED record entry (gap 2): {@code null} when any
-   * operand field is missing (the interpreter's arithmetic over the empty sequence is
-   * empty); exact ops throw {@link ArithmeticException} on overflow, which the caller
-   * treats as a whole-query decline. The {@code stack} is caller-owned scratch.
+   * Per-row postfix evaluation for a COMPUTED record entry (gap 2): {@code null} when any operand
+   * field is missing (the interpreter's arithmetic over the empty sequence is empty); exact ops throw
+   * {@link ArithmeticException} on overflow, which the caller treats as a whole-query decline. The
+   * {@code stack} is caller-owned scratch.
    */
-  private static Int64 evalRowProgram(final int[] code, final long[] consts,
-      final long[] longVals, final boolean[] present, final long[] stack) {
+  private static Int64 evalRowProgram(final int[] code, final long[] consts, final long[] longVals,
+      final boolean[] present, final long[] stack) {
     for (final int op : code) {
       if (op >= 0 && op < ProjectionIndexByteScan.COMPUTED_CONST_BASE && !present[op]) {
         return null;
@@ -9952,30 +10280,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Exact merge or DECLINE — same interpreter-promotes-on-overflow rule the kernels
       // enforce per row (a wrapped cross-chunk sum is just as wrong as a wrapped fold).
       into[base + 1] = Math.addExact(into[base + 1], from[base + 1]);
-      if (from[base + 2] < into[base + 2]) into[base + 2] = from[base + 2];
-      if (from[base + 3] > into[base + 3]) into[base + 3] = from[base + 3];
+      if (from[base + 2] < into[base + 2])
+        into[base + 2] = from[base + 2];
+      if (from[base + 3] > into[base + 3])
+        into[base + 3] = from[base + 3];
     }
   }
 
   /** One per-group output record; {@code null} group key = the missing-field group. */
-  private static ArrayObject groupAggRecord(final String groupKey, final long[] acc,
-      final String keyName, final String[] funcs, final String[] aggFields,
-      final String[] outNames, final ArrayList<String> distinctFields) {
+  private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
     // The interpreter's object constructor stores the EMPTY sequence (Java null) for the
     // missing-field group's key — serialized as JSON null, but empty under composition
     // (count((pipe).dept)) — so the served record must too, not Null.INSTANCE.
-    vals[0] = groupKey == null ? null : new Str(groupKey);
+    vals[0] = groupKey == null
+        ? null
+        : new Str(groupKey);
     fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields);
     return new ArrayObject(names, vals);
   }
 
   /** MULTI-KEY per-group record (gap 1a); {@code null} key components = missing-field keys. */
-  private static ArrayObject groupAggRecordMulti(final ProjectionIndexByteScan.GroupKey key,
-      final long[] acc, final String[] keyNames, final String[] funcs, final String[] aggFields,
-      final String[] outNames, final ArrayList<String> distinctFields) {
+  private static ArrayObject groupAggRecordMulti(final ProjectionIndexByteScan.GroupKey key, final long[] acc,
+      final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
+      final ArrayList<String> distinctFields) {
     final int k = keyNames.length;
     final QNm[] names = new QNm[k + funcs.length];
     final Sequence[] vals = new Sequence[k + funcs.length];
@@ -9983,16 +10314,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       names[i] = new QNm(keyNames[i]);
       final String part = key.part(i);
       // Same empty-sequence rule as the single-key record's null group.
-      vals[i] = part == null ? null : new Str(part);
+      vals[i] = part == null
+          ? null
+          : new Str(part);
     }
     fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields);
     return new ArrayObject(names, vals);
   }
 
   /** Shared aggregate-entry fill for single- and multi-key group records. */
-  private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset,
-      final long[] acc, final String[] funcs, final String[] aggFields, final String[] outNames,
-      final ArrayList<String> distinctFields) {
+  private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields) {
     for (int i = 0; i < funcs.length; i++) {
       names[offset + i] = new QNm(outNames[i]);
       if ("count".equals(funcs[i])) {
@@ -10001,32 +10333,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final int a = distinctFields.indexOf(aggFields[i]);
       final int base = 2 + 4 * a;
-      final Sequence stat =
-          longStatsToSequence(funcs[i], acc[base], acc[base + 1], acc[base + 2], acc[base + 3]);
+      final Sequence stat = longStatsToSequence(funcs[i], acc[base], acc[base + 1], acc[base + 2], acc[base + 3]);
       // longStatsToSequence returns an EMPTY ItemSequence exactly when count == 0
       // (avg/min/max over an all-missing group field) → store the empty sequence, exactly
       // what the interpreter's constructor keeps (JSON null on serialization).
-      vals[offset + i] = stat instanceof ItemSequence ? null : stat;
+      vals[offset + i] = stat instanceof ItemSequence
+          ? null
+          : stat;
     }
   }
 
-  private static Sequence longStatsToSequence(final String func, final long count, final long sum,
-      final long min, final long max) {
+  private static Sequence longStatsToSequence(final String func, final long count, final long sum, final long min,
+      final long max) {
     return switch (func) {
       case "count" -> new Int64(count);
       case "sum" -> new Int64(sum);
-      case "avg" -> count == 0 ? new ItemSequence() : new Int64(sum).div(new Int64(count));
-      case "min" -> count == 0 ? new ItemSequence() : new Int64(min);
-      case "max" -> count == 0 ? new ItemSequence() : new Int64(max);
+      case "avg" -> count == 0
+          ? new ItemSequence()
+          : new Int64(sum).div(new Int64(count));
+      case "min" -> count == 0
+          ? new ItemSequence()
+          : new Int64(min);
+      case "max" -> count == 0
+          ? new ItemSequence()
+          : new Int64(max);
       default -> null;
     };
   }
 
   /**
-   * Value aggregates (sum/avg/min/max — never count) served from a double projection column
-   * under the §11-8 purity gate, since process start. The catalog's {@code servedCount}
-   * increments on HANDLE lookups and therefore cannot distinguish "served" from
-   * "looked up, declined, fell back" — this counter is the test oracle for the distinction.
+   * Value aggregates (sum/avg/min/max — never count) served from a double projection column under the
+   * §11-8 purity gate, since process start. The catalog's {@code servedCount} increments on HANDLE
+   * lookups and therefore cannot distinguish "served" from "looked up, declined, fell back" — this
+   * counter is the test oracle for the distinction.
    */
   private static final LongAdder DOUBLE_VALUE_SERVED = new LongAdder();
 
@@ -10036,15 +10375,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over
-   * a single field via the PathSummary's per-path statistics. Returns {@code null} to
-   * signal the caller should fall back to a full parallel scan when:
+   * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over a single field
+   * via the PathSummary's per-path statistics. Returns {@code null} to signal the caller should fall
+   * back to a full parallel scan when:
    * <ul>
-   *   <li>the resource doesn't maintain path statistics,</li>
-   *   <li>no PathNode matches the requested field's local name,</li>
-   *   <li>the requested min/max bound is marked dirty (a prior delete may have
-   *       tightened it — a rescan is correct, skip the fast path), or</li>
-   *   <li>the function is not one of the supported aggregates.</li>
+   * <li>the resource doesn't maintain path statistics,</li>
+   * <li>no PathNode matches the requested field's local name,</li>
+   * <li>the requested min/max bound is marked dirty (a prior delete may have tightened it — a rescan
+   * is correct, skip the fast path), or</li>
+   * <li>the function is not one of the supported aggregates.</li>
    * </ul>
    */
   private Sequence tryPathSummaryStats(final String[] sourcePath, final String field, final String func) {
@@ -10052,8 +10391,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     switch (func) {
-      case "count", "sum", "avg", "min", "max" -> { /* supported */ }
-      default -> { return null; }
+      case "count", "sum", "avg", "min", "max" -> {
+        /* supported */ }
+      default -> {
+        return null;
+      }
     }
     if (field == null) {
       return null;
@@ -10080,10 +10422,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Actually read the PathNode's per-path statistics and package them as a
-   * Brackit Sequence. Opens a read-only trx + PathSummaryReader for the call
-   * duration. Called at most once per {@code (pathNodeKey, func)} during the
-   * executor's lifetime — results are cached by the caller.
+   * Actually read the PathNode's per-path statistics and package them as a Brackit Sequence. Opens a
+   * read-only trx + PathSummaryReader for the call duration. Called at most once per
+   * {@code (pathNodeKey, func)} during the executor's lifetime — results are cached by the caller.
    */
   private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
 
@@ -10127,8 +10468,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long count = p.getStatsValueCount();
         final long sum = p.getStatsSum();
         final boolean numeric = p.hasNumericStats();
-        final long pMin = numeric ? p.getStatsMin() : Long.MAX_VALUE;
-        final long pMax = numeric ? p.getStatsMax() : Long.MIN_VALUE;
+        final long pMin = numeric
+            ? p.getStatsMin()
+            : Long.MAX_VALUE;
+        final long pMax = numeric
+            ? p.getStatsMax()
+            : Long.MIN_VALUE;
         // Non-numeric stats cannot answer value aggregates — fall back to the
         // scan instead of fabricating 0 (count alone is type-agnostic).
         if (!numeric && !"count".equals(func)) {
@@ -10138,11 +10483,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           case "count" -> new Int64(count);
           // Reached only for an all-integral column (guarded above), so the long accumulator IS
           // the exact sum and its integer type is the right one.
-          case "sum"   -> new Int64(sum);
+          case "sum" -> new Int64(sum);
           // min/max over ZERO values are the EMPTY sequence, not 0.
-          case "min"   -> count == 0 ? new ItemSequence() : new Int64(pMin);
-          case "max"   -> count == 0 ? new ItemSequence() : new Int64(pMax);
-          default      -> null;
+          case "min" -> count == 0
+              ? new ItemSequence()
+              : new Int64(pMin);
+          case "max" -> count == 0
+              ? new ItemSequence()
+              : new Int64(pMax);
+          default -> null;
         };
       } finally {
         summary.close();
@@ -10153,19 +10502,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ==================== Implementation ====================
 
   /**
-   * Resolve the int nameKey for {@code field} once. We walk the file looking
-   * for the first OBJECT_KEY whose local name equals {@code field}, then
-   * cache the resulting int key. Subsequent inner-loop comparisons are pure
-   * int compares — orders of magnitude faster than {@code String.equals}.
+   * Resolve the int nameKey for {@code field} once. We walk the file looking for the first OBJECT_KEY
+   * whose local name equals {@code field}, then cache the resulting int key. Subsequent inner-loop
+   * comparisons are pure int compares — orders of magnitude faster than {@code String.equals}.
    *
    * @return the nameKey, or {@code -1} if no such field exists in the data
    */
   private int resolveFieldKey(String field) {
     Integer cached = fieldKeyCache.get(field);
-    if (cached != null) return cached;
+    if (cached != null)
+      return cached;
     synchronized (fieldKeyCache) {
       cached = fieldKeyCache.get(field);
-      if (cached != null) return cached;
+      if (cached != null)
+        return cached;
 
       // Fast path: the nameKey is {@code name.hashCode()} — a pure
       // deterministic function of the field string (see
@@ -10174,12 +10524,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // to discover its key.
       //
       // When to trust the fast path:
-      //   - If a projection index is registered for this executor and the
-      //     field is a column of that index, the field definitionally
-      //     exists in the document.
-      //   - If a PathSummary is available (standard configuration), probe
-      //     it via {@code findPathsByLocalName}; a match means the field
-      //     exists with a node bearing its hash as nameKey.
+      // - If a projection index is registered for this executor and the
+      // field is a column of that index, the field definitionally
+      // exists in the document.
+      // - If a PathSummary is available (standard configuration), probe
+      // it via {@code findPathsByLocalName}; a match means the field
+      // exists with a node bearing its hash as nameKey.
       //
       // Otherwise we fall back to the legacy page-walk, which correctly
       // returns -1 for missing fields. At cold 100 M the projection/path-
@@ -10195,9 +10545,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Fast path for {@link #resolveFieldKey}: returns {@code rtx.keyForName(field)}
-   * when we have proof the field exists in the document (without a scan), or
-   * {@link Integer#MIN_VALUE} to signal "couldn't prove — use the walk".
+   * Fast path for {@link #resolveFieldKey}: returns {@code rtx.keyForName(field)} when we have proof
+   * the field exists in the document (without a scan), or {@link Integer#MIN_VALUE} to signal
+   * "couldn't prove — use the walk".
    */
   private int resolveFieldKeyFast(final String field) {
     // Projection-registry probe: if a projection covers this field, it
@@ -10218,7 +10568,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // enumerates every path. If the field appears there, it exists.
     if (session.getResourceConfig().withPathSummary) {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
-           var summary = rtx.getResourceSession().openPathSummary(revision)) {
+          var summary = rtx.getResourceSession().openPathSummary(revision)) {
         if (summary != null && summary.containsLocalName(field)) {
           return rtx.keyForName(field);
         }
@@ -10231,22 +10581,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Legacy full-document walk used when the fast path can't prove existence. */
   private int resolveFieldKeyByWalk(final String field) {
-    int[] found = { -1 };
+    int[] found = {-1};
     try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       var reader = rtx.getStorageEngineReader();
       long totalPages = (getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
       for (long pk = 0; pk < totalPages && found[0] < 0; pk++) {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         kv.forEachPopulatedSlot(slot -> {
           // Both legacy OBJECT_KEY and fused OBJECT_NAMED_* carry a field name — scan both.
-          if (!playsObjectKeyRole(kv.getSlotNodeKindId(slot))) return true;
-          if (!rtx.moveTo(base + slot)) return true;
+          if (!playsObjectKeyRole(kv.getSlotNodeKindId(slot)))
+            return true;
+          if (!rtx.moveTo(base + slot))
+            return true;
           var name = rtx.getName();
           if (name != null && field.equals(name.getLocalName())) {
             found[0] = rtx.getNameKey();
-            return false;  // stop iterating
+            return false; // stop iterating
           }
           return true;
         });
@@ -10256,10 +10609,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Walk all leaf pages in parallel, find every OBJECT_KEY slot whose nameKey
-   * matches the pre-resolved key for {@code field}, descend to its numeric
-   * value via the page's slot relationships (skipping {@code moveTo} +
-   * {@code Number} boxing), and accumulate.
+   * Walk all leaf pages in parallel, find every OBJECT_KEY slot whose nameKey matches the
+   * pre-resolved key for {@code field}, descend to its numeric value via the page's slot
+   * relationships (skipping {@code moveTo} + {@code Number} boxing), and accumulate.
    *
    * @return {@code [count, sum, min, max]}
    */
@@ -10276,20 +10628,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Typed accumulator for non-integral columns (the {@link #parallelAggregate}
-   * redo path) and its result mapping. Per-kind accumulation mirrors the
-   * interpreter's numeric promotion:
+   * Typed accumulator for non-integral columns (the {@link #parallelAggregate} redo path) and its
+   * result mapping. Per-kind accumulation mirrors the interpreter's numeric promotion:
    * <ul>
-   * <li>NO double rows (longs + decimals only): the interpreter folds
-   * {@code Int + Dec} EXACTLY in decimal space and divides via
-   * {@code Dec#div} — accumulate {@link BigDecimal} exactly and
-   * delegate the avg division to brackit for digit-for-digit parity.
-   * Exact accumulation is also ORDER-FREE, so the parallel fold cannot
-   * drift from the interpreter's sequential fold.</li>
-   * <li>any double row: the interpreter's running sum becomes xs:double and
-   * stays there — fold everything in double space (the parallel
-   * re-association can differ from the sequential fold in the last ulp
-   * for adversarial values; exact for binary-fraction data — documented
+   * <li>NO double rows (longs + decimals only): the interpreter folds {@code Int + Dec} EXACTLY in
+   * decimal space and divides via {@code Dec#div} — accumulate {@link BigDecimal} exactly and
+   * delegate the avg division to brackit for digit-for-digit parity. Exact accumulation is also
+   * ORDER-FREE, so the parallel fold cannot drift from the interpreter's sequential fold.</li>
+   * <li>any double row: the interpreter's running sum becomes xs:double and stays there — fold
+   * everything in double space (the parallel re-association can differ from the sequential fold in
+   * the last ulp for adversarial values; exact for binary-fraction data — documented
    * limitation).</li>
    * </ul>
    */
@@ -10310,38 +10658,51 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     void addLong(final long v) {
       longCount++;
       longSum += v;
-      if (v < longMin) longMin = v;
-      if (v > longMax) longMax = v;
+      if (v < longMin)
+        longMin = v;
+      if (v > longMax)
+        longMax = v;
     }
 
     void addDecimal(final BigDecimal v) {
       decCount++;
       decSum = decSum.add(v);
-      if (decMin == null || v.compareTo(decMin) < 0) decMin = v;
-      if (decMax == null || v.compareTo(decMax) > 0) decMax = v;
+      if (decMin == null || v.compareTo(decMin) < 0)
+        decMin = v;
+      if (decMax == null || v.compareTo(decMax) > 0)
+        decMax = v;
     }
 
     void addDouble(final double v) {
       dblCount++;
       dblSum += v;
-      if (v < dblMin) dblMin = v;
-      if (v > dblMax) dblMax = v;
+      if (v < dblMin)
+        dblMin = v;
+      if (v > dblMax)
+        dblMax = v;
     }
 
     void merge(final MixedAgg o) {
-      if (o == null) return;
+      if (o == null)
+        return;
       longCount += o.longCount;
       longSum += o.longSum;
-      if (o.longMin < longMin) longMin = o.longMin;
-      if (o.longMax > longMax) longMax = o.longMax;
+      if (o.longMin < longMin)
+        longMin = o.longMin;
+      if (o.longMax > longMax)
+        longMax = o.longMax;
       decCount += o.decCount;
       decSum = decSum.add(o.decSum);
-      if (o.decMin != null && (decMin == null || o.decMin.compareTo(decMin) < 0)) decMin = o.decMin;
-      if (o.decMax != null && (decMax == null || o.decMax.compareTo(decMax) > 0)) decMax = o.decMax;
+      if (o.decMin != null && (decMin == null || o.decMin.compareTo(decMin) < 0))
+        decMin = o.decMin;
+      if (o.decMax != null && (decMax == null || o.decMax.compareTo(decMax) > 0))
+        decMax = o.decMax;
       dblCount += o.dblCount;
       dblSum += o.dblSum;
-      if (o.dblMin < dblMin) dblMin = o.dblMin;
-      if (o.dblMax > dblMax) dblMax = o.dblMax;
+      if (o.dblMin < dblMin)
+        dblMin = o.dblMin;
+      if (o.dblMax > dblMax)
+        dblMax = o.dblMax;
     }
 
     Sequence result(final String func) {
@@ -10351,14 +10712,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (count == 0) {
         // sum(()) = 0; avg/min/max(()) = the empty sequence.
-        return "sum".equals(func) ? new Int64(0L) : new ItemSequence();
+        return "sum".equals(func)
+            ? new Int64(0L)
+            : new ItemSequence();
       }
       if (dblCount == 0) {
         // Decimal-exact path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
         final BigDecimal sum = decSum.add(BigDecimal.valueOf(longSum));
-        final BigDecimal min = minBd(decMin, longCount > 0 ? BigDecimal.valueOf(longMin) : null);
-        final BigDecimal max = maxBd(decMax, longCount > 0 ? BigDecimal.valueOf(longMax) : null);
+        final BigDecimal min = minBd(decMin, longCount > 0
+            ? BigDecimal.valueOf(longMin)
+            : null);
+        final BigDecimal max = maxBd(decMax, longCount > 0
+            ? BigDecimal.valueOf(longMax)
+            : null);
         return switch (func) {
           case "sum" -> new Dec(sum);
           case "avg" -> new Dec(sum).div(new Int64(count));
@@ -10390,26 +10757,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     private static BigDecimal minBd(final BigDecimal a, final BigDecimal b) {
-      if (a == null) return b;
-      if (b == null) return a;
-      return a.compareTo(b) <= 0 ? a : b;
+      if (a == null)
+        return b;
+      if (b == null)
+        return a;
+      return a.compareTo(b) <= 0
+          ? a
+          : b;
     }
 
     private static BigDecimal maxBd(final BigDecimal a, final BigDecimal b) {
-      if (a == null) return b;
-      if (b == null) return a;
-      return a.compareTo(b) >= 0 ? a : b;
+      if (a == null)
+        return b;
+      if (b == null)
+        return a;
+      return a.compareTo(b) >= 0
+          ? a
+          : b;
     }
   }
 
   /**
-   * Typed-accumulating aggregate walk — the redo path when
-   * {@link #parallelAggregate} flags non-integral values. Pure slot walk
-   * (regions only carry longs, so they cannot serve this column completely).
+   * Typed-accumulating aggregate walk — the redo path when {@link #parallelAggregate} flags
+   * non-integral values. Pure slot walk (regions only carry longs, so they cannot serve this column
+   * completely).
    */
   private MixedAgg parallelAggregateMixed(final String field, final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(field);
-    if (fieldKey == -1) return new MixedAgg();
+    if (fieldKey == -1)
+      return new MixedAgg();
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
@@ -10424,7 +10800,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final MixedAgg acc = new MixedAgg();
       for (long pk = s; pk < e; pk++) {
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
@@ -10433,7 +10810,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
-          if (!rtx.moveTo(objectKeyNodeKey)) continue;
+          if (!rtx.moveTo(objectKeyNodeKey))
+            continue;
           final NodeKind kind = rtx.getKind();
           final Number n;
           if (kind == NodeKind.OBJECT_NAMED_NUMBER) {
@@ -10443,7 +10821,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           } else {
             continue;
           }
-          if (n == null) continue;
+          if (n == null)
+            continue;
           if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
             acc.addLong(n.longValue());
           } else if (n instanceof BigDecimal bd) {
@@ -10464,11 +10843,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return merged;
   }
 
-  private long[] parallelAggregate(final String field, final long targetPathNodeKey,
-      final boolean[] nonIntegralOut) throws Exception {
+  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] nonIntegralOut)
+      throws Exception {
     final int fieldKey = resolveFieldKey(field);
     // -1 = MISSING sentinel only — negative hashes are legitimate nameKeys.
-    if (fieldKey == -1) return new long[] { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE, 0 };
+    if (fieldKey == -1)
+      return new long[] {0, 0, Long.MAX_VALUE, Long.MIN_VALUE, 0};
 
     final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -10500,7 +10880,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       var reader = rtx.getStorageEngineReader();
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
         // PAX fast path: jump straight to the target field's value range via
@@ -10508,20 +10889,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // vector pass — single memory sweep, hardware-pipelined reductions.
         //
         // Two dispatches:
-        //   * No path-scope (targetPathNodeKey == -1)  — lookup by nameKey.
-        //   * Path-scope + region is pathNodeKey-tagged — lookup by pathNodeKey
-        //     (correctness-safe: a tag hit implies every value in range belongs
-        //     to the requested pathNodeKey, so the SIMD kernel cannot over-count).
-        //   * Path-scope + region is nameKey-tagged — skip the SIMD path, fall
-        //     through to the slot-walk which filters per-slot by pathNodeKey.
+        // * No path-scope (targetPathNodeKey == -1) — lookup by nameKey.
+        // * Path-scope + region is pathNodeKey-tagged — lookup by pathNodeKey
+        // (correctness-safe: a tag hit implies every value in range belongs
+        // to the requested pathNodeKey, so the SIMD kernel cannot over-count).
+        // * Path-scope + region is nameKey-tagged — skip the SIMD path, fall
+        // through to the slot-walk which filters per-slot by pathNodeKey.
         if (PAX_FAST_PATH_ENABLED) {
           final NumberRegion.Header hdr = kv.getNumberRegionHeader();
           if (hdr != null) {
             final int simdLookupTag;
             if (targetPathNodeKey == -1L) {
               simdLookupTag = fieldKey;
-            } else if (hdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE
-                && targetPathNodeKey > 0L
+            } else if (hdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE && targetPathNodeKey > 0L
                 && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
               simdLookupTag = (int) targetPathNodeKey;
             } else {
@@ -10543,8 +10923,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (NumberRegionSimd.aggregateRange(payloadBytes, hdr, start, end, simdAggOut)) {
                 acc[0] += tagN;
                 acc[1] += simdAggOut[0];
-                if (simdAggOut[1] < acc[2]) acc[2] = simdAggOut[1];
-                if (simdAggOut[2] > acc[3]) acc[3] = simdAggOut[2];
+                if (simdAggOut[1] < acc[2])
+                  acc[2] = simdAggOut[1];
+                if (simdAggOut[2] > acc[3])
+                  acc[3] = simdAggOut[2];
                 acc[4] += tagN;
                 continue;
               }
@@ -10558,8 +10940,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     : NumberRegion.decodeValueAt(payload, hdr, idx);
                 acc[0]++;
                 acc[1] += v;
-                if (v < acc[2]) acc[2] = v;
-                if (v > acc[3]) acc[3] = v;
+                if (v < acc[2])
+                  acc[2] = v;
+                if (v > acc[3])
+                  acc[3] = v;
               }
               acc[4] += tagN;
               continue;
@@ -10588,10 +10972,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             v = kv.getFusedObjectNamedNumberValueLongFromSlot(slot);
             if (v == Long.MIN_VALUE) {
               // Payload is float/double/BigDecimal — fall back to full path.
-              if (!rtx.moveTo(objectKeyNodeKey)) continue;
+              if (!rtx.moveTo(objectKeyNodeKey))
+                continue;
               final Number n = rtx.getNumberValue();
-              if (n == null) continue;
-              if (isNonIntegralNumber(n)) nonIntegralOut[0] = true;
+              if (n == null)
+                continue;
+              if (isNonIntegralNumber(n))
+                nonIntegralOut[0] = true;
               v = n.longValue();
             }
           } else {
@@ -10600,17 +10987,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             // would only contain numbers via descent through the rtx, but with fusion
             // mandatory the only descent that yields a primitive is via the fused path.
             // Defer to rtx for safety.
-            if (!rtx.moveTo(objectKeyNodeKey)) continue;
-            if (!rtx.moveToFirstChild()) continue;
+            if (!rtx.moveTo(objectKeyNodeKey))
+              continue;
+            if (!rtx.moveToFirstChild())
+              continue;
             final Number n = rtx.getNumberValue();
-            if (n == null) continue;
-            if (isNonIntegralNumber(n)) nonIntegralOut[0] = true;
+            if (n == null)
+              continue;
+            if (isNonIntegralNumber(n))
+              nonIntegralOut[0] = true;
             v = n.longValue();
           }
           acc[0]++;
           acc[1] += v;
-          if (v < acc[2]) acc[2] = v;
-          if (v > acc[3]) acc[3] = v;
+          if (v < acc[2])
+            acc[2] = v;
+          if (v > acc[3])
+            acc[3] = v;
         }
       }
     });
@@ -10621,11 +11014,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       sum += a[1];
       visited += a[4];
       if (a[0] > 0) {
-        if (a[2] < min) min = a[2];
-        if (a[3] > max) max = a[3];
+        if (a[2] < min)
+          min = a[2];
+        if (a[3] > max)
+          max = a[3];
       }
     }
-    return new long[] { count, sum, min, max, visited };
+    return new long[] {count, sum, min, max, visited};
   }
 
   private static boolean scalarEval(final long v, final int op, final long t) {
@@ -10640,11 +11035,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Double-space comparison via {@link Double#compare} — NOT raw operators:
-   * the interpreter's {@code Dbl#cmp}/{@code Int64#cmp} use
-   * {@code Double.compare}, whose total order distinguishes {@code -0.0 < 0.0}
-   * (raw {@code <}/{@code >} treat them equal). Document doubles come from
-   * JSON and are never NaN; literals are detection-gated finite.
+   * Double-space comparison via {@link Double#compare} — NOT raw operators: the interpreter's
+   * {@code Dbl#cmp}/{@code Int64#cmp} use {@code Double.compare}, whose total order distinguishes
+   * {@code -0.0 < 0.0} (raw {@code <}/{@code >} treat them equal). Document doubles come from JSON
+   * and are never NaN; literals are detection-gated finite.
    */
   private static boolean scalarEvalDbl(final double v, final int op, final double t) {
     return scalarEvalCmp(Double.compare(v, t), op);
@@ -10663,20 +11057,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Parallel group-by-count: walks all leaf pages, finds OBJECT_KEY slots whose
-   * nameKey matches the pre-resolved key, descends to value, accumulates counts
-   * per unique value into a 1BRC-style open-addressing byte-key hash map
-   * (per-thread, then merged). Returns a flat Sequence of
-   * {@code {"groupField": value, "count": N}} record objects (the FLWOR's
-   * envelope — see the VectorizedExecutor RESULT ENVELOPE CONTRACT).
+   * Parallel group-by-count: walks all leaf pages, finds OBJECT_KEY slots whose nameKey matches the
+   * pre-resolved key, descends to value, accumulates counts per unique value into a 1BRC-style
+   * open-addressing byte-key hash map (per-thread, then merged). Returns a flat Sequence of
+   * {@code {"groupField": value, "count": N}} record objects (the FLWOR's envelope — see the
+   * VectorizedExecutor RESULT ENVELOPE CONTRACT).
    */
-  private Sequence parallelGroupByCount(final String groupField, final long targetPathNodeKey,
-      final long[] statsOut) throws Exception {
+  private Sequence parallelGroupByCount(final String groupField, final long targetPathNodeKey, final long[] statsOut)
+      throws Exception {
     final int fieldKey = resolveFieldKey(groupField);
     // -1 is the MISSING sentinel; nameKeys are String hashes and may legitimately
     // be negative ('active'.hashCode() < 0) — `< 0` here silently emptied every
     // group-by over a negative-hash field.
-    if (fieldKey == -1) return new ItemSequence();
+    if (fieldKey == -1)
+      return new ItemSequence();
 
     final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -10694,8 +11088,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long ppt = (totalPages + eff - 1) / eff;
 
     final ScanResult.GroupByResult[] perThread = new ScanResult.GroupByResult[eff];
-    for (int i = 0; i < eff; i++) perThread[i] = new ScanResult.GroupByResult();
-    final ScanDiagnostics[] perThreadDiag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics[eff] : null;
+    for (int i = 0; i < eff; i++)
+      perThread[i] = new ScanResult.GroupByResult();
+    final ScanDiagnostics[] perThreadDiag = DIAGNOSTICS_ENABLED
+        ? new ScanDiagnostics[eff]
+        : null;
     // Records this scan was RESPONSIBLE for (path-filtered anchor slots). The caller
     // compares against the grouped total — a visited record that contributed nothing
     // (non-string / null / complex value) means this string kernel must be redone by
@@ -10711,8 +11108,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
-      final ScanDiagnostics diag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics() : null;
-      if (DIAGNOSTICS_ENABLED) perThreadDiag[i] = diag;
+      final ScanDiagnostics diag = DIAGNOSTICS_ENABLED
+          ? new ScanDiagnostics()
+          : null;
+      if (DIAGNOSTICS_ENABLED)
+        perThreadDiag[i] = diag;
       // Per-thread scratch for direct-slot value reads. Handles FSST-compressed
       // values inline; cross-page children / oversized values fall back to rtx.
       final byte[] scratch = new byte[256];
@@ -10722,7 +11122,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[] localDictCounts = new long[256];
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv))
+          continue;
         if (DIAGNOSTICS_ENABLED) {
           diag.pagesVisited++;
           diag.pagesSlowPath++;
@@ -10742,38 +11143,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // record byte-hash + insert that the slot-walk path pays.
         //
         // Two dispatches:
-        //   * No path-scope (targetPathNodeKey == -1): lookup by nameKey. Safe
-        //     only when the document has no nested same-name fields — callers
-        //     that don't need path scoping accept this.
-        //   * Path-scope AND region is path-tagged: lookup by (int)pathNodeKey.
-        //     Correctness-safe because the region's tag now encodes the full
-        //     tree path, not just the local name.
-        //   * Path-scope AND region is name-tagged: skip the SIMD path and fall
-        //     through to the slot-walk, which filters per-slot by pathNodeKey.
-        final StringRegion.Header sh = stringRegionFastOff ? null : kv.getStringRegionHeader();
+        // * No path-scope (targetPathNodeKey == -1): lookup by nameKey. Safe
+        // only when the document has no nested same-name fields — callers
+        // that don't need path scoping accept this.
+        // * Path-scope AND region is path-tagged: lookup by (int)pathNodeKey.
+        // Correctness-safe because the region's tag now encodes the full
+        // tree path, not just the local name.
+        // * Path-scope AND region is name-tagged: skip the SIMD path and fall
+        // through to the slot-walk, which filters per-slot by pathNodeKey.
+        final StringRegion.Header sh = stringRegionFastOff
+            ? null
+            : kv.getStringRegionHeader();
         final int fastLookupTag;
         if (sh == null) {
           fastLookupTag = Integer.MIN_VALUE;
         } else if (targetPathNodeKey == -1L) {
           fastLookupTag = fieldKey;
-        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE
-            && targetPathNodeKey > 0L
+        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE && targetPathNodeKey > 0L
             && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
           fastLookupTag = (int) targetPathNodeKey;
         } else {
-          fastLookupTag = Integer.MIN_VALUE;  // region name-tagged + path-scoped → fall through
+          fastLookupTag = Integer.MIN_VALUE; // region name-tagged + path-scoped → fall through
         }
         if (sh == null || fastLookupTag == Integer.MIN_VALUE) {
-          if (sh == null && DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoHeader++;
+          if (sh == null && DIAGNOSTICS_ENABLED)
+            diag.stringRegionMissesNoHeader++;
         } else {
           final int tag = StringRegion.lookupTag(sh, fastLookupTag);
           if (tag < 0) {
-            if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoTag++;
+            if (DIAGNOSTICS_ENABLED)
+              diag.stringRegionMissesNoTag++;
           } else {
             final MemorySegment payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
             if (dictSize > localDictCounts.length) {
-              if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
+              if (DIAGNOSTICS_ENABLED)
+                diag.stringRegionMissesDictBig++;
             } else {
               // Correctness guard: the StringRegion fast path groups VALUES
               // by their parent OBJECT_KEY's nameKey. When a record spans a
@@ -10798,7 +11203,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               // the same int[] — no second SIMD scan, no re-allocation.
               final int[] anchorSlots = kv.getObjectKeySlotsForNameKey(fieldKey);
               // Reset only what we'll touch.
-              for (int d = 0; d < dictSize; d++) localDictCounts[d] = 0;
+              for (int d = 0; d < dictSize; d++)
+                localDictCounts[d] = 0;
               final int start = sh.tagStart[tag];
               final int n = sh.tagCount[tag];
               // Bulk-count with one-entry word cache inside StringRegion —
@@ -10807,22 +11213,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               // each word covers ~21 dict-ids, so one read serves 21 counts).
               StringRegion.countDictIds(payload, sh, start, n, localDictCounts);
               long fastPathTotal = 0L;
-              for (int d = 0; d < dictSize; d++) fastPathTotal += localDictCounts[d];
+              for (int d = 0; d < dictSize; d++)
+                fastPathTotal += localDictCounts[d];
               if (fastPathTotal != (long) anchorSlots.length) {
                 // Mismatch → fast path is incomplete for this page (likely
                 // a page-boundary record). Fall through to slow path, which
                 // walks OBJECT_KEY slots and handles cross-page children.
-                if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
+                if (DIAGNOSTICS_ENABLED)
+                  diag.stringRegionMissesDictBig++;
               } else {
-                if (DIAGNOSTICS_ENABLED) diag.stringRegionHits++;
+                if (DIAGNOSTICS_ENABLED)
+                  diag.stringRegionHits++;
                 visited += fastPathTotal;
                 for (int d = 0; d < dictSize; d++) {
                   final long c = localDictCounts[d];
-                  if (c == 0) continue;
+                  if (c == 0)
+                    continue;
                   final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
                   final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
                   acc.addN(stageDictEntry(payload, off, len), 0, len, c);
-                  if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
+                  if (DIAGNOSTICS_ENABLED)
+                    diag.recordsMatched += c;
                 }
                 continue;
               }
@@ -10836,7 +11247,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // limited to fused records and OBJECT_KEY slots route through rtx.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
-          if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
+          if (DIAGNOSTICS_ENABLED)
+            diag.recordsSlowPath++;
 
           final long objectKeyNodeKey = base + slot;
           // Path-scope filter: reject same-name slots at a different tree
@@ -10860,16 +11272,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               }
               continue;
             }
-            if (DIAGNOSTICS_ENABLED) diag.groupByDirectNeg++;
+            if (DIAGNOSTICS_ENABLED)
+              diag.groupByDirectNeg++;
           }
 
-          if (DIAGNOSTICS_ENABLED) diag.groupByRtxFallback++;
-          if (!rtx.moveTo(base + slot)) continue;
-          if (!rtx.moveToFirstChild()) continue;
+          if (DIAGNOSTICS_ENABLED)
+            diag.groupByRtxFallback++;
+          if (!rtx.moveTo(base + slot))
+            continue;
+          if (!rtx.moveToFirstChild())
+            continue;
           byte[] valueBytes = rtx.getValueBytes();
           if (valueBytes != null && valueBytes.length > 0) {
             acc.add(valueBytes, 0, valueBytes.length);
-            if (DIAGNOSTICS_ENABLED) diag.recordsMatched++;
+            if (DIAGNOSTICS_ENABLED)
+              diag.recordsMatched++;
           }
         }
       }
@@ -10878,11 +11295,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     // Merge per-thread maps into one
     ScanResult.GroupByResult merged = perThread[0];
-    for (int i = 1; i < eff; i++) merged.merge(perThread[i]);
+    for (int i = 1; i < eff; i++)
+      merged.merge(perThread[i]);
 
     if (DIAGNOSTICS_ENABLED && perThreadDiag != null) {
       final ScanDiagnostics mergedDiag = new ScanDiagnostics();
-      for (final ScanDiagnostics d : perThreadDiag) if (d != null) mergedDiag.mergeFrom(d);
+      for (final ScanDiagnostics d : perThreadDiag)
+        if (d != null)
+          mergedDiag.mergeFrom(d);
       mergedDiag.print("groupByCount(" + groupField + ")");
     }
 
@@ -10893,13 +11313,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] countedHolder = new long[1];
     merged.forEach((key, count) -> {
       countedHolder[0] += count;
-      QNm[] fields = { groupFieldQNm, countQNm };
-      Sequence[] values = { new Str(new String(key, StandardCharsets.UTF_8)), new Int64(count) };
+      QNm[] fields = {groupFieldQNm, countQNm};
+      Sequence[] values = {new Str(new String(key, StandardCharsets.UTF_8)), new Int64(count)};
       items.add(new ArrayObject(fields, values));
     });
     if (statsOut != null && statsOut.length >= 2) {
       long totalVisited = 0L;
-      for (final long v : visitedPerThread) totalVisited += v;
+      for (final long v : visitedPerThread)
+        totalVisited += v;
       statsOut[0] = totalVisited;
       statsOut[1] = countedHolder[0];
     }
@@ -10915,19 +11336,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   // Zone-map pre-check outcomes — lets the scan skip a tag range or shortcut
   // the count without iterating values.
-  private static final int ZONE_NONE    = 0; // predicate can never match any value in [min,max]
-  private static final int ZONE_SOME    = 1; // predicate might match; need to iterate
-  private static final int ZONE_ALL     = 2; // predicate matches every value in [min,max]
+  private static final int ZONE_NONE = 0; // predicate can never match any value in [min,max]
+  private static final int ZONE_SOME = 1; // predicate might match; need to iterate
+  private static final int ZONE_ALL = 2; // predicate matches every value in [min,max]
 
   /**
-   * Anchor-field zone-map probe extracted once per query. Lists the
-   * {@code fieldIdx == 0} OP_NUM_CMP leaves of a purely conjunctive
-   * (AND-only) predicate tree. On each page's pass we probe the anchor
-   * nameKey's per-tag zone map against these constraints; if ANY
-   * constraint returns {@link #ZONE_NONE}, the whole page can be
-   * skipped without touching a single record. Built lazily; returns
-   * {@code null} for predicate shapes we don't handle (OR/NOT, no
-   * anchor-field NumCmp constraint, single field-idx that's not 0).
+   * Anchor-field zone-map probe extracted once per query. Lists the {@code fieldIdx == 0} OP_NUM_CMP
+   * leaves of a purely conjunctive (AND-only) predicate tree. On each page's pass we probe the anchor
+   * nameKey's per-tag zone map against these constraints; if ANY constraint returns
+   * {@link #ZONE_NONE}, the whole page can be skipped without touching a single record. Built lazily;
+   * returns {@code null} for predicate shapes we don't handle (OR/NOT, no anchor-field NumCmp
+   * constraint, single field-idx that's not 0).
    */
   private static final class AnchorZoneProbe {
     final int n;
@@ -10942,18 +11361,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Extract conjunctive OP_NUM_CMP constraints on the anchor field
-   * (fieldIdx 0) from {@code cp}, or {@code null} if the tree contains
-   * OR/NOT (which would need per-branch zone probing) or has no anchor
-   * NumCmp at all.
+   * Extract conjunctive OP_NUM_CMP constraints on the anchor field (fieldIdx 0) from {@code cp}, or
+   * {@code null} if the tree contains OR/NOT (which would need per-branch zone probing) or has no
+   * anchor NumCmp at all.
    */
   private static AnchorZoneProbe extractAnchorZoneProbe(final CompiledPredicate cp) {
     final int n = cp.ops.length;
-    if (n == 0) return null;
+    if (n == 0)
+      return null;
     // Purely conjunctive: no OR or NOT anywhere in the tree.
     for (int i = 0; i < n; i++) {
       final byte op = cp.ops[i];
-      if (op == CompiledPredicate.OP_OR || op == CompiledPredicate.OP_NOT) return null;
+      if (op == CompiledPredicate.OP_OR || op == CompiledPredicate.OP_NOT)
+        return null;
     }
     int[] ops = new int[4];
     long[] ts = new long[4];
@@ -10969,7 +11389,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         cnt++;
       }
     }
-    if (cnt == 0) return null;
+    if (cnt == 0)
+      return null;
     return new AnchorZoneProbe(cnt, ops, ts);
   }
 
@@ -10978,10 +11399,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ============================================================
 
   /**
-   * Process-wide default for the column-only count path, from
-   * {@code -Dsirix.scan.regionsOnly}. On by default: every page the path serves is guarded by a
-   * completeness check and falls back to the records on any doubt, so the only reason to turn it
-   * off is A/B measurement.
+   * Process-wide default for the column-only count path, from {@code -Dsirix.scan.regionsOnly}. On by
+   * default: every page the path serves is guarded by a completeness check and falls back to the
+   * records on any doubt, so the only reason to turn it off is A/B measurement.
    */
   private static final boolean REGION_ONLY_COUNT_DEFAULT =
       !"false".equalsIgnoreCase(System.getProperty("sirix.scan.regionsOnly", "true"));
@@ -10989,12 +11409,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Kill switch for THIS executor, seeded from {@link #REGION_ONLY_COUNT_DEFAULT}.
    *
-   * <p>Per instance rather than per JVM. As a static it was a process-global that the differential
-   * tests flipped at runtime — so any other executor alive in the same JVM (JUnit parallel
-   * execution, or simply a shared Gradle worker) silently took whichever path the other test had
-   * just selected, and produced a count nobody could reproduce. An executor is constructed per
-   * query by every caller, which is exactly the scope this knob wants: the A/B the tests perform
-   * is between two queries, not between two moments in time.
+   * <p>
+   * Per instance rather than per JVM. As a static it was a process-global that the differential tests
+   * flipped at runtime — so any other executor alive in the same JVM (JUnit parallel execution, or
+   * simply a shared Gradle worker) silently took whichever path the other test had just selected, and
+   * produced a count nobody could reproduce. An executor is constructed per query by every caller,
+   * which is exactly the scope this knob wants: the A/B the tests perform is between two queries, not
+   * between two moments in time.
    */
   private volatile boolean regionOnlyCountEnabled = REGION_ONLY_COUNT_DEFAULT;
 
@@ -11008,53 +11429,52 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Region kinds the column-only count path needs: the values, the field-name column, and the
-   * bounds that often make reading the values unnecessary.
+   * Region kinds the column-only count path needs: the values, the field-name column, and the bounds
+   * that often make reading the values unnecessary.
    */
   private static final int REGION_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_NUMBER)
-          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
-          | RegionTable.maskOf(RegionTable.KIND_DOUBLE)
-          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      RegionTable.maskOf(RegionTable.KIND_NUMBER) | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
+          | RegionTable.maskOf(RegionTable.KIND_DOUBLE) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
    * Region kinds a boolean predicate needs: the bit column and the field-name column.
    *
-   * <p>Its own mask rather than a widening of the numeric one. A resident table is reused only when
-   * it holds every kind the caller named, so folding KIND_BOOLEAN into the numeric mask would make
-   * every numeric query demand a boolean column that most pages do not have — and send them all
-   * back to a full page read.
+   * <p>
+   * Its own mask rather than a widening of the numeric one. A resident table is reused only when it
+   * holds every kind the caller named, so folding KIND_BOOLEAN into the numeric mask would make every
+   * numeric query demand a boolean column that most pages do not have — and send them all back to a
+   * full page read.
    */
   private static final int REGION_BOOL_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_BOOLEAN)
-          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      RegionTable.maskOf(RegionTable.KIND_BOOLEAN) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
-   * Region kinds EVERY fused predicate needs: the field-name column that locates each field's
-   * slots, and the record linkage that proves the value columns enumerate the same records in the
-   * same order. The value columns themselves are OR-ed in per plan, one per leaf kind actually
-   * present — a resident table is served only when it holds every requested kind, so demanding a
-   * column no leaf reads would turn pages away for lacking it.
+   * Region kinds EVERY fused predicate needs: the field-name column that locates each field's slots,
+   * and the record linkage that proves the value columns enumerate the same records in the same
+   * order. The value columns themselves are OR-ed in per plan, one per leaf kind actually present — a
+   * resident table is served only when it holds every requested kind, so demanding a column no leaf
+   * reads would turn pages away for lacking it.
    *
-   * <p>The linkage is what makes the rest usable. Without {@link RegionTable#KIND_RECORD_ORDINAL}
-   * the value columns can each be counted and never intersected — see
-   * {@link #countPageFromFusedRegions}.
+   * <p>
+   * The linkage is what makes the rest usable. Without {@link RegionTable#KIND_RECORD_ORDINAL} the
+   * value columns can each be counted and never intersected — see {@link #countPageFromFusedRegions}.
    */
   private static final int REGION_FUSED_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL)
-          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
    * Whether the number column is left compressed until the zone map fails to settle the page.
    *
-   * <p>On by default, and the reason the zone-map region is worth writing at all: read eagerly, the
+   * <p>
+   * On by default, and the reason the zone-map region is worth writing at all: read eagerly, the
    * column is decompressed on every page whether or not the bounds could have answered it, and the
    * prune saves only the scan — the cheap part. Deferred, a page the bounds settle costs its
    * compressed bytes being copied and nothing else.
    *
-   * <p>The trade against eager reading is one copy of a few KB per page on the pages that do need
-   * the column, which is the same bargain {@link #STRING_DICT_DEFER} strikes for the dictionary.
-   * Disable with {@code -Dsirix.scan.numberDefer=false} to measure against it.
+   * <p>
+   * The trade against eager reading is one copy of a few KB per page on the pages that do need the
+   * column, which is the same bargain {@link #STRING_DICT_DEFER} strikes for the dictionary. Disable
+   * with {@code -Dsirix.scan.numberDefer=false} to measure against it.
    */
   private static final boolean NUMBER_COLUMN_DEFER =
       !"false".equalsIgnoreCase(System.getProperty("sirix.scan.numberDefer"));
@@ -11064,39 +11484,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * dictionary sketch that usually makes reading the dictionary unnecessary.
    */
   private static final int REGION_STRING_COUNT_MASK =
-      RegionTable.maskOf(RegionTable.KIND_STRING)
-          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
+      RegionTable.maskOf(RegionTable.KIND_STRING) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
           | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH);
 
   /**
    * First pass of a string equality: the sketch and the field-name column, with the dictionary
-   * <em>skipped on the wire</em> — not read, not copied, not decompressed. On a selective literal
-   * the sketch settles ~98 % of pages here and the dictionary is never touched.
+   * <em>skipped on the wire</em> — not read, not copied, not decompressed. On a selective literal the
+   * sketch settles ~98 % of pages here and the dictionary is never touched.
    */
   private static final int REGION_STRING_SKETCH_MASK =
-      RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH)
-          | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+      RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH) | RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
 
   /**
    * How a string equality gets the dictionary on the rare page the sketch cannot rule out.
    *
-   * <p>{@code skip} (default) leaves the dictionary on the wire and re-reads the page when it is
+   * <p>
+   * {@code skip} (default) leaves the dictionary on the wire and re-reads the page when it is
    * actually needed — one extra page read on ~1 % of pages, and nothing copied on the other 99 %.
    * That is the right trade on local storage, where a page read is cheap.
    *
-   * <p>{@code defer} reads the dictionary's compressed bytes with everything else but decompresses
-   * them only on demand. It copies a few KB per page that are usually thrown away, and in exchange
-   * never reads a page twice — which is what you want when a page read is a network round trip
-   * (the S3 backend in sirix-enterprise). Select with
-   * {@code -Dsirix.scan.stringDict=defer}.
+   * <p>
+   * {@code defer} reads the dictionary's compressed bytes with everything else but decompresses them
+   * only on demand. It copies a few KB per page that are usually thrown away, and in exchange never
+   * reads a page twice — which is what you want when a page read is a network round trip (the S3
+   * backend in sirix-enterprise). Select with {@code -Dsirix.scan.stringDict=defer}.
    */
   private static final boolean STRING_DICT_DEFER =
       "defer".equalsIgnoreCase(System.getProperty("sirix.scan.stringDict", "skip"));
 
   /**
-   * {@link #countPageFromRegions} verdict: this page's dictionary is needed after all. Distinct
-   * from {@code -1} ("give up, use the records") — here the column path is still on track, it just
-   * needs one more region.
+   * {@link #countPageFromRegions} verdict: this page's dictionary is needed after all. Distinct from
+   * {@code -1} ("give up, use the records") — here the column path is still on track, it just needs
+   * one more region.
    */
   private static final long NEED_STRING_DICTIONARY = -2L;
 
@@ -11104,30 +11523,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Byte budget for the decoded-column cache, {@code 0} to disable
    * ({@code -Dsirix.scan.regionCacheBytes}).
    *
-   * <p>A column scan reads each page once per query and keeps nothing, so a second query over the
-   * same column re-read and re-decoded every page — measured at 189-249 ms against 66-87 ms for the
-   * record path, whose materialized pages the buffer manager DOES keep. Caching the decoded columns
-   * closes that: they are a fraction of a page (the field-name and value columns of the reference
-   * corpus come to ~1.5 KB against a ~26 KB page), which is the whole reason this path exists.
+   * <p>
+   * A column scan reads each page once per query and keeps nothing, so a second query over the same
+   * column re-read and re-decoded every page — measured at 189-249 ms against 66-87 ms for the record
+   * path, whose materialized pages the buffer manager DOES keep. Caching the decoded columns closes
+   * that: they are a fraction of a page (the field-name and value columns of the reference corpus
+   * come to ~1.5 KB against a ~26 KB page), which is the whole reason this path exists.
    *
-   * <p>Deliberately a hard budget with no eviction — once full it simply stops admitting pages.
-   * A scan that does not fit degrades to what it did before rather than to cache churn, and the
-   * memory ceiling is a number an operator can reason about.
+   * <p>
+   * Deliberately a hard budget with no eviction — once full it simply stops admitting pages. A scan
+   * that does not fit degrades to what it did before rather than to cache churn, and the memory
+   * ceiling is a number an operator can reason about.
    */
-  private static final long REGION_CACHE_BYTES =
-      Long.getLong("sirix.scan.regionCacheBytes", 128L * 1024 * 1024);
+  private static final long REGION_CACHE_BYTES = Long.getLong("sirix.scan.regionCacheBytes", 128L * 1024 * 1024);
 
   /**
    * Decoded columns by page key, one map per region mask — a numeric scan and a string scan ask for
    * different kinds, and an entry decoded for one is missing what the other needs.
    *
-   * <p>Sound for the executor's lifetime because it is pinned to a single revision: the columns of
-   * a committed page cannot change underneath it.
+   * <p>
+   * Sound for the executor's lifetime because it is pinned to a single revision: the columns of a
+   * committed page cannot change underneath it.
    */
   private final Map<Integer, Map<Long, RegionsOnlyPage>> regionCaches = new ConcurrentHashMap<>();
 
-  private final AtomicLong regionCacheBytes =
-      new AtomicLong();
+  private final AtomicLong regionCacheBytes = new AtomicLong();
 
   private Map<Long, RegionsOnlyPage> regionCacheFor(final int mask) {
     if (REGION_CACHE_BYTES <= 0) {
@@ -11152,12 +11572,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Pages a string equality ruled out from the dictionary sketch alone. */
-  private static final LongAdder REGION_SKETCH_SKIPS =
-      new LongAdder();
+  private static final LongAdder REGION_SKETCH_SKIPS = new LongAdder();
 
   /** Pages whose sketch said "maybe", so the dictionary had to be decompressed. */
-  private static final LongAdder REGION_SKETCH_PROBES =
-      new LongAdder();
+  private static final LongAdder REGION_SKETCH_PROBES = new LongAdder();
 
   public static long regionSketchSkips() {
     return REGION_SKETCH_SKIPS.sum();
@@ -11168,22 +11586,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Pages served entirely from PAX regions — test/diagnostic observability. */
-  private static final LongAdder REGION_ONLY_PAGES =
-      new LongAdder();
+  private static final LongAdder REGION_ONLY_PAGES = new LongAdder();
 
   /** Versioned pages answered by merging their fragments' columns instead of their records. */
-  private static final LongAdder REGION_MERGED_PAGES =
-      new LongAdder();
+  private static final LongAdder REGION_MERGED_PAGES = new LongAdder();
 
   /**
    * Pages settled from the zone-map region alone, without the number column being decompressed.
    *
-   * <p>Observable because the saving is otherwise invisible: a page answered from bounds and a page
-   * answered by scanning produce the same count, and only this counter distinguishes a working
-   * prune from one that silently stopped firing.
+   * <p>
+   * Observable because the saving is otherwise invisible: a page answered from bounds and a page
+   * answered by scanning produce the same count, and only this counter distinguishes a working prune
+   * from one that silently stopped firing.
    */
-  private static final LongAdder ZONE_MAP_DECIDED_PAGES =
-      new LongAdder();
+  private static final LongAdder ZONE_MAP_DECIDED_PAGES = new LongAdder();
 
   /** Pages the zone-map region answered without touching the number column. */
   public static long zoneMapDecidedPages() {
@@ -11203,9 +11619,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fragment columns counted by the SHADOWED kernel, i.e. one where a newer fragment had already
    * claimed some of the slots, and by the plain kernel where none had.
    *
-   * <p>Separate counters because the masked kernels are otherwise invisible: a merge that never
-   * shadows anything produces identical answers through the unmasked path, so a test can exercise
-   * the merge, agree with the record path, and still never run the masking. That is exactly what
+   * <p>
+   * Separate counters because the masked kernels are otherwise invisible: a merge that never shadows
+   * anything produces identical answers through the unmasked path, so a test can exercise the merge,
+   * agree with the record path, and still never run the masking. That is exactly what
    * {@code VersioningColumnScanTest} did before it was made to read a cold page cache.
    */
   private static final LongAdder REGION_MERGE_MASKED = new LongAdder();
@@ -11223,15 +11640,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Pages whose columns were read but could not answer the predicate (see the oracle below). */
-  private static final LongAdder REGION_ONLY_FALLBACKS =
-      new LongAdder();
+  private static final LongAdder REGION_ONLY_FALLBACKS = new LongAdder();
 
   /**
    * Pages the shape-specific kernels refused and the predicate TREE then answered from columns.
    *
-   * <p>Its own counter because it measures the thing the tree route exists for: every page counted
-   * here would previously have been reconstructed into a record heap. A test asserting this moves
-   * is asserting that a shape got faster, not merely that it stayed correct.
+   * <p>
+   * Its own counter because it measures the thing the tree route exists for: every page counted here
+   * would previously have been reconstructed into a record heap. A test asserting this moves is
+   * asserting that a shape got faster, not merely that it stayed correct.
    */
   private static final LongAdder REGION_TREE_PAGES = new LongAdder();
 
@@ -11243,10 +11660,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Pages the tree route answered with at least one SCATTERED leaf — a field that does not sit on
    * every record of the window and therefore has no positional image of it.
    *
-   * <p>Its own counter for the same reason {@link #REGION_TREE_PAGES} has one: optional fields are
-   * the normal JSON shape, and a conjunction touching one used to send its whole page — column read
-   * included — to record reconstruction. A test asserting this moves asserts that the columnar
-   * route now serves the shape, not merely that it still agrees.
+   * <p>
+   * Its own counter for the same reason {@link #REGION_TREE_PAGES} has one: optional fields are the
+   * normal JSON shape, and a conjunction touching one used to send its whole page — column read
+   * included — to record reconstruction. A test asserting this moves asserts that the columnar route
+   * now serves the shape, not merely that it still agrees.
    */
   private static final LongAdder REGION_SCATTER_PAGES = new LongAdder();
 
@@ -11257,9 +11675,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Aggregates over an arithmetic expression served from projection columns.
    *
-   * <p>The route declines by answering {@code null}, and a decline is invisible in a result: the
-   * generic pipeline produces the same number. Without this counter a test asserting agreement
-   * passes just as well when nothing was ever served.
+   * <p>
+   * The route declines by answering {@code null}, and a decline is invisible in a result: the generic
+   * pipeline produces the same number. Without this counter a test asserting agreement passes just as
+   * well when nothing was ever served.
    */
   private static final LongAdder BINARY_AGGREGATES_SERVED = new LongAdder();
 
@@ -11272,8 +11691,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * multi-fragment page, a write transaction's intent log. Distinct from a fallback: nothing was
    * read, so nothing was wasted, but the fast path also never got a chance.
    */
-  private static final LongAdder REGION_ONLY_UNAVAILABLE =
-      new LongAdder();
+  private static final LongAdder REGION_ONLY_UNAVAILABLE = new LongAdder();
 
   public static long regionOnlyPagesServed() {
     return REGION_ONLY_PAGES.sum();
@@ -11302,9 +11720,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Per-worker region-header scratch. A scan decodes each page once and drops it, so one header
-   * per thread serves every page that thread ever reads — and {@code parseInto} reuses its own
-   * arrays, so a full scan of a million pages allocates these twice per worker, not twice per page.
+   * Per-worker region-header scratch. A scan decodes each page once and drops it, so one header per
+   * thread serves every page that thread ever reads — and {@code parseInto} reuses its own arrays, so
+   * a full scan of a million pages allocates these twice per worker, not twice per page.
    */
   private static final class RegionHeaderScratch {
     final NumberRegion.Header number = new NumberRegion.Header();
@@ -11316,9 +11734,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * The NEXT page's string header, for settling an array that runs off the end of this one.
      *
-     * <p>Its own object, not a second use of {@link #string}: the trailing decision is taken while
-     * this page's header is still live, and parsing over it would silently answer the rest of the
-     * page from the wrong tag table.
+     * <p>
+     * Its own object, not a second use of {@link #string}: the trailing decision is taken while this
+     * page's header is still live, and parsing over it would silently answer the rest of the page from
+     * the wrong tag table.
      */
     final StringRegion.Header stringNext = new StringRegion.Header();
 
@@ -11332,42 +11751,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final RecordOrdinalRegion.Header recordOrdinal = new RecordOrdinalRegion.Header();
 
     /**
-     * Column payloads the fused kernel has materialized for the page it is on, or {@code null}
-     * while a kind is still untouched. Lazy on purpose: a plan of only boolean leaves must not force
-     * the number region to be parsed, nor the reverse. Cached on purpose too — a second leaf of the
-     * same kind reuses the parse rather than repeating it. The matching headers live in
-     * {@link #number}, {@link #bool} and {@link #string}, which the parse writes into. Cleared at
-     * the head of every page by {@code countPageFromFusedRegions}.
+     * Column payloads the fused kernel has materialized for the page it is on, or {@code null} while a
+     * kind is still untouched. Lazy on purpose: a plan of only boolean leaves must not force the number
+     * region to be parsed, nor the reverse. Cached on purpose too — a second leaf of the same kind
+     * reuses the parse rather than repeating it. The matching headers live in {@link #number},
+     * {@link #bool} and {@link #string}, which the parse writes into. Cleared at the head of every page
+     * by {@code countPageFromFusedRegions}.
      */
-    @Nullable MemorySegment fusedBits;
+    @Nullable
+    MemorySegment fusedBits;
 
-    @Nullable MemorySegment fusedNumbers;
+    @Nullable
+    MemorySegment fusedNumbers;
 
-    @Nullable MemorySegment fusedStrings;
+    @Nullable
+    MemorySegment fusedStrings;
 
     /** One page's record ordinals, vector-unpacked once and verified per leaf as a plain array. */
     final long[] decodedOrdinals = new long[Constants.NDP_NODE_COUNT];
 
     /**
-     * Page-local slot of an anchor occurrence the fused kernel served AROUND rather than decided:
-     * the record spanning in from the previous page, whose other values no column here holds. Set
-     * beside a non-negative fused count; {@code -1} otherwise. The caller owes that one record a
-     * record-path evaluation — the boundary-row patch — and consumes the slot before the next
-     * page overwrites it.
+     * Page-local slot of an anchor occurrence the fused kernel served AROUND rather than decided: the
+     * record spanning in from the previous page, whose other values no column here holds. Set beside a
+     * non-negative fused count; {@code -1} otherwise. The caller owes that one record a record-path
+     * evaluation — the boundary-row patch — and consumes the slot before the next page overwrites it.
      */
     int pendingFusedAnchorSlot = -1;
 
     /**
-     * Page-local slot of the anchor occurrence of the page's LAST record, when a scattered leaf
-     * made that record undecidable from this page's columns alone.
+     * Page-local slot of the anchor occurrence of the page's LAST record, when a scattered leaf made
+     * that record undecidable from this page's columns alone.
      *
-     * <p>The mirror image of {@link #pendingFusedAnchorSlot}, and needed for the same reason at the
-     * other seam. A record's slots are contiguous, so the only record whose fields can continue on
-     * the NEXT page is the last one this page opens; a column that does not hold the field for it
-     * cannot tell "the record has no such field" from "the field sits over the seam". The dense
-     * certificate never has to ask — it refuses any field that misses a record inside the window —
-     * but the scatter arm serves exactly the fields that do miss records, so it hands this one
-     * record to the record path rather than reading absence into it.
+     * <p>
+     * The mirror image of {@link #pendingFusedAnchorSlot}, and needed for the same reason at the other
+     * seam. A record's slots are contiguous, so the only record whose fields can continue on the NEXT
+     * page is the last one this page opens; a column that does not hold the field for it cannot tell
+     * "the record has no such field" from "the field sits over the seam". The dense certificate never
+     * has to ask — it refuses any field that misses a record inside the window — but the scatter arm
+     * serves exactly the fields that do miss records, so it hands this one record to the record path
+     * rather than reading absence into it.
      */
     int pendingTrailingAnchorSlot = -1;
 
@@ -11380,10 +11802,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Every fused field's nameKey and pathNodeKey, indexed by field, resolved once per scan.
      *
-     * <p>Per page these would be a dictionary probe and a path-summary walk each, for an answer that
-     * cannot change between pages. A {@code -1} nameKey means no record anywhere carries the field,
-     * and the kernel then declines every page; a {@code -1} pathNodeKey is the unscoped case, which
-     * is the convention the other kernels already use.
+     * <p>
+     * Per page these would be a dictionary probe and a path-summary walk each, for an answer that
+     * cannot change between pages. A {@code -1} nameKey means no record anywhere carries the field, and
+     * the kernel then declines every page; a {@code -1} pathNodeKey is the unscoped case, which is the
+     * convention the other kernels already use.
      */
     final int[] fusedFieldNameKey = new int[MAX_FUSED_FIELDS];
     final long[] fusedFieldPathNodeKey = new long[MAX_FUSED_FIELDS];
@@ -11391,8 +11814,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     /**
      * Bitmap-order positions of the numeric field's and the boolean field's OBJECT_KEY slots. Two
-     * buffers because the alignment certificate compares them against each other, so neither can
-     * be overwritten while the other is in use.
+     * buffers because the alignment certificate compares them against each other, so neither can be
+     * overwritten while the other is in use.
      */
     int[] numberBitmapIdx = new int[Constants.NDP_NODE_COUNT];
     int[] boolBitmapIdx = new int[Constants.NDP_NODE_COUNT];
@@ -11404,57 +11827,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int[] anchorBitmapIdx = new int[Constants.NDP_NODE_COUNT];
 
     /**
-     * Every object-key slot of the page, expanded from the region's bitmap once per page so the
-     * anchor loop can index it instead of re-ranking the bitmap for each lookup.
+     * Every object-key slot of the page, expanded from the region's bitmap once per page so the anchor
+     * loop can index it instead of re-ranking the bitmap for each lookup.
      */
     final int[] objectKeySlots = new int[Constants.NDP_NODE_COUNT];
 
     /**
      * Record ordinal to selection row, or {@code -1} for a record the anchor does not carry.
      *
-     * <p>What lets a field be read positionally at all once it is NOT positional: a scattered leaf
-     * knows each value's record from the linkage column, and this turns that record into the row
-     * the bitmap algebra above is indexed by. Built from the anchor's own occurrences, so it is the
-     * identity on a page whose anchor enumerates the records in order — which is why the dense arm
-     * can ignore it entirely.
+     * <p>
+     * What lets a field be read positionally at all once it is NOT positional: a scattered leaf knows
+     * each value's record from the linkage column, and this turns that record into the row the bitmap
+     * algebra above is indexed by. Built from the anchor's own occurrences, so it is the identity on a
+     * page whose anchor enumerates the records in order — which is why the dense arm can ignore it
+     * entirely.
      */
     final int[] rowOfOrdinal = new int[Constants.NDP_NODE_COUNT];
 
     /**
      * A scattered leaf's selection over its own OCCURRENCES, before the linkage turns occurrence
-     * positions into rows. Sized for a whole page's slots rather than for the window: a sparse
-     * field has more occurrences than the window has rows exactly when records past it carry it.
+     * positions into rows. Sized for a whole page's slots rather than for the window: a sparse field
+     * has more occurrences than the window has rows exactly when records past it carry it.
      */
     final long[] sparseOccRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
     /**
-     * Row bitmap the fused kernel builds from the number column and the bit column is AND-ed into.
-     * One page's rows, so it never grows past the slot count.
+     * Row bitmap the fused kernel builds from the number column and the bit column is AND-ed into. One
+     * page's rows, so it never grows past the slot count.
      */
     final long[] fusedRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
     /**
      * Selection vector for the fused kernel. Its own buffer rather than {@link #slotBuf}: that one
-     * holds the versioned merge's anchor slots, and sharing it would make the two paths' lifetimes
-     * a thing someone has to keep true by hand.
+     * holds the versioned merge's anchor slots, and sharing it would make the two paths' lifetimes a
+     * thing someone has to keep true by hand.
      */
     final int[] fusedSelection = new int[Constants.NDP_NODE_COUNT];
 
     /**
      * Per-leaf row bitmap, AND-ed into {@link #fusedRows}. A second buffer because a numeric leaf
-     * builds its rows by setting bits from a selection vector, which needs a zeroed word range —
-     * it cannot mask in place against the accumulator without losing what is already there.
+     * builds its rows by setting bits from a selection vector, which needs a zeroed word range — it
+     * cannot mask in place against the accumulator without losing what is already there.
      */
     final long[] fusedLeafRows = new long[Constants.NDP_NODE_COUNT >>> 6];
 
     /**
      * The decimal union's branch bounds converted into one tag scale, and their merge.
      *
-     * <p>The double union is merged once at plan time; the decimal one cannot be, because each
-     * bound is inclusive only at a particular scale. It is still not per-PAGE work: the conversion
-     * depends on nothing but the plan's branches and the tag's own scale, and a scan sees a handful
-     * of scales at most, so the result is memoised on the scale it was converted at and the page
-     * loop allocates nothing.
+     * <p>
+     * The double union is merged once at plan time; the decimal one cannot be, because each bound is
+     * inclusive only at a particular scale. It is still not per-PAGE work: the conversion depends on
+     * nothing but the plan's branches and the tag's own scale, and a scan sees a handful of scales at
+     * most, so the result is memoised on the scale it was converted at and the page loop allocates
+     * nothing.
      */
     long[] decUnionBounds = new long[8];
     long[] decUnionMerged = new long[8];
@@ -11466,11 +11891,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     DecInterval @Nullable [] decUnionBranches;
 
     /**
-     * Merge {@code branches} in {@code scale}'s integer domain, reusing the memo when this scale
-     * was already converted for these very branches.
+     * Merge {@code branches} in {@code scale}'s integer domain, reusing the memo when this scale was
+     * already converted for these very branches.
      *
-     * @return the number of disjoint pairs standing in {@link #decUnionMerged}; {@code 0} means
-     *     every branch is empty at this scale, which is an answer and not a refusal
+     * @return the number of disjoint pairs standing in {@link #decUnionMerged}; {@code 0} means every
+     *         branch is empty at this scale, which is an answer and not a refusal
      */
     int decUnionAtScale(final DecInterval[] branches, final int scale) {
       if (decUnionScale == scale && decUnionBranches == branches) {
@@ -11495,7 +11920,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           bounds[b++] = bhi;
         }
       }
-      decUnionPairs = b == 0 ? 0 : mergeIntervalsInto(bounds, b, decUnionMerged);
+      decUnionPairs = b == 0
+          ? 0
+          : mergeIntervalsInto(bounds, b, decUnionMerged);
       decUnionBranches = branches;
       decUnionScale = scale;
       return decUnionPairs;
@@ -11505,8 +11932,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int ownedSeen;
 
     /**
-     * Per-value liveness for the merge, indexed relative to the tag's first value. Grown on
-     * demand and reused across fragments and pages, so the masked kernels allocate nothing.
+     * Per-value liveness for the merge, indexed relative to the tag's first value. Grown on demand and
+     * reused across fragments and pages, so the masked kernels allocate nothing.
      */
     long[] liveBits = new long[4];
 
@@ -11517,7 +11944,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** One growth policy for every liveness bitmap in this scratch — a sizing fix lands once. */
     private static long[] grownBits(final long[] buf, final int count) {
       final int words = (count + 63) >>> 6;
-      return buf.length < words ? new long[Math.max(words, buf.length * 2)] : buf;
+      return buf.length < words
+          ? new long[Math.max(words, buf.length * 2)]
+          : buf;
     }
 
     long[] mergeLongLiveFor(final int count) {
@@ -11534,9 +11963,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /**
-     * The predicate's literal, encoded against one FSST symbol table. A resource normally has a
-     * single table, so this one-entry memo is a full cache in practice: the encode happens once per
-     * worker per scan, not once per page.
+     * The predicate's literal, encoded against one FSST symbol table. A resource normally has a single
+     * table, so this one-entry memo is a full cache in practice: the encode happens once per worker per
+     * scan, not once per page.
      */
     long encodedForTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
     byte[] encodedLiteral;
@@ -11551,9 +11980,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * Encode {@code literal} the way the writer would have stored it under {@code tableId}, or
      * {@code null} when the value is stored raw / no table applies.
      *
-     * <p>{@code FSSTCompressor.encodeOrNull} is the very call the writer makes per value, so the
-     * bytes it returns here are the bytes the dictionary holds for this value. That is what lets an
-     * equality run over compressed strings without decompressing a single one.
+     * <p>
+     * {@code FSSTCompressor.encodeOrNull} is the very call the writer makes per value, so the bytes it
+     * returns here are the bytes the dictionary holds for this value. That is what lets an equality run
+     * over compressed strings without decompressing a single one.
      */
     byte[] literalFor(final long tableId, final byte[] literal, final StorageEngineReader reader) {
       if (encodedResolved && encodedForTableId == tableId) {
@@ -11575,14 +12005,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * The encoded form of every literal in a disjunction, in the same order.
      *
-     * <p>Keyed on the literal array's identity as well as the table id: a plan is built once per
-     * query and reused across every page, so identity is a sound key and spares an element-wise
-     * comparison per page.
+     * <p>
+     * Keyed on the literal array's identity as well as the table id: a plan is built once per query and
+     * reused across every page, so identity is a sound key and spares an element-wise comparison per
+     * page.
      */
-    byte[][] literalsFor(final long tableId, final byte[][] literals,
-        final StorageEngineReader reader) {
-      if (encodedLiterals != null && encodedLiteralsForTableId == tableId
-          && encodedLiteralsOf == literals) {
+    byte[][] literalsFor(final long tableId, final byte[][] literals, final StorageEngineReader reader) {
+      if (encodedLiterals != null && encodedLiteralsForTableId == tableId && encodedLiteralsOf == literals) {
         return encodedLiterals;
       }
       final byte[][] out = new byte[literals.length][];
@@ -11605,13 +12034,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * One column's contribution to a fused multi-field predicate.
    *
-   * <p>A leaf names the field by its index in {@code cp.fieldNames} and carries whatever that
-   * column's kernel needs: an inclusive interval for a number column, a wanted polarity for a bit
-   * column. The page kernel turns each into a row bitmap and intersects them, so adding a column
-   * type is adding a case here rather than another arm to the planner.
+   * <p>
+   * A leaf names the field by its index in {@code cp.fieldNames} and carries whatever that column's
+   * kernel needs: an inclusive interval for a number column, a wanted polarity for a bit column. The
+   * page kernel turns each into a row bitmap and intersects them, so adding a column type is adding a
+   * case here rather than another arm to the planner.
    */
   private record FusedLeaf(byte kind, int fieldIdx, long lo, long hi, boolean wantTrue,
-                          byte @Nullable [][] literalArr) {
+      byte @Nullable [][] literalArr) {
     /** Numeric interval over a {@link RegionTable#KIND_NUMBER} tag. */
     static final byte KIND_NUM = 0;
     /** Flag over a {@link RegionTable#KIND_BOOLEAN} tag, possibly negated. */
@@ -11630,7 +12060,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     static FusedLeaf str(final int fieldIdx, final byte[] literal) {
       // The literal is wrapped ONCE, here: the per-scan FSST memo is keyed on this array's
       // identity, so a wrapper allocated per page would defeat it and re-encode every time.
-      return new FusedLeaf(KIND_STR, fieldIdx, 0L, 0L, true, new byte[][] { literal });
+      return new FusedLeaf(KIND_STR, fieldIdx, 0L, 0L, true, new byte[][] {literal});
     }
 
     byte[] literal() {
@@ -11643,24 +12073,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * interval, a literal set, a flag polarity — or, via {@code fusedLeaves}, a conjunction of such
    * leaves over several columns.
    *
-   * <p>{@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
-   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the
-   * count a column operation: no record has to be assembled to decide it.
+   * <p>
+   * {@code year > 1990 and year <= 2000} is {@code [1991, 2000]}, and every conjunction of
+   * {@code gt/ge/lt/le/eq} leaves over one field collapses the same way. That is what makes the count
+   * a column operation: no record has to be assembled to decide it.
    */
   /**
    * The predicate's bounds in DECIMAL space, or {@code null} when they are not available exactly.
    *
-   * <p>Carried alongside the double bounds rather than instead of them, because they answer a
-   * different question. A double bound decides an {@code ENC_ALP} tag, whose integers are a
-   * lossless recoding of doubles. It cannot decide an {@code ENC_DEC} tag, whose integers ARE the
-   * decimals: {@code 1000.25000000000001} and {@code 1000.25} share a double, so a double bound
-   * puts one of them on the wrong side. These fields let such a tag be answered in its own domain.
+   * <p>
+   * Carried alongside the double bounds rather than instead of them, because they answer a different
+   * question. A double bound decides an {@code ENC_ALP} tag, whose integers are a lossless recoding
+   * of doubles. It cannot decide an {@code ENC_DEC} tag, whose integers ARE the decimals:
+   * {@code 1000.25000000000001} and {@code 1000.25} share a double, so a double bound puts one of
+   * them on the wrong side. These fields let such a tag be answered in its own domain.
    *
-   * <p>Each side is a threshold plus its strictness, NOT a pre-adjusted inclusive bound: the
-   * inclusive integer bound depends on the tag's scale ({@code v > t} becomes
-   * {@code I >= floor(t*10^e) + 1}), so it can only be formed once that scale is known. Scales are
-   * held as {@code (unscaled, scale)} longs so the per-tag conversion is integer arithmetic with
-   * no allocation on the scan path.
+   * <p>
+   * Each side is a threshold plus its strictness, NOT a pre-adjusted inclusive bound: the inclusive
+   * integer bound depends on the tag's scale ({@code v > t} becomes {@code I >= floor(t*10^e) + 1}),
+   * so it can only be formed once that scale is known. Scales are held as {@code (unscaled, scale)}
+   * longs so the per-tag conversion is integer arithmetic with no allocation on the scan path.
    *
    * @param loBounded whether a lower bound exists at all
    * @param loStrict {@code true} for {@code gt}, {@code false} for {@code ge}
@@ -11668,19 +12100,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * The predicate as a TREE, with the per-field resolution a leaf needs against a page.
    *
-   * <p>{@link RegionCountPlan} is a FLATTENED predicate — a closed union of shapes, one field per
+   * <p>
+   * {@link RegionCountPlan} is a FLATTENED predicate — a closed union of shapes, one field per
    * component — and flattening is lossy: {@code And}, {@code Or} and {@code Not} survive only as
-   * whichever interval form the folder could express. That is why a shape the folder does not
-   * cover cannot be served at all, and why each new encoding had to be wired into every shape.
-   * Carrying the tree alongside restores what was thrown away, so a page can be answered by bitmap
-   * algebra over per-leaf selections instead of by a shape-specific kernel.
+   * whichever interval form the folder could express. That is why a shape the folder does not cover
+   * cannot be served at all, and why each new encoding had to be wired into every shape. Carrying the
+   * tree alongside restores what was thrown away, so a page can be answered by bitmap algebra over
+   * per-leaf selections instead of by a shape-specific kernel.
    *
-   * <p>Field metadata travels with it because a leaf names its field by STRING, while a column is
-   * found by {@code nameKey} (and {@code pathNodeKey} when a path summary exists). Resolving that
-   * needs the query's source path, which is known once per scan — not per page, and not at plan
-   * time.
+   * <p>
+   * Field metadata travels with it because a leaf names its field by STRING, while a column is found
+   * by {@code nameKey} (and {@code pathNodeKey} when a path summary exists). Resolving that needs the
+   * query's source path, which is known once per scan — not per page, and not at plan time.
    *
-   * <p>A leaf's own CONSTANT is resolved here too, once per scan: a string leaf's UTF-8 bytes in the
+   * <p>
+   * A leaf's own CONSTANT is resolved here too, once per scan: a string leaf's UTF-8 bytes in the
    * single-element wrapper the FSST memo keys on by identity, and a floating-point leaf's exact
    * decimal image. Both used to be rebuilt per leaf per page, which allocated on the scan path and —
    * for the string wrapper — turned the encoded-literal memo into a guaranteed miss for the fused
@@ -11692,11 +12126,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * @param fpLeaves the tree's floating-point leaves, positionally aligned with {@code fpValues}
    * @param fpValues each floating-point threshold's exact decimal image
    */
-  private record TreeRoute(PredicateNode tree, String[] fieldNames, int[] fieldNameKeys,
-                           long[] fieldPathNodeKeys, PredicateNode.StrEq[] strLeaves,
-                           byte[][][] strLiterals, PredicateNode.FpCmp[] fpLeaves,
-                           @Nullable BigDecimal[] fpValues, PredicateNode.DecCmp[] decLeaves,
-                           boolean[] decImageExact) {
+  private record TreeRoute(PredicateNode tree, String[] fieldNames, int[] fieldNameKeys, long[] fieldPathNodeKeys,
+      PredicateNode.StrEq[] strLeaves, byte[][][] strLiterals, PredicateNode.FpCmp[] fpLeaves,
+      @Nullable BigDecimal[] fpValues, PredicateNode.DecCmp[] decLeaves, boolean[] decImageExact) {
 
     /** The leaf's field index, or {@code -1} when this scan resolved no such field. */
     int indexOf(final String field) {
@@ -11719,7 +12151,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /** This leaf's exact decimal threshold, or {@code null} when it is not one of the tree's leaves. */
-    @Nullable BigDecimal decimalOf(final PredicateNode.FpCmp leaf) {
+    @Nullable
+    BigDecimal decimalOf(final PredicateNode.FpCmp leaf) {
       for (int i = 0; i < fpLeaves.length; i++) {
         if (fpLeaves[i] == leaf) {
           return fpValues[i];
@@ -11731,14 +12164,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Whether this decimal leaf's threshold IS its own double image, decided once per scan.
      *
-     * <p>The same question {@code foldNumericInterval} asks before it publishes double bounds, and
-     * for the same reason: a column encoded over double images cannot decide a threshold that no
-     * double represents, because the values one ulp away from it are on both sides of it. Answered
-     * from a precomputed flag rather than a per-page {@link BigDecimal}, which the page loop must
-     * not allocate.
+     * <p>
+     * The same question {@code foldNumericInterval} asks before it publishes double bounds, and for the
+     * same reason: a column encoded over double images cannot decide a threshold that no double
+     * represents, because the values one ulp away from it are on both sides of it. Answered from a
+     * precomputed flag rather than a per-page {@link BigDecimal}, which the page loop must not
+     * allocate.
      *
      * @return {@code false} for a leaf this route never collected — refusing an unknown leaf is the
-     *     safe direction
+     *         safe direction
      */
     boolean imageIsExact(final PredicateNode.DecCmp leaf) {
       for (int i = 0; i < decLeaves.length; i++) {
@@ -11754,14 +12188,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Collect the tree's string and floating-point leaves, so each one's constant is built once per
    * scan rather than once per leaf per page.
    *
-   * <p>Identity, not equality, is the key the selector looks these up by: the tree is immutable and
+   * <p>
+   * Identity, not equality, is the key the selector looks these up by: the tree is immutable and
    * shared across every page of a scan, so the very node the evaluator hands back is the one
    * collected here. Two structurally equal leaves therefore keep their own entries, which costs one
    * array slot and spares a deep record comparison in the page loop.
    */
-  private static void collectTreeLeaves(final PredicateNode node,
-      final List<PredicateNode.StrEq> strLeaves, final List<PredicateNode.FpCmp> fpLeaves,
-      final List<PredicateNode.DecCmp> decLeaves) {
+  private static void collectTreeLeaves(final PredicateNode node, final List<PredicateNode.StrEq> strLeaves,
+      final List<PredicateNode.FpCmp> fpLeaves, final List<PredicateNode.DecCmp> decLeaves) {
     switch (node) {
       case PredicateNode.StrEq s -> strLeaves.add(s);
       case PredicateNode.FpCmp f -> fpLeaves.add(f);
@@ -11782,48 +12216,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  private record DecInterval(boolean loBounded, long loUnscaled, int loScale, boolean loStrict,
-                             boolean hiBounded, long hiUnscaled, int hiScale, boolean hiStrict) {
+  private record DecInterval(boolean loBounded, long loUnscaled, int loScale, boolean loStrict, boolean hiBounded,
+      long hiUnscaled, int hiScale, boolean hiStrict) {
   }
 
-  private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals,
-                                @Nullable Boolean wantTrue, FusedLeaf @Nullable [] fusedLeaves,
-                                long @Nullable [] orIntervals, double dlo, double dhi,
-                                double @Nullable [] orDblIntervals,
-                                @Nullable DecInterval decInterval,
-                                DecInterval @Nullable [] orDecBranches,
-                                @Nullable TreeRoute treeRoute) {
+  private record RegionCountPlan(long lo, long hi, byte @Nullable [][] literals, @Nullable Boolean wantTrue,
+      FusedLeaf @Nullable [] fusedLeaves, long @Nullable [] orIntervals, double dlo, double dhi,
+      double @Nullable [] orDblIntervals, @Nullable DecInterval decInterval, DecInterval @Nullable [] orDecBranches,
+      @Nullable TreeRoute treeRoute) {
 
     /** The same plan with a tree route attached; fields resolve once per scan, not per page. */
     RegionCountPlan withTreeRoute(final @Nullable TreeRoute route) {
-      return new RegionCountPlan(lo, hi, literals, wantTrue, fusedLeaves, orIntervals, dlo, dhi,
-                                orDblIntervals, decInterval, orDecBranches, route);
+      return new RegionCountPlan(lo, hi, literals, wantTrue, fusedLeaves, orIntervals, dlo, dhi, orDblIntervals,
+          decInterval, orDecBranches, route);
     }
+
     /**
-     * The double-column side of a single-interval numeric plan. {@code [dlo, dhi]} is the
-     * inclusive bound a DOUBLE value must satisfy — folded from the ORIGINAL thresholds, never
-     * derived from the long interval ({@code gt 1990} admits the double 1990.5, which
-     * {@code [1991, MAX]} does not). {@code NaN} means the double column cannot be served for
-     * this predicate, so a page carrying a matching double tag falls back; an inverted bound
-     * (+inf, -inf) means no double can match, which IS servable — the column contributes zero
-     * without being read.
+     * The double-column side of a single-interval numeric plan. {@code [dlo, dhi]} is the inclusive
+     * bound a DOUBLE value must satisfy — folded from the ORIGINAL thresholds, never derived from the
+     * long interval ({@code gt 1990} admits the double 1990.5, which {@code [1991, MAX]} does not).
+     * {@code NaN} means the double column cannot be served for this predicate, so a page carrying a
+     * matching double tag falls back; an inverted bound (+inf, -inf) means no double can match, which
+     * IS servable — the column contributes zero without being read.
      */
     static final double DOUBLES_UNSERVABLE = Double.NaN;
 
     boolean doublesServable() {
       return !Double.isNaN(dlo);
     }
+
     /**
-     * Multi-interval plan for a single-field numeric disjunction: {@code lo0,hi0,lo1,hi1,...},
-     * DISJOINT and ascending by construction ({@link #mergeIntervals}), so a page's count is the
-     * SUM of the per-interval counts with nothing counted twice.
+     * Multi-interval plan for a single-field numeric disjunction: {@code lo0,hi0,lo1,hi1,...}, DISJOINT
+     * and ascending by construction ({@link #mergeIntervals}), so a page's count is the SUM of the
+     * per-interval counts with nothing counted twice.
      */
     /**
-     * @param dblIntervals the branches' union in DOUBLE space, disjoint ascending pairs — folded
-     *        from the ORIGINAL thresholds, because the merged integer intervals destroy the
-     *        open/closed distinction ({@code [1991, MAX]} could be {@code gt 1990} or
-     *        {@code ge 1991}, whose double images differ at 1990.5). {@code null} means the double
-     *        side is unservable and double-bearing pages keep the record path.
+     * @param dblIntervals the branches' union in DOUBLE space, disjoint ascending pairs — folded from
+     *        the ORIGINAL thresholds, because the merged integer intervals destroy the open/closed
+     *        distinction ({@code [1991, MAX]} could be {@code gt 1990} or {@code ge 1991}, whose double
+     *        images differ at 1990.5). {@code null} means the double side is unservable and
+     *        double-bearing pages keep the record path.
      */
     static RegionCountPlan numericOr(final long[] intervals, final double @Nullable [] dblIntervals) {
       return numericOr(intervals, dblIntervals, null);
@@ -11831,8 +12263,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     static RegionCountPlan numericOr(final long[] intervals, final double @Nullable [] dblIntervals,
         final DecInterval @Nullable [] decBranches) {
-      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d,
-                                dblIntervals, null, decBranches, null);
+      return new RegionCountPlan(0L, 0L, null, null, null, intervals, DOUBLES_UNSERVABLE, 0.0d, dblIntervals, null,
+          decBranches, null);
     }
 
     boolean isMultiInterval() {
@@ -11840,13 +12272,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /** Numeric plan over BOTH columns: the long interval and the double interval. */
-    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
-        final double dhi) {
+    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo, final double dhi) {
       return numericBoth(lo, hi, dlo, dhi, null);
     }
 
-    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo,
-        final double dhi, final @Nullable DecInterval dec) {
+    static RegionCountPlan numericBoth(final long lo, final long hi, final double dlo, final double dhi,
+        final @Nullable DecInterval dec) {
       return new RegionCountPlan(lo, hi, null, null, null, null, dlo, dhi, null, dec, null, null);
     }
 
@@ -11858,14 +12289,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Two-column plan: a numeric interval on field 0 AND a boolean flag on field 1.
      *
-     * <p>Held as one plan rather than two because the page kernel answers it in one pass: the
-     * number column produces a row bitmap and the bit column is AND-ed straight into it
+     * <p>
+     * Held as one plan rather than two because the page kernel answers it in one pass: the number
+     * column produces a row bitmap and the bit column is AND-ed straight into it
      * ({@link io.sirix.page.pax.BooleanRegionSimd#andInto}), never materializing either side as a
-     * row-id list. Counting the two columns separately could not answer it at all — the counts say
-     * how many rows satisfy each, not how many satisfy both.
+     * row-id list. Counting the two columns separately could not answer it at all — the counts say how
+     * many rows satisfy each, not how many satisfy both.
      *
-     * @param fusedWantTrue {@code false} for a negated flag, which the bit column serves by
-     *        inverting during the AND at no extra cost
+     * @param fusedWantTrue {@code false} for a negated flag, which the bit column serves by inverting
+     *        during the AND at no extra cost
      */
     static RegionCountPlan fused(final FusedLeaf[] leaves) {
       // The kernel reads the anchor's geometry from the plan's first leaf and windows every other
@@ -11892,9 +12324,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Boolean-field plan: count the rows whose flag is {@code wantTrue}.
      *
-     * <p>The boolean region is a packed bit column, so this is a masked population count over a
-     * contiguous bit range — the cheapest predicate in the engine, and one that used to fall back
-     * to reconstructing records because the planner recognised only numeric and string leaves.
+     * <p>
+     * The boolean region is a packed bit column, so this is a masked population count over a contiguous
+     * bit range — the cheapest predicate in the engine, and one that used to fall back to
+     * reconstructing records because the planner recognised only numeric and string leaves.
      */
     static RegionCountPlan bool(final boolean wantTrue) {
       return new RegionCountPlan(0L, 0L, null, wantTrue, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
@@ -11907,26 +12340,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** String-equality plan; {@code null} literal bytes mean "provably no match". */
     static RegionCountPlan string(final byte @Nullable [] literal) {
       return literal == null
-          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null, null, null, null)
-          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+              null, null, null, null)
+          : new RegionCountPlan(0L, 0L, new byte[][] {literal}, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null,
+              null, null);
     }
 
     /**
      * Set-membership plan: a disjunction of equalities over one field.
      *
-     * <p>The whole disjunction is one scan, because the dictionary turns every literal into an id
-     * and membership of a small id set costs what a single equality costs — see
+     * <p>
+     * The whole disjunction is one scan, because the dictionary turns every literal into an id and
+     * membership of a small id set costs what a single equality costs — see
      * {@link io.sirix.page.pax.StringRegionSimd#countDictIdSet}.
      */
     static RegionCountPlan stringSet(final byte[][] literals) {
       return literals == null || literals.length == 0
-          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, null, null, null, null)
+          ? new RegionCountPlan(0L, -1L, null, null, null, null, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY,
+              null, null, null, null)
           : new RegionCountPlan(0L, 0L, literals, null, null, null, DOUBLES_UNSERVABLE, 0.0d, null, null, null, null);
     }
 
     /** The single literal, for the paths that only ever have one. */
     byte @Nullable [] literal() {
-      return literals == null ? null : literals[0];
+      return literals == null
+          ? null
+          : literals[0];
     }
 
     boolean isString() {
@@ -11945,8 +12384,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     boolean isUnbounded() {
       // Never true for a fused plan: the other columns still have to be tested even when every
       // number qualifies, so short-circuiting to the tag's cardinality would drop them.
-      return literals == null && wantTrue == null && fusedLeaves == null && orIntervals == null
-          && lo == Long.MIN_VALUE && hi == Long.MAX_VALUE;
+      return literals == null && wantTrue == null && fusedLeaves == null && orIntervals == null && lo == Long.MIN_VALUE
+          && hi == Long.MAX_VALUE;
     }
   }
 
@@ -11964,8 +12403,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fold a conjunction of string equalities over the single anchor field into one literal, or
    * {@code null} when the predicate is not that shape.
    *
-   * <p>Two different literals AND-ed together can never both hold, so that folds to the
-   * provably-empty plan rather than to a scan.
+   * <p>
+   * Two different literals AND-ed together can never both hold, so that folds to the provably-empty
+   * plan rather than to a scan.
    */
   private static RegionCountPlan planRegionStringCount(final CompiledPredicate cp) {
     // The tree must be one connective over equality leaves on the anchor field. Mixing AND and OR
@@ -11977,13 +12417,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final byte op = cp.ops[i];
       if (op == CompiledPredicate.OP_AND || op == CompiledPredicate.OP_OR) {
         if (connective != -1 && connective != op) {
-          return null;  // mixed connectives
+          return null; // mixed connectives
         }
         connective = op;
         continue;
       }
-      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0
-          || cp.strLiteralBytes[cp.strIdx[i]] == null) {
+      if (op != CompiledPredicate.OP_STR_EQ || cp.fieldIdx[i] != 0 || cp.strLiteralBytes[cp.strIdx[i]] == null) {
         return null;
       }
       leaves++;
@@ -12004,7 +12443,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (literal == null) {
         literal = bytes;
       } else if (!Arrays.equals(literal, bytes)) {
-        return RegionCountPlan.string(null);  // `f eq "a" and f eq "b"` — unsatisfiable
+        return RegionCountPlan.string(null); // `f eq "a" and f eq "b"` — unsatisfiable
       }
     }
     return RegionCountPlan.string(literal);
@@ -12013,13 +12452,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Fold a disjunction of equalities into the distinct literals it admits.
    *
-   * <p>This is the shape the dictionary was built for: {@code f eq "a" or f eq "b"} is membership
-   * of a two-element set, and once each literal is resolved to an id the scan is one pass over the
-   * packed id column — not one pass per literal, and not a fallback to the records, which is what
-   * this predicate used to get.
+   * <p>
+   * This is the shape the dictionary was built for: {@code f eq "a" or f eq "b"} is membership of a
+   * two-element set, and once each literal is resolved to an id the scan is one pass over the packed
+   * id column — not one pass per literal, and not a fallback to the records, which is what this
+   * predicate used to get.
    */
-  private static RegionCountPlan planStringDisjunction(final CompiledPredicate cp,
-      final int leaves) {
+  private static RegionCountPlan planStringDisjunction(final CompiledPredicate cp, final int leaves) {
     final byte[][] literals = new byte[leaves][];
     int count = 0;
     for (int i = 0; i < cp.ops.length; i++) {
@@ -12039,28 +12478,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return RegionCountPlan.stringSet(count == literals.length
-                                         ? literals
-                                         : Arrays.copyOf(literals, count));
+        ? literals
+        : Arrays.copyOf(literals, count));
   }
 
   /**
-   * Fold {@code cp} into a {@link RegionCountPlan}, or {@code null} when the predicate is not a
-   * pure conjunction of numeric comparisons over a single field.
+   * Fold {@code cp} into a {@link RegionCountPlan}, or {@code null} when the predicate is not a pure
+   * conjunction of numeric comparisons over a single field.
    *
-   * <p>Deliberately strict. A second field would need a second column and a positional join
-   * between them; an OR or NOT would need per-branch counting; a string, boolean, decimal or
-   * floating-point leaf lives in a different region with different semantics. Each of those is a
-   * separate piece of work, and until then the honest answer is "not this path".
+   * <p>
+   * Deliberately strict. A second field would need a second column and a positional join between
+   * them; an OR or NOT would need per-branch counting; a string, boolean, decimal or floating-point
+   * leaf lives in a different region with different semantics. Each of those is a separate piece of
+   * work, and until then the honest answer is "not this path".
    */
   /**
    * Attach the predicate TREE to a plan, resolved against this scan's source path.
    *
-   * <p>Every field the compiler saw is resolved, not only the ones the chosen shape reads: the tree
+   * <p>
+   * Every field the compiler saw is resolved, not only the ones the chosen shape reads: the tree
    * route exists precisely to answer shapes the flattened plan could not express, and those touch
    * fields the flattened form dropped. One path-summary lookup per field per SCAN; nothing per page.
    */
-  private @Nullable RegionCountPlan attachTreeRoute(final @Nullable RegionCountPlan plan,
-      final CompiledPredicate cp, final String[] sourcePath) {
+  private @Nullable RegionCountPlan attachTreeRoute(final @Nullable RegionCountPlan plan, final CompiledPredicate cp,
+      final String[] sourcePath) {
     if (plan == null || cp.tree == null || cp.fieldNames == null || cp.fieldNames.length == 0) {
       return plan;
     }
@@ -12078,7 +12519,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final PredicateNode.StrEq[] strNodes = strLeaves.toArray(new PredicateNode.StrEq[0]);
     final byte[][][] strLiterals = new byte[strNodes.length][][];
     for (int i = 0; i < strNodes.length; i++) {
-      strLiterals[i] = new byte[][] { strNodes[i].value().getBytes(StandardCharsets.UTF_8) };
+      strLiterals[i] = new byte[][] {strNodes[i].value().getBytes(StandardCharsets.UTF_8)};
     }
     final PredicateNode.FpCmp[] fpNodes = fpLeaves.toArray(new PredicateNode.FpCmp[0]);
     final @Nullable BigDecimal[] fpValues = new BigDecimal[fpNodes.length];
@@ -12086,22 +12527,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final double v = fpNodes[i].value();
       // BigDecimal(double) is the EXACT-value constructor, so this is the threshold itself, not a
       // rounded rendering of it; a non-finite literal has no decimal image and declines per page.
-      fpValues[i] = Double.isFinite(v) ? new BigDecimal(v) : null;
+      fpValues[i] = Double.isFinite(v)
+          ? new BigDecimal(v)
+          : null;
     }
     final PredicateNode.DecCmp[] decNodes = decLeaves.toArray(new PredicateNode.DecCmp[0]);
     final boolean[] decImageExact = new boolean[decNodes.length];
     for (int i = 0; i < decNodes.length; i++) {
       final BigDecimal value = decNodes[i].value();
-      final double image = value == null ? Double.NaN : value.doubleValue();
+      final double image = value == null
+          ? Double.NaN
+          : value.doubleValue();
       // Whether a column over DOUBLE IMAGES may decide this threshold at all — the branch fold's
       // guard, hoisted out of the page loop. BigDecimal(double) is the exact-value constructor, so
       // this compares the literal against the number its image really is, not against a rendering.
-      decImageExact[i] =
-          value != null && Double.isFinite(image) && value.compareTo(new BigDecimal(image)) == 0;
+      decImageExact[i] = value != null && Double.isFinite(image) && value.compareTo(new BigDecimal(image)) == 0;
     }
-    return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys,
-                                            strNodes, strLiterals, fpNodes, fpValues, decNodes,
-                                            decImageExact));
+    return plan.withTreeRoute(new TreeRoute(cp.tree, cp.fieldNames, nameKeys, pathNodeKeys, strNodes, strLiterals,
+        fpNodes, fpValues, decNodes, decImageExact));
   }
 
   private RegionCountPlan planRegionCount(final CompiledPredicate cp) {
@@ -12158,15 +12601,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fold {@code cp} into a fused number-and-boolean plan, or {@code null} when it is any other
    * two-field shape.
    *
-   * <p>Accepted: a top-level conjunction whose leaves are numeric comparisons over one field plus
+   * <p>
+   * Accepted: a top-level conjunction whose leaves are numeric comparisons over one field plus
    * exactly one boolean reference — possibly negated — over the other. That covers
    * {@code $u.year gt 1990 and $u.active} and {@code $u.age ge 18 and not($u.deleted)}, which is
    * where a two-predicate filter on JSON records overwhelmingly lands.
    *
-   * <p>Deliberately narrow. Two numeric fields would need two intervals and a second selection
-   * bitmap; a string leaf lives in a dictionary column with its own tag layout; an OR needs the
-   * union rather than the intersection the fused kernel computes. Each is a separate piece of work,
-   * and the honest answer until then is "not this path".
+   * <p>
+   * Deliberately narrow. Two numeric fields would need two intervals and a second selection bitmap; a
+   * string leaf lives in a dictionary column with its own tag layout; an OR needs the union rather
+   * than the intersection the fused kernel computes. Each is a separate piece of work, and the honest
+   * answer until then is "not this path".
    */
   private static RegionCountPlan planFusedCount(final CompiledPredicate cp) {
     if (!isFusableConjunction(cp)) {
@@ -12197,7 +12642,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final byte op = cp.ops[i];
       if (op == CompiledPredicate.OP_AND) {
-        continue;  // nested conjunctions are still a conjunction
+        continue; // nested conjunctions are still a conjunction
       }
       if (op == CompiledPredicate.OP_BOOL_REF || op == CompiledPredicate.OP_NOT) {
         if (!absorbFusedBoolLeaf(cp, i, nFields, kind, wantTrue, consumed)) {
@@ -12217,13 +12662,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     final FusedLeaf[] leaves = materializeFusedLeaves(nFields, kind, lo, hi, wantTrue, strLiteral);
-    return leaves == null ? null : RegionCountPlan.fused(leaves);
+    return leaves == null
+        ? null
+        : RegionCountPlan.fused(leaves);
   }
 
   /**
-   * Answer whether {@code cp} has the shape the fused kernel can plan at all: a top-level
-   * conjunction over between two and {@link #MAX_FUSED_FIELDS} fields. The kernel intersects row
-   * sets, so anything else is out before a single leaf is looked at.
+   * Answer whether {@code cp} has the shape the fused kernel can plan at all: a top-level conjunction
+   * over between two and {@link #MAX_FUSED_FIELDS} fields. The kernel intersects row sets, so
+   * anything else is out before a single leaf is looked at.
    */
   private static boolean isFusableConjunction(final CompiledPredicate cp) {
     final int nFields = cp.fieldNames.length;
@@ -12235,18 +12682,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Absorb a flag leaf — {@code $u.active} or {@code not($u.active)} — into the accumulators, and
-   * answer whether it was representable. A negated flag consumes its {@code OP_BOOL_REF} child so
-   * the caller's flat walk does not see it a second time.
+   * answer whether it was representable. A negated flag consumes its {@code OP_BOOL_REF} child so the
+   * caller's flat walk does not see it a second time.
    */
-  private static boolean absorbFusedBoolLeaf(final CompiledPredicate cp, final int i,
-      final int nFields, final byte[] kind, final boolean[] wantTrue, final boolean[] consumed) {
+  private static boolean absorbFusedBoolLeaf(final CompiledPredicate cp, final int i, final int nFields,
+      final byte[] kind, final boolean[] wantTrue, final boolean[] consumed) {
     final boolean negated = cp.ops[i] == CompiledPredicate.OP_NOT;
     final int refIdx;
     if (negated) {
       final int child = cp.children[cp.childStart[i]];
-      if (child <= i || child >= cp.ops.length
-          || cp.ops[child] != CompiledPredicate.OP_BOOL_REF) {
-        return false;  // only a negated FLAG is representable here
+      if (child <= i || child >= cp.ops.length || cp.ops[child] != CompiledPredicate.OP_BOOL_REF) {
+        return false; // only a negated FLAG is representable here
       }
       consumed[child] = true;
       refIdx = child;
@@ -12255,7 +12701,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final int field = cp.fieldIdx[refIdx];
     if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
-      return false;  // two leaves on one field: see above
+      return false; // two leaves on one field: see above
     }
     kind[field] = FusedLeaf.KIND_BOOL;
     wantTrue[field] = !negated;
@@ -12263,8 +12709,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Absorb a string-equality leaf into the accumulators, and answer whether it was accepted. */
-  private static boolean absorbFusedStringLeaf(final CompiledPredicate cp, final int i,
-      final int nFields, final byte[] kind, final byte[][] strLiteral) {
+  private static boolean absorbFusedStringLeaf(final CompiledPredicate cp, final int i, final int nFields,
+      final byte[] kind, final byte[][] strLiteral) {
     final int field = cp.fieldIdx[i];
     if (field < 0 || field >= nFields || kind[field] != KIND_UNSET) {
       // Two string equalities on ONE field inside an AND are `x eq "a" and x eq "b"` —
@@ -12281,21 +12727,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * representable. Fractional thresholds fold into the LONG side; see
    * {@link #fusedFractionalThreshold} for why that is sound here.
    */
-  private static boolean absorbFusedNumericLeaf(final CompiledPredicate cp, final int i,
-      final int nFields, final byte[] kind, final long[] lo, final long[] hi) {
+  private static boolean absorbFusedNumericLeaf(final CompiledPredicate cp, final int i, final int nFields,
+      final byte[] kind, final long[] lo, final long[] hi) {
     final byte op = cp.ops[i];
-    final boolean fractional =
-        op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP;
+    final boolean fractional = op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP;
     if (op != CompiledPredicate.OP_NUM_CMP && !fractional) {
-      return false;  // an OR needs the union rather than the intersection this kernel computes
+      return false; // an OR needs the union rather than the intersection this kernel computes
     }
     final int field = cp.fieldIdx[i];
     // Reject any prior NON-numeric leaf on this field, not just a boolean one. Checking only
     // KIND_BOOL let `$u.x eq "a" and $u.x gt 5` overwrite the string leaf with the interval,
     // silently dropping the equality — the plan then answered a WEAKER predicate and over-counted.
     // NUM-over-NUM stays legal: that is interval folding.
-    if (field < 0 || field >= nFields
-        || (kind[field] != KIND_UNSET && kind[field] != FusedLeaf.KIND_NUM)) {
+    if (field < 0 || field >= nFields || (kind[field] != KIND_UNSET && kind[field] != FusedLeaf.KIND_NUM)) {
       return false;
     }
     kind[field] = FusedLeaf.KIND_NUM;
@@ -12310,7 +12754,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The fractional threshold of leaf {@code i} as a double, or {@code NaN} when it cannot be folded
    * into the long side at all.
    *
-   * <p>Folding through floor/ceil — {@code v > 1990.5} for a long v is {@code v >= 1991} — is sound
+   * <p>
+   * Folding through floor/ceil — {@code v > 1990.5} for a long v is {@code v >= 1991} — is sound
    * because the fused kernel's completeness oracle requires the long column to cover EVERY row: a
    * page holding any double for this field fails it and keeps the record path, so no double is ever
    * judged by this folded interval. Decimals qualify only with an exact double image, mirroring
@@ -12332,25 +12777,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       t = image;
     }
-    return Math.abs(t) >= 9.0e18 ? Double.NaN : t;
+    return Math.abs(t) >= 9.0e18
+        ? Double.NaN
+        : t;
   }
 
   /** Narrow this field's interval by a fractional bound, or answer {@code false} when it cannot. */
-  private static boolean applyFusedFractionalBound(final int cmpOp, final double t, final int field,
-      final long[] lo, final long[] hi) {
+  private static boolean applyFusedFractionalBound(final int cmpOp, final double t, final int field, final long[] lo,
+      final long[] hi) {
     switch (cmpOp) {
-      case OP_GT -> { final long fl = (long) Math.floor(t); if (fl + 1 > lo[field]) lo[field] = fl + 1; }
-      case OP_GE -> { final long ce = (long) Math.ceil(t); if (ce > lo[field]) lo[field] = ce; }
-      case OP_LT -> { final long ce = (long) Math.ceil(t); if (ce - 1 < hi[field]) hi[field] = ce - 1; }
-      case OP_LE -> { final long fl = (long) Math.floor(t); if (fl < hi[field]) hi[field] = fl; }
+      case OP_GT -> {
+        final long fl = (long) Math.floor(t);
+        if (fl + 1 > lo[field])
+          lo[field] = fl + 1;
+      }
+      case OP_GE -> {
+        final long ce = (long) Math.ceil(t);
+        if (ce > lo[field])
+          lo[field] = ce;
+      }
+      case OP_LT -> {
+        final long ce = (long) Math.ceil(t);
+        if (ce - 1 < hi[field])
+          hi[field] = ce - 1;
+      }
+      case OP_LE -> {
+        final long fl = (long) Math.floor(t);
+        if (fl < hi[field])
+          hi[field] = fl;
+      }
       case OP_EQ -> {
         if (t != Math.rint(t)) {
-          return false;  // only a double can equal a fractional literal, and this kernel reads
-                         // the long column — the record path answers it instead
+          return false; // only a double can equal a fractional literal, and this kernel reads
+                        // the long column — the record path answers it instead
         }
         final long v = (long) t;
-        if (v > lo[field]) lo[field] = v;
-        if (v < hi[field]) hi[field] = v;
+        if (v > lo[field])
+          lo[field] = v;
+        if (v < hi[field])
+          hi[field] = v;
       }
       default -> {
         return false;
@@ -12360,22 +12825,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Narrow this field's interval by an integral bound, or answer {@code false} when it cannot. */
-  private static boolean applyFusedLongBound(final int cmpOp, final long t, final int field,
-      final long[] lo, final long[] hi) {
+  private static boolean applyFusedLongBound(final int cmpOp, final long t, final int field, final long[] lo,
+      final long[] hi) {
     switch (cmpOp) {
       case OP_GT -> {
-        if (t == Long.MAX_VALUE) return false;  // unsatisfiable; not worth reading a page for
-        if (t + 1 > lo[field]) lo[field] = t + 1;
+        if (t == Long.MAX_VALUE)
+          return false; // unsatisfiable; not worth reading a page for
+        if (t + 1 > lo[field])
+          lo[field] = t + 1;
       }
-      case OP_GE -> { if (t > lo[field]) lo[field] = t; }
+      case OP_GE -> {
+        if (t > lo[field])
+          lo[field] = t;
+      }
       case OP_LT -> {
-        if (t == Long.MIN_VALUE) return false;
-        if (t - 1 < hi[field]) hi[field] = t - 1;
+        if (t == Long.MIN_VALUE)
+          return false;
+        if (t - 1 < hi[field])
+          hi[field] = t - 1;
       }
-      case OP_LE -> { if (t < hi[field]) hi[field] = t; }
+      case OP_LE -> {
+        if (t < hi[field])
+          hi[field] = t;
+      }
       case OP_EQ -> {
-        if (t > lo[field]) lo[field] = t;
-        if (t < hi[field]) hi[field] = t;
+        if (t > lo[field])
+          lo[field] = t;
+        if (t < hi[field])
+          hi[field] = t;
       }
       default -> {
         return false;
@@ -12387,12 +12864,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Turn the per-field accumulators into leaves, or {@code null} when the plan is unusable.
    *
-   * <p>Every field the predicate declares must have produced a leaf. A field with none means a leaf
+   * <p>
+   * Every field the predicate declares must have produced a leaf. A field with none means a leaf
    * referenced it through a shape the walk skipped, and the kernel would then answer a predicate
    * weaker than the one asked — the failure mode that matters, because it OVER-counts.
    */
-  private static FusedLeaf @Nullable [] materializeFusedLeaves(final int nFields, final byte[] kind,
-      final long[] lo, final long[] hi, final boolean[] wantTrue, final byte[][] strLiteral) {
+  private static FusedLeaf @Nullable [] materializeFusedLeaves(final int nFields, final byte[] kind, final long[] lo,
+      final long[] hi, final boolean[] wantTrue, final byte[][] strLiteral) {
     final FusedLeaf[] leaves = new FusedLeaf[nFields];
     for (int f = 0; f < nFields; f++) {
       if (kind[f] == KIND_UNSET) {
@@ -12400,7 +12878,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (kind[f] == FusedLeaf.KIND_NUM) {
         if (lo[f] > hi[f]) {
-          return null;  // this field alone is unsatisfiable
+          return null; // this field alone is unsatisfiable
         }
         leaves[f] = FusedLeaf.num(f, lo[f], hi[f]);
       } else if (kind[f] == FusedLeaf.KIND_STR) {
@@ -12416,12 +12894,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fold a single-field numeric disjunction into disjoint intervals, or {@code null} for any other
    * shape.
    *
-   * <p>Each branch of the top-level OR must itself fold to one interval: a bare comparison, or a
+   * <p>
+   * Each branch of the top-level OR must itself fold to one interval: a bare comparison, or a
    * conjunction of comparisons ({@code (year ge 1950 and year le 1960) or year gt 1990}). Branches
-   * fold independently and the results are merged; overlapping or adjacent intervals coalesce, so
-   * the plan's intervals are disjoint and the page kernel may SUM their counts.
+   * fold independently and the results are merged; overlapping or adjacent intervals coalesce, so the
+   * plan's intervals are disjoint and the page kernel may SUM their counts.
    *
-   * <p>An unsatisfiable branch ({@code year gt 5 and year lt 3}) contributes nothing rather than
+   * <p>
+   * An unsatisfiable branch ({@code year gt 5 and year lt 3}) contributes nothing rather than
    * poisoning the disjunction — false is the identity of OR.
    */
   private static RegionCountPlan planNumericDisjunction(final CompiledPredicate cp) {
@@ -12453,11 +12933,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final BranchInterval iv = foldBranchInterval(cp, node);
       if (iv == null) {
-        return null;  // a branch that is not a pure numeric interval over field 0
+        return null; // a branch that is not a pure numeric interval over field 0
       }
       doublesServable &= iv.doublesServable();
       if (iv.isEmpty()) {
-        continue;  // unsatisfiable branch: contributes nothing to an OR
+        continue; // unsatisfiable branch: contributes nothing to an OR
       }
       if (iv.lo() <= iv.hi()) {
         intervals[n++] = iv.lo();
@@ -12473,8 +12953,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         decBranches.add(iv.dec());
       }
     }
-    return assembleDisjunctionPlan(intervals, n, dblIntervals, dn, doublesServable, decBranches,
-                                   decBranchesUsable);
+    return assembleDisjunctionPlan(intervals, n, dblIntervals, dn, doublesServable, decBranches, decBranchesUsable);
   }
 
   /** Merge the collected branch intervals into the plan the page kernels will run. */
@@ -12483,12 +12962,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final java.util.List<DecInterval> decBranches, final boolean decBranchesUsable) {
     if (n == 0 && dn == 0) {
       // Every branch unsatisfiable — provably empty, worth answering without any page read.
-      return RegionCountPlan.numericBoth(0L, -1L, Double.POSITIVE_INFINITY,
-                                        Double.NEGATIVE_INFINITY);
+      return RegionCountPlan.numericBoth(0L, -1L, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY);
     }
-    final long[] merged = n == 0 ? new long[] { 0L, -1L } : mergeIntervals(intervals, n);
-    final double[] dblMerged =
-        !doublesServable || dn == 0 ? null : mergeDblIntervals(dblIntervals, dn);
+    final long[] merged = n == 0
+        ? new long[] {0L, -1L}
+        : mergeIntervals(intervals, n);
+    final double[] dblMerged = !doublesServable || dn == 0
+        ? null
+        : mergeDblIntervals(dblIntervals, dn);
     if (merged.length == 2 && (dblMerged == null || dblMerged.length == 2)) {
       // Both unions collapsed to one interval: the ordinary single-interval machinery — zone-map
       // pre-decompression pruning included — serves it better than the multi path would.
@@ -12499,10 +12980,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // The unions need not collapse together — `le 1990 or ge 1991` is ONE long interval and TWO
     // double intervals, because 1990.5 satisfies neither branch — so a single-interval long union
     // still rides the multi path whenever the double union stayed split.
-    return RegionCountPlan.numericOr(merged, dblMerged,
-                                    decBranchesUsable && !decBranches.isEmpty()
-                                        ? decBranches.toArray(new DecInterval[0])
-                                        : null);
+    return RegionCountPlan.numericOr(merged, dblMerged, decBranchesUsable && !decBranches.isEmpty()
+        ? decBranches.toArray(new DecInterval[0])
+        : null);
   }
 
   /** Merge double (lo,hi) pairs into disjoint ascending pairs; overlap coalesces, gaps stay. */
@@ -12537,34 +13017,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     out[m++] = curLo;
     out[m++] = curHi;
-    return m == out.length ? out : Arrays.copyOf(out, m);
+    return m == out.length
+        ? out
+        : Arrays.copyOf(out, m);
   }
 
   /**
-   * One OR-branch folded over BOTH numeric columns: the long interval, and the double interval
-   * from the ORIGINAL thresholds — {@code gt 1990} is longs {@code >= 1991} but doubles
-   * {@code > 1990.0}, and only here, before the merge erases the open/closed distinction, can the
-   * double side still be told apart. A branch may also carry fractional (FP or exact-decimal)
-   * thresholds, folded the other way through floor/ceil.
+   * One OR-branch folded over BOTH numeric columns: the long interval, and the double interval from
+   * the ORIGINAL thresholds — {@code gt 1990} is longs {@code >= 1991} but doubles {@code > 1990.0},
+   * and only here, before the merge erases the open/closed distinction, can the double side still be
+   * told apart. A branch may also carry fractional (FP or exact-decimal) thresholds, folded the other
+   * way through floor/ceil.
    */
   /**
    * @param dec the branch's bounds in exact decimal space, or {@code null} when it has none the
    *        column can use — a conjunction of comparisons (whose intersection this fold does not
-   *        compute) or a threshold too wide to pack. A single {@code null} disables the decimal
-   *        union for the whole disjunction, which then keeps the record path: correct, not fast.
+   *        compute) or a threshold too wide to pack. A single {@code null} disables the decimal union
+   *        for the whole disjunction, which then keeps the record path: correct, not fast.
    */
-  private record BranchInterval(long lo, long hi, double dlo, double dhi,
-                                boolean doublesServable, @Nullable DecInterval dec) {
-    static final BranchInterval EMPTY = new BranchInterval(1L, 0L, Double.POSITIVE_INFINITY,
-                                                          Double.NEGATIVE_INFINITY, true, null);
+  private record BranchInterval(long lo, long hi, double dlo, double dhi, boolean doublesServable,
+      @Nullable DecInterval dec) {
+    static final BranchInterval EMPTY =
+        new BranchInterval(1L, 0L, Double.POSITIVE_INFINITY, Double.NEGATIVE_INFINITY, true, null);
 
     boolean isEmpty() {
       return lo > hi && dhi < dlo;
     }
   }
 
-  private static @Nullable BranchInterval foldBranchInterval(final CompiledPredicate cp,
-      final int node) {
+  private static @Nullable BranchInterval foldBranchInterval(final CompiledPredicate cp, final int node) {
     long lo = Long.MIN_VALUE;
     long hi = Long.MAX_VALUE;
     double dlo = Double.NEGATIVE_INFINITY;
@@ -12578,8 +13059,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (child == null) {
           return null;
         }
-        if (child.lo > lo) lo = child.lo;
-        if (child.hi < hi) hi = child.hi;
+        if (child.lo > lo)
+          lo = child.lo;
+        if (child.hi < hi)
+          hi = child.hi;
         dlo = Math.max(dlo, child.dlo);
         dhi = Math.min(dhi, child.dhi);
         doublesServable &= child.doublesServable;
@@ -12593,7 +13076,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (op == CompiledPredicate.OP_NUM_CMP) {
       final long t = cp.longLit[node];
       if (Math.abs(t) > (1L << 53)) {
-        doublesServable = false;  // the threshold's double image is inexact past 2^53
+        doublesServable = false; // the threshold's double image is inexact past 2^53
       }
       final double td = (double) t;
       switch (cp.cmpOp[node]) {
@@ -12606,7 +13089,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           dlo = Math.nextUp(td);
         }
-        case OP_GE -> { lo = t; dlo = td; }
+        case OP_GE -> {
+          lo = t;
+          dlo = td;
+        }
         case OP_LT -> {
           if (t == Long.MIN_VALUE) {
             lo = 1L;
@@ -12616,8 +13102,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           dhi = Math.nextDown(td);
         }
-        case OP_LE -> { hi = t; dhi = td; }
-        case OP_EQ -> { lo = t; hi = t; dlo = td; dhi = td; }
+        case OP_LE -> {
+          hi = t;
+          dhi = td;
+        }
+        case OP_EQ -> {
+          lo = t;
+          hi = t;
+          dlo = td;
+          dhi = td;
+        }
         default -> {
           return null;
         }
@@ -12660,24 +13154,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           floorExact = cp.decLit[node].setScale(0, RoundingMode.FLOOR).longValueExact();
           ceilExact = cp.decLit[node].setScale(0, RoundingMode.CEILING).longValueExact();
         } catch (final ArithmeticException e) {
-          return null;  // outside long range; the records answer
+          return null; // outside long range; the records answer
         }
       } else {
         floorExact = (long) Math.floor(t);
         ceilExact = (long) Math.ceil(t);
       }
       switch (cp.cmpOp[node]) {
-        case OP_GT -> { lo = floorExact + 1; dlo = Math.nextUp(t); }
-        case OP_GE -> { lo = ceilExact; dlo = t; }
-        case OP_LT -> { hi = ceilExact - 1; dhi = Math.nextDown(t); }
-        case OP_LE -> { hi = floorExact; dhi = t; }
+        case OP_GT -> {
+          lo = floorExact + 1;
+          dlo = Math.nextUp(t);
+        }
+        case OP_GE -> {
+          lo = ceilExact;
+          dlo = t;
+        }
+        case OP_LT -> {
+          hi = ceilExact - 1;
+          dhi = Math.nextDown(t);
+        }
+        case OP_LE -> {
+          hi = floorExact;
+          dhi = t;
+        }
         case OP_EQ -> {
           if (t == Math.rint(t)) {
             lo = (long) t;
             hi = (long) t;
           } else {
             lo = 1L;
-            hi = 0L;  // no long equals a fractional literal; the double point survives
+            hi = 0L; // no long equals a fractional literal; the double point survives
           }
           dlo = t;
           dhi = t;
@@ -12698,19 +13204,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Merge {@code intervals[0..n)} (lo,hi pairs) into disjoint ascending pairs.
    *
-   * <p>Adjacent intervals coalesce too — {@code [1,5]} and {@code [6,9]} are {@code [1,9]} over
-   * longs — with the {@code hi == Long.MAX_VALUE} successor guarded so adjacency cannot overflow.
+   * <p>
+   * Adjacent intervals coalesce too — {@code [1,5]} and {@code [6,9]} are {@code [1,9]} over longs —
+   * with the {@code hi == Long.MAX_VALUE} successor guarded so adjacency cannot overflow.
    */
   private static long[] mergeIntervals(final long[] intervals, final int n) {
     final long[] out = new long[n];
     final int m = mergeIntervalsInto(intervals, n, out) * 2;
-    return m == out.length ? out : Arrays.copyOf(out, m);
+    return m == out.length
+        ? out
+        : Arrays.copyOf(out, m);
   }
 
   /**
    * The merge itself, writing into a caller-owned buffer.
    *
-   * <p>Split out so the scan path can merge without allocating: the plan-time caller wants an
+   * <p>
+   * Split out so the scan path can merge without allocating: the plan-time caller wants an
    * exactly-sized array, the per-page decimal union wants a reused one, and only the former should
    * pay for a copy. {@code out} must hold {@code n} longs; {@code intervals[0..n)} is sorted in
    * place.
@@ -12739,7 +13249,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long l = intervals[i];
       final long h = intervals[i + 1];
       if (curHi != Long.MAX_VALUE && l <= curHi + 1 || curHi == Long.MAX_VALUE) {
-        if (h > curHi) curHi = h;
+        if (h > curHi)
+          curHi = h;
       } else {
         out[m++] = curLo;
         out[m++] = curHi;
@@ -12758,9 +13269,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Fields a fused plan will read.
    *
-   * <p>Bounded because every field costs a tag lookup, a completeness check and an alignment check
-   * per page, all of which are wasted on a page that then declines. Four covers the conjunctions
-   * that occur; beyond that, evaluating records is the better trade.
+   * <p>
+   * Bounded because every field costs a tag lookup, a completeness check and an alignment check per
+   * page, all of which are wasted on a page that then declines. Four covers the conjunctions that
+   * occur; beyond that, evaluating records is the better trade.
    */
   private static final int MAX_FUSED_FIELDS = 4;
 
@@ -12768,19 +13280,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fold a pure conjunction of numeric comparisons over {@code cp}'s field 0 into one inclusive
    * interval, or {@code null} when the predicate is any other shape.
    *
-   * <p>Split out of {@link #planRegionCount} so the group-by kernels can reuse it. They must not
-   * go through {@code planRegionCount} itself: that method is gated on
-   * {@code regionOnlyCountEnabled}, which is the count path's switch, and it also recognises
-   * string and boolean plans that a numeric selection kernel has no way to apply.
+   * <p>
+   * Split out of {@link #planRegionCount} so the group-by kernels can reuse it. They must not go
+   * through {@code planRegionCount} itself: that method is gated on {@code regionOnlyCountEnabled},
+   * which is the count path's switch, and it also recognises string and boolean plans that a numeric
+   * selection kernel has no way to apply.
    */
   /**
-   * Pack a folded decimal interval into {@code (unscaled, scale)} longs, or {@code null} when a
-   * side does not fit — a threshold whose unscaled value exceeds a {@code long}, or whose scale is
-   * beyond what the column can carry. {@code null} simply means ENC_DEC tags keep their record
-   * path; it is never an approximation.
+   * Pack a folded decimal interval into {@code (unscaled, scale)} longs, or {@code null} when a side
+   * does not fit — a threshold whose unscaled value exceeds a {@code long}, or whose scale is beyond
+   * what the column can carry. {@code null} simply means ENC_DEC tags keep their record path; it is
+   * never an approximation.
    */
-  private static @Nullable DecInterval decIntervalOf(
-      final @Nullable BigDecimal lo, final boolean loStrict,
+  private static @Nullable DecInterval decIntervalOf(final @Nullable BigDecimal lo, final boolean loStrict,
       final @Nullable BigDecimal hi, final boolean hiStrict) {
     long loUnscaled = 0L;
     int loScale = 0;
@@ -12815,25 +13327,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!loBounded && !hiBounded) {
       return null;
     }
-    return new DecInterval(loBounded, loUnscaled, loScale, loStrict,
-                                           hiBounded, hiUnscaled, hiScale, hiStrict);
+    return new DecInterval(loBounded, loUnscaled, loScale, loStrict, hiBounded, hiUnscaled, hiScale, hiStrict);
   }
 
   /**
    * The inclusive integer bound, at a tag's decimal scale {@code e}, for one side of a decimal
    * interval — exact, by integer arithmetic only.
    *
-   * <p>Lifting a threshold to a FINER scale is a multiplication and loses nothing. Dropping it to a
+   * <p>
+   * Lifting a threshold to a FINER scale is a multiplication and loses nothing. Dropping it to a
    * COARSER one cannot be exact, so the bound is rounded in the direction that preserves the
    * predicate: a lower bound rounds up, an upper bound rounds down, and a remainder in the dropped
-   * digits absorbs the strictness ({@code v > 10.25} at scale 1 is {@code I >= 103}, because a
-   * value of 102 tenths is 10.2 and fails). Returns the saturating extreme when the threshold
-   * cannot be represented at all, which is the correct unbounded answer for that side.
+   * digits absorbs the strictness ({@code v > 10.25} at scale 1 is {@code I >= 103}, because a value
+   * of 102 tenths is 10.2 and fails). Returns the saturating extreme when the threshold cannot be
+   * represented at all, which is the correct unbounded answer for that side.
    *
    * @param lower whether this is the lower side of the interval
    */
-  private static long decBoundAtScale(final long unscaled, final int scale, final boolean strict,
-      final int e, final boolean lower) {
+  private static long decBoundAtScale(final long unscaled, final int scale, final boolean strict, final int e,
+      final boolean lower) {
     if (e >= scale) {
       final int lift = e - scale;
       final long f = POW10_EXACT[lift];
@@ -12841,7 +13353,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Out of the tag's reach, and WHICH extreme says so is fixed by the threshold's SIGN, not
         // by the side: a threshold above every representable value is +inf for both sides (nothing
         // is >= it, everything is <= it) and one below every value is -inf for both.
-        return unscaled > 0L ? Long.MAX_VALUE : Long.MIN_VALUE;
+        return unscaled > 0L
+            ? Long.MAX_VALUE
+            : Long.MIN_VALUE;
       }
       final long at = unscaled * f;
       // Exact at this scale, so strictness moves the bound by exactly one representable step —
@@ -12850,9 +13364,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return at;
       }
       if (lower) {
-        return at == Long.MAX_VALUE ? Long.MAX_VALUE : at + 1;
+        return at == Long.MAX_VALUE
+            ? Long.MAX_VALUE
+            : at + 1;
       }
-      return at == Long.MIN_VALUE ? Long.MIN_VALUE : at - 1;
+      return at == Long.MIN_VALUE
+          ? Long.MIN_VALUE
+          : at - 1;
     }
     final long f = POW10_EXACT[scale - e];
     final long q = Math.floorDiv(unscaled, f);
@@ -12860,30 +13378,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (lower) {
       // Smallest I with I/10^e >= t (or > t): ceil, then step once more only when the threshold
       // lands exactly on a representable value AND the comparison is strict.
-      final long ceil = hasRemainder ? q + 1 : q;
-      return !hasRemainder && strict ? ceil + 1 : ceil;
+      final long ceil = hasRemainder
+          ? q + 1
+          : q;
+      return !hasRemainder && strict
+          ? ceil + 1
+          : ceil;
     }
     // Largest I with I/10^e <= t (or < t): floor, stepping down only on an exact strict bound.
-    return !hasRemainder && strict ? q - 1 : q;
+    return !hasRemainder && strict
+        ? q - 1
+        : q;
   }
 
   /** Exact powers of ten as longs, indexed by exponent; mirrors DoubleRegion's own table. */
-  private static final long[] POW10_EXACT = {
-      1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L,
-      1_000_000_000L, 10_000_000_000L, 100_000_000_000L, 1_000_000_000_000L, 10_000_000_000_000L,
-      100_000_000_000_000L
-  };
+  private static final long[] POW10_EXACT =
+      {1L, 10L, 100L, 1_000L, 10_000L, 100_000L, 1_000_000L, 10_000_000L, 100_000_000L, 1_000_000_000L, 10_000_000_000L,
+          100_000_000_000L, 1_000_000_000_000L, 10_000_000_000_000L, 100_000_000_000_000L};
 
   /**
    * Folds a conjunction of comparisons into one interval in EXACT decimal space.
    *
-   * <p>Plan-time only — one instance per predicate branch, never touched on the scan path — so
-   * {@link BigDecimal} is the right representation here: it compares across scales
-   * without normalising, which is what tightening an interval from mixed literals needs. The
-   * result is packed into {@code (unscaled, scale)} longs before it reaches the plan.
+   * <p>
+   * Plan-time only — one instance per predicate branch, never touched on the scan path — so
+   * {@link BigDecimal} is the right representation here: it compares across scales without
+   * normalising, which is what tightening an interval from mixed literals needs. The result is packed
+   * into {@code (unscaled, scale)} longs before it reaches the plan.
    *
-   * <p>Each side keeps its threshold and STRICTNESS rather than a pre-adjusted inclusive bound:
-   * the inclusive bound depends on the tag's scale, which is not known until a page is read.
+   * <p>
+   * Each side keeps its threshold and STRICTNESS rather than a pre-adjusted inclusive bound: the
+   * inclusive bound depends on the tag's scale, which is not known until a page is read.
    */
   private static final class DecFold {
     private @Nullable BigDecimal lo;
@@ -12931,9 +13455,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /**
-     * Intersect with an already-packed interval — how a conjunction of branches folds. Unpacking
-     * to {@link BigDecimal} is exact ({@code valueOf(unscaled, scale)} is lossless), and
-     * happens once per branch at plan time.
+     * Intersect with an already-packed interval — how a conjunction of branches folds. Unpacking to
+     * {@link BigDecimal} is exact ({@code valueOf(unscaled, scale)} is lossless), and happens once per
+     * branch at plan time.
      */
     void intersect(final @Nullable DecInterval other) {
       if (!usable) {
@@ -12944,35 +13468,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return;
       }
       if (other.loBounded()) {
-        apply(other.loStrict() ? OP_GT : OP_GE,
-              BigDecimal.valueOf(other.loUnscaled(), other.loScale()));
+        apply(other.loStrict()
+            ? OP_GT
+            : OP_GE, BigDecimal.valueOf(other.loUnscaled(), other.loScale()));
       }
       if (other.hiBounded()) {
-        apply(other.hiStrict() ? OP_LT : OP_LE,
-              BigDecimal.valueOf(other.hiUnscaled(), other.hiScale()));
+        apply(other.hiStrict()
+            ? OP_LT
+            : OP_LE, BigDecimal.valueOf(other.hiUnscaled(), other.hiScale()));
       }
     }
 
     /** The packed interval, or {@code null} when unusable or not representable as longs. */
-    @Nullable DecInterval toInterval() {
-      return usable ? decIntervalOf(lo, loStrict, hi, hiStrict) : null;
+    @Nullable
+    DecInterval toInterval() {
+      return usable
+          ? decIntervalOf(lo, loStrict, hi, hiStrict)
+          : null;
     }
   }
 
   /**
-   * The three parallel interval accumulators a numeric fold narrows leaf by leaf: the long
-   * column's, the double column's, and — through {@link DecFold} — the exact-decimal one.
+   * The three parallel interval accumulators a numeric fold narrows leaf by leaf: the long column's,
+   * the double column's, and — through {@link DecFold} — the exact-decimal one.
    *
-   * <p>An object rather than six locals because folding ONE leaf has to narrow all three at once,
-   * so they cannot be split across the per-shape helpers otherwise. Built once per query, never on
-   * a scan path.
+   * <p>
+   * An object rather than six locals because folding ONE leaf has to narrow all three at once, so
+   * they cannot be split across the per-shape helpers otherwise. Built once per query, never on a
+   * scan path.
    *
-   * <p>The double side closes open bounds via nextUp/nextDown, which is exact for finite doubles.
+   * <p>
+   * The double side closes open bounds via nextUp/nextDown, which is exact for finite doubles.
    * Thresholds past 2^53 lose integer exactness in double space, so the double side declines there
    * rather than admitting an off-by-one at the boundary — those pages simply keep the record path
    * they had. The decimal side exists for ENC_DEC tags, whose integers are decimals rather than a
-   * recoding of doubles and which therefore refuse a double bound; the plan carries it as
-   * (unscaled, scale) longs so the per-tag conversion is integer arithmetic.
+   * recoding of doubles and which therefore refuse a double bound; the plan carries it as (unscaled,
+   * scale) longs so the per-tag conversion is integer arithmetic.
    */
   private static final class NumFold {
     long lo = Long.MIN_VALUE;
@@ -12990,10 +13521,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     RegionCountPlan toPlan() {
-      return RegionCountPlan.numericBoth(lo, hi,
-                                         doublesServable ? dlo : RegionCountPlan.DOUBLES_UNSERVABLE,
-                                         doublesServable ? dhi : 0.0d,
-                                         dec.toInterval());
+      return RegionCountPlan.numericBoth(lo, hi, doublesServable
+          ? dlo
+          : RegionCountPlan.DOUBLES_UNSERVABLE,
+          doublesServable
+              ? dhi
+              : 0.0d,
+          dec.toInterval());
     }
   }
 
@@ -13018,7 +13552,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final double t = foldedFractionalThreshold(cp, i, f);
       if (Double.isNaN(t)) {
-        return null;  // NaN matches nothing anywhere; magnitudes near Long range are edge soup
+        return null; // NaN matches nothing anywhere; magnitudes near Long range are edge soup
       }
       // `doublesServable` is CUMULATIVE: an earlier leaf may already have dropped the double side,
       // and a decimal leaf then folds the long side from its exact literal rather than its image.
@@ -13036,8 +13570,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Narrow all three intervals by an integral comparison; {@code false} refuses the predicate. */
-  private static boolean foldIntegralLeaf(final CompiledPredicate cp, final int i,
-      final NumFold f) {
+  private static boolean foldIntegralLeaf(final CompiledPredicate cp, final int i, final NumFold f) {
     final long t = cp.longLit[i];
     if (Math.abs(t) > (1L << 53)) {
       f.doublesServable = false;
@@ -13046,18 +13579,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     switch (cp.cmpOp[i]) {
       case OP_GT -> {
         // t == Long.MAX_VALUE has no LONG successor, but a double still can exceed it.
-        if (t == Long.MAX_VALUE) { f.emptyLongs(); } else if (t + 1 > f.lo) f.lo = t + 1;
+        if (t == Long.MAX_VALUE) {
+          f.emptyLongs();
+        } else if (t + 1 > f.lo)
+          f.lo = t + 1;
         f.dlo = Math.max(f.dlo, Math.nextUp(td));
       }
-      case OP_GE -> { if (t > f.lo) f.lo = t; f.dlo = Math.max(f.dlo, td); }
+      case OP_GE -> {
+        if (t > f.lo)
+          f.lo = t;
+        f.dlo = Math.max(f.dlo, td);
+      }
       case OP_LT -> {
-        if (t == Long.MIN_VALUE) { f.emptyLongs(); } else if (t - 1 < f.hi) f.hi = t - 1;
+        if (t == Long.MIN_VALUE) {
+          f.emptyLongs();
+        } else if (t - 1 < f.hi)
+          f.hi = t - 1;
         f.dhi = Math.min(f.dhi, Math.nextDown(td));
       }
-      case OP_LE -> { if (t < f.hi) f.hi = t; f.dhi = Math.min(f.dhi, td); }
+      case OP_LE -> {
+        if (t < f.hi)
+          f.hi = t;
+        f.dhi = Math.min(f.dhi, td);
+      }
       case OP_EQ -> {
-        if (t > f.lo) f.lo = t;
-        if (t < f.hi) f.hi = t;
+        if (t > f.lo)
+          f.lo = t;
+        if (t < f.hi)
+          f.hi = t;
         f.dlo = Math.max(f.dlo, td);
         f.dhi = Math.min(f.dhi, td);
       }
@@ -13071,20 +13620,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * The fractional threshold of leaf {@code i} as a double, or {@code NaN} when the predicate
-   * cannot be folded at all. Drops the double side as a side effect when a decimal literal has no
-   * faithful double image.
+   * The fractional threshold of leaf {@code i} as a double, or {@code NaN} when the predicate cannot
+   * be folded at all. Drops the double side as a side effect when a decimal literal has no faithful
+   * double image.
    *
-   * <p>{@code gt 19.99} is the ordinary case there, since only dyadic rationals survive the
-   * conversion. That used to abandon the whole plan. It need only abandon the DOUBLE side: a tag
-   * whose integers recode doubles cannot be decided by a threshold that is not one of those
-   * doubles, but an exact-decimal tag can, and the long side then folds from the literal itself.
+   * <p>
+   * {@code gt 19.99} is the ordinary case there, since only dyadic rationals survive the conversion.
+   * That used to abandon the whole plan. It need only abandon the DOUBLE side: a tag whose integers
+   * recode doubles cannot be decided by a threshold that is not one of those doubles, but an
+   * exact-decimal tag can, and the long side then folds from the literal itself.
    */
-  private static double foldedFractionalThreshold(final CompiledPredicate cp, final int i,
-      final NumFold f) {
+  private static double foldedFractionalThreshold(final CompiledPredicate cp, final int i, final NumFold f) {
     if (cp.ops[i] == CompiledPredicate.OP_FP_CMP) {
       final double t = cp.dblLit[i];
-      return Math.abs(t) >= 9.0e18 ? Double.NaN : t;
+      return Math.abs(t) >= 9.0e18
+          ? Double.NaN
+          : t;
     }
     final BigDecimal dec = cp.decLit[i];
     if (dec == null) {
@@ -13097,19 +13648,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (dec.compareTo(new BigDecimal(image)) != 0) {
       f.doublesServable = false;
     }
-    return Math.abs(image) >= 9.0e18 ? Double.NaN : image;
+    return Math.abs(image) >= 9.0e18
+        ? Double.NaN
+        : image;
   }
 
   /**
    * Narrow the long and decimal intervals by an EXACT decimal comparison, the double side having
    * already been dropped.
    *
-   * <p>Deriving the long bound from the rounded image would be wrong at an integer boundary: a
-   * literal a hair under 1001 whose image rounds up to 1001.0 gives floor 1001 instead of 1000,
-   * admitting a long the predicate excludes.
+   * <p>
+   * Deriving the long bound from the rounded image would be wrong at an integer boundary: a literal a
+   * hair under 1001 whose image rounds up to 1001.0 gives floor 1001 instead of 1000, admitting a
+   * long the predicate excludes.
    */
-  private static boolean foldExactDecimalLeaf(final CompiledPredicate cp, final int i,
-      final NumFold f) {
+  private static boolean foldExactDecimalLeaf(final CompiledPredicate cp, final int i, final NumFold f) {
     final BigDecimal dec = cp.decLit[i];
     final long floorExact;
     final long ceilExact;
@@ -13117,19 +13670,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       floorExact = dec.setScale(0, RoundingMode.FLOOR).longValueExact();
       ceilExact = dec.setScale(0, RoundingMode.CEILING).longValueExact();
     } catch (final ArithmeticException e) {
-      return false;  // outside long range; the records answer
+      return false; // outside long range; the records answer
     }
     switch (cp.cmpOp[i]) {
-      case OP_GT -> { if (floorExact + 1 > f.lo) f.lo = floorExact + 1; }
-      case OP_GE -> { if (ceilExact > f.lo) f.lo = ceilExact; }
-      case OP_LT -> { if (ceilExact - 1 < f.hi) f.hi = ceilExact - 1; }
-      case OP_LE -> { if (floorExact < f.hi) f.hi = floorExact; }
+      case OP_GT -> {
+        if (floorExact + 1 > f.lo)
+          f.lo = floorExact + 1;
+      }
+      case OP_GE -> {
+        if (ceilExact > f.lo)
+          f.lo = ceilExact;
+      }
+      case OP_LT -> {
+        if (ceilExact - 1 < f.hi)
+          f.hi = ceilExact - 1;
+      }
+      case OP_LE -> {
+        if (floorExact < f.hi)
+          f.hi = floorExact;
+      }
       case OP_EQ -> {
         if (floorExact == ceilExact) {
-          if (floorExact > f.lo) f.lo = floorExact;
-          if (floorExact < f.hi) f.hi = floorExact;
+          if (floorExact > f.lo)
+            f.lo = floorExact;
+          if (floorExact < f.hi)
+            f.hi = floorExact;
         } else {
-          f.emptyLongs();  // no long equals a fractional literal; the decimal side stays live
+          f.emptyLongs(); // no long equals a fractional literal; the decimal side stays live
         }
       }
       default -> {
@@ -13142,40 +13709,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Narrow all three intervals by a fractional comparison. The long side folds through floor/ceil
-   * — {@code v > 1990.5} for a long v is {@code v >= 1991} — and the double side takes the
-   * threshold as written. This is what finally serves {@code $u.year gt 1990.5} from columns.
+   * Narrow all three intervals by a fractional comparison. The long side folds through floor/ceil —
+   * {@code v > 1990.5} for a long v is {@code v >= 1991} — and the double side takes the threshold as
+   * written. This is what finally serves {@code $u.year gt 1990.5} from columns.
    */
-  private static boolean foldFractionalLeaf(final CompiledPredicate cp, final int i, final double t,
-      final NumFold f) {
+  private static boolean foldFractionalLeaf(final CompiledPredicate cp, final int i, final double t, final NumFold f) {
     switch (cp.cmpOp[i]) {
       case OP_GT -> {
         final long floor = (long) Math.floor(t);
-        if (floor + 1 > f.lo) f.lo = floor + 1;
+        if (floor + 1 > f.lo)
+          f.lo = floor + 1;
         f.dlo = Math.max(f.dlo, Math.nextUp(t));
       }
       case OP_GE -> {
         final long ceil = (long) Math.ceil(t);
-        if (ceil > f.lo) f.lo = ceil;
+        if (ceil > f.lo)
+          f.lo = ceil;
         f.dlo = Math.max(f.dlo, t);
       }
       case OP_LT -> {
         final long ceil = (long) Math.ceil(t);
-        if (ceil - 1 < f.hi) f.hi = ceil - 1;
+        if (ceil - 1 < f.hi)
+          f.hi = ceil - 1;
         f.dhi = Math.min(f.dhi, Math.nextDown(t));
       }
       case OP_LE -> {
         final long floor = (long) Math.floor(t);
-        if (floor < f.hi) f.hi = floor;
+        if (floor < f.hi)
+          f.hi = floor;
         f.dhi = Math.min(f.dhi, t);
       }
       case OP_EQ -> {
         if (t == Math.rint(t)) {
           final long v = (long) t;
-          if (v > f.lo) f.lo = v;
-          if (v < f.hi) f.hi = v;
+          if (v > f.lo)
+            f.lo = v;
+          if (v < f.hi)
+            f.hi = v;
         } else {
-          f.emptyLongs();  // no LONG equals a fractional literal; the double side stays live
+          f.emptyLongs(); // no LONG equals a fractional literal; the double side stays live
         }
         f.dlo = Math.max(f.dlo, t);
         f.dhi = Math.min(f.dhi, t);
@@ -13187,8 +13759,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // The threshold's EXACT value: the literal itself for a decimal, and for a double literal its
     // exact binary value, which is what the predicate actually means. A wide binary expansion just
     // fails the long fit in DecFold, dropping the decimal side; the tag then keeps its record path.
-    f.dec.apply(cp.cmpOp[i],
-                cp.ops[i] == CompiledPredicate.OP_DEC_CMP ? cp.decLit[i] : new BigDecimal(t));
+    f.dec.apply(cp.cmpOp[i], cp.ops[i] == CompiledPredicate.OP_DEC_CMP
+        ? cp.decLit[i]
+        : new BigDecimal(t));
     f.sawCmp = true;
     return true;
   }
@@ -13197,12 +13770,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The numeric interval a region group-by page kernel may apply itself, or {@code null} when the
    * predicate must be evaluated per record.
    *
-   * <p>Only one shape qualifies, and the restriction is what makes it sound: the predicate must be
-   * a conjunction of numeric comparisons over <em>the group-by field itself</em>. Then the filter
-   * and the group key read the same tag of the same number region, so the surviving positions are
-   * the values to tally — no record identity is involved and nothing has to be joined across
-   * columns. A predicate on any other field would need to know which record each value belongs to,
-   * which the per-field PAX regions do not record.
+   * <p>
+   * Only one shape qualifies, and the restriction is what makes it sound: the predicate must be a
+   * conjunction of numeric comparisons over <em>the group-by field itself</em>. Then the filter and
+   * the group key read the same tag of the same number region, so the surviving positions are the
+   * values to tally — no record identity is involved and nothing has to be joined across columns. A
+   * predicate on any other field would need to know which record each value belongs to, which the
+   * per-field PAX regions do not record.
    *
    * @param cp the compiled predicate, whose field 0 is the scan anchor
    * @param groupIdxs indices into {@code cp.fieldNames} of the group-by fields, in query order
@@ -13216,20 +13790,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // An unbounded interval means the predicate constrains nothing, which cannot happen for a
     // predicate that reached here; treat it as "no filter to apply" rather than silently claiming
     // to have applied one.
-    return plan != null && !plan.isUnbounded() ? plan : null;
+    return plan != null && !plan.isUnbounded()
+        ? plan
+        : null;
   }
 
   /**
-   * Count this page's matches straight out of its number region, or return {@code -1} to say the
-   * page must go through the record path.
+   * Count this page's matches straight out of its number region, or return {@code -1} to say the page
+   * must go through the record path.
    *
-   * <h2>The completeness oracle</h2>
-   * The number region carries only {@code long}-typed values under a tag that is the parent's
-   * pathNodeKey. So a tag's value range is the full answer for this page <em>iff</em> the tag
-   * holds exactly as many values as the page has slots named after the anchor field. If one slot
-   * held a double, or sat under a different path, the counts differ and this method refuses the
-   * page rather than under-counting it. That is the same rule the zone-map pruner applies, for the
-   * same reason — and it is why a wrong answer here is not merely unlikely but excluded.
+   * <h2>The completeness oracle</h2> The number region carries only {@code long}-typed values under a
+   * tag that is the parent's pathNodeKey. So a tag's value range is the full answer for this page
+   * <em>iff</em> the tag holds exactly as many values as the page has slots named after the anchor
+   * field. If one slot held a double, or sat under a different path, the counts differ and this
+   * method refuses the page rather than under-counting it. That is the same rule the zone-map pruner
+   * applies, for the same reason — and it is why a wrong answer here is not merely unlikely but
+   * excluded.
    *
    * @param page the page's regions
    * @param plan the folded interval
@@ -13252,11 +13828,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int anchorSlots = ObjectKeyNameKeyRegion.countMatchingSlots(nameKeys, anchorNameKey);
     outAnchorSlots[0] = anchorSlots;
     if (anchorSlots == 0) {
-      return 0L;  // field absent from this page — no matches, nothing to fall back for
+      return 0L; // field absent from this page — no matches, nothing to fall back for
     }
     if (plan.isBool()) {
-      return countPageFromBooleanRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
-                                        scratch);
+      return countPageFromBooleanRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
     }
     if (plan.isFused()) {
       // The TREE first for a multi-leaf conjunction, the hand-fused kernel behind it. Both compose
@@ -13266,81 +13841,83 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // disjunction — be served rather than refused. It also short-circuits: a conjunct that
       // selects nothing means the next field's column is never read, which the fused kernel cannot
       // express because its fusion requires every leaf's column up front.
-      final long viaTree = countPageViaTree(page, plan, anchorNameKey, anchorPathNodeKey, scratch,
-                                            reader);
+      final long viaTree = countPageViaTree(page, plan, anchorNameKey, anchorPathNodeKey, scratch, reader);
       if (viaTree >= 0L) {
         REGION_TREE_PAGES.increment();
         return viaTree;
       }
-      return countPageFromFusedRegions(page, plan, anchorNameKey, anchorPathNodeKey, scratch,
-                                       reader);
+      return countPageFromFusedRegions(page, plan, anchorNameKey, anchorPathNodeKey, scratch, reader);
     }
     return plan.isString()
-        ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
-                                    scratch, reader)
+        ? countPageFromStringRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch, reader)
         : countPageFromNumberRegion(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
   }
 
   /**
    * Count rows satisfying a numeric interval AND a boolean flag, from the two columns alone.
    *
-   * <p>This is {@link io.sirix.page.pax.BooleanRegionSimd#andInto}'s caller, and the thing that made
-   * it possible is {@link RecordOrdinalRegion}. Fusing two columns means intersecting row sets, and
-   * a row set is only meaningful if position {@code i} of the number column and position {@code i}
-   * of the bit column are the same record. Nothing in the per-field layout said so, and it is not
+   * <p>
+   * This is {@link io.sirix.page.pax.BooleanRegionSimd#andInto}'s caller, and the thing that made it
+   * possible is {@link RecordOrdinalRegion}. Fusing two columns means intersecting row sets, and a
+   * row set is only meaningful if position {@code i} of the number column and position {@code i} of
+   * the bit column are the same record. Nothing in the per-field layout said so, and it is not
    * inferable — a page of records {@code (a,c)} and {@code (b,d)} has a perfectly regular field-name
    * sequence in which the k-th {@code a} and the k-th {@code b} sit in different records.
    *
    * <h2>The certificate</h2>
    *
-   * <p>Rather than assume the alignment, both columns are checked against the stored linkage: past
-   * each field's share of the page's skip prefix, its OBJECT_KEY slots must map to record ordinals
-   * {@code 0..R-1} in order ({@link RecordOrdinalRegion#alignedLead}). When both pass, each
-   * column — shifted by its own lead — enumerates every record on the page exactly once in record
-   * order, so position {@code lead + i} of either IS record {@code i} and the intersection is
-   * positional with no permutation between them. When either fails — a field missing from a
-   * record, occurring twice, or interleaved out of record order — the page goes through the
-   * records. The check costs one bit-unpack per row against the ~300 ns per row a reconstruction
-   * costs, so it is worth paying even to be told no.
+   * <p>
+   * Rather than assume the alignment, both columns are checked against the stored linkage: past each
+   * field's share of the page's skip prefix, its OBJECT_KEY slots must map to record ordinals
+   * {@code 0..R-1} in order ({@link RecordOrdinalRegion#alignedLead}). When both pass, each column —
+   * shifted by its own lead — enumerates every record on the page exactly once in record order, so
+   * position {@code lead + i} of either IS record {@code i} and the intersection is positional with
+   * no permutation between them. When either fails — a field missing from a record, occurring twice,
+   * or interleaved out of record order — the page goes through the records. The check costs one
+   * bit-unpack per row against the ~300 ns per row a reconstruction costs, so it is worth paying even
+   * to be told no.
    *
    * <h2>Records straddling the page seams</h2>
    *
-   * <p>What a page owes is a verdict on every occurrence of the ANCHOR field it holds — that is
-   * the record path's unit of attribution, and both paths must agree on it. Records straddle page
+   * <p>
+   * What a page owes is a verdict on every occurrence of the ANCHOR field it holds — that is the
+   * record path's unit of attribution, and both paths must agree on it. Records straddle page
    * boundaries freely (a slot is a node key's offset, and nothing aligns records to pages), which
-   * splits a page's anchor occurrences three ways: at most one inside the skip prefix, belonging
-   * to the record spanning in from the previous page; a window of {@code m} occurrences
-   * enumerating this page's records {@code 0..m-1}; and none for the trailing partial records,
-   * whose object nodes sit at this page's tail but whose anchor occurrences open the NEXT page's
-   * prefix. The window is served by the columns. The trailing records are not this page's to
-   * count at all. And the prefix occurrence is handed back to the caller as a pending slot — its
-   * record's other values sit on the previous page, out of any column's reach — to be decided
-   * through the records: one reconstruction per page seam, the boundary-row patch a row-group
-   * engine applies at exactly this point, against the two-hundred-odd reconstructions serving the
-   * page columnar just avoided.
+   * splits a page's anchor occurrences three ways: at most one inside the skip prefix, belonging to
+   * the record spanning in from the previous page; a window of {@code m} occurrences enumerating this
+   * page's records {@code 0..m-1}; and none for the trailing partial records, whose object nodes sit
+   * at this page's tail but whose anchor occurrences open the NEXT page's prefix. The window is
+   * served by the columns. The trailing records are not this page's to count at all. And the prefix
+   * occurrence is handed back to the caller as a pending slot — its record's other values sit on the
+   * previous page, out of any column's reach — to be decided through the records: one reconstruction
+   * per page seam, the boundary-row patch a row-group engine applies at exactly this point, against
+   * the two-hundred-odd reconstructions serving the page columnar just avoided.
    *
    * <h2>The pass</h2>
    *
-   * <p>The number column produces the surviving rows as a bitmap via
+   * <p>
+   * The number column produces the surviving rows as a bitmap via
    * {@link NumberRegionSimd#selectMatching}, then the bit column is AND-ed into it in place and the
-   * popcount falls out of the same loop. Neither side is ever materialized as a list of row ids —
-   * the shape DuckDB, Umbra and ClickHouse all converge on for a multi-column filter.
+   * popcount falls out of the same loop. Neither side is ever materialized as a list of row ids — the
+   * shape DuckDB, Umbra and ClickHouse all converge on for a multi-column filter.
    *
    * @return the match count, or {@code -1} when the page must go through the records
    */
   /**
    * Count a page by evaluating the predicate TREE into a selection bitmap.
    *
-   * <p>The general route for COMPOSITION, within the shapes a plan already exists for. Each leaf
-   * answers in its own encoded domain — a FOR+bit-packed range over the packed integers, a
-   * dictionary equality over codes, the boolean column read as the bitmap it already is — and
+   * <p>
+   * The general route for COMPOSITION, within the shapes a plan already exists for. Each leaf answers
+   * in its own encoded domain — a FOR+bit-packed range over the packed integers, a dictionary
+   * equality over codes, the boolean column read as the bitmap it already is — and
    * {@code And}/{@code Or}/{@code Not} are word operations over the results. Only ALP-RD, whose
    * bit-split is not order-preserving, decodes, and only its own tag. What this removes is the
    * hand-written fusion per encoding, not the planner's own reach: the route is attached to a
    * {@link RegionCountPlan} and reached only through one, so a predicate {@code planRegionCount}
    * cannot flatten at all — a multi-field disjunction, say — still takes the record path.
    *
-   * <p>The geometry is the fused kernel's, for the same reasons documented there: the record-ordinal
+   * <p>
+   * The geometry is the fused kernel's, for the same reasons documented there: the record-ordinal
    * linkage is decoded once per page, the anchor's occurrences fix the window {@code [0, m)}, a
    * single spanning occurrence in the skip prefix is handed back as a pending slot for the record
    * path, and every leaf's column must account for exactly the field's occurrences or the page is
@@ -13348,9 +13925,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return the match count, or {@code -1} when this page cannot answer the tree
    */
-  private static long countPageViaTree(final RegionsOnlyPage page, final RegionCountPlan plan,
-      final int anchorNameKey, final long anchorPathNodeKey, final RegionHeaderScratch scratch,
-      final StorageEngineReader reader) {
+  private static long countPageViaTree(final RegionsOnlyPage page, final RegionCountPlan plan, final int anchorNameKey,
+      final long anchorPathNodeKey, final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     final TreeRoute route = plan.treeRoute();
     if (route == null) {
       return -1L;
@@ -13362,7 +13938,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final RecordOrdinalRegion.Header oh = page.recordOrdinalInto(scratch.recordOrdinal);
     if (oh == null || oh.recordCount == 0) {
-      return -1L;  // no linkage: columns readable individually, still not intersectable
+      return -1L; // no linkage: columns readable individually, still not intersectable
     }
     final MemorySegment ordinals = page.regionPayload(RegionTable.KIND_RECORD_ORDINAL);
     if (oh.recordCount > Constants.NDP_NODE_COUNT || oh.okCount > scratch.numberBitmapIdx.length) {
@@ -13372,10 +13948,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return declineFused(FusedDecline.ORDINALS_UNDECODABLE);
     }
     final int anchorMatched =
-        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey,
-                                                        scratch.numberBitmapIdx);
-    final int anchorLead =
-        RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, scratch.numberBitmapIdx);
+    final int anchorLead = RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
     if (anchorLead > 1) {
       return -1L;
     }
@@ -13400,16 +13974,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // field's occurrence i is record i while row i is the i-th record the ANCHOR carries. The
     // anchor's leaf used to catch this by failing its own certificate and refusing the page;
     // scattering it means the check has to be made where it is actually used.
-    final boolean identityRows = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
-                                                                 scratch.numberBitmapIdx,
-                                                                 anchorMatched, m) >= 0;
-    final PageLeafSelector leaves = new PageLeafSelector(page, route, nameKeys, oh, m,
-                                                        anchorNameKey, anchorPathNodeKey,
-                                                        anchorMatched, anchorLead, identityRows,
-                                                        scratch, reader);
+    final boolean identityRows =
+        RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh, scratch.numberBitmapIdx, anchorMatched, m) >= 0;
+    final PageLeafSelector leaves = new PageLeafSelector(page, route, nameKeys, oh, m, anchorNameKey, anchorPathNodeKey,
+        anchorMatched, anchorLead, identityRows, scratch, reader);
     final long[] out = scratch.fusedRows;
     if (!new PredicateBitmapEvaluator(leaves).evaluate(route.tree(), out)) {
-      scratch.clearPendingBoundary();  // the page is not ours after all; retract the handoffs
+      scratch.clearPendingBoundary(); // the page is not ours after all; retract the handoffs
       return -1L;
     }
     if (leaves.scattered()) {
@@ -13426,31 +13997,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Give the record path the one record a scattered leaf could not settle, and take its row out of
    * the columnar answer.
    *
-   * <p>Only ever the page's LAST record. Node keys are creation order and a record's subtree is a
+   * <p>
+   * Only ever the page's LAST record. Node keys are creation order and a record's subtree is a
    * contiguous key range, so of the records this page opens exactly one can still be open when the
-   * page ends — the last — and only its fields can continue at the head of the next page. For a
-   * DENSE field that never has to be asked: a field missing from any record inside the window fails
-   * the alignment certificate and the whole page goes to the records. A scattered field is
-   * precisely one that misses records, so absence carries no information about the seam and the
-   * record has to be decided where its whole shape is visible. One reconstruction per page, against
-   * the two-hundred-odd this arm saves.
+   * page ends — the last — and only its fields can continue at the head of the next page. For a DENSE
+   * field that never has to be asked: a field missing from any record inside the window fails the
+   * alignment certificate and the whole page goes to the records. A scattered field is precisely one
+   * that misses records, so absence carries no information about the seam and the record has to be
+   * decided where its whole shape is visible. One reconstruction per page, against the
+   * two-hundred-odd this arm saves.
    *
-   * <p>Nothing to do when the anchor does not carry that record (its row is {@code -1}: it is not
+   * <p>
+   * Nothing to do when the anchor does not carry that record (its row is {@code -1}: it is not
    * counted here at all) or when some scattered leaf did hold a value for it — then the columns saw
    * the field and the seam is irrelevant.
    *
    * @return {@code false} when the record could not be handed over, so the page must be refused
    *         rather than answered with a row nobody decided
    */
-  private static boolean handOffTrailingRecord(final PageLeafSelector leaves,
-      final MemorySegment nameKeys, final long[] out, final int m,
-      final RegionHeaderScratch scratch) {
+  private static boolean handOffTrailingRecord(final PageLeafSelector leaves, final MemorySegment nameKeys,
+      final long[] out, final int m, final RegionHeaderScratch scratch) {
     final int row = leaves.openTrailingRow();
     if (row < 0) {
       return true;
     }
     final int anchorIdx = leaves.trailingAnchorBitmapIdx();
-    final int slot = anchorIdx < 0 ? -1 : ObjectKeyNameKeyRegion.slotAt(nameKeys, anchorIdx);
+    final int slot = anchorIdx < 0
+        ? -1
+        : ObjectKeyNameKeyRegion.slotAt(nameKeys, anchorIdx);
     if (slot < 0 || row >= m) {
       noteFusedDecline(FusedDecline.TRAILING_SLOT_UNRESOLVED);
       return false;
@@ -13463,27 +14037,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Resolves one predicate leaf against a page's columns, as a selection bitmap over {@code [0, m)}.
    *
-   * <p>All the page-specific knowledge the algebra must not have: field name to {@code nameKey},
+   * <p>
+   * All the page-specific knowledge the algebra must not have: field name to {@code nameKey},
    * record-ordinal alignment, per-column completeness, and which kernel a leaf's type needs.
    *
    * <h2>Two arms, and why the second one exists</h2>
    *
-   * <p>The DENSE arm reads a column positionally: past the field's share of the skip prefix, its
+   * <p>
+   * The DENSE arm reads a column positionally: past the field's share of the skip prefix, its
    * occurrences must enumerate the window's records in order, and then value {@code i} IS record
    * {@code i} and every kernel here is a contiguous range over packed integers. That certificate is
    * exact and it is what makes a served conjunction cost microseconds.
    *
-   * <p>It also demands that every record carry the field, which optional JSON fields do not — and
+   * <p>
+   * It also demands that every record carry the field, which optional JSON fields do not — and
    * measured on a two-predicate conjunction over a movie corpus, ONE optional field declined 14,400
    * pages for {@code FIELD_MISALIGNED}, every page paying its column read AND a full record
-   * reconstruction, which put the columnar route 22x behind the row pipeline it replaces. The
-   * linkage column already stores each occurrence's record ordinal, which is exactly what a field
-   * that skips records needs, so the SCATTER arm evaluates the predicate over the field's own
-   * occurrences and routes each result to its record's row. A record with no occurrence gets no
-   * bit — absent is false, which is what a comparison against an empty sequence means — and the one
-   * record whose absence could instead be a page seam is handed to the record path.
+   * reconstruction, which put the columnar route 22x behind the row pipeline it replaces. The linkage
+   * column already stores each occurrence's record ordinal, which is exactly what a field that skips
+   * records needs, so the SCATTER arm evaluates the predicate over the field's own occurrences and
+   * routes each result to its record's row. A record with no occurrence gets no bit — absent is
+   * false, which is what a comparison against an empty sequence means — and the one record whose
+   * absence could instead be a page seam is handed to the record path.
    *
-   * <p>Dense first, always: the scatter arm's per-occurrence lookup is not what a column scan should
+   * <p>
+   * Dense first, always: the scatter arm's per-occurrence lookup is not what a column scan should
    * cost when the geometry does not force it.
    */
   private static final class PageLeafSelector implements PredicateBitmapEvaluator.LeafSelector {
@@ -13502,7 +14080,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     private final int m;
     private final int anchorNameKey;
     private final long anchorPathNodeKey;
-    /** Whether row {@code i} of the window IS record ordinal {@code i}; see {@code countPageViaTree}. */
+    /**
+     * Whether row {@code i} of the window IS record ordinal {@code i}; see {@code countPageViaTree}.
+     */
     private final boolean identityRows;
     /** The anchor's own share of the skip prefix, so its leaf does not re-derive it. */
     private final int anchorLead;
@@ -13524,9 +14104,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     private boolean lastRecordUncovered;
 
     PageLeafSelector(final RegionsOnlyPage page, final TreeRoute route, final MemorySegment nameKeys,
-        final RecordOrdinalRegion.Header oh, final int m, final int anchorNameKey,
-        final long anchorPathNodeKey, final int anchorMatched, final int anchorLead,
-        final boolean identityRows, final RegionHeaderScratch scratch,
+        final RecordOrdinalRegion.Header oh, final int m, final int anchorNameKey, final long anchorPathNodeKey,
+        final int anchorMatched, final int anchorLead, final boolean identityRows, final RegionHeaderScratch scratch,
         final StorageEngineReader reader) {
       this.page = page;
       this.route = route;
@@ -13554,7 +14133,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * {@code -1}. See {@link #handOffTrailingRecord}.
      */
     int openTrailingRow() {
-      return lastRecordUncovered ? lastRecordRow : -1;
+      return lastRecordUncovered
+          ? lastRecordRow
+          : -1;
     }
 
     /** Bitmap position of that record's anchor occurrence. */
@@ -13580,7 +14161,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int nameKey = route.fieldNameKeys()[idx];
       final long pathNodeKey = route.fieldPathNodeKeys()[idx];
       if (nameKey == -1) {
-        return false;  // no record anywhere carries this field
+        return false; // no record anywhere carries this field
       }
       // Where this field sits in the page's field-name column. The scratch holds ONE field's
       // indices at a time and leaves arrive in tree order, which is not field order, so it is
@@ -13590,8 +14171,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (nameKey == bitmapIdxNameKey) {
         matched = bitmapIdxMatched;
       } else {
-        matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
-                                                                   scratch.numberBitmapIdx);
+        matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey, scratch.numberBitmapIdx);
         bitmapIdxNameKey = nameKey;
         bitmapIdxMatched = matched;
       }
@@ -13600,11 +14180,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // certificate is the page's `identityRows`, decided in the geometry pass over these very
       // indices — running it again here would be the same walk for the same answer.
       final int lead = nameKey == anchorNameKey
-          ? (identityRows ? anchorLead : -1)
-          : RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh, scratch.numberBitmapIdx,
-                                            matched, m);
-      if (identityRows && lead >= 0
-          && selectWindow(leaf, nameKey, pathNodeKey, matched, lead, m, out)) {
+          ? (identityRows
+              ? anchorLead
+              : -1)
+          : RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh, scratch.numberBitmapIdx, matched, m);
+      if (identityRows && lead >= 0 && selectWindow(leaf, nameKey, pathNodeKey, matched, lead, m, out)) {
         return true;
       }
       // Either the field has no positional image of the window — it skips records, repeats inside
@@ -13616,30 +14196,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /**
-     * Answer {@code leaf} from its column over {@code count} values starting {@code offset} past
-     * the field's tag, writing bits indexed relative to that start.
+     * Answer {@code leaf} from its column over {@code count} values starting {@code offset} past the
+     * field's tag, writing bits indexed relative to that start.
      *
-     * <p>The dense arm passes the field's lead and the window's record count, so a bit IS a record.
-     * The scatter arm passes {@code (0, matched)} — the field's whole column — so a bit is an
-     * OCCURRENCE, which {@link #scatterIntoRows} then routes to its record. One set of kernels
-     * serves both because neither the encoding nor the comparison depends on what the index means.
+     * <p>
+     * The dense arm passes the field's lead and the window's record count, so a bit IS a record. The
+     * scatter arm passes {@code (0, matched)} — the field's whole column — so a bit is an OCCURRENCE,
+     * which {@link #scatterIntoRows} then routes to its record. One set of kernels serves both because
+     * neither the encoding nor the comparison depends on what the index means.
      */
-    private boolean selectWindow(final PredicateNode leaf, final int nameKey,
-        final long pathNodeKey, final int matched, final int offset, final int count,
-        final long[] out) {
+    private boolean selectWindow(final PredicateNode leaf, final int nameKey, final long pathNodeKey, final int matched,
+        final int offset, final int count, final long[] out) {
       return switch (leaf) {
-        case PredicateNode.BoolRef b -> selectBool(pathNodeKey, nameKey, matched, offset, count, out,
-                                                   false);
-        case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, offset, count, e,
-                                                   out);
-        case PredicateNode.NumCmp n -> selectNumber(pathNodeKey, nameKey, matched, offset, count,
-                                                    n.op(), n.value(), out);
+        case PredicateNode.BoolRef b -> selectBool(pathNodeKey, nameKey, matched, offset, count, out, false);
+        case PredicateNode.StrEq e -> selectString(pathNodeKey, nameKey, matched, offset, count, e, out);
+        case PredicateNode.NumCmp n ->
+          selectNumber(pathNodeKey, nameKey, matched, offset, count, n.op(), n.value(), out);
         // A floating-point leaf's threshold IS a double, so its image is faithful by construction;
         // a decimal leaf's need not be, and the flag was decided once per scan.
-        case PredicateNode.FpCmp f -> selectDouble(pathNodeKey, nameKey, matched, offset, count,
-                                                   f.op(), route.decimalOf(f), true, out);
-        case PredicateNode.DecCmp d -> selectDouble(pathNodeKey, nameKey, matched, offset, count,
-                                                    d.op(), d.value(), route.imageIsExact(d), out);
+        case PredicateNode.FpCmp f ->
+          selectDouble(pathNodeKey, nameKey, matched, offset, count, f.op(), route.decimalOf(f), true, out);
+        case PredicateNode.DecCmp d ->
+          selectDouble(pathNodeKey, nameKey, matched, offset, count, d.op(), d.value(), route.imageIsExact(d), out);
         default -> false;
       };
     }
@@ -13648,21 +14226,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * Answer a leaf whose field has no positional image of the window, by evaluating it over the
      * field's own occurrences and routing each one to its record's row.
      *
-     * <p>Sound only where absence on this page really means the record lacks the field, which takes
-     * three things and refuses without any of them: the page's linkage must be run-wise (see
+     * <p>
+     * Sound only where absence on this page really means the record lacks the field, which takes three
+     * things and refuses without any of them: the page's linkage must be run-wise (see
      * {@link #recordsAreContiguous}), so that only the last record can continue past the seam; the
-     * field's own occurrences must name strictly increasing records, so no record is given two
-     * values and none is read out of order; and the window's rows must be resolvable from record
-     * ordinals ({@link #buildRowMap}). The last record, if this leaf holds nothing for it, goes to
-     * the record path — the only place its shape is fully visible.
+     * field's own occurrences must name strictly increasing records, so no record is given two values
+     * and none is read out of order; and the window's rows must be resolvable from record ordinals
+     * ({@link #buildRowMap}). The last record, if this leaf holds nothing for it, goes to the record
+     * path — the only place its shape is fully visible.
      */
-    private boolean selectScattered(final PredicateNode leaf, final int nameKey,
-        final long pathNodeKey, final int matched, final long[] out) {
+    private boolean selectScattered(final PredicateNode leaf, final int nameKey, final long pathNodeKey,
+        final int matched, final long[] out) {
       // The occurrence bitmap is indexed by the field's own occurrences, not by the window's rows,
       // so its capacity is the thing to check — a page whose column outgrew it must be refused
       // rather than allocated for on a scan path.
-      if (matched <= 0 || matched > scratch.sparseOccRows.length << 6
-          || matched > scratch.anchorBitmapIdx.length || !recordsAreContiguous() || !buildRowMap()) {
+      if (matched <= 0 || matched > scratch.sparseOccRows.length << 6 || matched > scratch.anchorBitmapIdx.length
+          || !recordsAreContiguous() || !buildRowMap()) {
         return false;
       }
       final int[] idx = scratch.numberBitmapIdx;
@@ -13692,20 +14271,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Turn an occurrence-indexed selection into a row-indexed one.
      *
-     * <p>Only set bits are visited — one trailing-zero count per surviving occurrence — because a
+     * <p>
+     * Only set bits are visited — one trailing-zero count per surviving occurrence — because a
      * scattered leaf's selectivity is the point: the records it says nothing about are the ones it
      * costs nothing for.
      */
-    private void scatterIntoRows(final long[] occ, final int[] idx, final int lead,
-        final int matched, final long[] out) {
+    private void scatterIntoRows(final long[] occ, final int[] idx, final int lead, final int matched,
+        final long[] out) {
       final int skip = oh.skipCount;
       final long[] ordinals = scratch.decodedOrdinals;
       final int[] rowOf = scratch.rowOfOrdinal;
       final int words = (matched + 63) >>> 6;
       final int tail = matched & 63;
       if (tail != 0) {
-        occ[words - 1] &= (1L << tail) - 1L;  // a kernel may write a whole word; rows past the
-      }                                       // field's occurrences are not its to select
+        occ[words - 1] &= (1L << tail) - 1L; // a kernel may write a whole word; rows past the
+      } // field's occurrences are not its to select
       for (int w = 0; w < words; w++) {
         long bits = occ[w];
         final int base = w << 6;
@@ -13714,7 +14294,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // record path with the rest of its shape. They carry no ordinal here, so scattering one
           // would index the linkage below its own start.
           final int drop = lead - base;
-          bits &= drop >= 64 ? 0L : ~0L << drop;
+          bits &= drop >= 64
+              ? 0L
+              : ~0L << drop;
         }
         while (bits != 0L) {
           final int j = base + Long.numberOfTrailingZeros(bits);
@@ -13730,14 +14312,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Whether this field gives each record at most one value, in record order.
      *
-     * <p>Strictly increasing ordinals say both at once, and both matter: two occurrences in one
-     * record would make "the record's value" a choice this arm has no right to make, and an
-     * out-of-order one means the field is interleaved with something the linkage cannot separate.
-     * Records the field skips are exactly what it is allowed to do — that is the whole point — so
-     * gaps are not checked for.
+     * <p>
+     * Strictly increasing ordinals say both at once, and both matter: two occurrences in one record
+     * would make "the record's value" a choice this arm has no right to make, and an out-of-order one
+     * means the field is interleaved with something the linkage cannot separate. Records the field
+     * skips are exactly what it is allowed to do — that is the whole point — so gaps are not checked
+     * for.
      *
-     * <p>Records this page's window; a record the field misses at the very end is remembered rather
-     * than refused, because only there can absence be a page seam instead of an absent field.
+     * <p>
+     * Records this page's window; a record the field misses at the very end is remembered rather than
+     * refused, because only there can absence be a page seam instead of an absent field.
      */
     private boolean certifyOneValuePerRecord(final int[] idx, final int lead, final int matched) {
       final int skip = oh.skipCount;
@@ -13767,10 +14351,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * Whether each record's OBJECT_KEY slots form ONE run, which makes the last record the only one
      * that can still be open when the page ends.
      *
-     * <p>A record holding a nested object breaks it — {@code {"a":{"p":1},"b":2}} lays its keys down
-     * as records {@code 0,1,0} — and then a record other than the last can have fields past the
-     * seam, which absence on this page would silently read as an absent field. One non-decreasing
-     * walk over the already-decoded linkage settles it for every leaf on the page.
+     * <p>
+     * A record holding a nested object breaks it — {@code {"a":{"p":1},"b":2}} lays its keys down as
+     * records {@code 0,1,0} — and then a record other than the last can have fields past the seam,
+     * which absence on this page would silently read as an absent field. One non-decreasing walk over
+     * the already-decoded linkage settles it for every leaf on the page.
      */
     private boolean recordsAreContiguous() {
       if (rowMapState == ROW_MAP_REFUSED) {
@@ -13791,14 +14376,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /**
      * Map every record ordinal to its selection row, from the anchor's own occurrences.
      *
-     * <p>The window's rows ARE the anchor's occurrences past the skip prefix — that is what the
-     * geometry pass established and what {@code popcount} counts — so a scattered leaf needs the
-     * inverse of it to place a value. Built once per page and only when a leaf actually scatters,
-     * because the dense arm never asks: on a page whose anchor enumerates the records in order this
-     * map is the identity, and computing an identity is not work a fast path should pay for.
+     * <p>
+     * The window's rows ARE the anchor's occurrences past the skip prefix — that is what the geometry
+     * pass established and what {@code popcount} counts — so a scattered leaf needs the inverse of it
+     * to place a value. Built once per page and only when a leaf actually scatters, because the dense
+     * arm never asks: on a page whose anchor enumerates the records in order this map is the identity,
+     * and computing an identity is not work a fast path should pay for.
      *
-     * <p>The anchor's positions are re-scanned rather than kept: the shared index buffer holds
-     * whichever field's leaf is being resolved, and leaves arrive in tree order.
+     * <p>
+     * The anchor's positions are re-scanned rather than kept: the shared index buffer holds whichever
+     * field's leaf is being resolved, and leaves arrive in tree order.
      */
     private boolean buildRowMap() {
       if (rowMapState != ROW_MAP_UNBUILT) {
@@ -13806,12 +14393,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       rowMapState = ROW_MAP_REFUSED;
       final int[] anchorIdx = scratch.anchorBitmapIdx;
-      final int matched =
-          ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
+      final int matched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, anchorIdx);
       final int lead = RecordOrdinalRegion.skipPrefixLead(oh, anchorIdx, matched);
       if (matched - lead != m) {
         noteFusedDecline(FusedDecline.SCATTER_ANCHOR_UNSTABLE);
-        return false;  // the geometry pass saw a different anchor column; refuse rather than guess
+        return false; // the geometry pass saw a different anchor column; refuse rather than guess
       }
       final int[] rowOf = scratch.rowOfOrdinal;
       Arrays.fill(rowOf, 0, oh.recordCount, -1);
@@ -13827,7 +14413,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long ordinal = ordinals[i - skip];
         if (ordinal <= previous || ordinal >= oh.recordCount) {
           noteFusedDecline(FusedDecline.SCATTER_ANCHOR_UNSTABLE);
-          return false;  // one record with two anchor occurrences: which one is the row?
+          return false; // one record with two anchor occurrences: which one is the row?
         }
         previous = ordinal;
         rowOf[(int) ordinal] = j - lead;
@@ -13851,8 +14437,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       };
     }
 
-    private boolean selectBool(final long pathNodeKey, final int nameKey, final int matched,
-        final int offset, final int count, final long[] out, final boolean invert) {
+    private boolean selectBool(final long pathNodeKey, final int nameKey, final int matched, final int offset,
+        final int count, final long[] out, final boolean invert) {
       final MemorySegment bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
       if (bits == null || bits.byteSize() == 0) {
         return false;
@@ -13861,8 +14447,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (bh == null) {
         return false;
       }
-      final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey,
-                                    nameKey);
+      final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
       // Completeness: the column must account for every occurrence of the field on this page, or a
       // value stored as something else would go uncounted.
       if (tag < 0 || bh.tagCount[tag] != matched) {
@@ -13872,8 +14457,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return true;
     }
 
-    private boolean selectString(final long pathNodeKey, final int nameKey, final int matched,
-        final int offset, final int count, final PredicateNode.StrEq leaf, final long[] out) {
+    private boolean selectString(final long pathNodeKey, final int nameKey, final int matched, final int offset,
+        final int count, final PredicateNode.StrEq leaf, final long[] out) {
       final MemorySegment strings = page.stringPayload();
       if (strings == null || strings.byteSize() == 0) {
         return false;
@@ -13882,8 +14467,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (sh == null) {
         return false;
       }
-      final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey,
-                                    nameKey);
+      final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
       if (tag < 0 || sh.tagCount[tag] != matched) {
         return false;
       }
@@ -13900,14 +14484,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return false;
       }
       if (dictId == StringRegion.DICT_ID_ABSENT) {
-        return true;  // literal occurs nowhere on this page: an empty selection, not a refusal
+        return true; // literal occurs nowhere on this page: an empty selection, not a refusal
       }
-      return StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + offset, count, dictId,
-                                           out) >= 0;
+      return StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + offset, count, dictId, out) >= 0;
     }
 
-    private boolean selectNumber(final long pathNodeKey, final int nameKey, final int matched,
-        final int offset, final int count, final String op, final long value, final long[] out) {
+    private boolean selectNumber(final long pathNodeKey, final int nameKey, final int matched, final int offset,
+        final int count, final String op, final long value, final long[] out) {
       final MemorySegment numbers = page.regionPayload(RegionTable.KIND_NUMBER);
       if (numbers == null || numbers.byteSize() == 0) {
         return false;
@@ -13916,43 +14499,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (nh == null) {
         return false;
       }
-      final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey,
-                                    nameKey);
+      final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
       if (tag < 0 || nh.tagCount[tag] != matched) {
         return false;
       }
       final long lo = numericLoBound(op, value);
       final long hi = numericHiBound(op, value);
       if (lo > hi) {
-        return true;  // unsatisfiable leaf: an empty selection
+        return true; // unsatisfiable leaf: an empty selection
       }
-      return NumberRegionSimd.selectRangeInto(numbers, nh, nh.tagStart[tag] + offset, count,
-                                              VectorOperators.GE, lo, VectorOperators.LE, hi,
-                                              out) >= 0;
+      return NumberRegionSimd.selectRangeInto(numbers, nh, nh.tagStart[tag] + offset, count, VectorOperators.GE, lo,
+          VectorOperators.LE, hi, out) >= 0;
     }
 
     /**
      * A fractional leaf, answered from the double column.
      *
-     * <p>Two domains, chosen by the tag's encoding rather than by the literal. An exact-decimal tag
-     * is compared in DECIMAL space — its integers are the decimals themselves, and two decimals can
-     * share a double image, so a double bound cannot decide it. Every other encoding takes double
-     * bounds, where ALP's monotonic transform still maps them into packed space and only ALP-RD
-     * decodes.
+     * <p>
+     * Two domains, chosen by the tag's encoding rather than by the literal. An exact-decimal tag is
+     * compared in DECIMAL space — its integers are the decimals themselves, and two decimals can share
+     * a double image, so a double bound cannot decide it. Every other encoding takes double bounds,
+     * where ALP's monotonic transform still maps them into packed space and only ALP-RD decodes.
      *
-     * <p>The second domain is entered only when the THRESHOLD survives it too: a decimal literal
-     * with no faithful double image is refused rather than rounded, exactly as
-     * {@code foldNumericInterval} refuses to publish double bounds for one. Rounding it here would
-     * put a stored decimal inside the threshold's ulp on the wrong side — and this route runs where
-     * the shape kernels already declined for that very reason, so it would silently undo their
-     * refusal.
+     * <p>
+     * The second domain is entered only when the THRESHOLD survives it too: a decimal literal with no
+     * faithful double image is refused rather than rounded, exactly as {@code foldNumericInterval}
+     * refuses to publish double bounds for one. Rounding it here would put a stored decimal inside the
+     * threshold's ulp on the wrong side — and this route runs where the shape kernels already declined
+     * for that very reason, so it would silently undo their refusal.
      *
      * @param imageFaithful whether {@code value} IS its own double image; see
-     *     {@link TreeRoute#imageIsExact}
+     *        {@link TreeRoute#imageIsExact}
      */
-    private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched,
-        final int offset, final int count, final String op, final @Nullable BigDecimal value,
-        final boolean imageFaithful, final long[] out) {
+    private boolean selectDouble(final long pathNodeKey, final int nameKey, final int matched, final int offset,
+        final int count, final String op, final @Nullable BigDecimal value, final boolean imageFaithful,
+        final long[] out) {
       if (value == null) {
         return false;
       }
@@ -13964,8 +14545,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dh == null) {
         return false;
       }
-      final int tag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey,
-                                    nameKey);
+      final int tag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
       // Completeness: this column alone must account for every occurrence of the field, or values
       // stored as longs on the same page would go uncounted. A mixed field is left to the kernels
       // that know how to sum two typed columns.
@@ -14002,12 +14582,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /**
-     * Select an exact-decimal tag's rows, the bound converted in DECIMAL space at the tag's own
-     * scale so the comparison is exact rather than merely close.
+     * Select an exact-decimal tag's rows, the bound converted in DECIMAL space at the tag's own scale
+     * so the comparison is exact rather than merely close.
      */
-    private static boolean selectDecimalTag(final MemorySegment dbl,
-        final DoubleRegion.Header dh, final int tag, final String op, final BigDecimal value,
-        final long[] out) {
+    private static boolean selectDecimalTag(final MemorySegment dbl, final DoubleRegion.Header dh, final int tag,
+        final String op, final BigDecimal value, final long[] out) {
       if (value.scale() < 0 || value.scale() > DoubleRegion.MAX_DECIMAL_SCALE) {
         return false;
       }
@@ -14030,8 +14609,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     /** Select an ALP or plain tag's rows from a threshold that IS one of the stored doubles. */
-    private static boolean selectDoubleTag(final MemorySegment dbl, final DoubleRegion.Header dh,
-        final int tag, final String op, final double v, final long[] out) {
+    private static boolean selectDoubleTag(final MemorySegment dbl, final DoubleRegion.Header dh, final int tag,
+        final String op, final double v, final long[] out) {
       if (!Double.isFinite(v)) {
         return false;
       }
@@ -14052,7 +14631,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Inclusive lower bound of a leaf comparison over longs; {@code lo > hi} means unsatisfiable. */
   private static long numericLoBound(final String op, final long v) {
     return switch (op) {
-      case "gt" -> v == Long.MAX_VALUE ? 1L : v + 1;
+      case "gt" -> v == Long.MAX_VALUE
+          ? 1L
+          : v + 1;
       case "ge", "eq" -> v;
       default -> Long.MIN_VALUE;
     };
@@ -14061,9 +14642,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Inclusive upper bound of a leaf comparison over longs. */
   private static long numericHiBound(final String op, final long v) {
     return switch (op) {
-      case "lt" -> v == Long.MIN_VALUE ? 0L : v - 1;
+      case "lt" -> v == Long.MIN_VALUE
+          ? 0L
+          : v - 1;
       case "le", "eq" -> v;
-      case "gt" -> v == Long.MAX_VALUE ? 0L : Long.MAX_VALUE;
+      case "gt" -> v == Long.MAX_VALUE
+          ? 0L
+          : Long.MAX_VALUE;
       default -> Long.MAX_VALUE;
     };
   }
@@ -14074,15 +14659,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Why a fused (multi-field) plan gave a page back to record reconstruction, by reason.
    *
-   * <p>A fused plan has no second chance — the tree route is skipped for it and the fragment merge
+   * <p>
+   * A fused plan has no second chance — the tree route is skipped for it and the fragment merge
    * refuses it outright — so every decline here costs the page its column read AND a full record
    * reconstruction. On a two-predicate conjunction over 50,688 pages, 14,053 declined and the query
-   * ran 8,894 ms against 400 ms for the row pipeline: the column route was 22x SLOWER than the one
-   * it replaced. A single aggregate counter cannot say which of the eleven conditions did it, and
+   * ran 8,894 ms against 400 ms for the row pipeline: the column route was 22x SLOWER than the one it
+   * replaced. A single aggregate counter cannot say which of the eleven conditions did it, and
    * guessing between them is how two earlier hypotheses in this area turned out wrong.
    */
-  private static final LongAdder[] FUSED_DECLINES =
-      new LongAdder[FusedDecline.values().length];
+  private static final LongAdder[] FUSED_DECLINES = new LongAdder[FusedDecline.values().length];
 
   static {
     for (int i = 0; i < FUSED_DECLINES.length; i++) {
@@ -14155,14 +14740,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Per-reason counts for the array-membership column route, for the same reason
    * {@link #FUSED_DECLINES} exists.
    *
-   * <p>That route serves ~43 % of the pages of the corpus it was built against, and a declining
-   * page pays the column read on top of the record page it still has to read. Which of the twelve
+   * <p>
+   * That route serves ~43 % of the pages of the corpus it was built against, and a declining page
+   * pays the column read on top of the record page it still has to read. Which of the twelve
    * conditions accounts for the other 57 % decides whether the route is fixable or structurally
    * limited — and the two hypotheses guessed at before instrumenting the fused kernel were both
    * wrong, which is what these counters are here to prevent repeating.
    */
-  private static final LongAdder[] ARRAY_CONTAINS_DECLINES =
-      new LongAdder[ArrayContainsDecline.values().length];
+  private static final LongAdder[] ARRAY_CONTAINS_DECLINES = new LongAdder[ArrayContainsDecline.values().length];
 
   static {
     for (int i = 0; i < ARRAY_CONTAINS_DECLINES.length; i++) {
@@ -14189,13 +14774,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** An anchor occurrence does not resolve to a record this page describes. */
     ORDINAL_OUT_OF_RANGE,
     /**
-     * The gaps hold MORE slots than the tag holds values: something that is not one of this
-     * array's element values sits between an anchor and the next object key.
+     * The gaps hold MORE slots than the tag holds values: something that is not one of this array's
+     * element values sits between an anchor and the next object key.
      */
     CERTIFICATE_GAPS_TOO_WIDE,
     /**
-     * The tag holds MORE values than the gaps hold slots: values on this page that no anchor
-     * occurrence of ours accounts for.
+     * The tag holds MORE values than the gaps hold slots: values on this page that no anchor occurrence
+     * of ours accounts for.
      */
     CERTIFICATE_VALUES_UNCLAIMED,
     /** The literal's dictionary identity could not be settled against this page's encoding. */
@@ -14213,7 +14798,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return -1L;
   }
 
-  /** Per-reason array-membership column-route decline counts, in {@link ArrayContainsDecline} order. */
+  /**
+   * Per-reason array-membership column-route decline counts, in {@link ArrayContainsDecline} order.
+   */
   public static long[] arrayContainsDeclineCounts() {
     final long[] out = new long[ARRAY_CONTAINS_DECLINES.length];
     for (int i = 0; i < out.length; i++) {
@@ -14244,9 +14831,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** The tag's bounds prove every row on this page matches. */
   private static final int FUSED_ZONE_ALL = 2;
 
-  private static long countPageFromFusedRegions(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+  private static long countPageFromFusedRegions(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader) {
     scratch.clearPendingBoundary();
     scratch.fusedBits = null;
     scratch.fusedNumbers = null;
@@ -14261,7 +14848,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int anchorMatched = (int) (window >>> 32);
     final int m = (int) window;
     if (m == 0) {
-      return 0L;  // nothing here but the spanning record's tail — the patch is the whole answer
+      return 0L; // nothing here but the spanning record's tail — the patch is the whole answer
     }
 
     final long[] acc = scratch.fusedRows;
@@ -14270,8 +14857,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     for (final FusedLeaf leaf : leaves) {
       final int field = leaf.fieldIdx();
-      final int nameKey = field == 0 ? anchorNameKey : scratch.fusedFieldNameKey[field];
-      final long pathNodeKey = field == 0 ? anchorPathNodeKey : scratch.fusedFieldPathNodeKey[field];
+      final int nameKey = field == 0
+          ? anchorNameKey
+          : scratch.fusedFieldNameKey[field];
+      final long pathNodeKey = field == 0
+          ? anchorPathNodeKey
+          : scratch.fusedFieldPathNodeKey[field];
       if (nameKey == -1) {
         // no record anywhere carries this field
         return declineFused(FusedDecline.FIELD_ABSENT);
@@ -14283,15 +14874,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // above (nothing between them writes numberBitmapIdx), so its column scan is not repeated.
       final int matched = field == 0
           ? anchorMatched
-          : ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey,
-                                                             scratch.numberBitmapIdx);
-      final int lead = RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh,
-                                                       scratch.numberBitmapIdx, matched, m);
+          : ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, nameKey, scratch.numberBitmapIdx);
+      final int lead =
+          RecordOrdinalRegion.alignedLead(scratch.decodedOrdinals, oh, scratch.numberBitmapIdx, matched, m);
       if (lead < 0) {
         return declineFused(FusedDecline.FIELD_MISALIGNED);
       }
-      final int outcome = applyFusedLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched,
-                                         lead, m, words, acc, accInitialized);
+      final int outcome = applyFusedLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched, lead, m, words,
+          acc, accInitialized);
       if (outcome == FUSED_ARM_REFUSE) {
         return declineFused(FusedDecline.ARM_REFUSED);
       }
@@ -14302,7 +14892,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     if (!accInitialized) {
-      return -1L;  // no leaf claimed the page; a plan with no leaves should never have been built
+      return -1L; // no leaf claimed the page; a plan with no leaves should never have been built
     }
     long count = 0;
     for (int w = 0; w < words; w++) {
@@ -14316,7 +14906,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * in the high word and the record count {@code m} in the low one, or {@code -1} when the page
    * cannot be served at all.
    *
-   * <p>The anchor's occurrences here are, in bitmap order: at most one inside the skip prefix (the
+   * <p>
+   * The anchor's occurrences here are, in bitmap order: at most one inside the skip prefix (the
    * spanning record's — handed back to the caller through {@code pendingFusedAnchorSlot}, since its
    * other values sit on the previous page); then m occurrences enumerating records 0..m-1,
    * re-verified per leaf against the ordinals; then nothing — the trailing partial records' anchor
@@ -14324,8 +14915,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * decided exactly once, by exactly one page.
    */
   private static long resolveFusedWindow(final RegionsOnlyPage page, final FusedLeaf[] leaves,
-      final @Nullable MemorySegment nameKeys, final RecordOrdinalRegion.@Nullable Header oh,
-      final int anchorNameKey, final RegionHeaderScratch scratch) {
+      final @Nullable MemorySegment nameKeys, final RecordOrdinalRegion.@Nullable Header oh, final int anchorNameKey,
+      final RegionHeaderScratch scratch) {
     if (leaves.length == 0 || leaves[0].fieldIdx() != 0) {
       // enforced at plan construction; kept as the kernel's own last line of defense
       return declineFused(FusedDecline.PLAN_SHAPE);
@@ -14349,10 +14940,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (RecordOrdinalRegion.decodeOrdinalsInto(ordinals, oh, scratch.decodedOrdinals) < 0) {
       return declineFused(FusedDecline.ORDINALS_UNDECODABLE);
     }
-    final int anchorMatched = ObjectKeyNameKeyRegion.findMatchingBitmapIndices(
-        nameKeys, anchorNameKey, scratch.numberBitmapIdx);
-    final int anchorLead =
-        RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
+    final int anchorMatched =
+        ObjectKeyNameKeyRegion.findMatchingBitmapIndices(nameKeys, anchorNameKey, scratch.numberBitmapIdx);
+    final int anchorLead = RecordOrdinalRegion.skipPrefixLead(oh, scratch.numberBitmapIdx, anchorMatched);
     if (anchorLead > 1) {
       // two anchor occurrences in one record's tail — not a record to count
       return declineFused(FusedDecline.ANCHOR_LEAD_AMBIGUOUS);
@@ -14375,27 +14965,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Fold one leaf into {@code acc}; see the {@code FUSED_ARM_*} constants for the outcomes. */
-  private static int applyFusedLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
-      final RegionHeaderScratch scratch, final StorageEngineReader reader, final long pathNodeKey,
-      final int nameKey, final int matched, final int lead, final int m, final int words,
-      final long[] acc, final boolean accInitialized) {
+  private static int applyFusedLeaf(final RegionsOnlyPage page, final FusedLeaf leaf, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader, final long pathNodeKey, final int nameKey, final int matched, final int lead,
+      final int m, final int words, final long[] acc, final boolean accInitialized) {
     if (leaf.kind() == FusedLeaf.KIND_BOOL) {
-      return applyFusedBoolLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words,
-                                acc, accInitialized) ? FUSED_ARM_APPLIED : FUSED_ARM_REFUSE;
+      return applyFusedBoolLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words, acc, accInitialized)
+          ? FUSED_ARM_APPLIED
+          : FUSED_ARM_REFUSE;
     }
     if (leaf.kind() == FusedLeaf.KIND_STR) {
-      return applyFusedStringLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched, lead,
-                                  m, words, acc, accInitialized);
+      return applyFusedStringLeaf(page, leaf, scratch, reader, pathNodeKey, nameKey, matched, lead, m, words, acc,
+          accInitialized);
     }
-    return applyFusedNumericLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words,
-                                 acc, accInitialized);
+    return applyFusedNumericLeaf(page, leaf, scratch, pathNodeKey, nameKey, matched, lead, m, words, acc,
+        accInitialized);
   }
 
   /** AND a flag leaf into the accumulator, or answer {@code false} to refuse the page. */
   private static boolean applyFusedBoolLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
-      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey,
-      final int matched, final int lead, final int m, final int words, final long[] acc,
-      final boolean accInitialized) {
+      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey, final int matched, final int lead,
+      final int m, final int words, final long[] acc, final boolean accInitialized) {
     MemorySegment bits = scratch.fusedBits;
     if (bits == null) {
       bits = page.regionPayload(RegionTable.KIND_BOOLEAN);
@@ -14406,8 +14995,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       scratch.fusedBits = bits;
     }
     final BooleanRegion.Header bh = scratch.bool;
-    final int tag =
-        tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    final int tag = tagInKeySpace(bh, bh.tagKind == BooleanRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
     // Completeness: the column must account for every occurrence of the field on this page —
     // prefix and trailing ones included, the window offsets past them — or a value stored as
     // something else (a double, a differently-pathed node) would go uncounted.
@@ -14421,16 +15009,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // One AND and one popcount per 64 rows, the negation folded into the AND rather than run as
     // a pass of its own. Its return value counts only what survives THIS leaf, so the total is
     // taken from the accumulator once every leaf has been applied.
-    BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag] + lead, m, acc,
-                              !leaf.wantTrue());
+    BooleanRegionSimd.andInto(bits, bh.valueBitsOffset, bh.tagStart[tag] + lead, m, acc, !leaf.wantTrue());
     return true;
   }
 
   /** AND a string-equality leaf into the accumulator; see the {@code FUSED_ARM_*} constants. */
   private static int applyFusedStringLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
-      final RegionHeaderScratch scratch, final StorageEngineReader reader, final long pathNodeKey,
-      final int nameKey, final int matched, final int lead, final int m, final int words,
-      final long[] acc, final boolean accInitialized) {
+      final RegionHeaderScratch scratch, final StorageEngineReader reader, final long pathNodeKey, final int nameKey,
+      final int matched, final int lead, final int m, final int words, final long[] acc, final boolean accInitialized) {
     MemorySegment strings = scratch.fusedStrings;
     if (strings == null) {
       strings = page.stringPayload();
@@ -14443,8 +15029,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       scratch.fusedStrings = strings;
     }
     final StringRegion.Header sh = scratch.string;
-    final int tag =
-        tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    final int tag = tagInKeySpace(sh, sh.tagKind == StringRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
     if (tag < 0 || sh.tagCount[tag] != matched) {
       return FUSED_ARM_REFUSE;
     }
@@ -14453,21 +15038,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // undecidable entry means the stored bytes are not the value and the record path owns the
     // page. With more than one string leaf the one-slot memo thrashes and re-encodes per page —
     // correct, merely slower, and rare enough not to widen the memo for.
-    final byte[][] encoded =
-        scratch.literalsFor(page.getFsstSymbolTableId(), leaf.literalArr(), reader);
+    final byte[][] encoded = scratch.literalsFor(page.getFsstSymbolTableId(), leaf.literalArr(), reader);
     final int dictId = StringRegion.findDictId(strings, sh, tag, leaf.literal(), encoded[0]);
     if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
       return FUSED_ARM_REFUSE;
     }
     if (dictId == StringRegion.DICT_ID_ABSENT) {
-      return FUSED_ARM_EMPTY;  // the literal occurs nowhere on this page; the pending record, if
-                               // any, is judged by the records and owes this shortcut nothing
+      return FUSED_ARM_EMPTY; // the literal occurs nowhere on this page; the pending record, if
+                              // any, is judged by the records and owes this shortcut nothing
     }
-    final long[] target = accInitialized ? scratch.fusedLeafRows : acc;
-    final int hits =
-        StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m, dictId, target);
+    final long[] target = accInitialized
+        ? scratch.fusedLeafRows
+        : acc;
+    final int hits = StringRegion.selectDictIdInto(strings, sh, sh.tagStart[tag] + lead, m, dictId, target);
     if (hits < 0) {
-      return FUSED_ARM_REFUSE;  // a dict-id width the SIMD plan declines
+      return FUSED_ARM_REFUSE; // a dict-id width the SIMD plan declines
     }
     if (hits == 0) {
       return FUSED_ARM_EMPTY;
@@ -14482,9 +15067,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** AND a numeric leaf into the accumulator; see the {@code FUSED_ARM_*} constants. */
   private static int applyFusedNumericLeaf(final RegionsOnlyPage page, final FusedLeaf leaf,
-      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey,
-      final int matched, final int lead, final int m, final int words, final long[] acc,
-      final boolean accInitialized) {
+      final RegionHeaderScratch scratch, final long pathNodeKey, final int nameKey, final int matched, final int lead,
+      final int m, final int words, final long[] acc, final boolean accInitialized) {
     MemorySegment numbers = scratch.fusedNumbers;
     if (numbers == null) {
       final NumberRegion.Header parsed = page.numberHeaderInto(scratch.number);
@@ -14495,45 +15079,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       scratch.fusedNumbers = numbers;
     }
     final NumberRegion.Header nh = scratch.number;
-    final int tag =
-        tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
+    final int tag = tagInKeySpace(nh, nh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, pathNodeKey, nameKey);
     if (tag < 0 || nh.tagCount[tag] != matched) {
       return FUSED_ARM_REFUSE;
     }
     final int zone = fusedNumericZoneOutcome(nh, tag, leaf);
     if (zone == FUSED_ZONE_EMPTY) {
-      return FUSED_ARM_EMPTY;  // an empty leaf empties the whole conjunction
+      return FUSED_ARM_EMPTY; // an empty leaf empties the whole conjunction
     }
     if (zone == FUSED_ZONE_ALL) {
       if (!accInitialized) {
         fillAllRows(acc, m, words);
       }
-      return FUSED_ARM_APPLIED;  // every row survives this leaf, so the accumulator is unchanged
+      return FUSED_ARM_APPLIED; // every row survives this leaf, so the accumulator is unchanged
     }
     final int start = nh.tagStart[tag] + lead;
     final int[] selection = scratch.fusedSelection;
-    final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + m,
-                                                     VectorOperators.GE, leaf.lo(),
-                                                     VectorOperators.LE, leaf.hi(), selection);
+    final int hits = NumberRegionSimd.selectMatching(numbers, nh, start, start + m, VectorOperators.GE, leaf.lo(),
+        VectorOperators.LE, leaf.hi(), selection);
     if (hits < 0) {
-      return FUSED_ARM_REFUSE;  // a bit width the selection kernel declines
+      return FUSED_ARM_REFUSE; // a bit width the selection kernel declines
     }
     if (hits == 0) {
       return FUSED_ARM_EMPTY;
     }
-    buildFusedRowsFromSelection(selection, hits, start, words, acc, scratch.fusedLeafRows,
-                                accInitialized);
+    buildFusedRowsFromSelection(selection, hits, start, words, acc, scratch.fusedLeafRows, accInitialized);
     return FUSED_ARM_APPLIED;
   }
 
   /**
    * What the tag's own bounds settle about this leaf, without reading a value.
    *
-   * <p>Sound here even though the bounds also cover the prefix and trailing values outside the
-   * window: including extra values only widens the range, which makes the test conservative.
+   * <p>
+   * Sound here even though the bounds also cover the prefix and trailing values outside the window:
+   * including extra values only widens the range, which makes the test conservative.
    */
-  private static int fusedNumericZoneOutcome(final NumberRegion.Header nh, final int tag,
-      final FusedLeaf leaf) {
+  private static int fusedNumericZoneOutcome(final NumberRegion.Header nh, final int tag, final FusedLeaf leaf) {
     if (nh.tagMin == null || nh.tagMax == null) {
       return FUSED_ZONE_UNDECIDED;
     }
@@ -14548,14 +15129,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Turn a selection vector into row bits and AND them into {@code acc}.
    *
-   * <p>The first numeric leaf builds straight into the accumulator; a later one builds into
-   * {@code leafRows} and masks in, because setting bits from a selection vector needs a zeroed
-   * range and would otherwise erase what earlier leaves established.
+   * <p>
+   * The first numeric leaf builds straight into the accumulator; a later one builds into
+   * {@code leafRows} and masks in, because setting bits from a selection vector needs a zeroed range
+   * and would otherwise erase what earlier leaves established.
    */
-  private static void buildFusedRowsFromSelection(final int[] selection, final int hits,
-      final int start, final int words, final long[] acc, final long[] leafRows,
-      final boolean accInitialized) {
-    final long[] target = accInitialized ? leafRows : acc;
+  private static void buildFusedRowsFromSelection(final int[] selection, final int hits, final int start,
+      final int words, final long[] acc, final long[] leafRows, final boolean accInitialized) {
+    final long[] target = accInitialized
+        ? leafRows
+        : acc;
     Arrays.fill(target, 0, words, 0L);
     for (int i = 0; i < hits; i++) {
       final int row = selection[i] - start;
@@ -14572,27 +15155,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static void fillAllRows(final long[] target, final int rows, final int words) {
     for (int w = 0; w < words; w++) {
       final int width = Math.min(64, rows - (w << 6));
-      target[w] = width >= 64 ? ~0L : (1L << width) - 1L;
+      target[w] = width >= 64
+          ? ~0L
+          : (1L << width) - 1L;
     }
   }
 
   /**
-   * Count string-equality matches on one page from its dictionary column, or {@code -1} to defer
-   * to the record path. Same completeness oracle as the numeric kernel.
+   * Count string-equality matches on one page from its dictionary column, or {@code -1} to defer to
+   * the record path. Same completeness oracle as the numeric kernel.
    */
   /**
    * Count a boolean predicate straight out of the page's packed-bit column.
    *
-   * <p>The same completeness oracle the other arms apply: the tag must hold exactly as many bits as
-   * the field-name column reports anchor slots, or a row whose flag lives somewhere else would go
+   * <p>
+   * The same completeness oracle the other arms apply: the tag must hold exactly as many bits as the
+   * field-name column reports anchor slots, or a row whose flag lives somewhere else would go
    * uncounted. Given that, the whole predicate is one masked population count over a contiguous bit
    * range — {@link io.sirix.page.pax.BooleanRegionSimd} sweeps it 512 bits per instruction group.
    *
    * @return the match count, or {@code -1} when the page must go through the records
    */
-  private static long countPageFromBooleanRegion(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int anchorSlots, final RegionHeaderScratch scratch) {
+  private static long countPageFromBooleanRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots, final RegionHeaderScratch scratch) {
     final MemorySegment payload = page.regionPayload(RegionTable.KIND_BOOLEAN);
     if (payload == null || payload.byteSize() == 0) {
       return -1L;
@@ -14614,17 +15199,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
     final int trues = BooleanRegion.countTrue(payload, h, h.tagStart[tag], h.tagCount[tag]);
-    return plan.wantTrue() ? trues : (long) h.tagCount[tag] - trues;
+    return plan.wantTrue()
+        ? trues
+        : (long) h.tagCount[tag] - trues;
   }
 
   private static long countPageFromStringRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
-      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
-      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots, final RegionHeaderScratch scratch,
+      final StorageEngineReader reader) {
     final byte[][] literals = plan.literals();
     // Under FSST the dictionary stores encoded bytes, so each literal is encoded the same way and
     // every comparison below runs on stored bytes. Null entries when the resource stores raw.
-    final byte[][] encodedLiterals =
-        scratch.literalsFor(page.getFsstSymbolTableId(), literals, reader);
+    final byte[][] encodedLiterals = scratch.literalsFor(page.getFsstSymbolTableId(), literals, reader);
     // Sketch first: a few hundred bytes, and it decides the page without the dictionary existing in
     // memory at all. A negative is exact — every dictionary entry was inserted — so "absent" IS the
     // answer here. For a disjunction the page is only ruled out when NO literal can be present.
@@ -14659,8 +15245,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     int present = 0;
     long[] idSet = null;
     for (int i = 0; i < literals.length; i++) {
-      final int dictId =
-          StringRegion.findDictId(payload, h, tag, literals[i], encodedLiterals[i]);
+      final int dictId = StringRegion.findDictId(payload, h, tag, literals[i], encodedLiterals[i]);
       if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
         // FSST-encoded entries: their stored bytes are not their value, and resolving the page's
         // symbol table is the record path's job.
@@ -14689,25 +15274,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // One surviving id needs no set: equality is the cheaper kernel and the common case.
       return StringRegion.countDictId(payload, h, h.tagStart[tag], h.tagCount[tag], firstId);
     }
-    return StringRegion.countDictIdSet(payload, h, h.tagStart[tag], h.tagCount[tag], idSet,
-                                       dictSize);
+    return StringRegion.countDictIdSet(payload, h, h.tagStart[tag], h.tagCount[tag], idSet, dictSize);
   }
 
   /**
    * Sum a page's matches over DISJOINT intervals — the numeric-disjunction counterpart of the
    * single-interval body in {@code countPageFromNumberRegion}.
    *
-   * <p>Correct only because the plan's intervals are disjoint ({@link #mergeIntervals}); a value
-   * can match at most one, so per-interval counts add with nothing counted twice. Each interval
-   * gets the tag-bounds prune first: a swallowing interval answers the page outright, a missed one
-   * costs nothing but the two compares.
+   * <p>
+   * Correct only because the plan's intervals are disjoint ({@link #mergeIntervals}); a value can
+   * match at most one, so per-interval counts add with nothing counted twice. Each interval gets the
+   * tag-bounds prune first: a swallowing interval answers the page outright, a missed one costs
+   * nothing but the two compares.
    *
-   * <p>Encodings the counting kernel declines fall to one scalar pass over the values with an
-   * inner walk of the (few, sorted) intervals — not one scalar pass per interval.
+   * <p>
+   * Encodings the counting kernel declines fall to one scalar pass over the values with an inner walk
+   * of the (few, sorted) intervals — not one scalar pass per interval.
    */
-  private static long countIntervalsFromNumberRegion(final RegionsOnlyPage page,
-      final NumberRegion.Header h, final int tag, final int start, final int end,
-      final int anchorSlots, final long[] intervals) {
+  private static long countIntervalsFromNumberRegion(final RegionsOnlyPage page, final NumberRegion.Header h,
+      final int tag, final int start, final int end, final int anchorSlots, final long[] intervals) {
     final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
     final boolean hasZones = h.tagMin != null && h.tagMax != null;
     long total = 0;
@@ -14721,10 +15306,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (hasZones) {
         if (h.tagMax[tag] < lo || h.tagMin[tag] > hi) {
-          continue;  // this interval touches nothing on the page
+          continue; // this interval touches nothing on the page
         }
         if (h.tagMin[tag] >= lo && h.tagMax[tag] <= hi) {
-          return anchorSlots;  // it swallows the tag; disjoint others cannot add to that
+          return anchorSlots; // it swallows the tag; disjoint others cannot add to that
         }
       }
       final long counted;
@@ -14733,9 +15318,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       } else if (hi == Long.MAX_VALUE) {
         counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, lo);
       } else {
-        counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
-                                                      VectorOperators.GE, lo,
-                                                      VectorOperators.LE, hi);
+        counted =
+            NumberRegionSimd.countMatchingRange(values, h, start, end, VectorOperators.GE, lo, VectorOperators.LE, hi);
       }
       if (counted < 0L) {
         // Declined encoding: one scalar pass over the values, intervals walked inside. The walk is
@@ -14749,14 +15333,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Decode-and-test over a union of SORTED disjoint intervals, the column decoded once. */
-  private static long scalarCountInSortedUnion(final MemorySegment values,
-      final NumberRegion.Header h, final int start, final int end, final long[] intervals) {
+  private static long scalarCountInSortedUnion(final MemorySegment values, final NumberRegion.Header h, final int start,
+      final int end, final long[] intervals) {
     long scalar = 0;
     for (int v = start; v < end; v++) {
       final long value = NumberRegion.decodeValueAt(values, h, v);
       for (int k = 0; k < intervals.length; k += 2) {
         if (value < intervals[k]) {
-          break;  // sorted and disjoint: later intervals start even higher
+          break; // sorted and disjoint: later intervals start even higher
         }
         if (value <= intervals[k + 1]) {
           scalar++;
@@ -14770,8 +15354,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Whether the sketch rules out every literal in the predicate.
    *
-   * <p>A disjunction may only be dismissed when no branch of it can be satisfied; one literal the
-   * filter admits is enough to make the page worth reading.
+   * <p>
+   * A disjunction may only be dismissed when no branch of it can be satisfied; one literal the filter
+   * admits is enough to make the page worth reading.
    */
   private static boolean noneMayBePresent(final MemorySegment sketch, final byte[][] literals,
       final byte[][] encodedLiterals) {
@@ -14790,25 +15375,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Count a versioned page's matches by merging its fragments' NUMBER columns, instead of
    * reconstructing its records.
    *
-   * <h2>The merge rule, and why the slot bitmap is required</h2>
-   * The record path's rule is "the newest fragment that defines a slot owns it". That must be read
-   * from each fragment's slot BITMAP, not from its columns: a slot deleted in a newer revision is
-   * in that fragment's bitmap but absent from its regions, and merging on the columns alone would
-   * mistake the deletion for "unchanged here" and resurrect the older value.
+   * <h2>The merge rule, and why the slot bitmap is required</h2> The record path's rule is "the
+   * newest fragment that defines a slot owns it". That must be read from each fragment's slot BITMAP,
+   * not from its columns: a slot deleted in a newer revision is in that fragment's bitmap but absent
+   * from its regions, and merging on the columns alone would mistake the deletion for "unchanged
+   * here" and resurrect the older value.
    *
-   * <h2>How a value is attributed to a slot</h2>
-   * The number region stores values grouped by tag, without slot ids — but the writer emits them in
-   * ascending slot order, and the completeness oracle already tells us the tag covers exactly the
-   * slots the field-name column reports for the anchor. Equal size plus subset means equal set, so
-   * the k-th value of the tag belongs to the k-th such slot. Any fragment failing the oracle sends
-   * the whole page back to the records.
+   * <h2>How a value is attributed to a slot</h2> The number region stores values grouped by tag,
+   * without slot ids — but the writer emits them in ascending slot order, and the completeness oracle
+   * already tells us the tag covers exactly the slots the field-name column reports for the anchor.
+   * Equal size plus subset means equal set, so the k-th value of the tag belongs to the k-th such
+   * slot. Any fragment failing the oracle sends the whole page back to the records.
    *
    * @return the match count, or {@code -1} when the page cannot be served columnar
    */
-  private static long countFragmentedPageFromRegions(final RegionsOnlyPage[] fragments,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int[] outAnchorSlots, final RegionHeaderScratch scratch,
-      final StorageEngineReader reader) {
+  private static long countFragmentedPageFromRegions(final RegionsOnlyPage[] fragments, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] outAnchorSlots,
+      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     outAnchorSlots[0] = 0;
     if (plan.isFused()) {
       // A fused plan intersects row sets across columns, which needs a per-fragment record
@@ -14842,10 +15425,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         continue;
       }
       final long contributed = plan.isString()
-          ? countOwnedStringMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
-                                    ownedSlots, scratch, reader)
-          : countOwnedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched,
-                                    ownedSlots, scratch);
+          ? countOwnedStringMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched, ownedSlots,
+              scratch, reader)
+          : countOwnedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched, ownedSlots,
+              scratch);
       if (contributed < 0L) {
         return -1L;
       }
@@ -14861,10 +15444,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Fold one fragment's NUMBER column over the anchor slots it still owns. Returns {@code -1} when
    * the completeness oracle fails, which disqualifies the whole page.
    */
-  private static long countOwnedNumberMatches(final RegionsOnlyPage fragment,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int[] slots, final int matched, final long[] ownedSlots,
-      final RegionHeaderScratch scratch) {
+  private static long countOwnedNumberMatches(final RegionsOnlyPage fragment, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] slots, final int matched,
+      final long[] ownedSlots, final RegionHeaderScratch scratch) {
     scratch.ownedSeen = 0;
     final NumberRegion.Header h = fragment.numberHeaderInto(scratch.number);
     // Explicit null flow: with no long column at all the fragment goes straight to the mixed arm
@@ -14874,16 +15456,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (h == null) {
       tag = -1;
     } else {
-      tag = tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey,
-                          anchorNameKey);
+      tag = tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
     }
     if (h == null || tag < 0 || h.tagCount[tag] != matched) {
       // The long column alone does not account for this fragment's anchor slots. The shortfall may
       // be DOUBLES — the type the long region declines by construction — and the double region's
       // field-ordinal list makes the liveness bitmap splittable per column, so the merge still
       // avoids reconstructing the fragment's records.
-      return countOwnedMixedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots,
-                                          matched, ownedSlots, scratch, h, tag);
+      return countOwnedMixedNumberMatches(fragment, plan, anchorNameKey, anchorPathNodeKey, slots, matched, ownedSlots,
+          scratch, h, tag);
     }
     final int tagStart = h.tagStart[tag];
     final int end = tagStart + matched;
@@ -14901,29 +15482,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
 
     return plan.isMultiInterval()
-        ? countOwnedMultiInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits,
-                                  liveCount)
-        : countOwnedSingleInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits,
-                                   liveCount);
+        ? countOwnedMultiInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits, liveCount)
+        : countOwnedSingleInterval(fragment, plan, h, tag, tagStart, end, matched, liveBits, liveCount);
   }
 
   /**
    * Sum this fragment's live rows over a union of disjoint intervals: one masked kernel pass per
    * interval, the same shape the single-fragment multi path uses.
    *
-   * <p>A zone-swallow — the tag wholly inside one interval — answers with {@code liveCount}
-   * outright, since the other intervals are disjoint and can add nothing.
+   * <p>
+   * A zone-swallow — the tag wholly inside one interval — answers with {@code liveCount} outright,
+   * since the other intervals are disjoint and can add nothing.
    */
-  private static long countOwnedMultiInterval(final RegionsOnlyPage fragment,
-      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int tagStart,
-      final int end, final int matched, final long[] liveBits, final int liveCount) {
+  private static long countOwnedMultiInterval(final RegionsOnlyPage fragment, final RegionCountPlan plan,
+      final NumberRegion.Header h, final int tag, final int tagStart, final int end, final int matched,
+      final long[] liveBits, final int liveCount) {
     final MemorySegment values = fragment.regionPayload(RegionTable.KIND_NUMBER);
     final long[] iv = plan.orIntervals();
     long total = 0;
     final boolean hasZones = h.tagMin != null && h.tagMax != null;
     for (int k = 0; k < iv.length; k += 2) {
       if (iv[k] > iv[k + 1]) {
-        continue;  // the empty long-union sentinel of a purely fractional disjunction
+        continue; // the empty long-union sentinel of a purely fractional disjunction
       }
       if (hasZones) {
         if (h.tagMax[tag] < iv[k] || h.tagMin[tag] > iv[k + 1]) {
@@ -14937,11 +15517,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return -1L;
       }
       final long counted = liveCount == matched
-          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end, VectorOperators.GE, iv[k],
-                                                VectorOperators.LE, iv[k + 1])
-          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end, VectorOperators.GE,
-                                                      iv[k], VectorOperators.LE, iv[k + 1],
-                                                      liveBits);
+          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end, VectorOperators.GE, iv[k], VectorOperators.LE,
+              iv[k + 1])
+          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end, VectorOperators.GE, iv[k],
+              VectorOperators.LE, iv[k + 1], liveBits);
       if (counted < 0L) {
         // Declined encoding: one scalar pass over the LIVE values, intervals walked inside, so
         // the column decodes once rather than once per interval.
@@ -14953,9 +15532,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Count this fragment's live rows against one closed interval. */
-  private static long countOwnedSingleInterval(final RegionsOnlyPage fragment,
-      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int tagStart,
-      final int end, final int matched, final long[] liveBits, final int liveCount) {
+  private static long countOwnedSingleInterval(final RegionsOnlyPage fragment, final RegionCountPlan plan,
+      final NumberRegion.Header h, final int tag, final int tagStart, final int end, final int matched,
+      final long[] liveBits, final int liveCount) {
     // Zone map. Both arms survive shadowing: an empty intersection stays empty for any subset, and
     // a fully-contained range matches every value this fragment still owns -- which is liveCount,
     // not the tag's total.
@@ -14977,12 +15556,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // merge costs exactly what a single-fragment page costs.
       recordMergeKernel(liveCount == matched);
       final long counted = liveCount == matched
-          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end,
-                                                VectorOperators.GE, plan.lo(),
-                                                VectorOperators.LE, plan.hi())
-          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end,
-                                                      VectorOperators.GE, plan.lo(),
-                                                      VectorOperators.LE, plan.hi(), liveBits);
+          ? NumberRegionSimd.countMatchingRange(values, h, tagStart, end, VectorOperators.GE, plan.lo(),
+              VectorOperators.LE, plan.hi())
+          : NumberRegionSimd.countMatchingRangeMasked(values, h, tagStart, end, VectorOperators.GE, plan.lo(),
+              VectorOperators.LE, plan.hi(), liveBits);
       if (counted >= 0L) {
         return counted;
       }
@@ -14990,18 +15567,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     // Encodings the kernels decline (delta-of-delta, bit widths past 56) still decode from the
     // region rather than from the records.
-    return scalarCountInInterval(fragment.regionPayload(RegionTable.KIND_NUMBER), h, tagStart,
-                                 matched, plan.lo(), plan.hi(), liveBits);
+    return scalarCountInInterval(fragment.regionPayload(RegionTable.KIND_NUMBER), h, tagStart, matched, plan.lo(),
+        plan.hi(), liveBits);
   }
 
   /** Decode-and-test fallback over the live rows of one closed interval. */
-  private static long scalarCountInInterval(final MemorySegment values,
-      final NumberRegion.Header h, final int start, final int count, final long lo, final long hi,
-      final long[] live) {
+  private static long scalarCountInInterval(final MemorySegment values, final NumberRegion.Header h, final int start,
+      final int count, final long lo, final long hi, final long[] live) {
     long matches = 0;
     for (int i = 0; i < count; i++) {
       if ((live[i >>> 6] & (1L << (i & 63))) == 0L) {
-        continue;  // a newer fragment already owns this slot
+        continue; // a newer fragment already owns this slot
       }
       final long v = NumberRegion.decodeValueAt(values, h, start + i);
       if (v >= lo && v <= hi) {
@@ -15012,22 +15588,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * The mixed-column form of {@link #countOwnedNumberMatches}: a fragment whose anchor field is
-   * split across the long and double columns.
+   * The mixed-column form of {@link #countOwnedNumberMatches}: a fragment whose anchor field is split
+   * across the long and double columns.
    *
-   * <p>The one genuinely new piece is the PROJECTION. The liveness bitmap is indexed by anchor-slot
+   * <p>
+   * The one genuinely new piece is the PROJECTION. The liveness bitmap is indexed by anchor-slot
    * ordinal, but each column holds only its own type's subsequence of those slots — so the bitmap
    * must be split into a per-column mask, and which ordinal belongs to which column is exactly what
-   * {@code DoubleRegion}'s field-ordinal list stores. The split walks the ordinals once; both
-   * columns are then counted by their own MASKED kernels, the same shapes the long-only merge has
-   * always used.
+   * {@code DoubleRegion}'s field-ordinal list stores. The split walks the ordinals once; both columns
+   * are then counted by their own MASKED kernels, the same shapes the long-only merge has always
+   * used.
    *
    * @return the fragment's live match count, or {@code -1} when it must go through the records
    */
-  private static long countOwnedMixedNumberMatches(final RegionsOnlyPage fragment,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int[] slots, final int matched, final long[] ownedSlots,
-      final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h, final int tag) {
+  private static long countOwnedMixedNumberMatches(final RegionsOnlyPage fragment, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] slots, final int matched,
+      final long[] ownedSlots, final RegionHeaderScratch scratch, final NumberRegion.@Nullable Header h,
+      final int tag) {
     // A multi-interval plan carries its double union in orDblIntervals (folded per branch — the
     // single dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in
     // dlo/dhi. Either way the fractional half needs SOME domain that can decide it, and there are
@@ -15047,9 +15624,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
     final int dTag = tagInKeySpace(dh, dh.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
-    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    final int longCount = tag >= 0
+        ? h.tagCount[tag]
+        : 0;
     if (dTag < 0 || longCount + dh.tagCount[dTag] != matched) {
-      return -1L;  // a value of some third type — the summed oracle refuses, records answer
+      return -1L; // a value of some third type — the summed oracle refuses, records answer
     }
     final int dCount = dh.tagCount[dTag];
     final long[] liveBits = scratch.liveBitsFor(matched);
@@ -15061,8 +15640,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     final long[] longLive = scratch.mergeLongLiveFor(longCount);
     final long[] dblLive = scratch.mergeDblLiveFor(dCount);
-    if (!splitLiveByFieldOrdinals(dblPayload, dh, dTag, dCount, longCount, matched, liveBits,
-                                  longLive, dblLive)) {
+    if (!splitLiveByFieldOrdinals(dblPayload, dh, dTag, dCount, longCount, matched, liveBits, longLive, dblLive)) {
       return -1L;
     }
     final long total = countMixedDoubleSide(dblPayload, dh, dTag, plan, dblLive, scratch);
@@ -15085,12 +15663,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Whether {@code plan} carries SOME domain that can decide its fractional half.
    *
-   * <p>There are two: double bounds for an ALP/PLAIN tag, exact decimal bounds for an ENC_DEC one.
-   * A threshold like {@code gt 19.99} has no faithful double image and so only the second —
-   * refusing on the first alone would send every real price back to the records, which is the whole
-   * gap ENC_DEC closes. Which domain a PAGE can actually use is decided per tag, once its encoding
-   * is known. A multi-interval plan carries its double union in {@code orDblIntervals} (the single
-   * dlo/dhi pair is deliberately unservable there); a single-interval plan carries it in dlo/dhi.
+   * <p>
+   * There are two: double bounds for an ALP/PLAIN tag, exact decimal bounds for an ENC_DEC one. A
+   * threshold like {@code gt 19.99} has no faithful double image and so only the second — refusing on
+   * the first alone would send every real price back to the records, which is the whole gap ENC_DEC
+   * closes. Which domain a PAGE can actually use is decided per tag, once its encoding is known. A
+   * multi-interval plan carries its double union in {@code orDblIntervals} (the single dlo/dhi pair
+   * is deliberately unservable there); a single-interval plan carries it in dlo/dhi.
    */
   private static boolean planHasFractionalDomain(final RegionCountPlan plan) {
     if (plan.isMultiInterval()) {
@@ -15103,20 +15682,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Split the anchor-order liveness bitmap into one bitmap per column, along the stored field
    * ordinals. {@code false} means the region's ordinals are corrupt and the records must answer.
    *
-   * <p>The double column's k-th value sits at anchor ordinal {@code fieldOrdinalAt(k)}; everything
-   * between consecutive double ordinals is the long column's, in order. Each ordinal is read from
-   * the payload ONCE, when its predecessor is consumed — not once per anchor slot, which re-read
-   * the same short up to {@code matched} times.
+   * <p>
+   * The double column's k-th value sits at anchor ordinal {@code fieldOrdinalAt(k)}; everything
+   * between consecutive double ordinals is the long column's, in order. Each ordinal is read from the
+   * payload ONCE, when its predecessor is consumed — not once per anchor slot, which re-read the same
+   * short up to {@code matched} times.
    */
-  private static boolean splitLiveByFieldOrdinals(final MemorySegment dblPayload,
-      final DoubleRegion.Header dh, final int dTag, final int dCount, final int longCount,
-      final int matched, final long[] liveBits, final long[] longLive, final long[] dblLive) {
+  private static boolean splitLiveByFieldOrdinals(final MemorySegment dblPayload, final DoubleRegion.Header dh,
+      final int dTag, final int dCount, final int longCount, final int matched, final long[] liveBits,
+      final long[] longLive, final long[] dblLive) {
     Arrays.fill(longLive, 0, (longCount + 63) >>> 6, 0L);
     Arrays.fill(dblLive, 0, (dCount + 63) >>> 6, 0L);
     int nextDouble = 0;
     int longIndex = 0;
-    int pendingOrdinal =
-        dCount > 0 ? nextFieldOrdinal(dblPayload, dh, dTag, 0, -1, matched) : -1;
+    int pendingOrdinal = dCount > 0
+        ? nextFieldOrdinal(dblPayload, dh, dTag, 0, -1, matched)
+        : -1;
     if (dCount > 0 && pendingOrdinal < 0) {
       return false;
     }
@@ -15129,15 +15710,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         nextDouble++;
         if (nextDouble < dCount) {
-          pendingOrdinal =
-              nextFieldOrdinal(dblPayload, dh, dTag, nextDouble, pendingOrdinal, matched);
+          pendingOrdinal = nextFieldOrdinal(dblPayload, dh, dTag, nextDouble, pendingOrdinal, matched);
           if (pendingOrdinal < 0) {
             return false;
           }
         }
       } else {
         if (longIndex >= longCount) {
-          return false;  // more non-double slots than long values: the ordinals lie
+          return false; // more non-double slots than long values: the ordinals lie
         }
         if (isLive) {
           longLive[longIndex >>> 6] |= 1L << (longIndex & 63);
@@ -15152,30 +15732,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The {@code k}-th stored field ordinal, or {@code -1} when it is not strictly greater than
    * {@code previous} and inside the tag — a corrupt region, and corrupt means records.
    */
-  private static int nextFieldOrdinal(final MemorySegment dblPayload,
-      final DoubleRegion.Header dh, final int dTag, final int k, final int previous,
-      final int matched) {
+  private static int nextFieldOrdinal(final MemorySegment dblPayload, final DoubleRegion.Header dh, final int dTag,
+      final int k, final int previous, final int matched) {
     final int ordinal = DoubleRegion.fieldOrdinalAt(dblPayload, dh, dTag, k);
-    return ordinal <= previous || ordinal >= matched ? -1 : ordinal;
+    return ordinal <= previous || ordinal >= matched
+        ? -1
+        : ordinal;
   }
 
   /** Count the double column's live rows, one pass per disjoint interval; {@code -1} refuses. */
-  private static long countMixedDoubleSide(final MemorySegment dblPayload,
-      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan,
-      final long[] dblLive, final RegionHeaderScratch scratch) {
+  private static long countMixedDoubleSide(final MemorySegment dblPayload, final DoubleRegion.Header dh, final int dTag,
+      final RegionCountPlan plan, final long[] dblLive, final RegionHeaderScratch scratch) {
     if (plan.isMultiInterval()) {
       if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
         return countDecUnion(dblPayload, dh, dTag, plan, dblLive, scratch);
       }
       final double[] div = plan.orDblIntervals();
       if (div == null) {
-        return -1L;  // this tag recodes doubles and the union has no double form: records
+        return -1L; // this tag recodes doubles and the union has no double form: records
       }
       long total = 0;
       for (int k = 0; k < div.length; k += 2) {
         // REFUSED is not a count: a decimal tag cannot be decided from double bounds.
-        final long part =
-            DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, div[k], div[k + 1], dblLive);
+        final long part = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, div[k], div[k + 1], dblLive);
         if (part == DoubleRegionSimd.REFUSED) {
           return -1L;
         }
@@ -15195,46 +15774,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // kernel's `!(dlo <= dhi)` guard would score an unanswerable tag as a clean ZERO.
       return -1L;
     }
-    final long whole =
-        DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(), dblLive);
+    final long whole = DoubleRegionSimd.countTagRangeMasked(dblPayload, dh, dTag, plan.dlo(), plan.dhi(), dblLive);
     // REFUSED is negative, which the caller reads as "the records answer": an exact-decimal tag
     // cannot be decided from double bounds.
-    return whole == DoubleRegionSimd.REFUSED ? -1L : whole;
+    return whole == DoubleRegionSimd.REFUSED
+        ? -1L
+        : whole;
   }
 
   /**
    * Count the long column's live rows against one closed interval.
    *
-   * <p>No per-fragment interval array: the merge runs per fragment per page per query, and an
-   * allocation here is one the whole scratch design exists to avoid.
+   * <p>
+   * No per-fragment interval array: the merge runs per fragment per page per query, and an allocation
+   * here is one the whole scratch design exists to avoid.
    */
-  private static long countLongsInInterval(final MemorySegment values,
-      final NumberRegion.Header h, final int start, final int longCount, final long lo,
-      final long hi, final long[] longLive) {
+  private static long countLongsInInterval(final MemorySegment values, final NumberRegion.Header h, final int start,
+      final int longCount, final long lo, final long hi, final long[] longLive) {
     if (lo > hi) {
-      return 0L;  // an empty long side (e.g. `eq 1990.5`) leaves only doubles in play
+      return 0L; // an empty long side (e.g. `eq 1990.5`) leaves only doubles in play
     }
-    final long counted =
-        NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
-                                                  VectorOperators.GE, lo, VectorOperators.LE, hi,
-                                                  longLive);
+    final long counted = NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
+        VectorOperators.GE, lo, VectorOperators.LE, hi, longLive);
     return counted >= 0L
         ? counted
         : scalarCountInInterval(values, h, start, longCount, lo, hi, longLive);
   }
 
   /** Count the long column's live rows against a union of disjoint intervals. */
-  private static long countLongsInUnion(final MemorySegment values, final NumberRegion.Header h,
-      final int start, final int longCount, final long[] iv, final long[] longLive) {
+  private static long countLongsInUnion(final MemorySegment values, final NumberRegion.Header h, final int start,
+      final int longCount, final long[] iv, final long[] longLive) {
     long total = 0;
     for (int k = 0; k < iv.length; k += 2) {
       if (iv[k] > iv[k + 1]) {
-        continue;  // the empty long-union sentinel of a purely fractional disjunction
+        continue; // the empty long-union sentinel of a purely fractional disjunction
       }
-      final long counted =
-          NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
-                                                    VectorOperators.GE, iv[k], VectorOperators.LE,
-                                                    iv[k + 1], longLive);
+      final long counted = NumberRegionSimd.countMatchingRangeMasked(values, h, start, start + longCount,
+          VectorOperators.GE, iv[k], VectorOperators.LE, iv[k + 1], longLive);
       if (counted >= 0L) {
         total += counted;
         continue;
@@ -15247,8 +15823,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Decode-and-test fallback for an encoding the masked kernel declines. */
-  private static long scalarCountInUnion(final MemorySegment values, final NumberRegion.Header h,
-      final int start, final int longCount, final long[] iv, final long[] longLive) {
+  private static long scalarCountInUnion(final MemorySegment values, final NumberRegion.Header h, final int start,
+      final int longCount, final long[] iv, final long[] longLive) {
     long scalar = 0;
     for (int i = 0; i < longCount; i++) {
       if ((longLive[i >>> 6] & (1L << (i & 63))) == 0L) {
@@ -15268,10 +15844,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Mark which of {@code matched} anchor values this fragment still owns, and return how many.
    *
-   * <p>Branch-free on purpose: the ownership test becomes a shift and a mask folded into the word
-   * being built, so the loop carries no data-dependent control flow into the SIMD kernel that
-   * consumes its output. Bit {@code i} governs the value at region index {@code tagStart + i},
-   * i.e. the bitmap is indexed RELATIVE to the tag's first value.
+   * <p>
+   * Branch-free on purpose: the ownership test becomes a shift and a mask folded into the word being
+   * built, so the loop carries no data-dependent control flow into the SIMD kernel that consumes its
+   * output. Bit {@code i} governs the value at region index {@code tagStart + i}, i.e. the bitmap is
+   * indexed RELATIVE to the tag's first value.
    */
   private static int fillLiveBits(final long[] liveBits, final int[] slots, final int matched,
       final long[] ownedSlots) {
@@ -15288,19 +15865,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Fold one fragment's STRING column over the anchor slots it still owns. Same shape as the
-   * numeric arm: the sketch can rule the fragment out outright, and otherwise the dictionary is
-   * probed once and each owned slot's dict id compared against it — no value is decompressed and,
-   * under FSST, none is decoded.
+   * Fold one fragment's STRING column over the anchor slots it still owns. Same shape as the numeric
+   * arm: the sketch can rule the fragment out outright, and otherwise the dictionary is probed once
+   * and each owned slot's dict id compared against it — no value is decompressed and, under FSST,
+   * none is decoded.
    */
-  private static long countOwnedStringMatches(final RegionsOnlyPage fragment,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int[] slots, final int matched, final long[] ownedSlots,
-      final RegionHeaderScratch scratch, final StorageEngineReader reader) {
+  private static long countOwnedStringMatches(final RegionsOnlyPage fragment, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] slots, final int matched,
+      final long[] ownedSlots, final RegionHeaderScratch scratch, final StorageEngineReader reader) {
     scratch.ownedSeen = 0;
     final byte[] literal = plan.literal();
-    final byte[] encodedLiteral =
-        scratch.literalFor(fragment.getFsstSymbolTableId(), literal, reader);
+    final byte[] encodedLiteral = scratch.literalFor(fragment.getFsstSymbolTableId(), literal, reader);
 
     // Resolve ownership once, up front: the count is needed regardless of the verdict below —
     // these slots are settled here and must not be re-counted against an older fragment — and the
@@ -15346,10 +15921,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The dictionary tag holding the anchor's strings, or {@code -1} when this page cannot be served
    * columnar.
    *
-   * <p>Resolved in the dictionary's OWN key space — a path-tagged dictionary probed with a nameKey
-   * (or the reverse) can collide on an unrelated int, and that would count the wrong column rather
-   * than merely fail to prune. Completeness is checked too: the tag must account for every anchor
-   * slot, or values stored as another type would go uncounted.
+   * <p>
+   * Resolved in the dictionary's OWN key space — a path-tagged dictionary probed with a nameKey (or
+   * the reverse) can collide on an unrelated int, and that would count the wrong column rather than
+   * merely fail to prune. Completeness is checked too: the tag must account for every anchor slot, or
+   * values stored as another type would go uncounted.
    */
   private static int resolveStringTag(final StringRegion.Header h, final int anchorNameKey,
       final long anchorPathNodeKey, final int anchorSlots) {
@@ -15363,22 +15939,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       lookupKey = anchorNameKey;
     }
     final int tag = StringRegion.lookupTag(h, lookupKey);
-    return tag < 0 || h.tagCount[tag] != anchorSlots ? -1 : tag;
+    return tag < 0 || h.tagCount[tag] != anchorSlots
+        ? -1
+        : tag;
   }
 
   /**
-   * Whether this fragment's dictionary sketch proves the literal is absent — in either its raw or
-   * its FSST-encoded form, since the dictionary may hold it either way.
+   * Whether this fragment's dictionary sketch proves the literal is absent — in either its raw or its
+   * FSST-encoded form, since the dictionary may hold it either way.
    */
   private static boolean sketchExcludes(final RegionsOnlyPage fragment, final byte[] literal,
       final byte @Nullable [] encodedLiteral) {
     final MemorySegment sketch = fragment.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
-    return sketch != null
-        && !StringDictSketch.mayContain(sketch, literal)
+    return sketch != null && !StringDictSketch.mayContain(sketch, literal)
         && (encodedLiteral == null || !StringDictSketch.mayContain(sketch, encodedLiteral));
   }
 
-  /** Account for which merge kernel served a fragment's column; see {@link #regionMergeMaskedKernels()}. */
+  /**
+   * Account for which merge kernel served a fragment's column; see
+   * {@link #regionMergeMaskedKernels()}.
+   */
   private static void recordMergeKernel(final boolean fullyLive) {
     if (fullyLive) {
       REGION_MERGE_UNMASKED.increment();
@@ -15395,34 +15975,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Answer one page from its columns, or {@code -1} when the records have to decide it.
    *
-   * <p>Single copy on purpose. This ran as two byte-identical inlined blocks, one per scan arm,
-   * selected by a static flag — so a fix to the dictionary retry, the counters or the fragment
-   * merge had to be made twice and would only show up as a divergence under one configuration.
+   * <p>
+   * Single copy on purpose. This ran as two byte-identical inlined blocks, one per scan arm, selected
+   * by a static flag — so a fix to the dictionary retry, the counters or the fragment merge had to be
+   * made twice and would only show up as a divergence under one configuration.
    *
-   * <p>Writes the anchor-slot count into {@code anchorSlotOut}; the caller uses it to decide
-   * whether this page belongs in the page-skip bitmap, which it can only know after the fold.
+   * <p>
+   * Writes the anchor-slot count into {@code anchorSlotOut}; the caller uses it to decide whether
+   * this page belongs in the page-skip bitmap, which it can only know after the fold.
    *
    * @return the page's match count, or {@code -1} to fall back to the record path
    */
   /**
    * The whole columnar fast path for one page — serve from columns, record the page in the skip
    * bitmap, and settle the pending boundary record — shared by both worker arms so the
-   * serve-and-patch protocol has ONE definition. The arms differ only in which
-   * {@link EvalScratch} the patch borrows.
+   * serve-and-patch protocol has ONE definition. The arms differ only in which {@link EvalScratch}
+   * the patch borrows.
    *
    * @return the page's full count, or {@code -1} to fall through to the record path
    */
-  private long columnarPageCount(final StorageEngineReader reader, final IndexLogKey reusableKey,
-      final long pk, final RegionCountPlan regionPlan, final int regionMask,
-      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
-      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
-      final long anchorPathNodeKey, final int[] anchorSlotOut,
-      final RegionHeaderScratch headerScratch, final @Nullable RoaringBitmap recordBuf,
-      final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
-      final @Nullable EvalScratch evalScratch) {
-    final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
-                                     regionDeferMask, regionCache, dictCache, anchorNameKey,
-                                     anchorPathNodeKey, anchorSlotOut, headerScratch);
+  private long columnarPageCount(final StorageEngineReader reader, final IndexLogKey reusableKey, final long pk,
+      final RegionCountPlan regionPlan, final int regionMask, final int regionDeferMask,
+      final @Nullable Map<Long, RegionsOnlyPage> regionCache, final @Nullable Map<Long, RegionsOnlyPage> dictCache,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] anchorSlotOut,
+      final RegionHeaderScratch headerScratch, final @Nullable RoaringBitmap recordBuf, final JsonNodeReadOnlyTrx rtx,
+      final CompiledPredicate cp, final @Nullable EvalScratch evalScratch) {
+    final long c = countPageColumnar(reader, reusableKey, pk, regionPlan, regionMask, regionDeferMask, regionCache,
+        dictCache, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch);
     if (c < 0L) {
       // The whole page goes through the records, its boundary anchor occurrences with it. A
       // kernel that set a slot before refusing further down must not leave it standing: the next
@@ -15436,32 +16015,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return c + patchBoundaryAnchor(headerScratch, rtx, cp, evalScratch, pk, anchorPathNodeKey);
   }
 
-  private long countPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey,
-      final long pk, final RegionCountPlan regionPlan, final int regionMask,
-      final int regionDeferMask, final @Nullable Map<Long, RegionsOnlyPage> regionCache,
-      final @Nullable Map<Long, RegionsOnlyPage> dictCache, final int anchorNameKey,
-      final long anchorPathNodeKey, final int[] anchorSlotOut,
+  private long countPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey, final long pk,
+      final RegionCountPlan regionPlan, final int regionMask, final int regionDeferMask,
+      final @Nullable Map<Long, RegionsOnlyPage> regionCache, final @Nullable Map<Long, RegionsOnlyPage> dictCache,
+      final int anchorNameKey, final long anchorPathNodeKey, final int[] anchorSlotOut,
       final RegionHeaderScratch headerScratch) {
-    RegionsOnlyPage regions = regionCache == null ? null : regionCache.get(pk);
+    RegionsOnlyPage regions = regionCache == null
+        ? null
+        : regionCache.get(pk);
     if (regions == null) {
-      regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask,
-                                                regionDeferMask);
+      regions = reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), regionMask, regionDeferMask);
       if (regions != null) {
         admitToRegionCache(regionCache, pk, regions);
       }
     }
     if (regions == null) {
-      return countFragmentedPageColumnar(reader, reusableKey, pk, regionPlan, regionMask,
-                                         anchorNameKey, anchorPathNodeKey, anchorSlotOut,
-                                         headerScratch);
+      return countFragmentedPageColumnar(reader, reusableKey, pk, regionPlan, regionMask, anchorNameKey,
+          anchorPathNodeKey, anchorSlotOut, headerScratch);
     }
 
     // The page the fold actually read. A string retry re-reads the page WITH the dictionary, and
     // every route below has to see that one — handing the dictionary-less image to the tree route
     // would refuse a string leaf whose dictionary is already in hand.
     RegionsOnlyPage served = regions;
-    long c = countPageFromRegions(regions, regionPlan, anchorNameKey, anchorPathNodeKey,
-                                  anchorSlotOut, headerScratch, reader);
+    long c = countPageFromRegions(regions, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch,
+        reader);
     if (c == NEED_STRING_DICTIONARY) {
       final RegionsOnlyPage withDict = pageWithDictionary(reader, reusableKey, pk, dictCache);
       if (withDict != null) {
@@ -15469,10 +16047,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       c = withDict == null
           ? -1L
-          : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey,
-                                 anchorSlotOut, headerScratch, reader);
+          : countPageFromRegions(withDict, regionPlan, anchorNameKey, anchorPathNodeKey, anchorSlotOut, headerScratch,
+              reader);
       if (c == NEED_STRING_DICTIONARY) {
-        c = -1L;  // page really has no dictionary — the records decide it
+        c = -1L; // page really has no dictionary — the records decide it
       }
     }
     // LAST RESORT before the record heap: evaluate the predicate TREE into a selection bitmap.
@@ -15483,8 +16061,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // the routine is deterministic on identical inputs, so a second call would re-decode the record
     // ordinals, re-scan the field-name column and re-walk the tree only to decline again.
     if (c < 0L && !regionPlan.isFused()) {
-      final long viaTree = countPageViaTree(served, regionPlan, anchorNameKey, anchorPathNodeKey,
-                                            headerScratch, reader);
+      final long viaTree =
+          countPageViaTree(served, regionPlan, anchorNameKey, anchorPathNodeKey, headerScratch, reader);
       if (viaTree >= 0L) {
         // anchorSlotOut keeps the anchor-slot COUNT countPageFromRegions established above — it is
         // what puts this page into the page-skip bitmap. The pending boundary slot reaches
@@ -15503,13 +16081,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Count a page the regions-only read could not hand back whole: merge its fragments' columns
-   * rather than reconstructing its records, which would materialize every fragment into a row heap.
+   * Count a page the regions-only read could not hand back whole: merge its fragments' columns rather
+   * than reconstructing its records, which would materialize every fragment into a row heap.
    */
-  private long countFragmentedPageColumnar(final StorageEngineReader reader,
-      final IndexLogKey reusableKey, final long pk, final RegionCountPlan regionPlan,
-      final int regionMask, final int anchorNameKey, final long anchorPathNodeKey,
-      final int[] anchorSlotOut, final RegionHeaderScratch headerScratch) {
+  private long countFragmentedPageColumnar(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final RegionCountPlan regionPlan, final int regionMask, final int anchorNameKey,
+      final long anchorPathNodeKey, final int[] anchorSlotOut, final RegionHeaderScratch headerScratch) {
     if (regionPlan.isFused()) {
       // The fragment merge cannot serve a fused plan (see countFragmentedPageFromRegions), and
       // the plan kind is known BEFORE the fetch — fetching every fragment's columns just to have
@@ -15517,16 +16094,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       REGION_ONLY_UNAVAILABLE.increment();
       return -1L;
     }
-    final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(
-        reusableKey.setRecordPageKey(pk),
-        regionPlan.isString() ? REGION_STRING_COUNT_MASK : regionMask);
+    final RegionsOnlyPage[] fragments = reader.getRecordPageFragmentRegions(reusableKey.setRecordPageKey(pk),
+        regionPlan.isString()
+            ? REGION_STRING_COUNT_MASK
+            : regionMask);
     if (fragments == null) {
       REGION_ONLY_UNAVAILABLE.increment();
       return -1L;
     }
-    final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey,
-                                                       anchorPathNodeKey, anchorSlotOut,
-                                                       headerScratch, reader);
+    final long merged = countFragmentedPageFromRegions(fragments, regionPlan, anchorNameKey, anchorPathNodeKey,
+        anchorSlotOut, headerScratch, reader);
     if (merged >= 0L) {
       REGION_ONLY_PAGES.increment();
       REGION_MERGED_PAGES.increment();
@@ -15537,16 +16114,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /** Re-read this page WITH its string dictionary, through the retry cache; {@code null} if none. */
-  private @Nullable RegionsOnlyPage pageWithDictionary(final StorageEngineReader reader,
-      final IndexLogKey reusableKey, final long pk,
-      final @Nullable Map<Long, RegionsOnlyPage> dictCache) {
-    final RegionsOnlyPage cached = dictCache == null ? null : dictCache.get(pk);
+  private @Nullable RegionsOnlyPage pageWithDictionary(final StorageEngineReader reader, final IndexLogKey reusableKey,
+      final long pk, final @Nullable Map<Long, RegionsOnlyPage> dictCache) {
+    final RegionsOnlyPage cached = dictCache == null
+        ? null
+        : dictCache.get(pk);
     if (cached != null) {
       return cached;
     }
     final RegionsOnlyPage withDict =
-        reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk),
-                                        REGION_STRING_COUNT_MASK, 0);
+        reader.getRecordPageRegionsOnly(reusableKey.setRecordPageKey(pk), REGION_STRING_COUNT_MASK, 0);
     if (withDict != null) {
       admitToRegionCache(dictCache, pk, withDict);
     }
@@ -15559,7 +16136,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Try to answer the whole page from its zone-map region, without touching the number column.
    *
-   * <p>This is the pruning that {@link NumberRegionSimd#pruneCount} always expressed but could not
+   * <p>
+   * This is the pruning that {@link NumberRegionSimd#pruneCount} always expressed but could not
    * previously pay off: the bounds it needs used to live inside the compressed number payload, so
    * reaching them cost the decompression they were meant to avoid. With the bounds in a region of
    * their own, a page whose values all match — or none do — costs two comparisons and no payload
@@ -15569,8 +16147,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * @return the page's count, or {@link #ZONE_MAP_UNDECIDED} when the column must be read
    */
   private static long countPageFromZoneMap(final RegionsOnlyPage page, final RegionCountPlan plan,
-      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
-      final RegionHeaderScratch scratch) {
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots, final RegionHeaderScratch scratch) {
     final NumberZoneMapRegion.Header z = page.numberZoneMapInto(scratch.numberZoneMap);
     if (z == null) {
       return ZONE_MAP_UNDECIDED;
@@ -15608,8 +16185,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[] iv = plan.orIntervals();
       boolean allMiss = true;
       for (int i = 0; i < iv.length; i += 2) {
-        final long pruned =
-            NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], iv[i], iv[i + 1], anchorSlots);
+        final long pruned = NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], iv[i], iv[i + 1], anchorSlots);
         if (pruned == anchorSlots) {
           ZONE_MAP_DECIDED_PAGES.increment();
           return anchorSlots;
@@ -15624,8 +16200,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return ZONE_MAP_UNDECIDED;
     }
-    final long pruned =
-        NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], plan.lo(), plan.hi(), anchorSlots);
+    final long pruned = NumberRegionSimd.pruneCount(z.tagMin[tag], z.tagMax[tag], plan.lo(), plan.hi(), anchorSlots);
     if (pruned == NumberRegionSimd.PRUNE_UNKNOWN) {
       return ZONE_MAP_UNDECIDED;
     }
@@ -15635,14 +16210,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Numeric arm of {@link #countPageFromRegions}. */
   private static long countPageFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
-      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
-      final RegionHeaderScratch scratch) {
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots, final RegionHeaderScratch scratch) {
     // Bounds first, column second. The zone-map region is uncompressed and separate, so this call
     // does not materialize KIND_NUMBER; on a page the bounds settle, the number column is left on
     // the wire and never decompressed. Falls through when the page predates the region or its
     // encoding carries no per-tag bounds.
-    final long fromBounds =
-        countPageFromZoneMap(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
+    final long fromBounds = countPageFromZoneMap(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, scratch);
     if (fromBounds != ZONE_MAP_UNDECIDED) {
       return fromBounds;
     }
@@ -15653,15 +16226,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int tag = h == null
         ? -1
         : tagInKeySpace(h, h.tagKind == NumberRegion.TAG_KIND_PATH_NODE, anchorPathNodeKey, anchorNameKey);
-    final int longCount = tag >= 0 ? h.tagCount[tag] : 0;
+    final int longCount = tag >= 0
+        ? h.tagCount[tag]
+        : 0;
     if (longCount != anchorSlots) {
       // The long column alone does not account for every anchor slot. The missing values may be
       // DOUBLES — the type the long region declines by construction — in which case the two typed
       // columns together still cover the page and the count is the sum of two kernel passes.
       // Anything else missing (a decimal, a differently-pathed slot) fails the summed oracle too
       // and the page keeps its record path.
-      return countPageCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots,
-                                       h, tag, longCount, scratch);
+      return countPageCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, h, tag, longCount,
+          scratch);
     }
     if (plan.isEmpty()) {
       return 0L;
@@ -15672,16 +16247,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int start = h.tagStart[tag];
     final int end = start + h.tagCount[tag];
     if (plan.isMultiInterval()) {
-      return countIntervalsFromNumberRegion(page, h, tag, start, end, anchorSlots,
-                                            plan.orIntervals());
+      return countIntervalsFromNumberRegion(page, h, tag, start, end, anchorSlots, plan.orIntervals());
     }
     return countSingleIntervalFromNumberRegion(page, plan, h, tag, start, end, anchorSlots);
   }
 
   /** One closed interval over a whole page's number column: zone map, kernel, scalar decode. */
-  private static long countSingleIntervalFromNumberRegion(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final NumberRegion.Header h, final int tag, final int start,
-      final int end, final int anchorSlots) {
+  private static long countSingleIntervalFromNumberRegion(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final NumberRegion.Header h, final int tag, final int start, final int end, final int anchorSlots) {
     // Zone map: the tag's own [min,max] decides the whole page for free in the common case of a
     // predicate that either every value or no value on the page satisfies.
     if (h.tagMin != null && h.tagMax != null) {
@@ -15701,9 +16274,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else if (plan.hi() == Long.MAX_VALUE) {
       counted = NumberRegionSimd.countMatching(values, h, start, end, VectorOperators.GE, plan.lo());
     } else {
-      counted = NumberRegionSimd.countMatchingRange(values, h, start, end,
-                                                    VectorOperators.GE, plan.lo(),
-                                                    VectorOperators.LE, plan.hi());
+      counted = NumberRegionSimd.countMatchingRange(values, h, start, end, VectorOperators.GE, plan.lo(),
+          VectorOperators.LE, plan.hi());
     }
     if (counted >= 0L) {
       return counted;
@@ -15723,31 +16295,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Count a page whose numeric field is split across the long and double columns.
    *
-   * <p>This is the typed-column answer to mixed JSON numbers: instead of one field, one column,
-   * the field has one column PER PHYSICAL TYPE — precisely DuckDB/Umbra/ClickHouse's layout,
-   * where a scan over a numeric predicate reads each typed column with its own kernel and its own
-   * bounds. The completeness oracle generalizes from {@code longCount == anchorSlots} to
-   * {@code longCount + doubleCount == anchorSlots}. A BigDecimal counts toward
-   * {@code doubleCount}: it joins the double region as its own unscaled integer under
-   * {@link DoubleRegion#ENC_DEC}, so the field is still covered by two columns. Only a value
-   * NEITHER column can take — a BigInteger, or a decimal whose unscaled magnitude exceeds a
-   * {@code long} or whose scale is out of range — fails the sum, and that page keeps the record
-   * path, exactly as before.
+   * <p>
+   * This is the typed-column answer to mixed JSON numbers: instead of one field, one column, the
+   * field has one column PER PHYSICAL TYPE — precisely DuckDB/Umbra/ClickHouse's layout, where a scan
+   * over a numeric predicate reads each typed column with its own kernel and its own bounds. The
+   * completeness oracle generalizes from {@code longCount == anchorSlots} to
+   * {@code longCount + doubleCount == anchorSlots}. A BigDecimal counts toward {@code doubleCount}:
+   * it joins the double region as its own unscaled integer under {@link DoubleRegion#ENC_DEC}, so the
+   * field is still covered by two columns. Only a value NEITHER column can take — a BigInteger, or a
+   * decimal whose unscaled magnitude exceeds a {@code long} or whose scale is out of range — fails
+   * the sum, and that page keeps the record path, exactly as before.
    *
    * @param h the long column's header, or {@code null} when the page has none (all-double field)
    * @param longTag the field's tag in the long column, or {@code -1}
    * @return the match count, or {@code -1} when the page must go through the records
    */
-  private static long countPageCombiningDoubles(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
-      final int longCount, final RegionHeaderScratch scratch) {
+  private static long countPageCombiningDoubles(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final NumberRegion.@Nullable Header h, final int longTag, final int longCount,
+      final RegionHeaderScratch scratch) {
     if (plan.isMultiInterval()) {
       if (plan.orDblIntervals() == null && plan.orDecBranches() == null) {
-        return -1L;  // neither domain can decide the union; record path
+        return -1L; // neither domain can decide the union; record path
       }
-      return countMultiIntervalCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey,
-                                                anchorSlots, h, longTag, longCount, scratch);
+      return countMultiIntervalCombiningDoubles(page, plan, anchorNameKey, anchorPathNodeKey, anchorSlots, h, longTag,
+          longCount, scratch);
     }
     if (!plan.doublesServable() && plan.decInterval() == null) {
       // Neither domain can decide the fractional half; the records answer it.
@@ -15773,17 +16345,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return -1L;
     }
     if (longCount == 0) {
-      return doubles;  // the field is all-double on this page
+      return doubles; // the field is all-double on this page
     }
     return doubles + countLongSideSingleInterval(page, plan, h, longTag, longCount);
   }
 
   /**
-   * The double column's share of a single-interval count: zone map first, kernel only when the
-   * bounds cannot decide. {@code -1} refuses the page.
+   * The double column's share of a single-interval count: zone map first, kernel only when the bounds
+   * cannot decide. {@code -1} refuses the page.
    */
-  private static long countDoubleSideSingleInterval(final MemorySegment dblPayload,
-      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan) {
+  private static long countDoubleSideSingleInterval(final MemorySegment dblPayload, final DoubleRegion.Header dh,
+      final int dTag, final RegionCountPlan plan) {
     if (dh.tagEnc[dTag] == DoubleRegion.ENC_DEC) {
       // An exact-decimal tag, answered ENTIRELY in decimal space. None of the double ladder below
       // may touch it: tagMin/tagMax are doubles derived from the decimals and deliberately widened
@@ -15808,15 +16380,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     // ALP tags answer this in integer space over the packed bytes; plain tags compare doubles.
     final long counted = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, dlo, dhi);
-    return counted == DoubleRegionSimd.REFUSED ? -1L : counted;
+    return counted == DoubleRegionSimd.REFUSED
+        ? -1L
+        : counted;
   }
 
-  /** The long column's share, through the same zone-map-then-kernel ladder the pure-long path runs. */
-  private static long countLongSideSingleInterval(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final NumberRegion.Header h, final int longTag,
-      final int longCount) {
+  /**
+   * The long column's share, through the same zone-map-then-kernel ladder the pure-long path runs.
+   */
+  private static long countLongSideSingleInterval(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final NumberRegion.Header h, final int longTag, final int longCount) {
     if (plan.lo() > plan.hi()) {
-      return 0L;  // e.g. `eq 1990.5`: no long can match, and that is an answer, not a decline
+      return 0L; // e.g. `eq 1990.5`: no long can match, and that is an answer, not a decline
     }
     if (h.tagMin != null && h.tagMax != null) {
       if (h.tagMax[longTag] < plan.lo() || h.tagMin[longTag] > plan.hi()) {
@@ -15828,9 +16403,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     final MemorySegment values = page.regionPayload(RegionTable.KIND_NUMBER);
     final int start = h.tagStart[longTag];
-    final long counted = NumberRegionSimd.countMatchingRange(values, h, start, start + longCount,
-                                                            VectorOperators.GE, plan.lo(),
-                                                            VectorOperators.LE, plan.hi());
+    final long counted = NumberRegionSimd.countMatchingRange(values, h, start, start + longCount, VectorOperators.GE,
+        plan.lo(), VectorOperators.LE, plan.hi());
     if (counted >= 0L) {
       return counted;
     }
@@ -15849,43 +16423,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The multi-interval companion of {@link #countPageCombiningDoubles}: a single-field numeric
    * disjunction over a page whose field is split across the long and double columns.
    *
-   * <p>Both unions are DISJOINT by construction — the long intervals from {@code mergeIntervals},
-   * the double intervals from {@code mergeDblIntervals}, each folded from the ORIGINAL branch
-   * thresholds — so each side is a plain sum of per-interval kernel passes with nothing counted
-   * twice. The double union is carried separately in the plan precisely because it cannot be
-   * derived from the merged integer intervals: {@code le 1990 or ge 1991} is one long interval and
-   * two double ones, and 1990.5 must not be counted.
+   * <p>
+   * Both unions are DISJOINT by construction — the long intervals from {@code mergeIntervals}, the
+   * double intervals from {@code mergeDblIntervals}, each folded from the ORIGINAL branch thresholds
+   * — so each side is a plain sum of per-interval kernel passes with nothing counted twice. The
+   * double union is carried separately in the plan precisely because it cannot be derived from the
+   * merged integer intervals: {@code le 1990 or ge 1991} is one long interval and two double ones,
+   * and 1990.5 must not be counted.
    */
   /**
-   * The disjunction's count over an {@link DoubleRegion#ENC_DEC} tag, or {@code -1} when it cannot
-   * be served exactly and the page must keep its record path.
+   * The disjunction's count over an {@link DoubleRegion#ENC_DEC} tag, or {@code -1} when it cannot be
+   * served exactly and the page must keep its record path.
    *
-   * <p>Each branch is converted into THIS tag's integer domain and the union is merged there.
-   * Merging in integer space rather than decimal space is what keeps it cheap: the branches are
-   * few, the converted bounds are already inclusive, and no {@code BigDecimal} is touched on the
-   * scan path. The branch bounds themselves must be exact — a double union cannot decide this tag,
-   * because two decimals can share a double image.
+   * <p>
+   * Each branch is converted into THIS tag's integer domain and the union is merged there. Merging in
+   * integer space rather than decimal space is what keeps it cheap: the branches are few, the
+   * converted bounds are already inclusive, and no {@code BigDecimal} is touched on the scan path.
+   * The branch bounds themselves must be exact — a double union cannot decide this tag, because two
+   * decimals can share a double image.
    *
-   * <p>The conversion and the merge are memoised on the tag's scale in the per-worker scratch, so
-   * a scan over thousands of decimal pages does them once per distinct scale rather than once per
-   * page — see {@link RegionHeaderScratch#decUnionAtScale}.
+   * <p>
+   * The conversion and the merge are memoised on the tag's scale in the per-worker scratch, so a scan
+   * over thousands of decimal pages does them once per distinct scale rather than once per page — see
+   * {@link RegionHeaderScratch#decUnionAtScale}.
    */
-  private static long countDecUnion(final MemorySegment dblPayload, final DoubleRegion.Header dh,
-      final int dTag, final RegionCountPlan plan, final long @Nullable [] dblLive,
-      final RegionHeaderScratch scratch) {
+  private static long countDecUnion(final MemorySegment dblPayload, final DoubleRegion.Header dh, final int dTag,
+      final RegionCountPlan plan, final long @Nullable [] dblLive, final RegionHeaderScratch scratch) {
     final DecInterval[] branches = plan.orDecBranches();
     if (branches == null) {
       return -1L;
     }
     final int pairs = scratch.decUnionAtScale(branches, dh.alpE[dTag] & 0xFF);
     if (pairs == 0) {
-      return 0L;  // every branch is empty at this scale
+      return 0L; // every branch is empty at this scale
     }
     final long[] union = scratch.decUnionMerged;
     long total = 0L;
     for (int k = 0, n = pairs << 1; k < n; k += 2) {
-      final long part = DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, union[k],
-                                                               union[k + 1], dblLive);
+      final long part = DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, union[k], union[k + 1], dblLive);
       if (part == DoubleRegionSimd.REFUSED) {
         return -1L;
       }
@@ -15897,20 +16472,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * One exact-decimal tag under a SINGLE interval, optionally liveness-masked.
    *
-   * <p>The single definition of "answer an {@code ENC_DEC} tag from a folded interval", shared by
-   * the plain page arm and the versioned-fragment merge. It was inlined in the first and simply
-   * absent from the second, which is how a decimal tag on a merged page came to be refused for the
-   * one reason this column exists to remove.
+   * <p>
+   * The single definition of "answer an {@code ENC_DEC} tag from a folded interval", shared by the
+   * plain page arm and the versioned-fragment merge. It was inlined in the first and simply absent
+   * from the second, which is how a decimal tag on a merged page came to be refused for the one
+   * reason this column exists to remove.
    *
    * @param live per-value liveness, or {@code null} when every value counts
    * @return the match count, or {@code -1} when the tag cannot be decided
    */
-  private static long countDecSingleMasked(final MemorySegment dblPayload,
-      final DoubleRegion.Header dh, final int dTag, final RegionCountPlan plan,
-      final long @Nullable [] live) {
+  private static long countDecSingleMasked(final MemorySegment dblPayload, final DoubleRegion.Header dh, final int dTag,
+      final RegionCountPlan plan, final long @Nullable [] live) {
     final DecInterval dec = plan.decInterval();
     if (dec == null) {
-      return -1L;  // no exact threshold to compare against; the records answer
+      return -1L; // no exact threshold to compare against; the records answer
     }
     final int e = dh.alpE[dTag] & 0xFF;
     final long loInt = dec.loBounded()
@@ -15919,15 +16494,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long hiInt = dec.hiBounded()
         ? decBoundAtScale(dec.hiUnscaled(), dec.hiScale(), dec.hiStrict(), e, false)
         : Long.MAX_VALUE;
-    final long exact =
-        DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, loInt, hiInt, live);
-    return exact == DoubleRegionSimd.REFUSED ? -1L : exact;
+    final long exact = DoubleRegionSimd.countDecTagRangeMasked(dblPayload, dh, dTag, loInt, hiInt, live);
+    return exact == DoubleRegionSimd.REFUSED
+        ? -1L
+        : exact;
   }
 
-  private static long countMultiIntervalCombiningDoubles(final RegionsOnlyPage page,
-      final RegionCountPlan plan, final int anchorNameKey, final long anchorPathNodeKey,
-      final int anchorSlots, final NumberRegion.@Nullable Header h, final int longTag,
-      final int longCount, final RegionHeaderScratch scratch) {
+  private static long countMultiIntervalCombiningDoubles(final RegionsOnlyPage page, final RegionCountPlan plan,
+      final int anchorNameKey, final long anchorPathNodeKey, final int anchorSlots,
+      final NumberRegion.@Nullable Header h, final int longTag, final int longCount,
+      final RegionHeaderScratch scratch) {
     final MemorySegment dblPayload = page.doublePayload();
     if (dblPayload == null || dblPayload.byteSize() == 0) {
       return -1L;
@@ -15950,7 +16526,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } else {
       final double[] div = plan.orDblIntervals();
       if (div == null) {
-        return -1L;  // this tag recodes doubles and the union has no double form: records
+        return -1L; // this tag recodes doubles and the union has no double form: records
       }
       for (int k = 0; k < div.length; k += 2) {
         final long part = DoubleRegionSimd.countTagRange(dblPayload, dh, dTag, div[k], div[k + 1]);
@@ -15966,14 +16542,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[] iv = plan.orIntervals();
       for (int k = 0; k < iv.length; k += 2) {
         if (iv[k] > iv[k + 1]) {
-          continue;  // the long union can be empty while the double one is not
+          continue; // the long union can be empty while the double one is not
         }
-        final long counted = NumberRegionSimd.countMatchingRange(values, h, start,
-                                                                start + longCount,
-                                                                VectorOperators.GE, iv[k],
-                                                                VectorOperators.LE, iv[k + 1]);
+        final long counted = NumberRegionSimd.countMatchingRange(values, h, start, start + longCount,
+            VectorOperators.GE, iv[k], VectorOperators.LE, iv[k + 1]);
         if (counted < 0L) {
-          return -1L;  // an encoding the kernel declines — the whole page keeps the record path
+          return -1L; // an encoding the kernel declines — the whole page keeps the record path
         }
         total += counted;
       }
@@ -15982,40 +16556,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Returns {@code true} if {@code probe}'s conjunctive constraints on
-   * the anchor field can be proven unsatisfiable on a page whose
-   * anchor-tag zone map spans {@code [tagMin, tagMax]}. First
+   * Returns {@code true} if {@code probe}'s conjunctive constraints on the anchor field can be proven
+   * unsatisfiable on a page whose anchor-tag zone map spans {@code [tagMin, tagMax]}. First
    * {@link #zoneMapOutcome} == {@link #ZONE_NONE} wins.
    */
   private static boolean canPruneByZone(final AnchorZoneProbe probe, final long tagMin, final long tagMax) {
     final int[] ops = probe.cmpOps;
     final long[] ts = probe.thresholds;
     for (int k = 0, n = probe.n; k < n; k++) {
-      if (zoneMapOutcome(ops[k], ts[k], tagMin, tagMax) == ZONE_NONE) return true;
+      if (zoneMapOutcome(ops[k], ts[k], tagMin, tagMax) == ZONE_NONE)
+        return true;
     }
     return false;
   }
 
   /**
-   * Evaluate whether the predicate {@code v OP threshold} can be decided against the
-   * [min,max] range of a zone map without iterating the values.
-   * Branchless-friendly: six int comparisons, one small switch.
+   * Evaluate whether the predicate {@code v OP threshold} can be decided against the [min,max] range
+   * of a zone map without iterating the values. Branchless-friendly: six int comparisons, one small
+   * switch.
    */
   private static int zoneMapOutcome(final int op, final long threshold, final long min, final long max) {
     return switch (op) {
-      case OP_GT -> max <= threshold ? ZONE_NONE : (min > threshold ? ZONE_ALL : ZONE_SOME);
-      case OP_LT -> min >= threshold ? ZONE_NONE : (max < threshold ? ZONE_ALL : ZONE_SOME);
-      case OP_GE -> max <  threshold ? ZONE_NONE : (min >= threshold ? ZONE_ALL : ZONE_SOME);
-      case OP_LE -> min >  threshold ? ZONE_NONE : (max <= threshold ? ZONE_ALL : ZONE_SOME);
+      case OP_GT -> max <= threshold
+          ? ZONE_NONE
+          : (min > threshold
+              ? ZONE_ALL
+              : ZONE_SOME);
+      case OP_LT -> min >= threshold
+          ? ZONE_NONE
+          : (max < threshold
+              ? ZONE_ALL
+              : ZONE_SOME);
+      case OP_GE -> max < threshold
+          ? ZONE_NONE
+          : (min >= threshold
+              ? ZONE_ALL
+              : ZONE_SOME);
+      case OP_LE -> min > threshold
+          ? ZONE_NONE
+          : (max <= threshold
+              ? ZONE_ALL
+              : ZONE_SOME);
       case OP_EQ -> (threshold < min || threshold > max)
           ? ZONE_NONE
-          : (min == threshold && max == threshold ? ZONE_ALL : ZONE_SOME);
-      default    -> ZONE_SOME;
+          : (min == threshold && max == threshold
+              ? ZONE_ALL
+              : ZONE_SOME);
+      default -> ZONE_SOME;
     };
   }
 
   private static int encodeOp(String op) {
-    if (op == null) return 0;
+    if (op == null)
+      return 0;
     return switch (op) {
       case "gt" -> OP_GT;
       case "lt" -> OP_LT;
@@ -16027,9 +16620,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Map our internal int-coded op to Brackit's {@link VectorizedPredicate.ComparisonOp}.
-   * Called once per OP_NUM_CMP leaf per page (≈256 rows of work follow it), so
-   * the switch cost is noise.
+   * Map our internal int-coded op to Brackit's {@link VectorizedPredicate.ComparisonOp}. Called once
+   * per OP_NUM_CMP leaf per page (≈256 rows of work follow it), so the switch cost is noise.
    */
   private static VectorizedPredicate.ComparisonOp toVecCmpOp(final int op) {
     return switch (op) {
@@ -16038,13 +16630,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> VectorizedPredicate.ComparisonOp.GE;
       case OP_LE -> VectorizedPredicate.ComparisonOp.LE;
       case OP_EQ -> VectorizedPredicate.ComparisonOp.EQ;
-      default    -> throw new IllegalStateException("bad cmpOp " + op);
+      default -> throw new IllegalStateException("bad cmpOp " + op);
     };
   }
 
   /**
-   * Map our internal int-coded op to the Vector API's comparison constant.
-   * Returns {@code null} for unsupported ops (caller falls back to scalar).
+   * Map our internal int-coded op to the Vector API's comparison constant. Returns {@code null} for
+   * unsupported ops (caller falls back to scalar).
    */
   private static VectorOperators.Comparison vectorOp(final int op) {
     return switch (op) {
@@ -16063,11 +16655,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // At query compile time we emit a specialised class implementing
   // BatchPredicate. The class's evaluate() method is straight-line code:
   //
-  //   • every opcode is expanded inline (no runtime dispatch)
-  //   • threshold constants, field indices, and string-literal indices
-  //     are baked into the bytecode as LDC / SIPUSH instructions
-  //   • AND/OR/NOT are plain long[] bitwise loops over the per-node
-  //     scratch bitmaps that EvalBatch already allocates
+  // • every opcode is expanded inline (no runtime dispatch)
+  // • threshold constants, field indices, and string-literal indices
+  // are baked into the bytecode as LDC / SIPUSH instructions
+  // • AND/OR/NOT are plain long[] bitwise loops over the per-node
+  // scratch bitmaps that EvalBatch already allocates
   //
   // The class is loaded as a hidden class (Lookup.defineHiddenClass) so
   // the JVM can unload it as soon as the last reference clears.
@@ -16077,18 +16669,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ==================================================================
 
   /**
-   * Bytecode-generated equivalent of {@link #evalCompiledBatch}. Implementations
-   * are produced on demand by {@link #compileToClass(CompiledPredicate)} and
-   * cached in {@link #compiledPredicateCache}. Implementations MUST:
+   * Bytecode-generated equivalent of {@link #evalCompiledBatch}. Implementations are produced on
+   * demand by {@link #compileToClass(CompiledPredicate)} and cached in
+   * {@link #compiledPredicateCache}. Implementations MUST:
    *
    * <ul>
-   *   <li>Write the match bitmap for the root predicate node into {@code out}
-   *       covering the valid range {@code [0, batch.size)}. Words beyond the
-   *       valid prefix are left unmodified — callers mask {@code size & 63}
-   *       when counting.</li>
-   *   <li>Populate {@code batch.nodeBitmaps[nodeIdx]} for every non-root node
-   *       as a side effect. Callers assume these bitmaps are scratch-only.</li>
-   *   <li>Allocate NOTHING on the call path.</li>
+   * <li>Write the match bitmap for the root predicate node into {@code out} covering the valid range
+   * {@code [0, batch.size)}. Words beyond the valid prefix are left unmodified — callers mask
+   * {@code size & 63} when counting.</li>
+   * <li>Populate {@code batch.nodeBitmaps[nodeIdx]} for every non-root node as a side effect. Callers
+   * assume these bitmaps are scratch-only.</li>
+   * <li>Allocate NOTHING on the call path.</li>
    * </ul>
    */
   public interface BatchPredicate {
@@ -16096,57 +16687,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Build a hidden class implementing {@link BatchPredicate} for {@code cp}.
-   * Called at most once per distinct predicate signature — the result is
-   * cached in {@link #compiledPredicateCache}. Uses the Java 25
-   * {@code java.lang.classfile} API (no ASM dependency).
+   * Build a hidden class implementing {@link BatchPredicate} for {@code cp}. Called at most once per
+   * distinct predicate signature — the result is cached in {@link #compiledPredicateCache}. Uses the
+   * Java 25 {@code java.lang.classfile} API (no ASM dependency).
    *
-   * <p>The emitted {@code evaluate} method:
+   * <p>
+   * The emitted {@code evaluate} method:
    * <ol>
-   *   <li>Hoists all EvalBatch array references into locals (one aaload per
-   *       2D column array, not per node).</li>
-   *   <li>For every tree node (in post-order on tree indices), emits an
-   *       inline kernel that writes the node's bitmap into
-   *       {@code batch.nodeBitmaps[nodeIdx]}.</li>
-   *   <li>Ends with a bitwise copy of {@code batch.nodeBitmaps[0]} to the
-   *       caller's {@code out} array.</li>
+   * <li>Hoists all EvalBatch array references into locals (one aaload per 2D column array, not per
+   * node).</li>
+   * <li>For every tree node (in post-order on tree indices), emits an inline kernel that writes the
+   * node's bitmap into {@code batch.nodeBitmaps[nodeIdx]}.</li>
+   * <li>Ends with a bitwise copy of {@code batch.nodeBitmaps[0]} to the caller's {@code out}
+   * array.</li>
    * </ol>
    *
    * @throws Exception if the classfile emission or hidden-class load fails.
    */
   /**
-   * Cache key for the generated-class map: predicate signature plus the
-   * distinct ordered field list. Two structurally identical predicate trees
-   * with different field sets generate different classes.
+   * Cache key for the generated-class map: predicate signature plus the distinct ordered field list.
+   * Two structurally identical predicate trees with different field sets generate different classes.
    */
   private static String compiledClassKey(final PredicateNode predicate, final CompiledPredicate cp) {
     final StringBuilder sb = new StringBuilder(64);
     appendKey(sb, predicate);
     sb.append("|f:");
     for (int i = 0; i < cp.fieldNames.length; i++) {
-      if (i > 0) sb.append(',');
+      if (i > 0)
+        sb.append(',');
       sb.append(cp.fieldNames[i]);
     }
     return sb.toString();
   }
 
   /**
-   * Resolve a compiled {@link BatchPredicate} for {@code cp} if class generation
-   * is enabled and the predicate hasn't been blacklisted from a prior failure.
-   * Returns {@code null} if the caller must fall back to {@link #evalCompiledBatch}.
-   * Never throws — failures are caught, the key is recorded in
-   * {@link #skipCompileSet}, and {@code null} is returned so the caller invokes
-   * the interpreter.
+   * Resolve a compiled {@link BatchPredicate} for {@code cp} if class generation is enabled and the
+   * predicate hasn't been blacklisted from a prior failure. Returns {@code null} if the caller must
+   * fall back to {@link #evalCompiledBatch}. Never throws — failures are caught, the key is recorded
+   * in {@link #skipCompileSet}, and {@code null} is returned so the caller invokes the interpreter.
    */
   private BatchPredicate resolveCompiledPredicate(final String cacheKey, final CompiledPredicate cp) {
-    if (!COMPILED_PREDICATE_ENABLED) return null;
-    if (skipCompileSet.contains(cacheKey)) return null;
+    if (!COMPILED_PREDICATE_ENABLED)
+      return null;
+    if (skipCompileSet.contains(cacheKey))
+      return null;
     final BatchPredicate cached = compiledPredicateCache.get(cacheKey);
-    if (cached != null) return cached;
+    if (cached != null)
+      return cached;
     try {
       final BatchPredicate built = compileToClass(cp);
       final BatchPredicate existing = compiledPredicateCache.putIfAbsent(cacheKey, built);
-      return existing != null ? existing : built;
+      return existing != null
+          ? existing
+          : built;
     } catch (Throwable t) {
       // Blacklist the key — do not retry on the hot path. Surface a single
       // stderr log entry for diagnosis.
@@ -16168,16 +16761,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // NESTMATE: join the nest of SirixVectorizedExecutor so the generated code
     // can access private nested types (BatchPredicate, EvalBatch) without
     // synthetic accessor methods.
-    final Lookup lookup = MethodHandles.lookup()
-        .defineHiddenClass(classBytes, true, MethodHandles.Lookup.ClassOption.NESTMATE);
+    final Lookup lookup =
+        MethodHandles.lookup().defineHiddenClass(classBytes, true, MethodHandles.Lookup.ClassOption.NESTMATE);
     final Class<?> genClass = lookup.lookupClass();
     try {
-      final Object instance = genClass.getDeclaredConstructor(String[].class)
-          .newInstance((Object) cp.strLiterals);
+      final Object instance = genClass.getDeclaredConstructor(String[].class).newInstance((Object) cp.strLiterals);
       return (BatchPredicate) instance;
     } catch (InvocationTargetException ite) {
       final Throwable cause = ite.getCause();
-      if (cause instanceof RuntimeException re) throw re;
+      if (cause instanceof RuntimeException re)
+        throw re;
       throw new RuntimeException("Generated predicate class constructor threw", cause);
     }
   }
@@ -16205,15 +16798,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Emit the generated class. Structure:
+   * 
    * <pre>
-   *   public final class SirixBatchPred$N implements BatchPredicate {
-   *     private final String[] strLits;
-   *     public SirixBatchPred$N(String[] lits) { this.strLits = lits; }
-   *     public void evaluate(EvalBatch batch, long[] out) {
-   *        // hoist all arrays; for every compiled node, inline-evaluate into
-   *        // batch.nodeBitmaps[nodeIdx]; finally copy root bitmap into out.
-   *     }
+   * public final class SirixBatchPred$N implements BatchPredicate {
+   *   private final String[] strLits;
+   * 
+   *   public SirixBatchPred$N(String[] lits) {
+   *     this.strLits = lits;
    *   }
+   * 
+   *   public void evaluate(EvalBatch batch, long[] out) {
+   *     // hoist all arrays; for every compiled node, inline-evaluate into
+   *     // batch.nodeBitmaps[nodeIdx]; finally copy root bitmap into out.
+   *   }
+   * }
    * </pre>
    */
   private static void emitBatchPredicateClass(final ClassBuilder cb, final ClassDesc thisClass,
@@ -16222,12 +16820,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     cb.withInterfaceSymbols(CD_BATCH_PRED);
     cb.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL | ClassFile.ACC_SUPER);
 
-    cb.withField("strLits", CD_STRING_ARR,
-        fb -> fb.withFlags(ClassFile.ACC_PRIVATE | ClassFile.ACC_FINAL));
+    cb.withField("strLits", CD_STRING_ARR, fb -> fb.withFlags(ClassFile.ACC_PRIVATE | ClassFile.ACC_FINAL));
 
     // Constructor: (String[] lits) { super(); this.strLits = lits; }
-    cb.withMethod("<init>", MethodTypeDesc.of(CD_VOID, CD_STRING_ARR),
-        ClassFile.ACC_PUBLIC,
+    cb.withMethod("<init>", MethodTypeDesc.of(CD_VOID, CD_STRING_ARR), ClassFile.ACC_PUBLIC,
         (MethodBuilder mb) -> mb.withCode(code -> {
           code.aload(0);
           code.invokespecial(CD_OBJECT, "<init>", MethodTypeDesc.of(CD_VOID));
@@ -16237,8 +16833,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           code.return_();
         }));
 
-    cb.withMethod("evaluate",
-        MethodTypeDesc.of(CD_VOID, CD_EVAL_BATCH, CD_LONG_ARR),
+    cb.withMethod("evaluate", MethodTypeDesc.of(CD_VOID, CD_EVAL_BATCH, CD_LONG_ARR),
         ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL,
         (MethodBuilder mb) -> mb.withCode(code -> emitEvaluateBody(code, thisClass, cp)));
   }
@@ -16261,9 +16856,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *  slot 11+ per-node scratch ints / longs as needed (reused within each kernel)
    * </pre>
    *
-   * Each node kernel reuses slots 11..13 (int i, long word) and 14+ as
-   * needed. Because we emit straight-line kernels one after the other the
-   * slot budget stays bounded: O(1) per tree.
+   * Each node kernel reuses slots 11..13 (int i, long word) and 14+ as needed. Because we emit
+   * straight-line kernels one after the other the slot budget stays bounded: O(1) per tree.
    */
   private static final int SLOT_THIS = 0;
   private static final int SLOT_BATCH = 1;
@@ -16277,24 +16871,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int SLOT_STR_COLS = 9;
   private static final int SLOT_STR_LITS = 10;
   // Scratch slots used within individual kernels — reused node-by-node.
-  private static final int SLOT_BM = 11;      // long[] current-node bitmap (ref)
-  private static final int SLOT_I = 12;       // int  loop counter
-  private static final int SLOT_STR_V = 13;   // String scratch (for STR_EQ)
-  private static final int SLOT_LIT = 14;     // String literal (for STR_EQ)
+  private static final int SLOT_BM = 11; // long[] current-node bitmap (ref)
+  private static final int SLOT_I = 12; // int loop counter
+  private static final int SLOT_STR_V = 13; // String scratch (for STR_EQ)
+  private static final int SLOT_LIT = 14; // String literal (for STR_EQ)
   private static final int SLOT_CHILD_BM = 16; // long[] child bitmap (for NOT/AND/OR)
   private static final int SLOT_DBL_COLS = 19; // double[][] hoisted batch.dblCols
-  private static final int SLOT_DVALS = 20;    // double[] current field's double column
-  private static final int SLOT_KIND = 21;     // int — presentKind[fieldIdx][i] scratch
+  private static final int SLOT_DVALS = 20; // double[] current field's double column
+  private static final int SLOT_KIND = 21; // int — presentKind[fieldIdx][i] scratch
 
   /**
-   * Emit the evaluate() body. We recursively descend through the
-   * {@link CompiledPredicate} tree (node 0 is root) and, for each node,
-   * emit a self-contained kernel that populates
-   * {@code batch.nodeBitmaps[nodeIdx]}. Finally we copy node 0's bitmap
-   * into {@code out}.
+   * Emit the evaluate() body. We recursively descend through the {@link CompiledPredicate} tree (node
+   * 0 is root) and, for each node, emit a self-contained kernel that populates
+   * {@code batch.nodeBitmaps[nodeIdx]}. Finally we copy node 0's bitmap into {@code out}.
    */
-  private static void emitEvaluateBody(final CodeBuilder code, final ClassDesc thisClass,
-      final CompiledPredicate cp) {
+  private static void emitEvaluateBody(final CodeBuilder code, final ClassDesc thisClass, final CompiledPredicate cp) {
     // 1. Hoist all array references into locals.
     // size = batch.size
     code.aload(SLOT_BATCH);
@@ -16377,9 +16968,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Emit the straight-line kernel for a single compiled-predicate node. Writes
-   * into {@code batch.nodeBitmaps[nodeIdx]}. Semantics match
-   * {@link #evalCompiledBatchRec} case-for-case — constants are inlined.
+   * Emit the straight-line kernel for a single compiled-predicate node. Writes into
+   * {@code batch.nodeBitmaps[nodeIdx]}. Semantics match {@link #evalCompiledBatchRec} case-for-case —
+   * constants are inlined.
    */
   private static void emitNodeKernel(final CodeBuilder code, final CompiledPredicate cp, final int nodeIdx) {
     final byte op = cp.ops[nodeIdx];
@@ -16394,21 +16985,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     switch (op) {
       case CompiledPredicate.OP_ALWAYS_T -> emitAlwaysTrue(code);
-      case CompiledPredicate.OP_ALWAYS_F -> { /* already zero */ }
-      case CompiledPredicate.OP_NOT ->
-          emitNot(code, cp.children[cp.childStart[nodeIdx]]);
-      case CompiledPredicate.OP_AND ->
-          emitAnd(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
-      case CompiledPredicate.OP_OR ->
-          emitOr(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
+      case CompiledPredicate.OP_ALWAYS_F -> {
+        /* already zero */ }
+      case CompiledPredicate.OP_NOT -> emitNot(code, cp.children[cp.childStart[nodeIdx]]);
+      case CompiledPredicate.OP_AND -> emitAnd(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
+      case CompiledPredicate.OP_OR -> emitOr(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
       case CompiledPredicate.OP_NUM_CMP ->
-          emitNumCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
-      case CompiledPredicate.OP_FP_CMP ->
-          emitFpCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
-      case CompiledPredicate.OP_STR_EQ ->
-          emitStrEq(code, cp.fieldIdx[nodeIdx], cp.strIdx[nodeIdx]);
-      case CompiledPredicate.OP_BOOL_REF ->
-          emitBoolRef(code, cp.fieldIdx[nodeIdx]);
+        emitNumCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+      case CompiledPredicate.OP_FP_CMP -> emitFpCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
+      case CompiledPredicate.OP_STR_EQ -> emitStrEq(code, cp.fieldIdx[nodeIdx], cp.strIdx[nodeIdx]);
+      case CompiledPredicate.OP_BOOL_REF -> emitBoolRef(code, cp.fieldIdx[nodeIdx]);
       default -> throw new IllegalStateException("unsupported opcode " + op);
     }
   }
@@ -16433,15 +17019,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Emit OP_ALWAYS_T: set all valid bits in bm. Full words to -1L, tail word
-   * to {@code (1L << (size & 63)) - 1}.
+   * Emit OP_ALWAYS_T: set all valid bits in bm. Full words to -1L, tail word to
+   * {@code (1L << (size & 63)) - 1}.
    */
   private static void emitAlwaysTrue(final CodeBuilder code) {
     // full = size >>> 6
     // for (int i = 0; i < full; i++) bm[i] = -1L;
     // final int tail = size & 63;
     // if (tail > 0) bm[full] = (1L << tail) - 1;
-    final int SLOT_FULL = SLOT_STR_V;   // reuse int slot
+    final int SLOT_FULL = SLOT_STR_V; // reuse int slot
     code.iload(SLOT_SIZE);
     code.bipush(6);
     code.iushr();
@@ -16485,11 +17071,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * bm = ~childBm, masked to the valid prefix. Emits:
+   * 
    * <pre>
-   *   final int full = size >>> 6;
-   *   for (int i = 0; i < full; i++) bm[i] = ~childBm[i];
-   *   final int tail = size & 63;
-   *   if (tail > 0) bm[full] = (~childBm[full]) & ((1L << tail) - 1L);
+   * final int full = size >>> 6;
+   * for (int i = 0; i < full; i++)
+   *   bm[i] = ~childBm[i];
+   * final int tail = size & 63;
+   * if (tail > 0)
+   *   bm[full] = (~childBm[full]) & ((1L << tail) - 1L);
    * </pre>
    */
   private static void emitNot(final CodeBuilder code, final int childIdx) {
@@ -16551,11 +17140,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * bm = firstChild; for k in 1..n-1: bm &amp;= childKBm;
-   * Vacuously true for n==0.
+   * bm = firstChild; for k in 1..n-1: bm &amp;= childKBm; Vacuously true for n==0.
    */
   private static void emitAnd(final CodeBuilder code, final CompiledPredicate cp, final int start, final int n) {
-    if (n == 0) { emitAlwaysTrue(code); return; }
+    if (n == 0) {
+      emitAlwaysTrue(code);
+      return;
+    }
     // bm = first child's bitmap (copy stride words)
     final int firstChild = cp.children[start];
     emitBitmapCopy(code, firstChild);
@@ -16614,12 +17205,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.aload(SLOT_BM);
     code.iload(SLOT_I);
     // existing bm[i]
-    code.dup2();               // [bm, i, bm, i]
-    code.laload();             // [bm, i, bm[i](long)]
+    code.dup2(); // [bm, i, bm, i]
+    code.laload(); // [bm, i, bm[i](long)]
     code.aload(SLOT_CHILD_BM);
     code.iload(SLOT_I);
-    code.laload();             // [bm, i, bm[i], child[i]]
-    code.land();               // [bm, i, result]
+    code.laload(); // [bm, i, bm[i], child[i]]
+    code.land(); // [bm, i, result]
     code.lastore();
     code.iinc(SLOT_I, 1);
     code.labelBinding(cond);
@@ -16658,6 +17249,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Numeric comparison kernel:
+   * 
    * <pre>
    *   final byte[] pk = presentKind[fieldIdx];
    *   final long[] vals = longCols[fieldIdx];
@@ -16668,36 +17260,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *     else if (k == 4) { if (Double.compare(dvals[i], (double) lit) {cmp} 0) setBit; }
    *   }
    * </pre>
-   * Long rows compare exactly; double rows promote the integer literal to
-   * double via {@link Double#compare} — the interpreter's numeric promotion
-   * (mixed int/double columns, e.g. rating 3 vs 3.7). Comparison is
-   * constant-folded in the emitted bytecode via the opcode selection below.
+   * 
+   * Long rows compare exactly; double rows promote the integer literal to double via
+   * {@link Double#compare} — the interpreter's numeric promotion (mixed int/double columns, e.g.
+   * rating 3 vs 3.7). Comparison is constant-folded in the emitted bytecode via the opcode selection
+   * below.
    */
   private static void emitNumCmp(final CodeBuilder code, final int fieldIdx, final int cmpOp, final long lit) {
     emitNumericKernel(code, fieldIdx, cmpOp, lit, (double) lit, false);
   }
 
   /**
-   * Floating-point comparison kernel — both row kinds evaluate in double
-   * space via {@link Double#compare} (the {@link PredicateNode.FpCmp}
-   * semantics contract): long rows are promoted with {@code l2d}, double
-   * rows compare directly.
+   * Floating-point comparison kernel — both row kinds evaluate in double space via
+   * {@link Double#compare} (the {@link PredicateNode.FpCmp} semantics contract): long rows are
+   * promoted with {@code l2d}, double rows compare directly.
    */
   private static void emitFpCmp(final CodeBuilder code, final int fieldIdx, final int cmpOp, final double dLit) {
     emitNumericKernel(code, fieldIdx, cmpOp, 0L, dLit, true);
   }
 
   /**
-   * Shared numeric kernel emitter. {@code fp == false}: long rows compare in
-   * long space against {@code lit}, double rows against {@code (double) lit}.
-   * {@code fp == true}: long rows are converted with {@code l2d} and both
-   * kinds compare against {@code dLit} via {@link Double#compare}.
+   * Shared numeric kernel emitter. {@code fp == false}: long rows compare in long space against
+   * {@code lit}, double rows against {@code (double) lit}. {@code fp == true}: long rows are
+   * converted with {@code l2d} and both kinds compare against {@code dLit} via
+   * {@link Double#compare}.
    */
-  private static void emitNumericKernel(final CodeBuilder code, final int fieldIdx, final int cmpOp,
-      final long lit, final double dLit, final boolean fp) {
+  private static void emitNumericKernel(final CodeBuilder code, final int fieldIdx, final int cmpOp, final long lit,
+      final double dLit, final boolean fp) {
     // pkLocal = presentKind[fieldIdx] — overlay SLOT_CHILD_BM for a byte[] ref
-    final int SLOT_PK = SLOT_CHILD_BM;  // byte[]
-    final int SLOT_VALS = SLOT_CHILD_BM + 1;  // long[]
+    final int SLOT_PK = SLOT_CHILD_BM; // byte[]
+    final int SLOT_VALS = SLOT_CHILD_BM + 1; // long[]
     code.aload(SLOT_PRESENT_KIND);
     loadIntConst(code, fieldIdx);
     code.aaload();
@@ -16749,8 +17341,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       code.lcmp();
     }
     // int comparison result vs 0 — skip when the op does NOT hold:
-    //   GT: skip if cmp <= 0; LT: skip if cmp >= 0; GE: skip if cmp < 0;
-    //   LE: skip if cmp > 0; EQ: skip if cmp != 0.
+    // GT: skip if cmp <= 0; LT: skip if cmp >= 0; GE: skip if cmp < 0;
+    // LE: skip if cmp > 0; EQ: skip if cmp != 0.
     emitCmpBranch(code, cmpOp, skip);
     code.goto_(setBit);
 
@@ -16774,7 +17366,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.if_icmplt(top);
   }
 
-  /** Branch to {@code skip} when the int comparison result on the stack does NOT satisfy {@code cmpOp}. */
+  /**
+   * Branch to {@code skip} when the int comparison result on the stack does NOT satisfy
+   * {@code cmpOp}.
+   */
   private static void emitCmpBranch(final CodeBuilder code, final int cmpOp, final Label skip) {
     switch (cmpOp) {
       case OP_GT -> code.ifle(skip);
@@ -16788,17 +17383,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * String-equality kernel:
+   * 
    * <pre>
-   *   final String lit = strLits[strIdx];
-   *   final int litLen = lit.length();
-   *   final byte[] pk = presentKind[fieldIdx];
-   *   final String[] vals = strCols[fieldIdx];
-   *   for (int i = 0; i < size; i++) {
-   *     if (pk[i] != 3) continue;
-   *     final String v = vals[i];
-   *     if (v == lit || (v != null &amp;&amp; v.length() == litLen &amp;&amp; lit.equals(v)))
-   *         bm[i>>>6] |= 1L << (i &amp; 63);
-   *   }
+   * final String lit = strLits[strIdx];
+   * final int litLen = lit.length();
+   * final byte[] pk = presentKind[fieldIdx];
+   * final String[] vals = strCols[fieldIdx];
+   * for (int i = 0; i < size; i++) {
+   *   if (pk[i] != 3)
+   *     continue;
+   *   final String v = vals[i];
+   *   if (v == lit || (v != null &amp;&amp; v.length() == litLen &amp;&amp; lit.equals(v)))
+   *     bm[i >>> 6] |= 1L << (i &amp; 63);
+   * }
    * </pre>
    */
   private static void emitStrEq(final CodeBuilder code, final int fieldIdx, final int strIdx) {
@@ -16859,8 +17456,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // if (!lit.equals(v)) skip
     code.aload(SLOT_LIT);
     code.aload(SLOT_V);
-    code.invokevirtual(CD_STRING, "equals",
-        MethodTypeDesc.of(ClassDesc.ofDescriptor("Z"), CD_OBJECT));
+    code.invokevirtual(CD_STRING, "equals", MethodTypeDesc.of(ClassDesc.ofDescriptor("Z"), CD_OBJECT));
     code.ifeq(skip);
     code.labelBinding(setBit);
     emitSetBit(code);
@@ -16874,12 +17470,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Boolean-ref kernel:
+   * 
    * <pre>
-   *   final byte[] pk = presentKind[fieldIdx];
-   *   final boolean[] vals = boolCols[fieldIdx];
-   *   for (int i = 0; i < size; i++) {
-   *     if (pk[i] == 2 &amp;&amp; vals[i]) bm[i>>>6] |= 1L << (i &amp; 63);
-   *   }
+   * final byte[] pk = presentKind[fieldIdx];
+   * final boolean[] vals = boolCols[fieldIdx];
+   * for (int i = 0; i < size; i++) {
+   *   if (pk[i] == 2 &amp;&amp; vals[i])
+   *     bm[i >>> 6] |= 1L << (i &amp; 63);
+   * }
    * </pre>
    */
   private static void emitBoolRef(final CodeBuilder code, final int fieldIdx) {
@@ -16908,7 +17506,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.if_icmpne(skip);
     code.aload(SLOT_VALS);
     code.iload(SLOT_I);
-    code.baload();  // boolean[] via baload
+    code.baload(); // boolean[] via baload
     code.ifeq(skip);
     emitSetBit(code);
     code.labelBinding(skip);
@@ -16920,8 +17518,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Emit {@code bm[i>>>6] |= 1L << (i &amp; 63);}. {@code i} must be in
-   * {@link #SLOT_I}, {@code bm} in {@link #SLOT_BM}.
+   * Emit {@code bm[i>>>6] |= 1L << (i &amp; 63);}. {@code i} must be in {@link #SLOT_I}, {@code bm}
+   * in {@link #SLOT_BM}.
    */
   private static void emitSetBit(final CodeBuilder code) {
     code.aload(SLOT_BM);
@@ -16929,14 +17527,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     code.bipush(6);
     code.iushr();
     // stack: [bm, wordIdx]
-    code.dup2();  // [bm, wordIdx, bm, wordIdx]
-    code.laload();  // [bm, wordIdx, bm[wordIdx]]
+    code.dup2(); // [bm, wordIdx, bm, wordIdx]
+    code.laload(); // [bm, wordIdx, bm[wordIdx]]
     code.lconst_1();
     code.iload(SLOT_I);
     code.bipush(63);
     code.iand();
-    code.lshl();    // [bm, wordIdx, bm[wordIdx], 1L<<bit]
-    code.lor();     // [bm, wordIdx, result]
+    code.lshl(); // [bm, wordIdx, bm[wordIdx], 1L<<bit]
+    code.lor(); // [bm, wordIdx, result]
     code.lastore();
   }
 
@@ -16963,7 +17561,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private long getMaxNodeKey() {
     long cached = cachedMaxNodeKey;
-    if (cached >= 0) return cached;
+    if (cached >= 0)
+      return cached;
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       long v = rtx.getMaxNodeKey();
       cachedMaxNodeKey = v;
@@ -16997,13 +17596,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null;
         });
       }
-      for (Future<?> f : futures) f.get();
+      for (Future<?> f : futures)
+        f.get();
     } catch (Exception e) {
       // Surface the root cause's message in the RuntimeException so call-site
       // logs ({@code QueryException.getMessage()}) show what actually failed
       // instead of the generic "Parallel scan failed" wrapper. The original
       // exception stays as cause so full stack traces are preserved.
-      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      Throwable cause = e.getCause() != null
+          ? e.getCause()
+          : e;
       while (cause.getCause() != null && cause.getCause() != cause) {
         cause = cause.getCause();
       }

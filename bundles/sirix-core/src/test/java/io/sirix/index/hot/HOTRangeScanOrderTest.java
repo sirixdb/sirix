@@ -42,20 +42,22 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * The range-scan CONTRACT of the HOT cursor: a scan yields every key in the range, in ascending
- * key order, exactly once.
+ * The range-scan CONTRACT of the HOT cursor: a scan yields every key in the range, in ascending key
+ * order, exactly once.
  *
- * <p><b>Why this test exists.</b> A projection index silently stopped serving above ~160 row
- * groups because its directory reader assumed the cursor yields keys ascending; the scan actually
- * returned {@code 1..159, 192..196, 160..191} — nothing lost, but not sorted. Order is not a
- * cosmetic property here: {@code HOTRangeCursor.advanceToValid} ends a BOUNDED scan at the first
- * key past {@code toKey}, so a single out-of-order page truncates the result and the caller sees
- * a short answer rather than an error.
+ * <p>
+ * <b>Why this test exists.</b> A projection index silently stopped serving above ~160 row groups
+ * because its directory reader assumed the cursor yields keys ascending; the scan actually returned
+ * {@code 1..159, 192..196, 160..191} — nothing lost, but not sorted. Order is not a cosmetic
+ * property here: {@code HOTRangeCursor.advanceToValid} ends a BOUNDED scan at the first key past
+ * {@code toKey}, so a single out-of-order page truncates the result and the caller sees a short
+ * answer rather than an error.
  *
- * <p>The pre-existing bounded-range coverage asserted only {@code rangeCount > 0}, which passes
- * under exactly that truncation. These tests assert EXACT counts and monotonicity instead, and
- * use enough distinct keys to force a multi-page trie — the defect is invisible while everything
- * fits on one leaf.
+ * <p>
+ * The pre-existing bounded-range coverage asserted only {@code rangeCount > 0}, which passes under
+ * exactly that truncation. These tests assert EXACT counts and monotonicity instead, and use enough
+ * distinct keys to force a multi-page trie — the defect is invisible while everything fits on one
+ * leaf.
  */
 @DisplayName("HOT range scan — ordering and completeness")
 final class HOTRangeScanOrderTest {
@@ -65,8 +67,8 @@ final class HOTRangeScanOrderTest {
 
   /**
    * Distinct indexed values. Sized well past a single HOT leaf (512 entries): the 200k-record
-   * projection that exposed the original defect spread over six pages, and a defect in
-   * page-to-page traversal cannot show up until the trie actually has pages to traverse.
+   * projection that exposed the original defect spread over six pages, and a defect in page-to-page
+   * traversal cannot show up until the trie actually has pages to traverse.
    */
   private static final int VALUE_COUNT = 20_000;
 
@@ -100,17 +102,15 @@ final class HOTRangeScanOrderTest {
       // than merely returning a different page's worth of keys.
       final int lo = 25;
       final int hi = VALUE_COUNT - 25;
-      final Iterator<Map.Entry<CASValue, NodeReferences>> it =
-          hotReader.range(casKey(lo, pcr), casKey(hi, pcr));
+      final Iterator<Map.Entry<CASValue, NodeReferences>> it = hotReader.range(casKey(lo, pcr), casKey(hi, pcr));
       // The upper bound's inclusivity is an implementation detail we do not want to pin down
       // here, so accept either, but reject anything short of it.
       final int seen = assertSortedAndComplete(it, -1, "bounded scan [" + lo + ", " + hi + ")");
       final int expectedExclusive = hi - lo;
       assertTrue(seen == expectedExclusive || seen == expectedExclusive + 1,
-                 "bounded scan returned " + seen + " keys but the window holds " + expectedExclusive
-                     + " (or " + (expectedExclusive + 1) + " if the upper bound is inclusive) — a "
-                     + "short count means the scan ended early, which is what an out-of-order page "
-                     + "causes");
+          "bounded scan returned " + seen + " keys but the window holds " + expectedExclusive + " (or "
+              + (expectedExclusive + 1) + " if the upper bound is inclusive) — a "
+              + "short count means the scan ended early, which is what an out-of-order page " + "causes");
     });
   }
 
@@ -127,16 +127,15 @@ final class HOTRangeScanOrderTest {
     while (it.hasNext()) {
       final CASValue current = it.next().getKey();
       if (previous != null && previous.compareTo(current) >= 0) {
-        fail(what + ": key #" + seen + " (" + current.getAtomicValue() + ") does not follow its "
-                 + "predecessor (" + previous.getAtomicValue() + ") — the cursor returned keys out "
-                 + "of order, which silently truncates any bounded scan");
+        fail(what + ": key #" + seen + " (" + current.getAtomicValue() + ") does not follow its " + "predecessor ("
+            + previous.getAtomicValue() + ") — the cursor returned keys out "
+            + "of order, which silently truncates any bounded scan");
       }
       previous = current;
       seen++;
     }
     if (expectedCount >= 0) {
-      assertEquals(expectedCount, seen,
-                   what + " returned " + seen + " keys, expected " + expectedCount);
+      assertEquals(expectedCount, seen, what + " returned " + seen + " keys, expected " + expectedCount);
     }
     return seen;
   }
@@ -154,16 +153,14 @@ final class HOTRangeScanOrderTest {
   private static void withCasIndexOverDistinctInts(final ScanAssertion assertion) throws IOException {
     Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-                                                   .versioningApproach(VersioningType.FULL)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
         final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-        final IndexDef casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-                                                               Collections.singleton(pathToValue), 0,
-                                                               IndexDef.DbType.JSON);
+        final IndexDef casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // One object per value, values 0..VALUE_COUNT-1 so the expected key set is exactly known.
@@ -175,17 +172,12 @@ final class HOTRangeScanOrderTest {
           json.append("{\"value\": ").append(i).append('}');
         }
         json.append("]}");
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()),
-                                      JsonNodeTrx.Commit.NO);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
         wtx.commit();
 
-        final var hotReader = HOTIndexReader.create(wtx.getStorageEngineReader(),
-                                                    CASKeySerializer.INSTANCE, casIndexDef.getType(),
-                                                    casIndexDef.getID());
-        final long pcr = new JsonPCRCollector(wtx).getPCRsForPaths(casIndexDef.getPaths())
-                                                  .getPCRs()
-                                                  .iterator()
-                                                  .next();
+        final var hotReader = HOTIndexReader.create(wtx.getStorageEngineReader(), CASKeySerializer.INSTANCE,
+            casIndexDef.getType(), casIndexDef.getID());
+        final long pcr = new JsonPCRCollector(wtx).getPCRsForPaths(casIndexDef.getPaths()).getPCRs().iterator().next();
         assertion.run(hotReader, pcr);
       }
     }

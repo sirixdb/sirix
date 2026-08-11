@@ -9,27 +9,31 @@ package io.sirix.index.projection;
  *
  * <h2>Why sampling rather than statistics</h2>
  *
- * <p>Our region encoders pick their scheme from full-column statistics and a fixed two-way bake-off
+ * <p>
+ * Our region encoders pick their scheme from full-column statistics and a fixed two-way bake-off
  * (frame-of-reference bit-packing versus delta-of-delta). That is the "simple heuristics" the paper
  * argues against in §3: min/max/unique-count are enough to choose among a handful of encodings, but
  * they cannot rank encodings whose benefit depends on the ARRANGEMENT of values rather than their
  * range — run-length above all, where a column with an ideal min/max spread may still be a hundred
  * repeats of the same value.
  *
- * <p>The paper's answer is to compress a small sample with each viable scheme and compare the
- * ratios it actually achieves. That costs 1.2 % of total compression time in their measurements,
- * and it extends to new schemes without a cost model per scheme.
+ * <p>
+ * The paper's answer is to compress a small sample with each viable scheme and compare the ratios
+ * it actually achieves. That costs 1.2 % of total compression time in their measurements, and it
+ * extends to new schemes without a cost model per scheme.
  *
  * <h2>The sample</h2>
  *
- * <p>Not a prefix, and not a uniform stride. §3.1: the sample must preserve the LOCALITY of
+ * <p>
+ * Not a prefix, and not a uniform stride. §3.1: the sample must preserve the LOCALITY of
  * neighbouring tuples — a run-length encoder judged on every 64th value sees no runs at all — while
  * still covering the whole block, because the first {@code k} tuples are a biased sample. So the
  * sample is several short CONTIGUOUS runs taken from random positions in non-overlapping parts of
  * the block. The paper uses ten runs of 64 values over a 64,000-value block, i.e. 1 %.
  *
- * <p>Deterministic here, unlike the paper's {@code rand()}: the part is divided into a fixed number
- * of slots and the run is taken from the middle of its part. A compressor that picks a different
+ * <p>
+ * Deterministic here, unlike the paper's {@code rand()}: the part is divided into a fixed number of
+ * slots and the run is taken from the middle of its part. A compressor that picks a different
  * scheme for the same input on two runs produces two different byte images for one logical page,
  * which breaks page-image comparison in tests and makes a corruption report unreproducible. The
  * point of randomness in the paper is to avoid a biased offset within the block, and taking the
@@ -37,7 +41,8 @@ package io.sirix.index.projection;
  *
  * <h2>What this class does NOT do</h2>
  *
- * <p>It ranks schemes; it does not encode. The caller owns the byte formats, and the estimator a
+ * <p>
+ * It ranks schemes; it does not encode. The caller owns the byte formats, and the estimator a
  * scheme supplies is free to be exact (compress the sample and measure) or analytic (compute the
  * size the scheme would produce). It also does not cascade — {@link #select} answers one level, and
  * a caller that cascades re-enters it on the scheme's output with {@code depth - 1}.
@@ -53,19 +58,20 @@ public final class SchemeSelector {
   /**
    * Maximum cascade depth; the paper's default (§3.2). Past it the output is left as it is.
    *
-   * <p>Not a tuning knob so much as a termination guarantee: every level costs another selection
-   * pass, and the paper measured the ratio gain flattening well before the cost does.
+   * <p>
+   * Not a tuning knob so much as a termination guarantee: every level costs another selection pass,
+   * and the paper measured the ratio gain flattening well before the cost does.
    */
   public static final int MAX_CASCADE_DEPTH = 3;
 
-  private SchemeSelector() {
-  }
+  private SchemeSelector() {}
 
   /**
    * One scheme's ability to size its own output.
    *
-   * <p>Deliberately narrow: a scheme that can estimate a sample can be ranked, whether or not it
-   * can encode yet. That keeps the selector independent of every byte format in the codebase.
+   * <p>
+   * Deliberately narrow: a scheme that can estimate a sample can be ranked, whether or not it can
+   * encode yet. That keeps the selector independent of every byte format in the codebase.
    */
   @FunctionalInterface
   public interface RatioEstimator {
@@ -74,9 +80,10 @@ public final class SchemeSelector {
      * Bytes this scheme would produce for {@code sample[0..length)}, or a negative value when the
      * scheme cannot represent this input at all.
      *
-     * <p>Sizing the SAMPLE, not the block: ratios compare across schemes on identical input, so a
-     * scheme that is asked for an absolute block size instead would have to model the block's
-     * distribution, which is the cost model the sampling approach exists to avoid.
+     * <p>
+     * Sizing the SAMPLE, not the block: ratios compare across schemes on identical input, so a scheme
+     * that is asked for an absolute block size instead would have to model the block's distribution,
+     * which is the cost model the sampling approach exists to avoid.
      */
     long estimateBytes(long[] sample, int length);
   }
@@ -88,8 +95,9 @@ public final class SchemeSelector {
   /**
    * Column statistics gathered in ONE pass, per BtrBlocks §3.1.
    *
-   * <p>These drive the VIABILITY filter, not the ranking: their job is to exclude schemes that
-   * cannot pay off, so the sample is only compressed with the ones that might.
+   * <p>
+   * These drive the VIABILITY filter, not the ranking: their job is to exclude schemes that cannot
+   * pay off, so the sample is only compressed with the ones that might.
    */
   public record Stats(long min, long max, int uniqueApprox, double averageRunLength, int count) {
 
@@ -102,10 +110,11 @@ public final class SchemeSelector {
   /**
    * Single-pass statistics over {@code values[0..count)}.
    *
-   * <p>{@code uniqueApprox} counts distinct values only while they stay few, then stops counting
-   * and reports the cap. Exactness past that point buys nothing — every rule that reads it is a
-   * threshold ("at least half the values are unique"), and an exact distinct count over a whole
-   * block is a hash set the single pass exists to avoid.
+   * <p>
+   * {@code uniqueApprox} counts distinct values only while they stay few, then stops counting and
+   * reports the cap. Exactness past that point buys nothing — every rule that reads it is a threshold
+   * ("at least half the values are unique"), and an exact distinct count over a whole block is a hash
+   * set the single pass exists to avoid.
    */
   public static Stats stats(final long[] values, final int count) {
     if (values == null || count <= 0) {
@@ -148,16 +157,18 @@ public final class SchemeSelector {
         }
       }
     }
-    return new Stats(min, max, uniqueExact ? unique : uniqueCap, (double) count / runs, count);
+    return new Stats(min, max, uniqueExact
+        ? unique
+        : uniqueCap, (double) count / runs, count);
   }
 
   /**
-   * Draw the paper's sample: {@link #SAMPLE_RUNS} contiguous runs of {@link #SAMPLE_RUN_LENGTH},
-   * one from the middle of each of that many equal parts.
+   * Draw the paper's sample: {@link #SAMPLE_RUNS} contiguous runs of {@link #SAMPLE_RUN_LENGTH}, one
+   * from the middle of each of that many equal parts.
    *
-   * <p>Short blocks return a copy of the whole block rather than a sample — below roughly one run
-   * per part there is nothing to sample, and estimating on the real thing is both cheaper and
-   * exact.
+   * <p>
+   * Short blocks return a copy of the whole block rather than a sample — below roughly one run per
+   * part there is nothing to sample, and estimating on the real thing is both cheaper and exact.
    *
    * @param out receives the sample; must hold {@code SAMPLE_RUNS * SAMPLE_RUN_LENGTH}
    * @return the number of values written
@@ -198,14 +209,15 @@ public final class SchemeSelector {
   /**
    * Whether a scheme is worth estimating at all, per the paper's §3.1 exclusions.
    *
-   * <p>Both rules exclude a scheme whose best case cannot occur given the statistics, so the sample
-   * is never compressed with it:
+   * <p>
+   * Both rules exclude a scheme whose best case cannot occur given the statistics, so the sample is
+   * never compressed with it:
    *
    * <ul>
-   *   <li>RLE needs an average run of at least 2 — at one value per run it stores a length beside
-   *       every value and is strictly larger than the input.</li>
-   *   <li>Frequency needs a dominant value — at half the values distinct there is no top value
-   *       frequent enough to pay for the exception bitmap.</li>
+   * <li>RLE needs an average run of at least 2 — at one value per run it stores a length beside every
+   * value and is strictly larger than the input.</li>
+   * <li>Frequency needs a dominant value — at half the values distinct there is no top value frequent
+   * enough to pay for the exception bitmap.</li>
    * </ul>
    */
   public static boolean viable(final byte schemeCode, final Stats stats, final SchemePool pool) {
@@ -229,16 +241,18 @@ public final class SchemeSelector {
    * The scheme with the smallest estimated output, or the pool's uncompressed code when none beats
    * storing the values as they are.
    *
-   * <p>The comparison is against {@code 8 * count} — the plain long array the caller would
-   * otherwise write. A scheme that cannot beat that is not worth its decode branch, which is the
-   * asymmetry that matters here: compression happens once and scanning happens forever.
+   * <p>
+   * The comparison is against {@code 8 * count} — the plain long array the caller would otherwise
+   * write. A scheme that cannot beat that is not worth its decode branch, which is the asymmetry that
+   * matters here: compression happens once and scanning happens forever.
    *
    * @param scratch reusable sample buffer, at least {@code SAMPLE_RUNS * SAMPLE_RUN_LENGTH} long
    */
-  public static byte select(final long[] values, final int count, final SchemePool pool,
-      final long[] scratch) {
+  public static byte select(final long[] values, final int count, final SchemePool pool, final long[] scratch) {
     if (values == null || count <= 0 || pool == null) {
-      return pool == null ? 0 : pool.uncompressedCode();
+      return pool == null
+          ? 0
+          : pool.uncompressedCode();
     }
     final Stats stats = stats(values, count);
     final int sampleLength = sample(values, count, scratch);

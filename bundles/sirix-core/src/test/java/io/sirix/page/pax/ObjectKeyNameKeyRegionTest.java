@@ -21,9 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 final class ObjectKeyNameKeyRegionTest {
 
   /** Slots spread across several bitmap words, in bitmap order. */
-  private static final int[] SLOTS = { 3, 64, 130, 700, 1023 };
+  private static final int[] SLOTS = {3, 64, 130, 700, 1023};
 
-  private static final int[] NAME_KEYS = { 7, 7, 9, 7, 11 };
+  private static final int[] NAME_KEYS = {7, 7, 9, 7, 11};
 
   @Test
   @DisplayName("decodeSlotsInto: round-trip in bitmap order")

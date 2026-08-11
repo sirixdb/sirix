@@ -37,22 +37,25 @@ import java.util.concurrent.TimeUnit;
 /**
  * The six shapes of the DuckDB comparison, measured warm under JMH.
  *
- * <p>Written because the hand-rolled loop in {@link PostgresBulkBench} could not settle a question
- * it was being asked: on a loaded box the same shape came back at 230 ms and at 1,192 ms across
- * runs of an identical configuration, which is enough noise to invert an A/B verdict. JMH's forks,
+ * <p>
+ * Written because the hand-rolled loop in {@link PostgresBulkBench} could not settle a question it
+ * was being asked: on a loaded box the same shape came back at 230 ms and at 1,192 ms across runs
+ * of an identical configuration, which is enough noise to invert an A/B verdict. JMH's forks,
  * warm-up discipline and per-iteration statistics are the fix — {@code docs/BENCHMARK_DESIGN.md} R4
  * says as much, and {@link BulkQueryScanBenchmark} already applies it to four other shapes.
  *
  * <h2>The memo, which is why this is not just a copy of that benchmark</h2>
  *
- * <p>{@link SirixVectorizedExecutor} memoizes filtered counts, aggregates and group-bys by
- * (source path, predicate). Run the SAME query twice and the second answer comes from a hash map —
- * so a benchmark that repeats one query measures a map lookup, not a scan, and reports microseconds
- * for work that takes milliseconds. Every invocation therefore drops the result caches first
+ * <p>
+ * {@link SirixVectorizedExecutor} memoizes filtered counts, aggregates and group-bys by (source
+ * path, predicate). Run the SAME query twice and the second answer comes from a hash map — so a
+ * benchmark that repeats one query measures a map lookup, not a scan, and reports microseconds for
+ * work that takes milliseconds. Every invocation therefore drops the result caches first
  * ({@code clearAggregateResultCachesForBenchmarks}), which leaves the machinery under measurement —
  * field keys, compiled predicates, page region tables, projection column slices — untouched.
  *
- * <p>The executor is installed EXPLICITLY rather than auto-wired, purely so the benchmark holds the
+ * <p>
+ * The executor is installed EXPLICITLY rather than auto-wired, purely so the benchmark holds the
  * reference it needs to clear those caches; the paths measured are the same ones auto-wiring
  * reaches.
  *
@@ -64,9 +67,11 @@ import java.util.concurrent.TimeUnit;
  *       -Pjmh.jvmArgs="-Dsirix.bench.store=/tmp/claude-1000/bench -Dsirix.bench.db=db-elem"
  * </pre>
  *
- * <p>Point it at a store built by {@code PostgresBulkBench ingest} in {@code single} mode. Shapes
- * S1-S4 and S6 want the projection index built ({@code jn:create-projection-index}); without it they
- * measure the storage scan instead, which is a different (and slower) answer to the same question.
+ * <p>
+ * Point it at a store built by {@code PostgresBulkBench ingest} in {@code single} mode. Shapes
+ * S1-S4 and S6 want the projection index built ({@code jn:create-projection-index}); without it
+ * they measure the storage scan instead, which is a different (and slower) answer to the same
+ * question.
  */
 @State(Scope.Benchmark)
 @BenchmarkMode(Mode.AverageTime)
@@ -82,13 +87,11 @@ public class MoviesShapesBenchmark {
   private static final String S1 = "count(for $m in $doc[] where $m.year > 1990 return $m)";
   private static final String S2 =
       "count(for $m in $doc[] where $m.year > 1990 and $m.thumbnail_width > 200 return $m)";
-  private static final String S3 =
-      "sum(for $m in $doc[] return $m.thumbnail_width * $m.thumbnail_height)";
+  private static final String S3 = "sum(for $m in $doc[] return $m.thumbnail_width * $m.thumbnail_height)";
   private static final String S4 = "count(for $m in $doc[] let $y := $m.year group by $y return $y)";
   private static final String S5 =
       "count(for $m in $doc[] where some $g in $m.genres[] satisfies $g eq \"Drama\" return $m)";
-  private static final String S6 =
-      "count(for $m in $doc[] where $m.title eq \"Saleslady\" return $m)";
+  private static final String S6 = "count(for $m in $doc[] where $m.title eq \"Saleslady\" return $m)";
 
   private static final QNm DOC_VAR = new QNm("doc");
   private static final String RESOURCE = "movies";
@@ -101,8 +104,7 @@ public class MoviesShapesBenchmark {
 
   @Setup(Level.Trial)
   public void setUp() {
-    final Path location = Paths.get(System.getProperty("sirix.bench.store",
-                                                       System.getProperty("java.io.tmpdir")));
+    final Path location = Paths.get(System.getProperty("sirix.bench.store", System.getProperty("java.io.tmpdir")));
     final String dbName = System.getProperty("sirix.bench.db", "db-elem");
 
     store = BasicJsonDBStore.newBuilder().location(location).build();
@@ -112,7 +114,7 @@ public class MoviesShapesBenchmark {
     final JsonDBCollection coll = (JsonDBCollection) store.lookup(dbName);
     session = coll.getDatabase().beginResourceSession(RESOURCE);
     executor = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(),
-                                           Runtime.getRuntime().availableProcessors());
+        Runtime.getRuntime().availableProcessors());
     SequentialPipelineStrategy.setVectorizedExecutor(executor);
     ctx.bind(DOC_VAR, (Sequence) coll.getDocument());
 
@@ -130,9 +132,10 @@ public class MoviesShapesBenchmark {
   /**
    * Drop the memoized RESULTS before each invocation, so every measured run is a scan.
    *
-   * <p>Without this the benchmark reports the cost of a {@code ConcurrentHashMap.get}. Per
-   * invocation rather than per iteration because JMH runs many invocations inside one iteration,
-   * and only the first of them would otherwise miss.
+   * <p>
+   * Without this the benchmark reports the cost of a {@code ConcurrentHashMap.get}. Per invocation
+   * rather than per iteration because JMH runs many invocations inside one iteration, and only the
+   * first of them would otherwise miss.
    */
   @Setup(Level.Invocation)
   public void dropResultMemo() {

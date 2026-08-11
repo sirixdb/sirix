@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * Measures the parallel ceiling of SirixDB's record-level scan, so a pipeline redesign can be
  * costed before it is written.
  *
- * <p>The question this answers is narrow and load-bearing. Profiling
+ * <p>
+ * The question this answers is narrow and load-bearing. Profiling
  * {@code count(for $m in $doc[] where $m.year > 1990 return $m)} shows the leaf scan is 58-59 % of
  * the pipeline, so any morsel design that leaves the leaf serial is capped near 1.7x by Amdahl.
  * Making the leaf parallel is therefore the whole game — but only if SirixDB's storage layer
@@ -22,24 +23,26 @@ import java.util.concurrent.atomic.AtomicLong;
  * reasons recorded for that ceiling (per-call transaction open, wrapper allocation) are avoidable
  * here. This harness separates the two so the difference is attributable.
  *
- * <p>Phase 1 walks the array's children once, serially, and captures their node keys. That walk is
- * NOT what is being measured — it exists only to give every arm the identical work list, so the
- * arms differ in thread count and nothing else.
+ * <p>
+ * Phase 1 walks the array's children once, serially, and captures their node keys. That walk is NOT
+ * what is being measured — it exists only to give every arm the identical work list, so the arms
+ * differ in thread count and nothing else.
  *
- * <p>Phase 2 replays that work list: for each element, move to it and read its {@code year} field,
+ * <p>
+ * Phase 2 replays that work list: for each element, move to it and read its {@code year} field,
  * which is the same navigation the generic pipeline performs per tuple. One transaction per worker
  * is opened outside the timed region, because a per-chunk transaction open was the dominant fixed
  * cost the array-slice work ran into and repeating that mistake would measure it instead of the
  * scan.
  *
- * <p>Usage: {@code ParallelScanCeilingMain <storeLocation> <dbName> <resource> [rounds]}
+ * <p>
+ * Usage: {@code ParallelScanCeilingMain <storeLocation> <dbName> <resource> [rounds]}
  */
 public final class ParallelScanCeilingMain {
 
   private static final String YEAR = "year";
 
-  private ParallelScanCeilingMain() {
-  }
+  private ParallelScanCeilingMain() {}
 
   public static void main(final String... args) throws Exception {
     if (args.length < 3) {
@@ -49,10 +52,12 @@ public final class ParallelScanCeilingMain {
     final Path location = Paths.get(args[0]);
     final String dbName = args[1];
     final String resource = args[2];
-    final int rounds = args.length > 3 ? Integer.parseInt(args[3]) : 3;
+    final int rounds = args.length > 3
+        ? Integer.parseInt(args[3])
+        : 3;
 
     try (final var database = Databases.openJsonDatabase(location.resolve(dbName));
-         final JsonResourceSession session = database.beginResourceSession(resource)) {
+        final JsonResourceSession session = database.beginResourceSession(resource)) {
       final int revision = session.getMostRecentRevisionNumber();
 
       final long[] keys;
@@ -76,16 +81,15 @@ public final class ParallelScanCeilingMain {
           counted = walkSiblingsOnly(rtx);
           bestWalk = Math.min(bestWalk, (System.nanoTime() - t0) / 1e6);
         }
-        System.out.printf("# bare sibling walk: %,.1f ms (%.1f ns/elem) over %,d elements%n",
-                          bestWalk, bestWalk * 1e6 / keys.length, counted);
+        System.out.printf("# bare sibling walk: %,.1f ms (%.1f ns/elem) over %,d elements%n", bestWalk,
+            bestWalk * 1e6 / keys.length, counted);
       }
 
       final int cores = Runtime.getRuntime().availableProcessors();
-      System.out.printf("%-8s | %10s | %10s | %8s | %s%n",
-                        "threads", "best(ms)", "ns/elem", "speedup", "checksum");
+      System.out.printf("%-8s | %10s | %10s | %8s | %s%n", "threads", "best(ms)", "ns/elem", "speedup", "checksum");
 
       double serialMs = 0.0;
-      for (final int threads : new int[] { 1, 2, 4, 8, 12, 16, cores }) {
+      for (final int threads : new int[] {1, 2, 4, 8, 12, 16, cores}) {
         double best = Double.MAX_VALUE;
         long checksum = 0;
         for (int r = 0; r < rounds; r++) {
@@ -96,8 +100,8 @@ public final class ParallelScanCeilingMain {
         if (threads == 1) {
           serialMs = best;
         }
-        System.out.printf("%-8d | %10.1f | %10.1f | %7.2fx | %d%n",
-                          threads, best, best * 1e6 / keys.length, serialMs / best, checksum);
+        System.out.printf("%-8d | %10.1f | %10.1f | %7.2fx | %d%n", threads, best, best * 1e6 / keys.length,
+            serialMs / best, checksum);
       }
     }
   }
@@ -105,9 +109,10 @@ public final class ParallelScanCeilingMain {
   /**
    * Dumps the first element's field names and kinds.
    *
-   * <p>A scan probe that navigates but never matches still produces plausible timings — it just
-   * measures a different walk than the one it claims to. Printing what the first element actually
-   * looks like is how a zero checksum gets attributed rather than explained away.
+   * <p>
+   * A scan probe that navigates but never matches still produces plausible timings — it just measures
+   * a different walk than the one it claims to. Printing what the first element actually looks like
+   * is how a zero checksum gets attributed rather than explained away.
    */
   private static void describeFirstElement(final JsonNodeReadOnlyTrx rtx, final long[] keys) {
     if (keys.length == 0) {
@@ -119,17 +124,17 @@ public final class ParallelScanCeilingMain {
       return;
     }
     do {
-      System.out.printf("#   child kind=%-20s nameKey=%-6d name=%s%n",
-                        rtx.getKind(), rtx.getNameKey(), rtx.getName());
+      System.out.printf("#   child kind=%-20s nameKey=%-6d name=%s%n", rtx.getKind(), rtx.getNameKey(), rtx.getName());
     } while (rtx.moveToRightSibling());
   }
 
   /**
    * Node keys of the document array's element children, in document order.
    *
-   * <p>Grown geometrically rather than sized from {@code getChildCount()}: the count is available
-   * here, but a probe that silently depends on it would break on any array whose count is not
-   * maintained, and this list is built once outside the measurement either way.
+   * <p>
+   * Grown geometrically rather than sized from {@code getChildCount()}: the count is available here,
+   * but a probe that silently depends on it would break on any array whose count is not maintained,
+   * and this list is built once outside the measurement either way.
    */
   private static long[] collectElementKeys(final JsonNodeReadOnlyTrx rtx) {
     rtx.moveToDocumentRoot();
@@ -170,13 +175,13 @@ public final class ParallelScanCeilingMain {
   /**
    * Sums {@code year} over {@code keys}, split into {@code threads} contiguous chunks.
    *
-   * <p>Contiguous rather than round-robin on purpose: elements adjacent in the array share record
-   * pages, so a contiguous chunk gives each worker its own pages and makes the arms differ in
-   * parallelism rather than in cache behaviour.
+   * <p>
+   * Contiguous rather than round-robin on purpose: elements adjacent in the array share record pages,
+   * so a contiguous chunk gives each worker its own pages and makes the arms differ in parallelism
+   * rather than in cache behaviour.
    */
-  private static long sumYears(final JsonResourceSession session, final int revision,
-                               final long[] keys, final int threads, final int yearNameKey)
-      throws InterruptedException {
+  private static long sumYears(final JsonResourceSession session, final int revision, final long[] keys,
+      final int threads, final int yearNameKey) throws InterruptedException {
     if (threads == 1) {
       try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
         return sumRange(rtx, keys, 0, keys.length, yearNameKey);
@@ -205,14 +210,15 @@ public final class ParallelScanCeilingMain {
   /**
    * Move to each element and read its {@code year} — the navigation the pipeline does per tuple.
    *
-   * <p>Fields are stored as FUSED nodes ({@code OBJECT_NAMED_NUMBER} and friends): the name and the
+   * <p>
+   * Fields are stored as FUSED nodes ({@code OBJECT_NAMED_NUMBER} and friends): the name and the
    * value live on one node, so the value is read from the matched node itself rather than from a
-   * child. Matching is on the interned name key, not a decoded {@code QNm}, because
-   * {@code getName()} allocates per field visited and would put string decoding into a measurement
-   * that is supposed to be about navigation.
+   * child. Matching is on the interned name key, not a decoded {@code QNm}, because {@code getName()}
+   * allocates per field visited and would put string decoding into a measurement that is supposed to
+   * be about navigation.
    */
-  private static long sumRange(final JsonNodeReadOnlyTrx rtx, final long[] keys,
-                               final int lo, final int hi, final int yearNameKey) {
+  private static long sumRange(final JsonNodeReadOnlyTrx rtx, final long[] keys, final int lo, final int hi,
+      final int yearNameKey) {
     long sum = 0;
     for (int i = lo; i < hi; i++) {
       if (!rtx.moveTo(keys[i]) || !rtx.moveToFirstChild()) {

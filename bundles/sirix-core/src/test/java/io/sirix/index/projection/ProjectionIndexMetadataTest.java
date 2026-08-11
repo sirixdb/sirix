@@ -16,24 +16,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Round-trip and robustness coverage for {@link ProjectionIndexMetadata} —
- * the self-describing shape payload persisted at HOT slot 0 of a projection
- * sub-tree. The per-leaf fences moved out to {@link ProjectionIndexFences} in
- * the fences live in their own chunks, so this payload carries shape only.
+ * Round-trip and robustness coverage for {@link ProjectionIndexMetadata} — the self-describing
+ * shape payload persisted at HOT slot 0 of a projection sub-tree. The per-leaf fences moved out to
+ * {@link ProjectionIndexFences} in the fences live in their own chunks, so this payload carries
+ * shape only.
  */
 public final class ProjectionIndexMetadataTest {
 
   private static final String ROOT = "/wrapper/records/[]";
-  private static final String[] PATHS = { "/wrapper/records/[]/age", "/wrapper/records/[]/active",
-      "/wrapper/records/[]/dept" };
-  private static final String[] NAMES = { "age", "active", "dept" };
-  private static final byte[] KINDS = { ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT };
+  private static final String[] PATHS =
+      {"/wrapper/records/[]/age", "/wrapper/records/[]/active", "/wrapper/records/[]/dept"};
+  private static final String[] NAMES = {"age", "active", "dept"};
+  private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
   @Test
   public void roundTripsThroughSerializeAndParse() {
-    final ProjectionIndexMetadata metadata =
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 42, 7);
     final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(metadata.serialize());
     assertEquals(ROOT, parsed.rootPath());
     assertArrayEquals(PATHS, parsed.fieldPaths());
@@ -56,12 +55,10 @@ public final class ProjectionIndexMetadataTest {
 
   @Test
   public void matchesComparesRootFieldPathsAndKinds() {
-    final ProjectionIndexMetadata metadata =
-        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1);
+    final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1);
     assertTrue(metadata.matches(ROOT, PATHS, KINDS));
     assertFalse(metadata.matches("/[]", PATHS, KINDS));
-    assertFalse(metadata.matches(ROOT, new String[] { PATHS[0], PATHS[1] },
-        new byte[] { KINDS[0], KINDS[1] }));
+    assertFalse(metadata.matches(ROOT, new String[] {PATHS[0], PATHS[1]}, new byte[] {KINDS[0], KINDS[1]}));
     final byte[] otherKinds = KINDS.clone();
     otherKinds[0] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
     assertFalse(metadata.matches(ROOT, PATHS, otherKinds));
@@ -71,9 +68,9 @@ public final class ProjectionIndexMetadataTest {
   public void parseReturnsNullWithoutTheMagic() {
     assertNull(ProjectionIndexMetadata.parse(null));
     assertNull(ProjectionIndexMetadata.parse(new byte[0]));
-    assertNull(ProjectionIndexMetadata.parse(new byte[] { 1, 2, 3, 4, 5, 6 }));
+    assertNull(ProjectionIndexMetadata.parse(new byte[] {1, 2, 3, 4, 5, 6}));
     // A compact leaf payload starts with the PIXC magic — must not parse.
-    assertNull(ProjectionIndexMetadata.parse(new byte[] { 0x49, 0x50, 0x58, 0x43, 0, 0, 0, 0 }));
+    assertNull(ProjectionIndexMetadata.parse(new byte[] {0x49, 0x50, 0x58, 0x43, 0, 0, 0, 0}));
   }
 
   @Test
@@ -88,8 +85,7 @@ public final class ProjectionIndexMetadataTest {
     final byte current = serialized[4];
     for (final byte other : new byte[] {(byte) (current + 1), (byte) (current + 7), (byte) 0xFF}) {
       serialized[4] = other;
-      assertNull(ProjectionIndexMetadata.parse(serialized),
-                 "version " + other + " parsed instead of being rejected");
+      assertNull(ProjectionIndexMetadata.parse(serialized), "version " + other + " parsed instead of being rejected");
     }
     serialized[4] = current;
     assertNotNull(ProjectionIndexMetadata.parse(serialized), "the current version must parse");
@@ -103,18 +99,16 @@ public final class ProjectionIndexMetadataTest {
     assertNull(ProjectionIndexMetadata.parse(Arrays.copyOf(serialized, 5)));
     // Cuts inside the header (rowGroupCount/buildRevision) and the string sections
     // all fail loudly. Header is 14 bytes; the root path follows.
-    for (final int cut : new int[] { 6, 9, 15, 20, serialized.length / 2, serialized.length - 1 }) {
+    for (final int cut : new int[] {6, 9, 15, 20, serialized.length / 2, serialized.length - 1}) {
       final byte[] truncated = Arrays.copyOf(serialized, cut);
-      assertThrows(IllegalStateException.class, () -> ProjectionIndexMetadata.parse(truncated),
-          "cut at " + cut);
+      assertThrows(IllegalStateException.class, () -> ProjectionIndexMetadata.parse(truncated), "cut at " + cut);
     }
   }
 
   @Test
   public void misalignedArraysAreRejected() {
     assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] { "age" }, KINDS, 1, 1));
-    assertThrows(IllegalArgumentException.class,
-        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] {"age"}, KINDS, 1, 1));
+    assertThrows(IllegalArgumentException.class, () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
   }
 }

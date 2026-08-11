@@ -11,11 +11,12 @@ import io.brackit.query.compiler.optimizer.VectorizedExecutor;
 import io.brackit.query.jdm.Sequence;
 
 /**
- * A {@link VectorizedExecutor} that resolves the real, revision-pinned {@link
- * SirixVectorizedExecutor} on every call instead of holding one.
+ * A {@link VectorizedExecutor} that resolves the real, revision-pinned
+ * {@link SirixVectorizedExecutor} on every call instead of holding one.
  *
- * <p><b>Why this exists.</b> The translator captures the executor OBJECT into the compiled
- * expression, so whatever is pinned in that object is pinned for the expression's whole life. A
+ * <p>
+ * <b>Why this exists.</b> The translator captures the executor OBJECT into the compiled expression,
+ * so whatever is pinned in that object is pinned for the expression's whole life. A
  * {@link SirixVectorizedExecutor} is pinned to one revision and memoises answers for it, so a query
  * compiled once and executed again after a commit kept answering from before the write — while the
  * generic pipeline, whose {@code jn:doc} opens the most recent revision at EXECUTE time, moved on.
@@ -23,21 +24,24 @@ import io.brackit.query.jdm.Sequence;
  * caller that compiles once and executes many times, which is the normal way to use a prepared
  * query.
  *
- * <p>Capturing this indirection instead makes "most recent" mean most recent when the query RUNS,
+ * <p>
+ * Capturing this indirection instead makes "most recent" mean most recent when the query RUNS,
  * which is what the pipeline it stands in for does. A source that named an explicit revision
  * resolves to that same immutable snapshot every time, so it is unaffected.
  *
- * <p>The supplier returns {@code null} when the executor can no longer be resolved — the compile
- * chain that owned it has been closed, or the resource has gone away. The last successfully
- * resolved executor is then reused: a compiled query outliving its chain keeps answering from the
- * revision it last saw rather than failing, which matters because most of these entry points are
- * substituted at translate time and have no generic pipeline to fall back to.
+ * <p>
+ * The supplier returns {@code null} when the executor can no longer be resolved — the compile chain
+ * that owned it has been closed, or the resource has gone away. The last successfully resolved
+ * executor is then reused: a compiled query outliving its chain keeps answering from the revision
+ * it last saw rather than failing, which matters because most of these entry points are substituted
+ * at translate time and have no generic pipeline to fall back to.
  *
- * <p><b>Maintenance.</b> Every method of {@link VectorizedExecutor} must be forwarded here,
- * including ones added later: an un-forwarded method silently inherits the interface default
- * ("unsupported"), which turns a working fast path off — or, at a translate-time-substituted entry
- * point, turns a working query into a failing one. {@code RevisionTrackingExecutorTest} asserts the
- * full set is overridden, so a new interface method fails the build rather than the user.
+ * <p>
+ * <b>Maintenance.</b> Every method of {@link VectorizedExecutor} must be forwarded here, including
+ * ones added later: an un-forwarded method silently inherits the interface default ("unsupported"),
+ * which turns a working fast path off — or, at a translate-time-substituted entry point, turns a
+ * working query into a failing one. {@code RevisionTrackingExecutorTest} asserts the full set is
+ * overridden, so a new interface method fails the build rather than the user.
  */
 public final class RevisionTrackingExecutor implements VectorizedExecutor {
 
@@ -45,8 +49,8 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   private final Supplier<SirixVectorizedExecutor> resolver;
 
   /**
-   * Resolves a resolver for an ARBITRARY source, so one chain can front every resource a query
-   * names. {@code null} for a single-resource binding, which then answers only for its own source.
+   * Resolves a resolver for an ARBITRARY source, so one chain can front every resource a query names.
+   * {@code null} for a single-resource binding, which then answers only for its own source.
    */
   private final Function<SourceRef, Supplier<SirixVectorizedExecutor>> perSourceResolver;
 
@@ -57,23 +61,26 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * Executor pinned for the evaluation currently running on this thread, together with the
    * {@link QueryContext} that evaluation belongs to.
    *
-   * <p>{@code RuntimeSourceGatedExpr} gates and then evaluates as two separate calls into this
-   * object, and each would otherwise re-ask for "the most recent revision". A commit landing between
-   * them let the gate verify the bound item against revision R — {@code servesWholeDocument}
-   * compares the item's revision to the executor's — while the scan then answered from a fresh
-   * executor pinned to R+1. Both revisions are legitimate snapshots; using two of them for one
-   * evaluation is not. The gate pins what it admitted, and the scan that follows serves from it.
+   * <p>
+   * {@code RuntimeSourceGatedExpr} gates and then evaluates as two separate calls into this object,
+   * and each would otherwise re-ask for "the most recent revision". A commit landing between them let
+   * the gate verify the bound item against revision R — {@code servesWholeDocument} compares the
+   * item's revision to the executor's — while the scan then answered from a fresh executor pinned to
+   * R+1. Both revisions are legitimate snapshots; using two of them for one evaluation is not. The
+   * gate pins what it admitted, and the scan that follows serves from it.
    *
-   * <p>The pin lasts for that pair and no longer, enforced twice over. The scan that consumes it
-   * releases it in a {@code finally}, so nothing survives a completed — or a failed — evaluation.
-   * And the context is part of the pin, so a pin that somehow outlived its evaluation still cannot
-   * answer for a LATER one: a different execution carries a different {@link QueryContext}, the
-   * identity check fails, and the executor is re-resolved. Without that, a query compiled once and
-   * executed repeatedly would answer from the revision of its first execution after a commit —
-   * precisely the staleness this whole class exists to remove.
+   * <p>
+   * The pin lasts for that pair and no longer, enforced twice over. The scan that consumes it
+   * releases it in a {@code finally}, so nothing survives a completed — or a failed — evaluation. And
+   * the context is part of the pin, so a pin that somehow outlived its evaluation still cannot answer
+   * for a LATER one: a different execution carries a different {@link QueryContext}, the identity
+   * check fails, and the executor is re-resolved. Without that, a query compiled once and executed
+   * repeatedly would answer from the revision of its first execution after a commit — precisely the
+   * staleness this whole class exists to remove.
    *
-   * <p>The holder is created once per thread and mutated in place: pinning happens per evaluation,
-   * not per record, but it must not put an allocation on a path that is otherwise allocation-free.
+   * <p>
+   * The holder is created once per thread and mutated in place: pinning happens per evaluation, not
+   * per record, but it must not put an allocation on a path that is otherwise allocation-free.
    */
   private final ThreadLocal<Pin> pinnedForEvaluation = ThreadLocal.withInitial(Pin::new);
 
@@ -95,7 +102,7 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
 
   /**
    * @param resolver resolves the revision-pinned executor; must not throw, and returns {@code null}
-   *                 when no executor is available
+   *        when no executor is available
    */
   public RevisionTrackingExecutor(final Supplier<SirixVectorizedExecutor> resolver) {
     this(resolver, null);
@@ -106,10 +113,10 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * for THAT document, so a query reading two documents gets the fast path on both rather than only
    * on whichever one it named first.
    *
-   * @param resolver          resolver for this instance's own binding — the query's first document,
-   *                          and what un-annotated scans fall back to
+   * @param resolver resolver for this instance's own binding — the query's first document, and what
+   *        un-annotated scans fall back to
    * @param perSourceResolver resolver factory per source; {@code null} disables multi-resource
-   *                          dispatch, and a {@code null} RESULT declines that one source
+   *        dispatch, and a {@code null} RESULT declines that one source
    */
   public RevisionTrackingExecutor(final Supplier<SirixVectorizedExecutor> resolver,
       final Function<SourceRef, Supplier<SirixVectorizedExecutor>> perSourceResolver) {
@@ -135,8 +142,8 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
 
   /**
    * The executor to serve a call that belongs to {@code ctx}. The pin is honoured only for the
-   * evaluation that created it; a pin left behind by an earlier execution is DROPPED here rather
-   * than served from, which is what makes a query re-executed after a commit see the new revision.
+   * evaluation that created it; a pin left behind by an earlier execution is DROPPED here rather than
+   * served from, which is what makes a query re-executed after a commit see the new revision.
    */
   private SirixVectorizedExecutor current(final QueryContext ctx) {
     final Pin pin = pinnedForEvaluation.get();
@@ -164,8 +171,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * {@code finally}: the gate and the scan it admitted are one evaluation, and the pin must not
    * outlive it — not on a normal return, and not on the exception that unwinds it.
    *
-   * <p>A pin belonging to a different context is left alone: it belongs to an evaluation further
-   * out on this thread's stack, which will release its own.
+   * <p>
+   * A pin belonging to a different context is left alone: it belongs to an evaluation further out on
+   * this thread's stack, which will release its own.
    */
   private void unpin(final QueryContext ctx) {
     final Pin pin = pinnedForEvaluation.get();
@@ -186,7 +194,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executeGroupByCount(ctx, sourcePath, groupField);
+      return exec == null
+          ? null
+          : exec.executeGroupByCount(ctx, sourcePath, groupField);
     } finally {
       unpin(ctx);
     }
@@ -198,8 +208,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executeGroupByCountMulti(ctx, sourcePath, groupFields, outNames, countName,
-                                                                 predicate);
+      return exec == null
+          ? null
+          : exec.executeGroupByCountMulti(ctx, sourcePath, groupFields, outNames, countName, predicate);
     } finally {
       unpin(ctx);
     }
@@ -210,7 +221,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       final String direction) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executeSortedScan(ctx, sourcePath, orderField, direction);
+      return exec == null
+          ? null
+          : exec.executeSortedScan(ctx, sourcePath, orderField, direction);
     } finally {
       unpin(ctx);
     }
@@ -221,7 +234,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       final String field) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executeAggregate(ctx, sourcePath, func, field);
+      return exec == null
+          ? null
+          : exec.executeAggregate(ctx, sourcePath, func, field);
     } finally {
       unpin(ctx);
     }
@@ -232,7 +247,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executeCountDistinct(ctx, sourcePath, field);
+      return exec == null
+          ? null
+          : exec.executeCountDistinct(ctx, sourcePath, field);
     } finally {
       unpin(ctx);
     }
@@ -243,7 +260,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       final PredicateNode predicate) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executePredicateCount(ctx, sourcePath, predicate);
+      return exec == null
+          ? null
+          : exec.executePredicateCount(ctx, sourcePath, predicate);
     } finally {
       unpin(ctx);
     }
@@ -254,7 +273,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       final PredicateNode predicate, final String groupField) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executePredicateGroupByCount(ctx, sourcePath, predicate, groupField);
+      return exec == null
+          ? null
+          : exec.executePredicateGroupByCount(ctx, sourcePath, predicate, groupField);
     } finally {
       unpin(ctx);
     }
@@ -265,7 +286,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
       final PredicateNode predicate, final String func, final String field) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
-      return exec == null ? null : exec.executePredicateAggregate(ctx, sourcePath, predicate, func, field);
+      return exec == null
+          ? null
+          : exec.executePredicateAggregate(ctx, sourcePath, predicate, func, field);
     } finally {
       unpin(ctx);
     }
@@ -288,9 +311,8 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   }
 
   @Override
-  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath,
-      final String func, final String leftField, final String op, final String rightField)
-      throws QueryException {
+  public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath, final String func,
+      final String leftField, final String op, final String rightField) throws QueryException {
     try {
       final SirixVectorizedExecutor exec = current(ctx);
       return exec == null
@@ -309,14 +331,15 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
 
   /**
    * On ADMISSION this deliberately does NOT release the pin: it is the question a gated scan asks
-   * immediately before the scan itself, and releasing here would send that scan back to the
-   * resolver — the split-revision defect this class exists to prevent.
+   * immediately before the scan itself, and releasing here would send that scan back to the resolver
+   * — the split-revision defect this class exists to prevent.
    *
-   * <p>On REFUSAL the pin is released, because nothing will follow it. The pipeline falls back to
-   * the generic plan and no {@code execute*} forwarder ever runs, so the {@code finally} that
-   * normally releases is never reached and the thread would keep a strong reference to the
-   * {@link QueryContext} and to an executor the store's LRU may already have closed — for as long
-   * as a pooled request thread happens to stay idle.
+   * <p>
+   * On REFUSAL the pin is released, because nothing will follow it. The pipeline falls back to the
+   * generic plan and no {@code execute*} forwarder ever runs, so the {@code finally} that normally
+   * releases is never reached and the thread would keep a strong reference to the
+   * {@link QueryContext} and to an executor the store's LRU may already have closed — for as long as
+   * a pooled request thread happens to stay idle.
    */
   @Override
   public boolean canExecute(final QueryContext ctx) {
@@ -350,9 +373,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
 
   /**
    * Admit a source this chain can reach, not merely the one it is bound to. With multi-resource
-   * dispatch the question is whether the store can open the named document at all — the executor
-   * that will actually serve it is picked in {@link #executorForSource(SourceRef)} and answers for
-   * its own resource, so identity is still checked, just against the right binding.
+   * dispatch the question is whether the store can open the named document at all — the executor that
+   * will actually serve it is picked in {@link #executorForSource(SourceRef)} and answers for its own
+   * resource, so identity is still checked, just against the right binding.
    */
   @Override
   public boolean acceptsSource(final SourceRef source) {
@@ -381,7 +404,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   /** The executor bound to {@code source}, or {@code null} when the store cannot reach it. */
   private SirixVectorizedExecutor resolveForSource(final SourceRef source) {
     final Supplier<SirixVectorizedExecutor> forSource = perSourceResolver.apply(source);
-    return forSource == null ? null : forSource.get();
+    return forSource == null
+        ? null
+        : forSource.get();
   }
 
   /**
@@ -389,8 +414,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * asks HERE for a {@link SourceRef.Kind#VARIABLE} source, so resolving only the query's first
    * document would leave multi-resource dispatch dead exactly where it is decided at run time.
    *
-   * <p>A VARIABLE names no document to dispatch on, so it falls to this instance — whose delegate
-   * still checks the bound item's resource and revision itself.
+   * <p>
+   * A VARIABLE names no document to dispatch on, so it falls to this instance — whose delegate still
+   * checks the bound item's resource and revision itself.
    */
   @Override
   public boolean acceptsSource(final SourceRef source, final QueryContext ctx) {
