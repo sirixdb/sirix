@@ -29,6 +29,7 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -217,7 +218,16 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public HOTTrieReader(StorageEngineReader storageEngineReader) {
     this.storageEngineReader = Objects.requireNonNull(storageEngineReader);
+    // Child-first-key memoization is sound ONLY on a read-only snapshot: everything below a
+    // committed PageReference is immutable (swizzle/evict cycles reload identical content), so
+    // a subtree's first key is a constant of the parent page object. A WRITE transaction can
+    // re-point a child reference's page without touching the parent node, which no
+    // parent-local invalidation can observe — so writer-backed readers never touch the cache.
+    this.firstKeyCacheEnabled = !(storageEngineReader instanceof StorageEngineWriter);
   }
+
+  /** See the constructor — memoized first-key probes are restricted to read-only snapshots. */
+  private final boolean firstKeyCacheEnabled;
 
   /**
    * Find value for exact key match. Returns null if not found - no Optional allocation!
@@ -436,6 +446,39 @@ public final class HOTTrieReader implements AutoCloseable {
       // non-exact match the answer is the same (no leaf entry equals searchKey).
       return new LowerBoundResult(candidateLeaf, insertionPoint);
     }
+
+    // Phase 2c: searchKey sorts past the candidate's LAST entry. Peek the lex-successor leaf
+    // via the phase-1 path stack: candidate.last < searchKey, so when successor.first >=
+    // searchKey, I8 + I12 (leaf ranges globally ordered and disjoint — writer-enforced and
+    // detector-verified on this branch) leave nothing between the two leaves and
+    // (successor, 0) IS the bound. One guarded leaf hop instead of the walk-up. When even the
+    // successor's first key is below searchKey, the PEXT landing was genuinely off-subtree
+    // lexically — the very case the post-hoc verify in lowerBound() has been rejecting into
+    // the lex re-descent — so go there directly (the peek consumed the path stack, and the
+    // lex descent rebuilds it from scratch anyway). Before this shortcut, EVERY absent-key
+    // seek that ran past its landing leaf paid the full re-descent: ~12-16 µs against ~0.7 µs
+    // for a present key on the 33K-key movies index. With the lex fallback explicitly
+    // disabled (hot.strict.phase7u.lexfallback.disable) the peek is skipped and the original
+    // phases 3-5 walk-up below runs on the untouched path stack, exactly as before.
+    if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+      final HOTLeafPage successor = advanceToNextLeaf();
+      if (successor != null && successor.getEntryCount() > 0) {
+        final int cmp = successor.compareKeyWithBound(0, searchKey);
+        if (cmp > 0 || (cmp == 0 && isLowerBound)) {
+          return new LowerBoundResult(successor, 0);
+        }
+        if (cmp == 0) {
+          // upper_bound and the successor's first entry EQUALS searchKey: step past it.
+          return advanceOneFrom(successor, 0);
+        }
+      }
+      // successor == null: searchKey is past every key reachable from the landing. An empty
+      // successor or one whose first key is still below searchKey: off-subtree landing. All
+      // three re-derive the answer from scratch via the lex descent (which also repopulates
+      // the path stack the peek consumed).
+      return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
+    }
+
     final byte[] candidateKey = candidateLeaf.getFirstKey();
     final int discBit = DiscriminativeBitComputer.computeDifferingBit(candidateKey, searchKey);
     if (discBit < 0) {
@@ -677,6 +720,12 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    */
   private byte[] getFirstKeyOfChild(HOTIndirectPage parent, int childIdx) {
+    if (firstKeyCacheEnabled) {
+      final byte[] cached = parent.cachedChildFirstKey(childIdx);
+      if (cached != null) {
+        return cached;
+      }
+    }
     PageReference ref = parent.getChildReference(childIdx);
     while (ref != null) {
       final Page page = loadPage(ref);
@@ -684,7 +733,11 @@ public final class HOTTrieReader implements AutoCloseable {
         return new byte[0];
       }
       if (page instanceof HOTLeafPage leaf) {
-        return leaf.getFirstKey();
+        final byte[] firstKey = leaf.getFirstKey();
+        if (firstKeyCacheEnabled && firstKey != null && firstKey.length > 0) {
+          parent.cacheChildFirstKey(childIdx, firstKey);
+        }
+        return firstKey;
       }
       if (!(page instanceof HOTIndirectPage indirect)) {
         return new byte[0];
@@ -711,6 +764,12 @@ public final class HOTTrieReader implements AutoCloseable {
    * @return the comparison result, or {@link #UNRESOLVABLE_SUBTREE} when the descent dead-ends
    */
   private int compareFirstKeyOfChildWithBound(HOTIndirectPage parent, int childIdx, byte[] bound) {
+    if (firstKeyCacheEnabled) {
+      final byte[] cached = parent.cachedChildFirstKey(childIdx);
+      if (cached != null) {
+        return Arrays.compareUnsigned(cached, bound);
+      }
+    }
     PageReference ref = parent.getChildReference(childIdx);
     int depth = 0;
     while (ref != null && depth++ < MAX_TREE_HEIGHT) {
@@ -719,9 +778,19 @@ public final class HOTTrieReader implements AutoCloseable {
         return UNRESOLVABLE_SUBTREE;
       }
       if (page instanceof HOTLeafPage leaf) {
-        return leaf.getEntryCount() == 0
-            ? UNRESOLVABLE_SUBTREE
-            : leaf.compareKeyWithBound(0, bound);
+        if (leaf.getEntryCount() == 0) {
+          return UNRESOLVABLE_SUBTREE;
+        }
+        if (firstKeyCacheEnabled) {
+          // Materialize once so every later probe of this slot is a plain array compare with
+          // zero page loads and zero guard churn — the dominant cost of absent-key seeks.
+          final byte[] firstKey = leaf.getFirstKey();
+          if (firstKey != null && firstKey.length > 0) {
+            parent.cacheChildFirstKey(childIdx, firstKey);
+            return Arrays.compareUnsigned(firstKey, bound);
+          }
+        }
+        return leaf.compareKeyWithBound(0, bound);
       }
       if (!(page instanceof HOTIndirectPage indirect)) {
         return UNRESOLVABLE_SUBTREE;
