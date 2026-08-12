@@ -936,7 +936,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       // a scoped rebuild. Amortized cheap: runs once per CONSOLIDATION_INTERVAL inserts, the same
       // O(subtree) cadence as the sweep it guards.
       if (SELFHEAL_STRUCTURAL) {
-        detectAndHeal(navResult.pathRefs()[0]);
+        lastDispatchHandler = "h:consolidate-sweep";
+        detectAndHeal(navResult.pathRefs()[0], keySlice);
       }
       if (localize && consBefore == null) {
         i8ProbeReport("consolidate", keySlice, consCntBefore);
@@ -1076,10 +1077,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     // I3/I4/I7/I8/I11. A mutation only malforms nodes it touched, so scoping the O(subtree)
     // walk to selfHealScope is sound and bounded (not a from-root scan).
     // (2) healStructuralViolationOnPath covers the ANCESTORS above the touched subtree: their
-    // blocks are unmodified (I5 preserved), but the touched subtree's firstKey may have
-    // shifted, so re-verify the cheap ordering invariants (I4/I7/I8) up the spine.
+    // blocks are unmodified (I5 preserved), but the touched subtree's key range may have
+    // shifted, so re-verify the cheap ordering invariants (I4/I7/I8/I12) up the spine.
     if (structurallyChanged && SELFHEAL_STRUCTURAL) {
-      detectAndHeal(selfHealScope);
+      detectAndHeal(selfHealScope, keySlice);
       healStructuralViolationOnPath(keySlice);
     }
   }
@@ -1120,7 +1121,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     selfHealScope = null;
     final boolean structurallyChanged = branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
     if (structurallyChanged && SELFHEAL_STRUCTURAL) {
-      detectAndHeal(selfHealScope);
+      detectAndHeal(selfHealScope, keySlice);
       healStructuralViolationOnPath(keySlice);
     }
     return true;
@@ -1135,7 +1136,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * invariants. {@code scope} is the just-spliced subtree root, so the detector cost is bounded by
    * the mutation's footprint, and the rebuild is Θ(n)-optimal (foundation Theorem 4).
    */
-  private void detectAndHeal(@Nullable PageReference scope) {
+  private void detectAndHeal(@Nullable PageReference scope, byte[] keySlice) {
     if (scope == null) {
       return;
     }
@@ -1153,6 +1154,15 @@ public abstract class AbstractHOTIndexWriter<K> {
       for (final HOTMalformedSubtreeDetector.MalformedSubtree m : malformed) {
         STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
         HEAL_TALLY.computeIfAbsent(m.invariant() + "|" + lastDispatchHandler, k -> new AtomicLong()).incrementAndGet();
+        if (Boolean.getBoolean("hot.diag.healDump")) {
+          final Page malformedPage = resolveHOTPageForTraversal(m.reference());
+          final int height = malformedPage instanceof HOTIndirectPage hi
+              ? hi.getHeight()
+              : 0;
+          System.err.println("[healdump] inv=" + m.invariant() + " handler=" + lastDispatchHandler + " round=" + round
+              + " height=" + height + " atScopeRoot=" + (m.reference() == scope) + " K="
+              + HexFormat.of().formatHex(keySlice) + " detail=" + m.detail());
+        }
         rebuildExistingSubtree(m.reference());
       }
     }
@@ -1356,13 +1366,15 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Cheap single-node structural check covering the three O(children)-class invariants that a
-   * combo-add / fold can break under multi-value leaves: I4 (smallest stored partial must be 0 —
-   * Binna's "first mask always zero"), I7 (stored partials strictly ascending), and I8 (children
-   * ordered by ascending subtree first-key). Returns {@code true} on the first violation. The
-   * expensive I5 constancy walk is intentionally excluded here (the post-dispatch
-   * {@link #detectAndHeal} runs the full detector incl. I5); these three are O(children) /
-   * O(children×height). Used as a pre-commit combo-add guard (the first-key-order complement to the
+   * Cheap single-node structural check covering the O(children)-class invariants that a combo-add /
+   * fold can break under multi-value leaves: I4 (smallest stored partial must be 0 — Binna's "first
+   * mask always zero"), I7 (stored partials strictly ascending), I8 (children ordered by ascending
+   * subtree first-key), and I12 (consecutive children's key RANGES must not interleave — first-key
+   * order alone misses a preceding sibling whose subtree spans past the next child's start, the shape
+   * every residual combo-fold heal turned out to be). Returns {@code true} on the first violation.
+   * The expensive I5 constancy walk is intentionally excluded here (the post-dispatch
+   * {@link #detectAndHeal} runs the full detector incl. I5); these are O(children) /
+   * O(children×height). Used as a pre-commit combo-add guard (the ordering complement to the
    * routing-only {@link #branchAddStrandsExisting}, discharging via the I8-clean canonical
    * {@link #rebuildSubtree}) and as the post-dispatch path probe
    * ({@link #healStructuralViolationOnPath}). Sufficient as a single-node scan because a fold leaves
@@ -1386,15 +1398,24 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     }
     byte[] previousFirstKey = null;
+    byte[] previousLastKey = null;
     for (int i = 0; i < n; i++) {
-      final byte[] firstKey = firstKeyOfSubtree(candidate.getChildReference(i));
+      final PageReference childRef = candidate.getChildReference(i);
+      final byte[] firstKey = firstKeyOfSubtree(childRef);
       if (firstKey == null) {
         continue;
       }
       if (previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
         return true; // I8: children not ordered by first-key
       }
+      if (previousLastKey != null && Arrays.compareUnsigned(previousLastKey, firstKey) >= 0) {
+        return true; // I12: the preceding sibling's range reaches into this child's
+      }
       previousFirstKey = firstKey;
+      final byte[] lastKey = lastKeyOfSubtree(childRef);
+      if (lastKey != null) {
+        previousLastKey = lastKey;
+      }
     }
     return false;
   }
@@ -2192,15 +2213,34 @@ public abstract class AbstractHOTIndexWriter<K> {
       // BiNode on beta and integrate at the leaf's depth. The leaf needs a fresh reference:
       // integrate's materialize cases re-point the leaf's own spine slot, and aliasing it would
       // make a page its own descendant (a cycle).
-      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, pathDepth, beta)) {
-        keyLeaf.close();
-        return false;
-      }
-      // Multi-entry-leaf stranding guard ([[hot-multientry-leaf-quirks]] #1): pairing puts the
-      // whole descended leaf on beta's (1-betaValue) side. If the leaf straddles beta (holds a
-      // key with beta==betaValue), that key would route to K's leaf without migrating -> dup.
-      // Fall back to the canonical rebuild instead of the lossy pairing.
-      if (navResult.leaf().isBitConstantAtAbsBit(beta) != (1 - betaValue)) {
+      //
+      // Canonical-cut guard. Binna's BiNode pairing at beta IS the R(S) recursion step only when
+      // beta is the MSDB of the union {leaf ∪ K} — single-TID leaves satisfy that by
+      // construction, but a multi-value leaf buckets keys across bits the trie never
+      // discriminated, so its internal spread can reach a bit MORE significant than beta (beta
+      // is computed against the leaf's discriminated prefix, not its content). Two disqualifying
+      // shapes, both discharged by splitting the leaf at the union's own MSDB (the strand
+      // discharge — the same R(S) cut, taken at the right bit):
+      // (a) the leaf straddles beta itself (holds a key with beta==betaValue) — pairing would
+      // re-route that key to K's leaf without migrating it (cross-leaf dup);
+      // (b) the leaf's spread crosses a bit above beta — bit-constancy at beta still holds, yet
+      // the union's true MSDB lies inside the leaf, so pairing puts K lex-inside the leaf's
+      // range (13 of the 19 residual detector heals attributed here as I8/I12 at the
+      // integrated node before this guard existed).
+      final HOTLeafPage pairLeaf = navResult.leaf();
+      final byte[] pairLeafFirst = pairLeaf.getFirstKey();
+      final byte[] pairLeafLast = pairLeaf.getEntryCount() > 0
+          ? pairLeaf.getKey(pairLeaf.getEntryCount() - 1)
+          : null;
+      final boolean canonicalCut = pairLeafFirst != null && pairLeafLast != null
+          && HOTBulkBuilder.msdb(Arrays.compareUnsigned(keySlice, pairLeafFirst) < 0
+              ? keySlice
+              : pairLeafFirst,
+              Arrays.compareUnsigned(keySlice, pairLeafLast) > 0
+                  ? keySlice
+                  : pairLeafLast) == beta
+          && pairLeaf.isBitConstantAtAbsBit(beta) == 1 - betaValue;
+      if (!canonicalCut) {
         keyLeaf.close();
         if (strandDischargeSplitIntegrate(navResult, keySlice, valueSlice)) {
           return true;
@@ -2209,6 +2249,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         leafScopedRebuild(navResult, keySlice, valueSlice); // strandable keys are the descended leaf's
         STRAND_LEAF_REBUILD.incrementAndGet();
         return true;
+      }
+      if (!canIntegrateBiNodeCleanly(pathNodes, childSlots, pathDepth, beta)) {
+        keyLeaf.close();
+        return false;
       }
       // Direction-1-dual pre-guard: the pair keeps the leaf's slot, so K becomes the slot's new
       // minimum (betaValue == 0) or maximum (betaValue == 1). Subset routing brought K here, but
@@ -2668,7 +2712,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final boolean SELFHEAL_STRUCTURAL = !Boolean.getBoolean("hot.selfheal.structural.disable");
   /**
    * Post-dispatch structural self-heals: a structural fold (combo-add / integrate / off-path-
-   * overflow) left a node on the insert path malformed (I4/I7/I8) and was discharged by a scoped
+   * overflow) left a node on the insert path malformed (I4/I7/I8/I12) and was discharged by a scoped
    * canonical rebuild. Distinct from {@link #BRANCH_I8_UNSAFE_REBUILD} (the pre-commit combo-add
    * guard) — this is the defense-in-depth backstop that covers the merge/integrate handlers too.
    */
@@ -2677,11 +2721,11 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Defense-in-depth backstop after a structural change: walk {@code keySlice}'s <em>current</em>
    * descent path from the root and, at the shallowest indirect that is structurally malformed
-   * (I4/I7/I8 — {@link #nodeStructurallyMalformed}), discharge by a canonical scoped rebuild of that
-   * node's subtree ({@link #rebuildExistingSubtree}). Rebuilding the shallowest violator subsumes any
-   * malformed descendant (Binna Lemma 3). A fold can only malform nodes on the inserted key's path,
-   * so this O(height × children) walk is necessary and sufficient — and far cheaper than a from-root
-   * scan or the corruption-prone whole-index rebuild (Stage 3c).
+   * (I4/I7/I8/I12 — {@link #nodeStructurallyMalformed}), discharge by a canonical scoped rebuild of
+   * that node's subtree ({@link #rebuildExistingSubtree}). Rebuilding the shallowest violator
+   * subsumes any malformed descendant (Binna Lemma 3). A fold can only malform nodes on the inserted
+   * key's path, so this O(height × children) walk is necessary and sufficient — and far cheaper than
+   * a from-root scan or the corruption-prone whole-index rebuild (Stage 3c).
    */
   private void healStructuralViolationOnPath(byte[] keySlice) {
     PageReference cur = rootReference;

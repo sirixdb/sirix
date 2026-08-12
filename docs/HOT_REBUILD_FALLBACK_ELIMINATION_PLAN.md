@@ -1,5 +1,42 @@
 # HOT rebuild-fallback elimination — design plan
 
+## Status snapshot (2026-08-12, Stage 6 — zero detector heals on the shred workload)
+
+Per-firing dumps (`-Dhot.diag.healDump=true`, threaded the inserted key K into
+`detectAndHeal`) classified all 19 residual Stage-5 heals; none were Class-1 after all —
+each was a producer whose *predicate* was too weak, and both predicates are now fixed:
+
+- **13 × `h:pair-leaf` — the clean-pairing predicate was wrong.** The pairing put the
+  whole descended leaf beside K under a BiNode on `beta` whenever the leaf was
+  bit-constant at `beta` on the opposite side. Necessary, not sufficient: Binna's BiNode
+  pairing is the R(S) recursion step only when `beta` is the MSDB of the union
+  `leaf ∪ {K}`. A multi-value leaf buckets keys across bits the trie never discriminated,
+  so its internal spread can cross a bit MORE significant than `beta` (which is computed
+  against the leaf's *discriminated prefix*, not its content) — bit-constancy at `beta`
+  still holds, yet the union's true MSDB lies inside the leaf and K lands lex-inside the
+  leaf's range (every dump: K beside a leaf whose `[first..last]` covers it, e.g.
+  `"Youth's Endearing Charm"` paired after a leaf spanning up to `"Zaza"`). **Fix: the
+  canonical-cut guard — pair only when `msdb(min(union), max(union)) == beta`; otherwise
+  discharge via `strandDischargeSplitIntegrate`, which cuts the union at its own MSDB —
+  the same R(S) cut, taken at the right bit.**
+- **5 × combo folds (`h:combo-site1`, `h:combo-site2-fold`) — the pre-commit guard
+  checked I8, not I12.** Every dump was an I12 interleave with first-key order intact: the
+  fresh combo child for K started *below the preceding sibling's subtree maximum* (e.g.
+  `"Fruits of Desire"` slotted after a subtree spanning up to `"Fun on Board a Fishing
+  Smack"`). **Fix: `nodeStructurallyMalformed` (the shared guard behind all five combo/fold
+  sites and the path probe) now also tracks the preceding sibling's subtree last-key and
+  flags range interleaves — the same merged I8+I12 loop the detector runs.**
+- **1 × `h:merge-integrate` — disappeared with the other 18.** It was seeded by an earlier
+  manufactured malformation, not an independent producer.
+
+Movies CAS listener shred, 36K inserts: **detector heals 19 → 0**, scoped rebuilds
+26 → 25, strand discharges 166 → 136 (the healed-over malformations had been seeding
+downstream strand firings), wall clock ~3.1–3.3 s (slightly better than Stage 5 — the
+guards cost less than the repairs they replace). Bulk build unchanged: 2.77 s, zero
+heals/rebuilds. The detector + heal machinery stays in as the safety net for workloads
+that still reach an unguarded shape, but on this workload every committed page is now
+well-formed on first write — no post-hoc repair at all.
+
 ## Status snapshot (2026-08-12, Stage 5 — the spine propagation was the mass producer)
 
 Attribution instrumentation (a per-`(invariant | handler)` tally at the `detectAndHeal`
@@ -37,10 +74,12 @@ pure insurance on this workload). The bulk-build path is untouched: 2.97 s → 2
 heals/rebuilds in both, as Binna's bottom-up construction promises. The residual 19 heals
 per 36K inserts are deterministic across runs and attribute to `h:pair-leaf` (9 I8 + 4
 I12), `h:combo-site1` (4 I12), `h:combo-site2-fold` (1 I12) and `h:merge-integrate`
-(1 I8) — I8/I12 boundary shapes out of the integrate cascade and combo folds, the Class-1
-territory of `HOT_PAPER_IMPOSSIBILITY.md` §8.4, detected and discharged by the bounded
-rebuild as designed. The impossibility analysis stands for *repairing* a firing
-configuration; what this stage removed was a producer that *manufactured* them.
+(1 I8) — I8/I12 boundary shapes out of the integrate cascade and combo folds, at the time
+presumed Class-1 territory of `HOT_PAPER_IMPOSSIBILITY.md` §8.4 and discharged by the
+bounded rebuild as designed. (Superseded by Stage 6: per-firing dumps showed none of the
+19 were genuinely Class-1 — all were weak-predicate producers, since fixed.) The
+impossibility analysis stands for *repairing* a firing configuration; what this stage
+removed was a producer that *manufactured* them.
 
 ## Status snapshot (2026-05-20, post Stages 3c + 3b LANDED `d61a92e6f`)
 
