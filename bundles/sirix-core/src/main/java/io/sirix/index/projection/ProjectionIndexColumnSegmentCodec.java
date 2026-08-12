@@ -823,47 +823,71 @@ public final class ProjectionIndexColumnSegmentCodec {
    * {@code putLong} calls. Measured 2-3x on the hydrate assemble phase, which dominates cold-open
    * cost.
    */
-  private static byte[] writeRawDirect(final int rowCount, final int columnCount, final byte[] kinds,
-      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys, final long[] columnMin,
-      final long[] columnMax, final long[][] numericCols, final long[][] booleanCols, final int[][] dictIdCols,
-      final byte[][][] dicts, final int[][] setCountCols, final int[][] setElemCols, final byte[] columnFlags,
-      final long[][] presence, final int presWords) {
-    // ---- exact size ----
+  /**
+   * The exact byte length {@link #writeRawDirect} will produce, computed before a single byte is
+   * written so the payload can be built into one right-sized array with no growth or copy.
+   */
+  private static int rawDirectByteSize(final int rowCount, final int columnCount, final byte[] kinds,
+      final byte[][][] dicts, final int[][] setElemCols, final int presWords) {
     int size = 8 + 16 + columnCount; // header
     if (rowCount > 0) {
       size += rowCount * 8; // record keys
       for (int c = 0; c < columnCount; c++) {
         size += 16; // min/max
-        switch (kinds[c]) {
+        size += switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
               ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-            size += rowCount * 8;
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> size += presWords * 8;
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
-            final byte[][] dict = dicts[c];
-            int dictSize = 0;
-            int dictBytes = 0;
-            while (dictSize < dict.length && dict[dictSize] != null) {
-              dictBytes += dict[dictSize].length;
-              dictSize++;
-            }
-            size += 4 + dictSize * 4 + dictBytes + rowCount * 4;
-          }
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
-            final byte[][] dict = dicts[c];
-            int dictSize = 0;
-            int dictBytes = 0;
-            while (dictSize < dict.length && dict[dictSize] != null) {
-              dictBytes += dict[dictSize].length;
-              dictSize++;
-            }
-            size += 4 + dictSize * 4 + dictBytes + rowCount * 4 + setElemCols[c].length * 4;
-          }
+            rowCount * 8;
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> presWords * 8;
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> dictionaryByteSize(dicts[c]) + rowCount * 4;
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET ->
+            dictionaryByteSize(dicts[c]) + rowCount * 4 + setElemCols[c].length * 4;
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
-        }
+        };
       }
     }
-    size += columnCount + columnCount * presWords * 8 + 9; // presence tail + footer
+    return size + columnCount + columnCount * presWords * 8 + 9; // presence tail + footer
+  }
+
+  /** Writes what {@link #dictionaryByteSize} measures: count, per-entry lengths, then the entries. */
+  private static void putDictionary(final ByteBuffer bb, final byte[][] dict) {
+    int dictSize = 0;
+    while (dictSize < dict.length && dict[dictSize] != null) {
+      dictSize++;
+    }
+    bb.putInt(dictSize);
+    for (int i = 0; i < dictSize; i++) {
+      bb.putInt(dict[i].length);
+    }
+    for (int i = 0; i < dictSize; i++) {
+      bb.put(dict[i], 0, dict[i].length);
+    }
+  }
+
+  /** Bulk int write through an {@link IntBuffer} view, advancing the backing buffer past it. */
+  private static void putIntsBulk(final ByteBuffer bb, final int[] values, final int count) {
+    final IntBuffer ib = bb.asIntBuffer();
+    ib.put(values, 0, count);
+    bb.position(bb.position() + count * 4);
+  }
+
+  /** Entry count, per-entry lengths, and the entries themselves. */
+  private static int dictionaryByteSize(final byte[][] dict) {
+    int dictSize = 0;
+    int dictBytes = 0;
+    while (dictSize < dict.length && dict[dictSize] != null) {
+      dictBytes += dict[dictSize].length;
+      dictSize++;
+    }
+    return 4 + dictSize * 4 + dictBytes;
+  }
+
+  private static byte[] writeRawDirect(final int rowCount, final int columnCount, final byte[] kinds,
+      final long firstRecordKey, final long lastRecordKey, final long[] recordKeys, final long[] columnMin,
+      final long[] columnMax, final long[][] numericCols, final long[][] booleanCols, final int[][] dictIdCols,
+      final byte[][][] dicts, final int[][] setCountCols, final int[][] setElemCols, final byte[] columnFlags,
+      final long[][] presence, final int presWords) {
+    final int size = rawDirectByteSize(rowCount, columnCount, kinds, dicts, setElemCols, presWords);
     final byte[] out = new byte[size];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     // ---- header ----
@@ -883,44 +907,14 @@ public final class ProjectionIndexColumnSegmentCodec {
             putLongsBulk(bb, numericCols[c], rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> putLongsBulk(bb, booleanCols[c], presWords);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
-            final byte[][] dict = dicts[c];
-            int dictSize = 0;
-            while (dictSize < dict.length && dict[dictSize] != null) {
-              dictSize++;
-            }
-            bb.putInt(dictSize);
-            for (int i = 0; i < dictSize; i++) {
-              bb.putInt(dict[i].length);
-            }
-            for (int i = 0; i < dictSize; i++) {
-              bb.put(dict[i], 0, dict[i].length);
-            }
-            final IntBuffer ib = bb.asIntBuffer();
-            ib.put(dictIdCols[c], 0, rowCount);
-            bb.position(bb.position() + rowCount * 4);
+            putDictionary(bb, dicts[c]);
+            putIntsBulk(bb, dictIdCols[c], rowCount);
           }
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
-            final byte[][] dict = dicts[c];
-            int dictSize = 0;
-            while (dictSize < dict.length && dict[dictSize] != null) {
-              dictSize++;
-            }
-            bb.putInt(dictSize);
-            for (int i = 0; i < dictSize; i++) {
-              bb.putInt(dict[i].length);
-            }
-            for (int i = 0; i < dictSize; i++) {
-              bb.put(dict[i], 0, dict[i].length);
-            }
+            putDictionary(bb, dicts[c]);
             // Same order the page's own serialize writes: counts, then the flat element run.
-            final int[] counts = setCountCols[c];
-            final int[] elems = setElemCols[c];
-            final IntBuffer cb = bb.asIntBuffer();
-            cb.put(counts, 0, rowCount);
-            bb.position(bb.position() + rowCount * 4);
-            final IntBuffer eb = bb.asIntBuffer();
-            eb.put(elems, 0, elems.length);
-            bb.position(bb.position() + elems.length * 4);
+            putIntsBulk(bb, setCountCols[c], rowCount);
+            putIntsBulk(bb, setElemCols[c], setElemCols[c].length);
           }
           default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
         }
