@@ -613,8 +613,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Cap on a permitted nodeKey for chunked-bitmap storage. The chunkIdx is stored as a 32-bit
-   * big-endian unsigned int trailer; with {@code chunkIdx = (int)(nodeKey >>> 16)} this gives a
-   * full 48-bit nodeKey range — well above any practical Sirix dataset.
+   * big-endian unsigned int trailer; with {@code chunkIdx = (int)(nodeKey >>> 16)} this gives a full
+   * 48-bit nodeKey range — well above any practical Sirix dataset.
    */
   static final long MAX_NODE_KEY = (1L << 48) - 1L;
 
@@ -622,8 +622,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Reject a node key the chunked-bitmap encoding cannot represent.
    *
    * @param nodeKey the node key to validate
-   * @throws IllegalArgumentException if {@code nodeKey} is negative or exceeds
-   *         {@link #MAX_NODE_KEY}
+   * @throws IllegalArgumentException if {@code nodeKey} is negative or exceeds {@link #MAX_NODE_KEY}
    */
   static void checkNodeKeyRange(final long nodeKey) {
     if (nodeKey < 0L) {
@@ -638,9 +637,11 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Whether the index tree currently holds no entry at all.
    *
-   * <p>True exactly for a freshly initialized index: its root reference resolves to the single
-   * empty leaf {@code createHOT*IndexTree} planted. An indirect root only exists once a leaf has
-   * split, so it always covers at least one entry.</p>
+   * <p>
+   * True exactly for a freshly initialized index: its root reference resolves to the single empty
+   * leaf {@code createHOT*IndexTree} planted. An indirect root only exists once a leaf has split, so
+   * it always covers at least one entry.
+   * </p>
    */
   public final boolean isEmptyTree() {
     if (rootReference == null) {
@@ -652,10 +653,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Replace the whole index tree with one bulk-built from {@code sortedEntries}.
    *
-   * <p>Splices exactly like the scoped {@link #rebuildExistingSubtree} does, but at the root and
-   * from externally supplied entries: {@link HOTBulkBuilder} output is invariant-clean by
-   * construction (foundation Theorem 1), so no self-heal is needed afterwards. Registering the
-   * fresh subtree also re-puts the root reference, which closes the empty leaf it displaces.</p>
+   * <p>
+   * Splices exactly like the scoped {@link #rebuildExistingSubtree} does, but at the root and from
+   * externally supplied entries: {@link HOTBulkBuilder} output is invariant-clean by construction
+   * (foundation Theorem 1), so no self-heal is needed afterwards. Registering the fresh subtree also
+   * re-puts the root reference, which closes the empty leaf it displaces.
+   * </p>
    *
    * @param sortedEntries entries sorted strictly ascending by unsigned key, with no duplicates
    * @throws IllegalStateException if the tree is not empty — the bulk build replaces rather than
@@ -670,8 +673,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new IllegalStateException(
           "Bulk load requires an empty " + indexType + " index tree (index " + indexNumber + ')');
     }
-    final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(sortedEntries,
-        storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
+    final HOTBulkBuilder.BuildResult built =
+        HOTBulkBuilder.build(sortedEntries, storageEngineWriter.getRevisionNumber(), indexType, pageKeyAllocator);
     rootReference.setPage(built.rootPage());
     registerFreshSubtree(rootReference);
   }
@@ -1130,10 +1133,21 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (scope == null) {
       return;
     }
-    final var malformed = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
-    for (final HOTMalformedSubtreeDetector.MalformedSubtree m : malformed) {
-      STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
-      rebuildExistingSubtree(m.reference());
+    // Iterate to a fixed point. The detector's I8/I12 checks read a child's extremes off its edge
+    // descents, which only report the truth once the child itself is clean — so a node judged in
+    // the same round as a malformed descendant may have passed on stale extremes. A discharge is a
+    // canonical rebuild (never itself malformed), so each round only ever surfaces nodes ABOVE the
+    // previous round's repairs: the loop terminates within the scope's height, and the common case
+    // — detect finds nothing — still runs exactly one pass, as before.
+    for (int round = 0; round <= MAX_PATH_DEPTH; round++) {
+      final var malformed = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
+      if (malformed.isEmpty()) {
+        return;
+      }
+      for (final HOTMalformedSubtreeDetector.MalformedSubtree m : malformed) {
+        STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+        rebuildExistingSubtree(m.reference());
+      }
     }
   }
 
