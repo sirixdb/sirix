@@ -29,6 +29,7 @@ package io.sirix.index.hot;
 
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.CASPage;
@@ -196,7 +197,28 @@ public abstract class AbstractHOTIndexReader<K> {
    *
    * @return the root page reference, or null if not found
    */
+  /**
+   * Root reference, memoized after the first resolution for read-only snapshots: the chain
+   * {@code RevisionRootPage -> index page -> child reference} is immutable for a committed revision,
+   * yet the profile showed every point lookup re-walking it (~16% of a hit). A writer-backed reader
+   * resolves fresh per call — an in-flight commit can replace the index page and its child
+   * references.
+   */
+  private @Nullable PageReference cachedRootReference;
+
   protected @Nullable PageReference getRootReference() {
+    PageReference root = cachedRootReference;
+    if (root != null) {
+      return root;
+    }
+    root = resolveRootReference();
+    if (root != null && !(storageEngineReader instanceof StorageEngineWriter)) {
+      cachedRootReference = root; // benign race: resolution is idempotent for a snapshot
+    }
+    return root;
+  }
+
+  private @Nullable PageReference resolveRootReference() {
     final RevisionRootPage rootPage = storageEngineReader.getActualRevisionRootPage();
     return switch (indexType) {
       case PATH -> {
