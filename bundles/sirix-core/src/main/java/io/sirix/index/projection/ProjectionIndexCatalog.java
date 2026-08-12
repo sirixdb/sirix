@@ -645,7 +645,9 @@ public final class ProjectionIndexCatalog {
         any = true;
       }
     }
-    return any ? bloomBlocks : null;
+    return any
+        ? bloomBlocks
+        : null;
   }
 
   /**

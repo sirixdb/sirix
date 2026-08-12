@@ -226,7 +226,9 @@ public final class PageRangeScanProbeMain {
     do {
       if (rtx.getNameKey() == yearNameKey) {
         final Number value = rtx.getNumberValue();
-        return value == null ? 0 : value.longValue();
+        return value == null
+            ? 0
+            : value.longValue();
       }
     } while (rtx.moveToRightSibling());
     return 0;

@@ -358,7 +358,9 @@ public final class HOTInvariantValidator {
       return null;
     }
     final Page child = loadPage(childRef);
-    return child == null ? null : subtreeKeyRange(child, depth + 1);
+    return child == null
+        ? null
+        : subtreeKeyRange(child, depth + 1);
   }
 
   private static String hex(final byte[] key) {
@@ -467,30 +469,7 @@ public final class HOTInvariantValidator {
       }
     }
 
-    // I4 — first-partial-zero (Binna's "first mask always zero" rule).
-    //
-    // Under sparse-path encoding the leftmost child by partial-key sort takes the LEFT side
-    // at every BiNode on its path → all on-path bits are 0 → its stored partial = 0. Binna's
-    // C++ reference (HOTSingleThreadedNode.hpp:179, 244, 267, 292, 320) emphasizes:
-    // "THIS IS IMPORTANT FOR THE TREE TO HAVE FAST LOOKUP AND MAINTAIN INTEGRITY!! THE FIRST
-    // MASK ALWAYS IS ZERO!!"
-    //
-    // We check the slot whose stored partial is the unsigned-minimum (= leftmost under partial
-    // sort) rather than slot 0 specifically — this is more permissive but exercises the same
-    // semantic property: the smallest stored partial must be zero.
-    if (partials != null && partials.length >= n && n > 0) {
-      int minPartial = partials[0];
-      for (int i = 1; i < n; i++) {
-        if (Integer.compareUnsigned(partials[i], minPartial) < 0)
-          minPartial = partials[i];
-      }
-      if (minPartial != 0) {
-        addViolation("I4-first-partial-zero",
-            "indirect " + indirect.getPageKey() + " smallest stored partial is 0x" + Integer.toHexString(minPartial)
-                + " (must be 0 under sparse-path encoding —" + " Binna's 'first mask always zero' rule)",
-            indirect);
-      }
-    }
+    validateFirstPartialZero(indirect, n, partials);
 
     // I7 — partial keys ascending across child slots (BE invariant: partial-key order ≡ lex on
     // disc bits ≡ child-slot order under sortChildrenByFirstKey when no high-order non-disc
@@ -507,13 +486,55 @@ public final class HOTInvariantValidator {
       }
     }
 
-    // I8 — children sorted by first-key.
-    // I8 is NOT merely cosmetic: HOTRangeCursor does in-order trie traversal with a parent
-    // stack (no sibling pointers, for CoW-compatibility) and advances by child INDEX, so a
-    // range scan is correct only when child-index order equals key order. In a well-formed
-    // HOT trie I7 (partials ascending) and I8 (children by firstKey) are equivalent — both
-    // express "child index order == lex order"; they diverge only when an indirect's mask
-    // misses a discriminating bit, which is itself the malformation worth catching.
+    validateChildrenSortedByFirstKey(indirect, n, partials);
+    validateSparsePathEncoding(indirect, n, partials);
+    validateLeafBetaConstancy(indirect, n, partials);
+  }
+
+  /**
+   * I4 — first-partial-zero (Binna's "first mask always zero" rule).
+   *
+   * <p>
+   * Under sparse-path encoding the leftmost child by partial-key sort takes the LEFT side at every
+   * BiNode on its path → all on-path bits are 0 → its stored partial = 0. Binna's C++ reference
+   * (HOTSingleThreadedNode.hpp:179, 244, 267, 292, 320) emphasizes: "THIS IS IMPORTANT FOR THE TREE
+   * TO HAVE FAST LOOKUP AND MAINTAIN INTEGRITY!! THE FIRST MASK ALWAYS IS ZERO!!"
+   *
+   * <p>
+   * Checked against the slot whose stored partial is the unsigned-minimum (= leftmost under partial
+   * sort) rather than slot 0 specifically — more permissive, same semantic property.
+   */
+  private void validateFirstPartialZero(final HOTIndirectPage indirect, final int n, final int @Nullable [] partials) {
+    if (partials == null || partials.length < n || n == 0) {
+      return;
+    }
+    int minPartial = partials[0];
+    for (int i = 1; i < n; i++) {
+      if (Integer.compareUnsigned(partials[i], minPartial) < 0) {
+        minPartial = partials[i];
+      }
+    }
+    if (minPartial != 0) {
+      addViolation("I4-first-partial-zero",
+          "indirect " + indirect.getPageKey() + " smallest stored partial is 0x" + Integer.toHexString(minPartial)
+              + " (must be 0 under sparse-path encoding —" + " Binna's 'first mask always zero' rule)",
+          indirect);
+    }
+  }
+
+  /**
+   * I8 — children sorted by first-key.
+   *
+   * <p>
+   * NOT merely cosmetic: HOTRangeCursor does in-order trie traversal with a parent stack (no sibling
+   * pointers, for CoW-compatibility) and advances by child INDEX, so a range scan is correct only
+   * when child-index order equals key order. In a well-formed HOT trie I7 (partials ascending) and I8
+   * (children by firstKey) are equivalent — both express "child index order == lex order"; they
+   * diverge only when an indirect's mask misses a discriminating bit, which is itself the
+   * malformation worth catching.
+   */
+  private void validateChildrenSortedByFirstKey(final HOTIndirectPage indirect, final int n,
+      final int @Nullable [] partials) {
     byte[] previousFirstKey = null;
     for (int i = 0; i < n; i++) {
       final PageReference childRef = indirect.getChildReference(i);
@@ -563,19 +584,26 @@ public final class HOTInvariantValidator {
       }
       previousFirstKey = firstKey;
     }
+  }
 
-    // I-Binna — sparse-path encoding (necessary condition).
-    //
-    // Per Binna's HOT thesis §4.2 and the reference {@code SparsePartialKeys.hpp}, the stored
-    // partial of child {@code c_i} has bit {@code j} (in the partial-key bit space)
-    // set IFF the corresponding disc bit's BiNode is on {@code c_i}'s path AND {@code c_i}'s
-    // path takes the right (=1) side at that BiNode. Bits OFF the path stay 0.
-    //
-    // A NECESSARY condition for sparse-path encoding: every bit set in the stored partial
-    // {@code p_i} must also be set in the dense PEXT extraction of {@code c_i}'s first key
-    // under the indirect's mask. Equivalently, {@code p_i & ~PEXT(firstKey, mask) == 0}.
-    // The reverse is NOT required — bits set in dense PEXT but not in {@code p_i} correspond
-    // to off-path positions, intentionally elided under sparse-path encoding.
+  /**
+   * I-Binna — sparse-path encoding (necessary condition).
+   *
+   * <p>
+   * Per Binna's HOT thesis §4.2 and the reference {@code SparsePartialKeys.hpp}, the stored partial
+   * of child {@code c_i} has bit {@code j} (in the partial-key bit space) set IFF the corresponding
+   * disc bit's BiNode is on {@code c_i}'s path AND {@code c_i}'s path takes the right (=1) side at
+   * that BiNode. Bits OFF the path stay 0.
+   *
+   * <p>
+   * A NECESSARY condition for sparse-path encoding: every bit set in the stored partial {@code p_i}
+   * must also be set in the dense PEXT extraction of {@code c_i}'s first key under the indirect's
+   * mask. Equivalently, {@code p_i & ~PEXT(firstKey, mask) == 0}. The reverse is NOT required — bits
+   * set in dense PEXT but not in {@code p_i} correspond to off-path positions, intentionally elided
+   * under sparse-path encoding.
+   */
+  private void validateSparsePathEncoding(final HOTIndirectPage indirect, final int n,
+      final int @Nullable [] partials) {
     if (partials != null && partials.length >= n) {
       for (int i = 0; i < n; i++) {
         final byte[] firstKey = firstKeyOfSubtree(indirect.getChildReference(i));
@@ -637,18 +665,21 @@ public final class HOTInvariantValidator {
         }
       }
     }
+  }
 
-    // I5-strict — leaf-level β-constancy for every ON-PATH bit (= every bit set in
-    // c.stored). For each child c at slot i:
-    // For every key K in c's subtree (= reachable from c via descend):
-    // dense_K = PEXT(K, indirect.mask).
-    // Require c.stored ⊆ dense_K (i.e., (c.stored & ~dense_K) == 0).
-    //
-    // The existing I-Binna-sparse-path check above is the same predicate but only
-    // tested against c.firstKey. I5-strict tests it against EVERY key in c's subtree,
-    // catching multi-entry-leaf β-mixing where firstKey is fine but interior keys
-    // violate the invariant. This is the missed-cases gap the campaign's fix attempts
-    // kept stumbling on.
+  /**
+   * I5-strict — leaf-level β-constancy for every ON-PATH bit (= every bit set in {@code c.stored}).
+   * For each child {@code c} at slot {@code i}, for every key {@code K} in {@code c}'s subtree (=
+   * reachable from {@code c} via descend): {@code dense_K = PEXT(K, indirect.mask)}, and
+   * {@code c.stored ⊆ dense_K} is required (i.e. {@code (c.stored & ~dense_K) == 0}).
+   *
+   * <p>
+   * {@link #validateSparsePathEncoding} is the same predicate tested only against {@code c.firstKey}.
+   * This one tests it against EVERY key in the subtree, catching multi-entry-leaf β-mixing where the
+   * first key is fine but interior keys violate the invariant — the missed-cases gap the campaign's
+   * fix attempts kept stumbling on.
+   */
+  private void validateLeafBetaConstancy(final HOTIndirectPage indirect, final int n, final int @Nullable [] partials) {
     if (partials != null && partials.length >= n) {
       for (int i = 0; i < n; i++) {
         final int sparsePK = partials[i];

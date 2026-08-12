@@ -242,8 +242,8 @@ public final class ProjectionIndexRowExtractor {
    * {@code recordKey}.
    */
   /**
-   * Clear every per-row slot. A field this row fails to resolve stays "missing" — presence bit
-   * clear — and serialises as the column's default on the leaf page.
+   * Clear every per-row slot. A field this row fails to resolve stays "missing" — presence bit clear
+   * — and serialises as the column's default on the leaf page.
    */
   private void resetRow() {
     for (int i = 0; i < columnKinds.length; i++) {
