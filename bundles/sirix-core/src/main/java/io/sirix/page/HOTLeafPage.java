@@ -553,8 +553,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Compute PEXT partial key from a byte array suffix (starting at given offset).
    */
-  private static int computePartialKeyFromArray(byte[] key, int suffixOffset, int bytePos, long bitMask) {
-    final long suffixWord = loadWordBEFromArray(key, suffixOffset + bytePos);
+  private static int computePartialKeyFromArray(byte[] key, int keyLen, int suffixOffset, int bytePos, long bitMask) {
+    final long suffixWord = loadWordBEFromArray(key, keyLen, suffixOffset + bytePos);
     return (int) Long.compress(suffixWord, bitMask);
   }
 
@@ -602,9 +602,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   /**
    * Load up to 8 bytes from a byte array in BE word layout.
    */
-  private static long loadWordBEFromArray(byte[] key, int pos) {
+  private static long loadWordBEFromArray(byte[] key, int keyLen, int pos) {
     long result = 0;
-    final int end = Math.min(pos + 8, key.length);
+    final int end = Math.min(pos + 8, keyLen);
     for (int i = pos; i < end; i++) {
       result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
     }
@@ -629,6 +629,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * @return index if found, or -(insertionPoint + 1) if not found
    */
   public int findEntry(byte[] key) {
+    return findEntry(key, key.length);
+  }
+
+  /**
+   * {@link #findEntry(byte[])} over the first {@code keyLen} bytes of {@code key} — the insert path
+   * serializes into an oversized reusable buffer, and this overload searches straight from it without
+   * the exact-length copy the array-only signature forced per insert.
+   */
+  public int findEntry(byte[] key, int keyLen) {
     Objects.requireNonNull(key);
 
     if (entryCount == 0) {
@@ -637,9 +646,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
 
     // --- Prefix check ---
     if (commonPrefixLen > 0) {
-      if (key.length < commonPrefixLen) {
+      if (keyLen < commonPrefixLen) {
         // Key shorter than prefix → compare to determine insertion point
-        return computeInsertionPointFromPrefix(key);
+        return computeInsertionPointFromPrefix(key, keyLen);
       }
       // Compare key prefix with commonPrefix
       for (int i = 0; i < commonPrefixLen; i++) {
@@ -659,11 +668,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     }
 
     if (pextValid) {
-      return pextSearch(key);
+      return pextSearch(key, keyLen);
     }
 
     // --- Binary search on suffixes ---
-    return binarySearchSuffix(key);
+    return binarySearchSuffix(key, keyLen);
   }
 
   /**
@@ -671,8 +680,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * insertion point is before all entries (return -1). If key &gt; prefix, insertion point is after
    * all entries (return -(entryCount+1)).
    */
-  private int computeInsertionPointFromPrefix(byte[] key) {
-    final int minLen = Math.min(key.length, commonPrefixLen);
+  private int computeInsertionPointFromPrefix(byte[] key, int keyLen) {
+    final int minLen = Math.min(keyLen, commonPrefixLen);
     for (int i = 0; i < minLen; i++) {
       final int cmp = (key[i] & 0xFF) - (commonPrefix[i] & 0xFF);
       if (cmp < 0)
@@ -688,8 +697,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * PEXT-accelerated search: compute partial key from suffix, SIMD equality search, verify candidates
    * with full suffix comparison.
    */
-  private int pextSearch(byte[] key) {
-    final int searchPK = computePartialKeyFromArray(key, commonPrefixLen, discBytePos, discBitMask);
+  private int pextSearch(byte[] key, int keyLen) {
+    final int searchPK = computePartialKeyFromArray(key, keyLen, commonPrefixLen, discBytePos, discBitMask);
 
     // SIMD equality search on dense partial keys
     int candidates;
@@ -704,14 +713,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     // Verify candidates with full suffix comparison
     while (candidates != 0) {
       final int idx = Integer.numberOfTrailingZeros(candidates);
-      if (suffixMatchesKey(idx, key)) {
+      if (suffixMatchesKey(idx, key, keyLen)) {
         return idx;
       }
       candidates &= candidates - 1; // clear lowest bit
     }
 
     // Not found — compute insertion point via binary search
-    return binarySearchSuffix(key);
+    return binarySearchSuffix(key, keyLen);
   }
 
   /**
@@ -795,10 +804,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * Zero-allocation: compares MemorySegment suffix directly with key bytes starting at
    * commonPrefixLen.
    */
-  private boolean suffixMatchesKey(int index, byte[] key) {
+  private boolean suffixMatchesKey(int index, byte[] key, int keyLen) {
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
-    final int keySuffixLen = key.length - commonPrefixLen;
+    final int keySuffixLen = keyLen - commonPrefixLen;
 
     if (suffixLen != keySuffixLen) {
       return false;
@@ -821,13 +830,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * @param key the full search key
    * @return index if found, or -(insertionPoint + 1) if not found
    */
-  private int binarySearchSuffix(byte[] key) {
+  private int binarySearchSuffix(byte[] key, int keyLen) {
     int low = 0;
     int high = entryCount;
 
     while (low < high) {
       final int mid = (low + high) >>> 1;
-      final int cmp = compareSuffixWithKey(mid, key);
+      final int cmp = compareSuffixWithKey(mid, key, keyLen);
       low = cmp < 0
           ? mid + 1
           : low;
@@ -849,12 +858,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * @param key the full search key
    * @return negative if stored suffix &lt; key suffix, positive if &gt;, zero if equal
    */
-  private int compareSuffixWithKey(int index, byte[] key) {
+  private int compareSuffixWithKey(int index, byte[] key, int keyLen) {
     final int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final long suffixStart = offset + 2;
     final int keySuffixStart = commonPrefixLen;
-    final int keySuffixLen = key.length - keySuffixStart;
+    final int keySuffixLen = keyLen - keySuffixStart;
     final int minLen = Math.min(suffixLen, keySuffixLen);
 
     // Fast path: compare 8 bytes at a time
@@ -1630,15 +1639,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * </p>
    */
   private void handlePrefixForInsert(byte[] key) {
+    handlePrefixForInsert(key, key.length);
+  }
+
+  private void handlePrefixForInsert(byte[] key, int keyLen) {
     if (entryCount == 0) {
       // First entry: set prefix to entire key
-      commonPrefix = key.clone();
-      commonPrefixLen = key.length;
+      commonPrefix = Arrays.copyOfRange(key, 0, keyLen);
+      commonPrefixLen = keyLen;
       return;
     }
 
     // Compute LCP of key with current prefix
-    final int lcp = longestCommonPrefix(commonPrefix, commonPrefixLen, key, key.length);
+    final int lcp = longestCommonPrefix(commonPrefix, commonPrefixLen, key, keyLen);
 
     if (lcp < commonPrefixLen) {
       // Prefix must shrink — extend all existing suffixes
@@ -1732,8 +1745,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    * @return true if successful
    */
   private boolean insertAtWithKey(int pos, byte[] key, byte[] value) {
+    return insertAtWithKey(pos, key, key.length, value);
+  }
+
+  private boolean insertAtWithKey(int pos, byte[] key, int keyLen, byte[] value) {
     // Extract suffix
-    final int suffixLen = key.length - commonPrefixLen;
+    final int suffixLen = keyLen - commonPrefixLen;
     return insertAtSuffix(pos, key, commonPrefixLen, suffixLen, value);
   }
 
@@ -2269,14 +2286,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     Objects.requireNonNull(key);
     Objects.requireNonNull(value);
 
-    // Search for existing key
-    final byte[] keySlice = keyLen == key.length
-        ? key
-        : Arrays.copyOf(key, keyLen);
-
-    // Handle prefix for the incoming key (may shrink prefix)
-    handlePrefixForInsert(keySlice);
-    return mergeWithNodeRefsImpl(keySlice, value, valueLen);
+    // Handle prefix for the incoming key (may shrink prefix). The whole merge chain is
+    // length-parameterized, so the oversized serialization buffer is searched and spliced from
+    // directly — no exact-length key copy per insert.
+    handlePrefixForInsert(key, keyLen);
+    return mergeWithNodeRefsImpl(key, keyLen, value, valueLen);
   }
 
   /**
@@ -2308,7 +2322,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       return -(offendingBit + 1);
     }
     handlePrefixForInsert(keySlice);
-    return mergeWithNodeRefsImpl(keySlice, value, valueLen)
+    return mergeWithNodeRefsImpl(keySlice, keySlice.length, value, valueLen)
         ? 1
         : 0;
   }
@@ -2340,9 +2354,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     return insertAtWithKey(-(index + 1), key, value);
   }
 
-  private boolean mergeWithNodeRefsImpl(byte[] keySlice, byte[] value, int valueLen) {
+  private boolean mergeWithNodeRefsImpl(byte[] keySlice, int keyLen, byte[] value, int valueLen) {
 
-    int index = findEntry(keySlice);
+    int index = findEntry(keySlice, keyLen);
 
     if (index >= 0) {
       // Key exists - merge NodeReferences.
@@ -2399,7 +2413,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
           : Arrays.copyOf(value, valueLen);
       final int insertPos = -(index + 1);
 
-      return insertAtWithKey(insertPos, keySlice, valueSlice);
+      return insertAtWithKey(insertPos, keySlice, keyLen, valueSlice);
     }
   }
 

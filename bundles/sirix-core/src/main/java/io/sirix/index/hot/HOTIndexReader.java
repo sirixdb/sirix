@@ -278,6 +278,28 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
+   * Iterate every logical entry with key {@code <= toKey}: a from-the-start cursor bounded above by
+   * {@code toKey}'s composite ceiling. The LESS / LESS_OR_EQUAL CAS scans use this so the cursor
+   * STOPS at the bound instead of scanning the whole index and filtering every entry behind it.
+   */
+  public Iterator<Map.Entry<K, NodeReferences>> iteratorTo(K toKey) {
+    requireNonNull(toKey);
+
+    byte[] keyBuf = getKeyBuffer();
+    final int required = maxSerializedKeyLength(toKey);
+    if (required > keyBuf.length) {
+      keyBuf = new byte[required];
+      setKeyBuffer(keyBuf);
+    }
+    final int toLen = serializeKey(toKey, keyBuf, 0);
+    final byte[] toComposite = new byte[toLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(keyBuf, 0, toComposite, 0, toLen);
+    HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
+
+    return new ChunkAggregatingIterator(new byte[0], toComposite, null);
+  }
+
+  /**
    * Iterator that walks a chunked composite-key range and groups consecutive same-prefix slots into
    * logical {@link Map.Entry}{@code <K, NodeReferences>} records.
    *

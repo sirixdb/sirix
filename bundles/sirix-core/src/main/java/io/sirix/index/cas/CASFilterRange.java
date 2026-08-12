@@ -9,6 +9,7 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Set;
 
@@ -56,9 +57,29 @@ public final class CASFilterRange implements Filter {
     this.incMax = incMax;
   }
 
+  /** The minimum value, or {@code null} for an unbounded lower end. */
+  public @Nullable Atomic getMin() {
+    return min;
+  }
+
+  /** The maximum value, or {@code null} for an unbounded upper end. */
+  public @Nullable Atomic getMax() {
+    return max;
+  }
+
+  /** Whether the minimum value itself is in range. */
+  public boolean isMinInclusive() {
+    return incMin;
+  }
+
+  /** Whether the maximum value itself is in range. */
+  public boolean isMaxInclusive() {
+    return incMax;
+  }
+
   /**
    * Get the set of path class records (PCRs) for filtering.
-   * 
+   *
    * @return set of PCRs from the path filter
    */
   public Set<Long> getPCRs() {

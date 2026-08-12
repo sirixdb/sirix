@@ -21,6 +21,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.Atomic;
 import io.sirix.index.path.summary.PathSummaryReader;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Comparator;
@@ -125,6 +126,60 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
+    // Bounded-cursor fast path: with exactly one PCR and both bounds present, the logical range
+    // is ONE contiguous composite-key range — CAS keys serialize PCR-major, so every composite
+    // between (min@pcr) and (max@pcr) carries that PCR and no per-entry PCR check is needed at
+    // all. The cursor seeks to the lower bound and stops at the upper bound, and thanks to the
+    // reader's lazy entry keys nothing in this loop deserializes a CASValue except the at-most-two
+    // boundary groups an exclusive bound must trim: the equal-to-min group can only be the FIRST
+    // emitted and the equal-to-max group only the LAST (logical keys are unique).
+    if (filter != null && filter.getPCRs().size() == 1 && filter.getMin() != null && filter.getMax() != null) {
+      final long pcr = filter.getPCRs().iterator().next();
+      final CASValue minValue = new CASValue(filter.getMin(), indexDef.getContentType(), pcr);
+      final CASValue maxValue = new CASValue(filter.getMax(), indexDef.getContentType(), pcr);
+      final boolean skipMin = !filter.isMinInclusive();
+      final boolean skipMax = !filter.isMaxInclusive();
+      final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIterator = reader.range(minValue, maxValue);
+
+      return new Iterator<>() {
+        private @Nullable NodeReferences next = null;
+        private boolean atFirst = true;
+
+        @Override
+        public boolean hasNext() {
+          if (next != null) {
+            return true;
+          }
+          while (rangeIterator.hasNext()) {
+            final Map.Entry<CASValue, NodeReferences> entry = rangeIterator.next();
+            final boolean atLast = !rangeIterator.hasNext();
+            if (atFirst) {
+              atFirst = false;
+              if (skipMin && entry.getKey().compareTo(minValue) == 0) {
+                continue;
+              }
+            }
+            if (skipMax && atLast && entry.getKey().compareTo(maxValue) == 0) {
+              continue;
+            }
+            next = entry.getValue();
+            return true;
+          }
+          return false;
+        }
+
+        @Override
+        public NodeReferences next() {
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          final NodeReferences result = next;
+          next = null;
+          return result;
+        }
+      };
+    }
+
     // Full scan with range filter applied
     final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
     final CASFilterRange rangeFilter = filter;
@@ -214,6 +269,17 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         return Collections.emptyIterator();
       }
 
+      // With at most one PCR possible in the index and exactly that one requested, per-entry PCR
+      // checks are redundant — every entry carries it. If the single available PCR is NOT the
+      // requested one, no entry can match at all. Only an empty pcrsAvailable (PCR resolution
+      // came back empty) keeps the per-entry check. Skipping the check matters because the
+      // reader's entries deserialize their key lazily: a scan that never asks for the key never
+      // decodes a CASValue.
+      if (pcrsAvailable.size() == 1 && !pcrsRequested.containsAll(pcrsAvailable)) {
+        return Collections.emptyIterator();
+      }
+      final boolean pcrCheckPerEntry = pcrsAvailable.isEmpty();
+
       // Range queries: use reader.iteratorFrom() for efficient starting position
       if (mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL) {
         // Start from the key and iterate forward
@@ -230,17 +296,61 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
             }
             while (rangeIter.hasNext()) {
               Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
-              CASValue key = entry.getKey();
 
-              // For GREATER mode, skip exact match
-              if (skipFirst && key.compareTo(value) == 0) {
+              // For GREATER mode, skip an exact match — only the FIRST emitted group can equal
+              // the probe (logical keys are unique and arrive in ascending order).
+              if (skipFirst) {
                 skipFirst = false;
+                if (entry.getKey().compareTo(value) == 0) {
+                  continue;
+                }
+              }
+
+              if (pcrCheckPerEntry && !pcrsRequested.contains(entry.getKey().getPathNodeKey())) {
                 continue;
               }
-              skipFirst = false;
 
-              // Check PCR
-              if (!pcrsRequested.isEmpty() && !pcrsRequested.contains(key.getPathNodeKey())) {
+              next = entry.getValue();
+              return true;
+            }
+            return false;
+          }
+
+          @Override
+          public NodeReferences next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            NodeReferences result = next;
+            next = null;
+            return result;
+          }
+        };
+      }
+
+      if (mode == SearchMode.LOWER || mode == SearchMode.LOWER_OR_EQUAL) {
+        // Bounded cursor: stops AT the probe's composite ceiling instead of scanning the whole
+        // index and filtering. Every emitted key is <= value by construction; only LOWER (strict)
+        // must reject the equal group, and only the LAST emitted group can be it.
+        final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = reader.iteratorTo(value);
+        final boolean strict = mode == SearchMode.LOWER;
+
+        return new Iterator<>() {
+          private NodeReferences next = null;
+
+          @Override
+          public boolean hasNext() {
+            if (next != null) {
+              return true;
+            }
+            while (rangeIter.hasNext()) {
+              Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
+
+              if (strict && !rangeIter.hasNext() && entry.getKey().compareTo(value) == 0) {
+                continue;
+              }
+
+              if (pcrCheckPerEntry && !pcrsRequested.contains(entry.getKey().getPathNodeKey())) {
                 continue;
               }
 
