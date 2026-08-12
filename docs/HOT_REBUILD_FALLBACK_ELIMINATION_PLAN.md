@@ -1,5 +1,47 @@
 # HOT rebuild-fallback elimination — design plan
 
+## Status snapshot (2026-08-12, Stage 5 — the spine propagation was the mass producer)
+
+Attribution instrumentation (a per-`(invariant | handler)` tally at the `detectAndHeal`
+discharge) on a 36K-insert CAS listener shred (movies corpus, `/[]/title`, variable-length
+string keys) overturned the working model of where malformations come from. The workload
+fired 1,354 detector heals + 1,622 strand discharges + 718 scoped rebuilds — three orders
+of magnitude above the rates §8.4a of `HOT_PAPER_IMPOSSIBILITY.md` reports for the
+fixed-width microbenches — and 91% of every heal attributed to ONE line:
+
+- **`propagateRebuildUpSpine` recomputed a slot's stored partial as
+  `densePK(new firstKey)`.** A stored partial is Binna's *sparse-path encoding* — the
+  slot's position in the block trie, with off-path bits zero by convention
+  (`HOT_FORMAL_FOUNDATION.md` §1). `densePK` stamps the first key's values at off-path
+  mask bits into it, so every subtree key differing from the first key at an off-path bit
+  fails I5's subset condition (1,151 heals), and a non-zero recompute at slot 0 breaks I4
+  (80 heals). The recompute also fired when the first key had NOT changed (any off-path
+  1-bit in it made `densePK ≠` the sparse encoding), so nearly every
+  `leafScopedRebuild` / `rebuildSubtree` splice corrupted its parent. **Fix: a stored
+  partial is a position, never a content fingerprint — the propagation keeps it verbatim.**
+  What a content change CAN break is sibling *order* (the Direction-1 shape): checked as an
+  edge-descent boundary comparison, discharging via the existing scoped rebuild.
+- **The tier-1 strand discharge (`leafScopedRebuild`) was self-seeding.** Splicing
+  `leaf ∪ {K}` into the leaf's slot routes correctly but leaves a leaf spanning a bit above
+  its cut point — a shape the strand guard re-fires on for every later key branching at
+  that bit. The discharge now splits the union at its own key-set MSDB and integrates the
+  BiNode at the leaf's depth (`strandDischargeSplitIntegrate` — the merge path's own
+  primitives, i.e. Binna's actual insert), leaving no straddled leaf behind. Strand
+  firings: 1,622 → 166, all discharged canonically (`STRAND_SPLIT_INTEGRATE`); the splice
+  fallback did not fire once.
+
+Net effect on the movies CAS shred: detector heals 1,354 → 19, scoped rebuilds 718 → 26,
+wall clock 16.2–17.1 s → **3.3–3.5 s** (~4.9×; idle-machine `git stash` A/B on identical
+conditions — the propagation's order-boundary fallback fired **0** times, so the check is
+pure insurance on this workload). The bulk-build path is untouched: 2.97 s → 2.77 s, zero
+heals/rebuilds in both, as Binna's bottom-up construction promises. The residual 19 heals
+per 36K inserts are deterministic across runs and attribute to `h:pair-leaf` (9 I8 + 4
+I12), `h:combo-site1` (4 I12), `h:combo-site2-fold` (1 I12) and `h:merge-integrate`
+(1 I8) — I8/I12 boundary shapes out of the integrate cascade and combo folds, the Class-1
+territory of `HOT_PAPER_IMPOSSIBILITY.md` §8.4, detected and discharged by the bounded
+rebuild as designed. The impossibility analysis stands for *repairing* a firing
+configuration; what this stage removed was a producer that *manufactured* them.
+
 ## Status snapshot (2026-05-20, post Stages 3c + 3b LANDED `d61a92e6f`)
 
 - **Stage 3c (A) — in-spine propagation LANDED.** `rebuildSubtree`'s height-escalation
