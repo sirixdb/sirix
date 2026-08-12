@@ -12,18 +12,22 @@ import static java.util.Objects.requireNonNull;
 /**
  * Order-preserving serializer for {@link ValidTimeKey}s.
  *
- * <p>The 17-byte encoding is {@code [store:1][signFlippedBE(forkNode):8][signFlippedBE(endpoint):8]}.
+ * <p>
+ * The 17-byte encoding is {@code [store:1][signFlippedBE(forkNode):8][signFlippedBE(endpoint):8]}.
  * The {@code store} discriminator leads so the two RI-tree stores (lower / upper) occupy disjoint,
  * contiguous key ranges in the single HOT sub-tree; the fork node leads the endpoint so a fixed
  * {@code (store, forkNode)} endpoint sub-range is one contiguous range scan. Both longs are
- * sign-flipped big-endian (XOR with the sign bit) so unsigned byte comparison matches signed numeric
- * order — the exact technique {@code CASKeySerializer} uses for the path-node-key prefix.</p>
+ * sign-flipped big-endian (XOR with the sign bit) so unsigned byte comparison matches signed
+ * numeric order — the exact technique {@code CASKeySerializer} uses for the path-node-key prefix.
+ * </p>
  *
- * <p>Stateless and thread-safe; all methods write into caller-provided buffers (zero allocation on
- * the hot path). The HOT chunked-bitmap layer appends a 4-byte {@code chunkIdx} trailer after this
+ * <p>
+ * Stateless and thread-safe; all methods write into caller-provided buffers (zero allocation on the
+ * hot path). The HOT chunked-bitmap layer appends a 4-byte {@code chunkIdx} trailer after this
  * prefix (see {@link HOTKeySerializer#serializeWithChunkIdx}); the trailing chunkIdx keeps all
  * chunks of one {@code (store, fork, endpoint)} key lex-clustered, so the endpoint range scan still
- * captures every chunk of every endpoint in range.</p>
+ * captures every chunk of every endpoint in range.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -38,8 +42,7 @@ public final class ValidTimeKeySerializer implements HOTKeySerializer<ValidTimeK
   /** Singleton instance (stateless, thread-safe). */
   public static final ValidTimeKeySerializer INSTANCE = new ValidTimeKeySerializer();
 
-  private ValidTimeKeySerializer() {
-  }
+  private ValidTimeKeySerializer() {}
 
   @Override
   public int serialize(final ValidTimeKey key, final byte[] dest, final int offset) {

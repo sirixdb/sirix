@@ -84,8 +84,8 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    */
-  private HOTLongIndexReader(StorageEngineReader storageEngineReader, HOTLongKeySerializer keySerializer, IndexType indexType,
-      int indexNumber) {
+  private HOTLongIndexReader(StorageEngineReader storageEngineReader, HOTLongKeySerializer keySerializer,
+      IndexType indexType, int indexNumber) {
     super(storageEngineReader, indexType, indexNumber);
     this.keySerializer = keySerializer;
   }
@@ -98,13 +98,14 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
    * @param indexNumber the index number
    * @return a new HOTLongIndexReader instance
    */
-  public static HOTLongIndexReader create(StorageEngineReader storageEngineReader, IndexType indexType, int indexNumber) {
+  public static HOTLongIndexReader create(StorageEngineReader storageEngineReader, IndexType indexType,
+      int indexNumber) {
     return new HOTLongIndexReader(storageEngineReader, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
-   * Reassemble all chunks of a primitive long key. See {@link HOTIndexReader#get} for the
-   * algorithm; this is the long-key mirror.
+   * Reassemble all chunks of a primitive long key. See {@link HOTIndexReader#get} for the algorithm;
+   * this is the long-key mirror.
    */
   public @Nullable NodeReferences get(long key, SearchMode mode) {
     final byte[] keyBuf = KEY_BUFFER.get();
@@ -168,17 +169,17 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   /**
-   * Check if any chunk exists for {@code key}. Cheaper than {@link #get} because we only need
-   * to find the first non-tombstone chunk slot, not reassemble the full bitmap.
+   * Check if any chunk exists for {@code key}. Cheaper than {@link #get} because we only need to find
+   * the first non-tombstone chunk slot, not reassemble the full bitmap.
    */
   public boolean containsKey(long key) {
     return get(key, SearchMode.EQUAL) != null;
   }
 
   /**
-   * Range iterator from {@code fromKey} (inclusive) with no upper bound. Used for PATH
-   * sub-tree scans (e.g., "all paths under prefix X" when path-keys are encoded so that
-   * sub-trees have contiguous long ranges).
+   * Range iterator from {@code fromKey} (inclusive) with no upper bound. Used for PATH sub-tree scans
+   * (e.g., "all paths under prefix X" when path-keys are encoded so that sub-trees have contiguous
+   * long ranges).
    */
   public Iterator<Map.Entry<Long, NodeReferences>> iteratorFrom(long fromKey) {
     final byte[] keyBuf = KEY_BUFFER.get();
@@ -215,8 +216,8 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   /**
-   * Iterator that walks chunked composite-key range and groups consecutive same-prefix slots
-   * into logical {@link Map.Entry}{@code <Long, NodeReferences>}. See
+   * Iterator that walks chunked composite-key range and groups consecutive same-prefix slots into
+   * logical {@link Map.Entry}{@code <Long, NodeReferences>}. See
    * {@code HOTIndexReader.ChunkAggregatingIterator} for the K=Object mirror.
    */
   private final class ChunkAggregatingLongIterator implements Iterator<Map.Entry<Long, NodeReferences>> {
@@ -283,8 +284,8 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
         }
         if (fromPrefixFilter != null) {
           final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
-              fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen, fromPrefixFilter, 0,
+              fromPrefixFilter.length) < 0) {
             cursor.advance();
             continue;
           }

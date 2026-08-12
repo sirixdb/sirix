@@ -78,7 +78,9 @@ public final class PathIndexBuilder {
     this.useHOT = true;
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into it,
     // so an index that already holds entries keeps the incremental path.
-    this.bulkLoader = hotWriter.isEmptyTree() ? hotWriter.createBulkLoader() : null;
+    this.bulkLoader = hotWriter.isEmptyTree()
+        ? hotWriter.createBulkLoader()
+        : null;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
@@ -98,9 +100,9 @@ public final class PathIndexBuilder {
   }
 
   /**
-   * Returns the {@link PathSummaryReader} backing this builder. Used by JSON-specific dispatch
-   * (e.g. fused {@code OBJECT_NAMED_ARRAY} which must index its host record at both the
-   * OBJECT_KEY layer and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
+   * Returns the {@link PathSummaryReader} backing this builder. Used by JSON-specific dispatch (e.g.
+   * fused {@code OBJECT_NAMED_ARRAY} which must index its host record at both the OBJECT_KEY layer
+   * and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
    */
   public PathSummaryReader getPathSummaryReader() {
     return pathSummaryReader;
@@ -120,10 +122,12 @@ public final class PathIndexBuilder {
    * Whether {@code pathNodeKey} is one of the path-class records this index covers. An empty path
    * configuration means "index every path".
    *
-   * <p>The resolved PCR set is computed once and reused: the builder runs a single traversal of an
+   * <p>
+   * The resolved PCR set is computed once and reused: the builder runs a single traversal of an
    * already-shredded revision, so the path summary cannot gain nodes underneath it, and
    * {@link PathSummaryReader#getPCRsForPaths(java.util.Collection)} allocates and fills a fresh
-   * {@code LongOpenHashSet} on every call — once per visited node, on the build hot path.</p>
+   * {@code LongOpenHashSet} on every call — once per visited node, on the build hot path.
+   * </p>
    */
   private boolean matchesIndexedPath(final long pathNodeKey) {
     if (paths.isEmpty()) {
@@ -140,10 +144,12 @@ public final class PathIndexBuilder {
   /**
    * Add {@code node} to {@code PCR}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
+   * <p>
+   * A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
    * reference needs neither a read-back of the stored references nor a re-insert of them. Doing so
    * made building an index quadratic in the number of nodes sharing a key — and for a PATH index
-   * every node under the indexed path shares one key, so that was the whole index.</p>
+   * every node under the indexed path shares one key, so that was the whole index.
+   * </p>
    */
   private void processHOT(final ImmutableNode node, final long PCR) throws SirixIOException {
     assert hotWriter != null;
@@ -155,9 +161,8 @@ public final class PathIndexBuilder {
   }
 
   /**
-   * Materialise everything the traversal collected. Must be called exactly once, after the
-   * document traversal that feeds {@link #process} has finished; a no-op unless this builder is
-   * bulk-loading.
+   * Materialise everything the traversal collected. Must be called exactly once, after the document
+   * traversal that feeds {@link #process} has finished; a no-op unless this builder is bulk-loading.
    */
   public void finish() {
     if (bulkLoader != null) {

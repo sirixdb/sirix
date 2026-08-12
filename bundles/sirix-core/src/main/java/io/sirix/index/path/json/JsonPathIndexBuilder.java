@@ -64,8 +64,7 @@ public final class JsonPathIndexBuilder extends AbstractJsonNodeVisitor implemen
     // to be populated. We index the fused record under BOTH layers so either path resolves.
     final long arrayLayerPathNodeKey = node.getPathNodeKey();
     pathIndexBuilder.process(node, arrayLayerPathNodeKey);
-    final var arrayPathNode =
-        pathIndexBuilder.getPathSummaryReader().getPathNodeForPathNodeKey(arrayLayerPathNodeKey);
+    final var arrayPathNode = pathIndexBuilder.getPathSummaryReader().getPathNodeForPathNodeKey(arrayLayerPathNodeKey);
     if (arrayPathNode != null) {
       final long objectKeyLayerPathNodeKey = arrayPathNode.getParentKey();
       if (objectKeyLayerPathNodeKey >= 0) {

@@ -68,11 +68,10 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexReader<K extends Comparable<? super K>> extends AbstractHOTIndexReader<K> {
 
   /**
-   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte
-   * header + {@code MAX_STRING_VALUE_BYTES = 246}) PLUS
-   * {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4) chunkIdx trailer; rounded to 512 for headroom.
-   * Mirrors {@link HOTIndexWriter#KEY_BUFFER}'s sizing to avoid 4-byte overflow on max-length
-   * string CAS values.
+   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
+   * {@code MAX_STRING_VALUE_BYTES = 246}) PLUS {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4)
+   * chunkIdx trailer; rounded to 512 for headroom. Mirrors {@link HOTIndexWriter#KEY_BUFFER}'s sizing
+   * to avoid 4-byte overflow on max-length string CAS values.
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
@@ -86,8 +85,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  private HOTIndexReader(StorageEngineReader storageEngineReader, HOTKeySerializer<K> keySerializer, IndexType indexType,
-      int indexNumber) {
+  private HOTIndexReader(StorageEngineReader storageEngineReader, HOTKeySerializer<K> keySerializer,
+      IndexType indexType, int indexNumber) {
     super(storageEngineReader, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
   }
@@ -110,15 +109,17 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   /**
    * Reassemble all chunks of {@code key} into one logical {@link NodeReferences}.
    *
-   * <p>Chunked-bitmap storage (Phase 1+2): the logical bitmap for {@code key} is split across
-   * multiple HOT slots, one per chunkIdx = {@code (int)(nodeKey >>> 16)}. This method
-   * range-scans {@code [(prefix, 0), (prefix, 0xFFFFFFFF)]} via Phase 0b's
-   * {@link HOTTrieReader#lowerBound} and merges every chunk's low-16-bit bitmap into a
-   * single 64-bit {@code Roaring64Bitmap}, expanding bit16 → {@code (chunkIdx << 16) | bit16}.</p>
+   * <p>
+   * Chunked-bitmap storage (Phase 1+2): the logical bitmap for {@code key} is split across multiple
+   * HOT slots, one per chunkIdx = {@code (int)(nodeKey >>> 16)}. This method range-scans
+   * {@code [(prefix, 0), (prefix, 0xFFFFFFFF)]} via Phase 0b's {@link HOTTrieReader#lowerBound} and
+   * merges every chunk's low-16-bit bitmap into a single 64-bit {@code Roaring64Bitmap}, expanding
+   * bit16 → {@code (chunkIdx << 16) | bit16}.
+   * </p>
    *
    * @param key the logical index key
    * @param mode reserved (only {@code EQUAL} is meaningful for {@code get}); range modes go via
-   *             {@link #range(Comparable, Comparable)} / {@link #iteratorFrom(Comparable)}
+   *        {@link #range(Comparable, Comparable)} / {@link #iteratorFrom(Comparable)}
    * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
    */
   public @Nullable NodeReferences get(K key, SearchMode mode) {
@@ -156,8 +157,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
     Roaring64Bitmap merged = collectViaCursor(rootRef, prefixBuf, prefixLen, fromBytes, toBytes);
 
-    if ((merged == null || merged.isEmpty())
-        && !Boolean.getBoolean("hot.cas.leftmostfallback.disable")) {
+    if ((merged == null || merged.isEmpty()) && !Boolean.getBoolean("hot.cas.leftmostfallback.disable")) {
       // Phase 7v retry: the PEXT-routed lowerBound may misroute under I6 violations
       // (writer-side structural bugs from byte-10 encoder discontinuity). Retry with a
       // full leaf-walk scan that's robust against non-lex-order leaves. Only fires when
@@ -171,8 +171,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return NodeReferences.owning(merged);
   }
 
-  private @Nullable Roaring64Bitmap collectViaCursor(PageReference rootRef, byte[] prefixBuf,
-      int prefixLen, byte[] fromBytes, byte[] toBytes) {
+  private @Nullable Roaring64Bitmap collectViaCursor(PageReference rootRef, byte[] prefixBuf, int prefixLen,
+      byte[] fromBytes, byte[] toBytes) {
     Roaring64Bitmap merged = null;
     try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
         HOTRangeCursor cursor = reader.range(rootRef, fromBytes, toBytes)) {
@@ -193,13 +193,12 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Phase 7v fallback: walk every leaf in the trie (left-to-right traversal order, NOT lex order
-   * — robust against I8 violations), filter each entry by exact prefix match. Used only when the
+   * Phase 7v fallback: walk every leaf in the trie (left-to-right traversal order, NOT lex order —
+   * robust against I8 violations), filter each entry by exact prefix match. Used only when the
    * primary PEXT-routed cursor returns 0 chunks for a key that is in fact stored. O(total trie
    * entries) per call; only triggered on miss.
    */
-  private @Nullable Roaring64Bitmap collectViaLeafWalk(PageReference rootRef, byte[] prefixBuf,
-      int prefixLen) {
+  private @Nullable Roaring64Bitmap collectViaLeafWalk(PageReference rootRef, byte[] prefixBuf, int prefixLen) {
     Roaring64Bitmap merged = null;
     try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader())) {
       HOTLeafPage leaf = reader.navigateToLeftmostLeaf(rootRef);
@@ -219,8 +218,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     return merged;
   }
 
-  private @Nullable Roaring64Bitmap mergeChunk(@Nullable Roaring64Bitmap merged, HOTLeafPage leaf,
-      int idx, byte[] composite) {
+  private @Nullable Roaring64Bitmap mergeChunk(@Nullable Roaring64Bitmap merged, HOTLeafPage leaf, int idx,
+      byte[] composite) {
     final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
     final byte[] chunkBytes = leaf.getValue(idx);
     if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
@@ -245,14 +244,16 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   /**
    * Create a range iterator over logical entries with keys in {@code [fromKey, toKey]}.
    *
-   * <p>Composite-key range scan with chunk grouping. Walks composite keys
+   * <p>
+   * Composite-key range scan with chunk grouping. Walks composite keys
    * {@code [(fromKey, 0), (toKey, 0xFFFFFFFF)]} and groups consecutive same-prefix slots into one
-   * logical {@link Map.Entry}{@code <K, NodeReferences>} — chunks of one prefix lex-cluster
-   * because composite keys share prefix bytes and the chunkIdx_be4 trailer determines order
-   * within that range.</p>
+   * logical {@link Map.Entry}{@code <K, NodeReferences>} — chunks of one prefix lex-cluster because
+   * composite keys share prefix bytes and the chunkIdx_be4 trailer determines order within that
+   * range.
+   * </p>
    *
    * @param fromKey start key (inclusive)
-   * @param toKey   end key (inclusive)
+   * @param toKey end key (inclusive)
    */
   public Iterator<Map.Entry<K, NodeReferences>> range(K fromKey, K toKey) {
     requireNonNull(fromKey);
@@ -276,14 +277,14 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Create an iterator that starts from {@code fromKey} (inclusive) with no upper bound. Used
-   * for {@code GREATER} / {@code GREATER_OR_EQUAL} CAS queries.
+   * Create an iterator that starts from {@code fromKey} (inclusive) with no upper bound. Used for
+   * {@code GREATER} / {@code GREATER_OR_EQUAL} CAS queries.
    */
   /**
-   * Iterate every logical entry in the index. Overrides the abstract base's per-slot iterator —
-   * with chunked-bitmap storage, "all entries" means one logical {@link Map.Entry} per prefix,
-   * not per chunk slot. Implemented by walking the entire composite-key range with no bounds
-   * and grouping consecutive same-prefix slots.
+   * Iterate every logical entry in the index. Overrides the abstract base's per-slot iterator — with
+   * chunked-bitmap storage, "all entries" means one logical {@link Map.Entry} per prefix, not per
+   * chunk slot. Implemented by walking the entire composite-key range with no bounds and grouping
+   * consecutive same-prefix slots.
    */
   @Override
   public Iterator<Map.Entry<K, NodeReferences>> iterator() {
@@ -305,42 +306,47 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * Iterator that walks a chunked composite-key range and groups consecutive same-prefix slots
-   * into logical {@link Map.Entry}{@code <K, NodeReferences>} records.
+   * Iterator that walks a chunked composite-key range and groups consecutive same-prefix slots into
+   * logical {@link Map.Entry}{@code <K, NodeReferences>} records.
    *
-   * <p>Per group: deserialize each chunk's bitmap, expand bit16 → {@code chunkIdx<<16|bit16},
-   * accumulate into a fresh {@link Roaring64Bitmap}, then emit. Crosses to the next group when
-   * the composite key's prefix bytes change.</p>
+   * <p>
+   * Per group: deserialize each chunk's bitmap, expand bit16 → {@code chunkIdx<<16|bit16}, accumulate
+   * into a fresh {@link Roaring64Bitmap}, then emit. Crosses to the next group when the composite
+   * key's prefix bytes change.
+   * </p>
    */
   private final class ChunkAggregatingIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private final @Nullable HOTTrieReader trieReader;
     private final @Nullable HOTRangeCursor cursor;
     /**
-     * Lex-prefix lower bound. Groups whose prefix is lex-less than {@code fromPrefixFilter} are
-     * skipped during {@link #advance()}. Required because HOT sibling subtrees can have
-     * overlapping lex ranges, so a path-stack forward walk is not strictly lex-monotonic across
-     * the whole trie even after the BE partial-key encoding refactor.
+     * Lex-prefix lower bound. Groups whose prefix is lex-less than {@code fromPrefixFilter} are skipped
+     * during {@link #advance()}. Required because HOT sibling subtrees can have overlapping lex ranges,
+     * so a path-stack forward walk is not strictly lex-monotonic across the whole trie even after the
+     * BE partial-key encoding refactor.
      *
-     * <p>The overlap arises whenever a high-order key bit varies at the parent level <em>and</em>
-     * varies within some sibling subtree: HOT can only capture a bit as a parent disc bit when
-     * it is constant in every sibling's subtree (see {@code HOTTrieWriter#computeDiscBits},
-     * {@link HOTTrieWriter#bitConstantValueInSubtree}). Bits that fail that test must live at a
-     * deeper level, which means two sibling subtrees can share <em>some</em> lex prefixes while
-     * differing on lower bits. Forward sweep therefore can emit a leaf in subtree i whose key is
-     * lex-less than {@code fromKey} after the PEXT-routed seek already positioned us beyond it.
+     * <p>
+     * The overlap arises whenever a high-order key bit varies at the parent level <em>and</em> varies
+     * within some sibling subtree: HOT can only capture a bit as a parent disc bit when it is constant
+     * in every sibling's subtree (see {@code HOTTrieWriter#computeDiscBits},
+     * {@link HOTTrieWriter#bitConstantValueInSubtree}). Bits that fail that test must live at a deeper
+     * level, which means two sibling subtrees can share <em>some</em> lex prefixes while differing on
+     * lower bits. Forward sweep therefore can emit a leaf in subtree i whose key is lex-less than
+     * {@code fromKey} after the PEXT-routed seek already positioned us beyond it.
      *
-     * <p>The filter is a per-entry forward-only prefix compare — it never seeks backwards and
-     * never falls back to a full scan. The cursor still skips the bulk of the trie via the
-     * lower-bound seek; this only suppresses the small interleaving residue at the head of the
-     * sweep so {@code GREATER}/{@code GREATER_OR_EQUAL} CAS semantics are exact.
+     * <p>
+     * The filter is a per-entry forward-only prefix compare — it never seeks backwards and never falls
+     * back to a full scan. The cursor still skips the bulk of the trie via the lower-bound seek; this
+     * only suppresses the small interleaving residue at the head of the sweep so
+     * {@code GREATER}/{@code GREATER_OR_EQUAL} CAS semantics are exact.
      *
-     * <p>{@code null} disables filtering — used by full-trie iteration ({@link #iterator()}).</p>
+     * <p>
+     * {@code null} disables filtering — used by full-trie iteration ({@link #iterator()}).
+     * </p>
      */
     private final byte @Nullable [] fromPrefixFilter;
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
 
-    ChunkAggregatingIterator(byte[] fromComposite, byte @Nullable [] toComposite,
-        byte @Nullable [] fromPrefixFilter) {
+    ChunkAggregatingIterator(byte[] fromComposite, byte @Nullable [] toComposite, byte @Nullable [] fromPrefixFilter) {
       this.fromPrefixFilter = fromPrefixFilter;
       final PageReference rootRef = getRootReference();
       if (rootRef == null) {
@@ -396,8 +402,8 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
           }
           if (fromPrefixFilter != null) {
             final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-            if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
-                fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+            if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen, fromPrefixFilter, 0,
+                fromPrefixFilter.length) < 0) {
               cursor.advance();
               continue;
             }

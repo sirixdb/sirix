@@ -16,46 +16,60 @@ import static java.util.Objects.requireNonNull;
 /**
  * Accumulating bulk loader for a HOT secondary index that is being built from scratch.
  *
- * <p>Building an index over an already-shredded revision is a bulk load, not a sequence of
- * updates: every {@code (key, nodeKey)} pair is known before the first byte is written. Feeding
- * them through the incremental-insert path one at a time makes the trie pay that path's machinery
- * — a descent, a merge-vs-branch decision and, whenever a fold leaves a node malformed, a scoped
+ * <p>
+ * Building an index over an already-shredded revision is a bulk load, not a sequence of updates:
+ * every {@code (key, nodeKey)} pair is known before the first byte is written. Feeding them through
+ * the incremental-insert path one at a time makes the trie pay that path's machinery — a descent, a
+ * merge-vs-branch decision and, whenever a fold leaves a node malformed, a scoped
  * {@link HOTBulkBuilder} rebuild of the touched subtree — per entry. The rebuilds are what hurt:
  * each is {@code O(subtree)}, and a build of n entries triggers them in proportion to n, so index
- * construction grows super-linearly.</p>
+ * construction grows super-linearly.
+ * </p>
  *
- * <p>This loader instead collects the pairs, sorts them once, folds the node keys that share a
- * chunk slot into one payload, and hands the result to {@link HOTBulkBuilder#build} — a single
+ * <p>
+ * This loader instead collects the pairs, sorts them once, folds the node keys that share a chunk
+ * slot into one payload, and hands the result to {@link HOTBulkBuilder#build} — a single
  * {@code Θ(n)} construction whose output is invariant-clean by construction, so no self-heal ever
- * runs. The tree it produces is the tree the incremental path converges to.</p>
+ * runs. The tree it produces is the tree the incremental path converges to.
+ * </p>
  *
  * <h2>Layout</h2>
- * <p>Composite keys live in a chain of fixed-size byte blocks, addressed by a packed
+ * <p>
+ * Composite keys live in a chain of fixed-size byte blocks, addressed by a packed
  * {@code (block, offset)} {@code long} plus a length; node keys live in a parallel {@code long[]}.
  * Neither a {@code byte[]} per key (a 16-byte header and a separate allocation per indexed node)
  * nor one growable arena (whose doubling copies a hundreds-of-megabytes array, needs twice that
  * live at the moment of growth, and cannot address past {@code Integer.MAX_VALUE} at all). Sorting
- * permutes an {@code int[]} of entry ids, never the payload.</p>
+ * permutes an {@code int[]} of entry ids, never the payload.
+ * </p>
  *
  * <h2>Allocation</h2>
- * <p>{@link #reserveKeySpace}/{@link #commitKey} allocate nothing per entry — only a fresh block
- * every {@value #BLOCK_BYTES} bytes and an amortized index-array growth. {@link #flush()} then
- * allocates exactly what {@link HOTBulkBuilder}'s input contract requires: one key array, one
- * payload array and one {@link HOTBulkBuilder.Entry} per <em>distinct</em> chunk slot, in an
- * exactly pre-sized list. The per-slot node-key run is gathered into a reusable buffer and
- * serialized straight from it, so no bitmap is built below the packed threshold.</p>
+ * <p>
+ * {@link #reserveKeySpace}/{@link #commitKey} allocate nothing per entry — only a fresh block every
+ * {@value #BLOCK_BYTES} bytes and an amortized index-array growth. {@link #flush()} then allocates
+ * exactly what {@link HOTBulkBuilder}'s input contract requires: one key array, one payload array
+ * and one {@link HOTBulkBuilder.Entry} per <em>distinct</em> chunk slot, in an exactly pre-sized
+ * list. The per-slot node-key run is gathered into a reusable buffer and serialized straight from
+ * it, so no bitmap is built below the packed threshold.
+ * </p>
  *
  * <h2>Memory</h2>
- * <p>A bulk load is not streaming: the whole entry set is resident until {@link #flush()} hands it
- * to the builder, which is the price of a single-pass canonical construction. That comes to
- * roughly {@code n × (key bytes + 20)}. The buffers are dropped as soon as the tree is spliced.</p>
+ * <p>
+ * A bulk load is not streaming: the whole entry set is resident until {@link #flush()} hands it to
+ * the builder, which is the price of a single-pass canonical construction. That comes to roughly
+ * {@code n × (key bytes + 20)}. The buffers are dropped as soon as the tree is spliced.
+ * </p>
  *
  * <h2>Threading</h2>
- * <p>Not thread-safe; a loader belongs to the single traversal that feeds it.</p>
+ * <p>
+ * Not thread-safe; a loader belongs to the single traversal that feeds it.
+ * </p>
  *
- * <p>Subclasses supply the key encoding only — {@link HOTBulkIndexLoader} for object keys
- * (CAS, NAME), {@link HOTLongBulkIndexLoader} for the PATH index's primitive long keys, which
- * would otherwise box once per indexed node.</p>
+ * <p>
+ * Subclasses supply the key encoding only — {@link HOTBulkIndexLoader} for object keys (CAS, NAME),
+ * {@link HOTLongBulkIndexLoader} for the PATH index's primitive long keys, which would otherwise
+ * box once per indexed node.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -77,8 +91,8 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   private final AbstractHOTIndexWriter<?> writer;
 
   /**
-   * Key blocks; a key never straddles two of them. A plain array rather than a {@code List}
-   * because {@link #compareKeys} runs in the sort's inner loop.
+   * Key blocks; a key never straddles two of them. A plain array rather than a {@code List} because
+   * {@link #compareKeys} runs in the sort's inner loop.
    */
   private byte[][] blocks = new byte[8][];
 
@@ -122,8 +136,8 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
    * Make room for one more composite key and hand back the block to serialize into. The write must
    * start at {@link #blockOffset()} and be committed with {@link #commitKey(int, long)}.
    *
-   * @param nodeKey the node key the key being written belongs to; validated here so a subclass
-   *        never serializes a key it would have to roll back
+   * @param nodeKey the node key the key being written belongs to; validated here so a subclass never
+   *        serializes a key it would have to roll back
    * @param maxKeyBytes the caller's own upper bound on what it is about to write. Taken BEFORE the
    *        write, because the length a serializer <em>returns</em> arrives too late — by then a key
    *        larger than the room available has already been written past it
@@ -171,9 +185,11 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   /**
    * Record the key just written at {@link #blockOffset()} as belonging to {@code nodeKey}.
    *
-   * <p>Checked, not asserted: {@link #reserveKeySpace} guarantees only what the caller asked for,
-   * so a serializer that under-reported its own bound has written into whatever followed the
-   * reservation and must not be allowed to look like it succeeded.</p>
+   * <p>
+   * Checked, not asserted: {@link #reserveKeySpace} guarantees only what the caller asked for, so a
+   * serializer that under-reported its own bound has written into whatever followed the reservation
+   * and must not be allowed to look like it succeeded.
+   * </p>
    *
    * @param length bytes the subclass wrote
    * @param nodeKey the node key the written composite key belongs to
@@ -181,8 +197,8 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
    */
   final void commitKey(final int length, final long nodeKey) {
     if (length <= 0 || length > reservedKeyBytes) {
-      throw new IllegalStateException("Composite index key of " + length
-          + " bytes overran the " + reservedKeyBytes + " bytes its serializer reserved");
+      throw new IllegalStateException("Composite index key of " + length + " bytes overran the " + reservedKeyBytes
+          + " bytes its serializer reserved");
     }
     keyPos[count] = ((long) currentBlockIndex << BLOCK_SHIFT) | currentBlockOffset;
     keyLength[count] = length;
@@ -199,8 +215,10 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
   /**
    * Build the trie from everything accumulated and splice it in as the index's root.
    *
-   * <p>A no-op when nothing was accumulated — the empty tree the index was initialized with stays
-   * in place. After this call the loader is spent.</p>
+   * <p>
+   * A no-op when nothing was accumulated — the empty tree the index was initialized with stays in
+   * place. After this call the loader is spent.
+   * </p>
    */
   public final void flush() {
     if (flushed) {
@@ -223,7 +241,9 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
     // runs small inputs sequentially anyway.
     final IntComparator byKeyThenNodeKey = (a, b) -> {
       final int cmp = compareKeys(a, b);
-      return cmp != 0 ? cmp : Long.compare(nodeKeys[a], nodeKeys[b]);
+      return cmp != 0
+          ? cmp
+          : Long.compare(nodeKeys[a], nodeKeys[b]);
     };
     IntArrays.parallelQuickSort(order, byKeyThenNodeKey);
 
@@ -269,17 +289,19 @@ abstract sealed class AbstractHOTBulkIndexLoader permits HOTBulkIndexLoader, HOT
 
   /**
    * Fold {@code order[from..to)} — all entries sharing one composite key — into a single
-   * {@link HOTBulkBuilder.Entry}. A chunk slot stores the low 16 bits of each node key; the high
-   * bits are already carried by the key's chunkIdx trailer.
+   * {@link HOTBulkBuilder.Entry}. A chunk slot stores the low 16 bits of each node key; the high bits
+   * are already carried by the key's chunkIdx trailer.
    *
-   * <p>The run is ascending by node key and may repeat one (a visitor is free to offer the same
-   * node under the same key twice — {@code JsonPathIndexBuilder} does for a fused named array),
-   * so equal neighbours collapse as the run is gathered. That also satisfies
-   * {@link HOTBulkBuilder}'s distinct-key precondition, since a repeated pair would otherwise
-   * become a second entry with an identical key.</p>
+   * <p>
+   * The run is ascending by node key and may repeat one (a visitor is free to offer the same node
+   * under the same key twice — {@code JsonPathIndexBuilder} does for a fused named array), so equal
+   * neighbours collapse as the run is gathered. That also satisfies {@link HOTBulkBuilder}'s
+   * distinct-key precondition, since a repeated pair would otherwise become a second entry with an
+   * identical key.
+   * </p>
    */
-  private HOTBulkBuilder.Entry toEntry(final int[] order, final int from, final int to,
-      final long[] runScratch, final Roaring64Bitmap payloadScratch) {
+  private HOTBulkBuilder.Entry toEntry(final int[] order, final int from, final int to, final long[] runScratch,
+      final Roaring64Bitmap payloadScratch) {
     final int representative = order[from];
     final long pos = keyPos[representative];
     final byte[] block = blocks[(int) (pos >>> BLOCK_SHIFT)];

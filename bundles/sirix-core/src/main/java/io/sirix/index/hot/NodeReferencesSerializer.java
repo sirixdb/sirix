@@ -79,9 +79,11 @@ public final class NodeReferencesSerializer {
   /**
    * Threshold for switching from packed to Roaring format.
    *
-   * <p>Packed format stores each node key as 8 raw bytes: total = 2 + count*8.
-   * At 64 entries, packed = 514 bytes while Roaring typically compresses to 200-400 bytes.
-   * Below this threshold packed is more compact; above it Roaring wins.</p>
+   * <p>
+   * Packed format stores each node key as 8 raw bytes: total = 2 + count*8. At 64 entries, packed =
+   * 514 bytes while Roaring typically compresses to 200-400 bytes. Below this threshold packed is
+   * more compact; above it Roaring wins.
+   * </p>
    */
   private static final int PACKED_THRESHOLD = 64;
 
@@ -117,17 +119,19 @@ public final class NodeReferencesSerializer {
    * Serializes an already-sorted, duplicate-free run of node keys, without materialising a
    * {@link NodeReferences} or (below {@link #PACKED_THRESHOLD}) a {@link Roaring64Bitmap}.
    *
-   * <p>For the bulk index build this is the difference between a handful of objects per indexed
-   * value and none: the builder already has the run sorted ascending in a reusable array, which is
-   * exactly what the packed format wants, so the bitmap round-trip
-   * {@code add-all → iterate → write} buys nothing. The output is byte-identical to
-   * {@link #serialize(NodeReferences)} over a bitmap holding the same keys.</p>
+   * <p>
+   * For the bulk index build this is the difference between a handful of objects per indexed value
+   * and none: the builder already has the run sorted ascending in a reusable array, which is exactly
+   * what the packed format wants, so the bitmap round-trip {@code add-all → iterate → write} buys
+   * nothing. The output is byte-identical to {@link #serialize(NodeReferences)} over a bitmap holding
+   * the same keys.
+   * </p>
    *
    * @param nodeKeys the backing array
    * @param from index of the first key, inclusive
    * @param to index one past the last key, exclusive
-   * @param scratch a bitmap the method may clear and reuse for runs above the packed threshold;
-   *        never retained
+   * @param scratch a bitmap the method may clear and reuse for runs above the packed threshold; never
+   *        retained
    * @return the serialized payload
    * @throws IllegalArgumentException if the run is empty
    */
@@ -242,8 +246,8 @@ public final class NodeReferencesSerializer {
   }
 
   /**
-   * Computes the exact number of bytes needed to serialize the given NodeReferences,
-   * without actually writing any data.
+   * Computes the exact number of bytes needed to serialize the given NodeReferences, without actually
+   * writing any data.
    *
    * @param refs the node references
    * @return number of bytes needed
@@ -276,10 +280,12 @@ public final class NodeReferencesSerializer {
   /**
    * {@link #isTombstone(byte[], int, int)} over a slot value still in off-heap memory.
    *
-   * <p>Allocation-free: the predicate reads one byte, so callers that only need to classify a value
-   * must not copy the whole payload out first. The sliding-snapshot carry-forward runs this per
-   * entry of an aging fragment on the default commit path, where values are serialized bitmaps or
-   * projection descriptors — copying each one to test a single byte is pure garbage.</p>
+   * <p>
+   * Allocation-free: the predicate reads one byte, so callers that only need to classify a value must
+   * not copy the whole payload out first. The sliding-snapshot carry-forward runs this per entry of
+   * an aging fragment on the default commit path, where values are serialized bitmaps or projection
+   * descriptors — copying each one to test a single byte is pure garbage.
+   * </p>
    *
    * @param value the slot value slice ({@code byteSize() == 0} for an absent value)
    * @return {@code true} if the slice is the single-byte tombstone marker
@@ -291,9 +297,11 @@ public final class NodeReferencesSerializer {
   /**
    * Merges two NodeReferences (OR operation on bitmaps).
    *
-   * <p><b>WARNING: This method mutates {@code a} in-place.</b> The bitmap of {@code a} is
-   * modified by OR-ing in the entries from {@code b}. If you need both originals unchanged,
-   * clone {@code a} before calling this method.</p>
+   * <p>
+   * <b>WARNING: This method mutates {@code a} in-place.</b> The bitmap of {@code a} is modified by
+   * OR-ing in the entries from {@code b}. If you need both originals unchanged, clone {@code a}
+   * before calling this method.
+   * </p>
    *
    * @param a the references to merge INTO (modified in-place)
    * @param b the references to merge from (not modified)
@@ -305,36 +313,37 @@ public final class NodeReferencesSerializer {
   }
 
   /**
-   * Allocation-free fast path for merging a single-key value into an existing value when both are
-   * in {@link #PACKED_FORMAT}. This is the dominant secondary-index churn path:
+   * Allocation-free fast path for merging a single-key value into an existing value when both are in
+   * {@link #PACKED_FORMAT}. This is the dominant secondary-index churn path:
    * {@code HOTIndexWriter.addNodeKeyToChunk} always serializes the inserted value as a one-entry
    * packed payload, and most live buckets are packed (below {@link #PACKED_THRESHOLD}).
    *
-   * <p>Avoids the two {@link Roaring64Bitmap} + two {@link NodeReferences} allocations a
-   * deserialize / {@link #merge} / {@link #serialize} round-trip incurs. Returns:
+   * <p>
+   * Avoids the two {@link Roaring64Bitmap} + two {@link NodeReferences} allocations a deserialize /
+   * {@link #merge} / {@link #serialize} round-trip incurs. Returns:
    * <ul>
-   *   <li>{@code existing} (the same reference) when the new key is already present — the merged
-   *       set is unchanged, so the caller can skip rewriting the slot entirely;</li>
-   *   <li>a freshly allocated packed {@code byte[]} of {@code count + 1} keys (sorted ascending,
-   *       byte-identical to the slow path's output) when the key was absent;</li>
-   *   <li>{@code null} when the fast path does not apply: the existing value is not packed, the
-   *       new value is not a single packed key, or adding a key would cross
-   *       {@link #PACKED_THRESHOLD} into the Roaring representation. The caller must then fall
-   *       back to the deserialize path.</li>
+   * <li>{@code existing} (the same reference) when the new key is already present — the merged set is
+   * unchanged, so the caller can skip rewriting the slot entirely;</li>
+   * <li>a freshly allocated packed {@code byte[]} of {@code count + 1} keys (sorted ascending,
+   * byte-identical to the slow path's output) when the key was absent;</li>
+   * <li>{@code null} when the fast path does not apply: the existing value is not packed, the new
+   * value is not a single packed key, or adding a key would cross {@link #PACKED_THRESHOLD} into the
+   * Roaring representation. The caller must then fall back to the deserialize path.</li>
    * </ul>
    *
-   * <p>Relies on the packed format being sorted ascending by unsigned key, which holds for every
-   * value this class emits ({@link #serializePacked} iterates {@link Roaring64Bitmap} in ascending
-   * order). The binary search for presence depends on that ordering.
+   * <p>
+   * Relies on the packed format being sorted ascending by unsigned key, which holds for every value
+   * this class emits ({@link #serializePacked} iterates {@link Roaring64Bitmap} in ascending order).
+   * The binary search for presence depends on that ordering.
    *
-   * @param existing  the existing serialized value (exact length, not a tombstone)
-   * @param newValue  buffer holding the inserted serialized value
+   * @param existing the existing serialized value (exact length, not a tombstone)
+   * @param newValue buffer holding the inserted serialized value
    * @param newOffset offset of the inserted value within {@code newValue}
-   * @param newLen    length of the inserted value
+   * @param newLen length of the inserted value
    * @return see above
    */
-  public static byte @Nullable [] mergePackedSingleBit(
-      final byte[] existing, final byte[] newValue, final int newOffset, final int newLen) {
+  public static byte @Nullable [] mergePackedSingleBit(final byte[] existing, final byte[] newValue,
+      final int newOffset, final int newLen) {
     // New value must be a single-entry packed payload: [PACKED][count=1][key:8] == 10 bytes.
     if (newLen != 2 + 8 || newValue[newOffset] != PACKED_FORMAT || newValue[newOffset + 1] != 1) {
       return null;
@@ -378,9 +387,8 @@ public final class NodeReferencesSerializer {
   }
 
   private static long readKeyBE(final byte[] b, final int p) {
-    return ((long) (b[p] & 0xFF) << 56) | ((long) (b[p + 1] & 0xFF) << 48)
-        | ((long) (b[p + 2] & 0xFF) << 40) | ((long) (b[p + 3] & 0xFF) << 32)
-        | ((long) (b[p + 4] & 0xFF) << 24) | ((long) (b[p + 5] & 0xFF) << 16)
+    return ((long) (b[p] & 0xFF) << 56) | ((long) (b[p + 1] & 0xFF) << 48) | ((long) (b[p + 2] & 0xFF) << 40)
+        | ((long) (b[p + 3] & 0xFF) << 32) | ((long) (b[p + 4] & 0xFF) << 24) | ((long) (b[p + 5] & 0xFF) << 16)
         | ((long) (b[p + 6] & 0xFF) << 8) | ((long) (b[p + 7] & 0xFF));
   }
 
@@ -460,8 +468,7 @@ public final class NodeReferencesSerializer {
     final int requiredBytes = 1 + count * 8;
     if (requiredBytes > length) {
       throw new IllegalArgumentException(
-          "Packed count " + count + " requires " + requiredBytes
-              + " bytes but only " + length + " available");
+          "Packed count " + count + " requires " + requiredBytes + " bytes but only " + length + " available");
     }
 
     final Roaring64Bitmap bitmap = new Roaring64Bitmap();

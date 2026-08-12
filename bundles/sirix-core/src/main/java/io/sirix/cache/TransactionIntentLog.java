@@ -72,15 +72,19 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Scratch for {@link #releaseOrphanedHOTLeaves(List)}: orphan leaf -> the log index that owns it.
    *
-   * <p>Reference-keyed (identity, like {@code IdentityHashMap}) with a primitive {@code int} value,
-   * and reused across calls. The subtree rebuilds this method serves fire in the thousands during a
-   * shred that maintains an index, each handing over a whole subtree's leaves, so a fresh map and an
+   * <p>
+   * Reference-keyed (identity, like {@code IdentityHashMap}) with a primitive {@code int} value, and
+   * reused across calls. The subtree rebuilds this method serves fire in the thousands during a shred
+   * that maintains an index, each handing over a whole subtree's leaves, so a fresh map and an
    * {@code Integer} box per orphan were the bulk of its cost. The TIL is transaction-private, so a
-   * field is as safe here as a local was.</p>
+   * field is as safe here as a local was.
+   * </p>
    */
   private final Reference2IntMap<HOTLeafPage> orphanCloseable = new Reference2IntOpenHashMap<>();
 
-  { orphanCloseable.defaultReturnValue(-1); }
+  {
+    orphanCloseable.defaultReturnValue(-1);
+  }
 
   // ==================== GENERATION COUNTER ====================
 
@@ -144,7 +148,9 @@ public final class TransactionIntentLog implements AutoCloseable {
   /** Forwarding chain for superseded (generation << 32 | logKey) identities. */
   private final Long2LongOpenHashMap forwardedEntries = new Long2LongOpenHashMap();
 
-  { forwardedEntries.defaultReturnValue(-1L); }
+  {
+    forwardedEntries.defaultReturnValue(-1L);
+  }
 
   // ==================== BUFFER MANAGER ====================
 
@@ -171,9 +177,9 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Retrieves an entry from the TIL using generation-based 3-layer lookup.
    * <p>
-   * Layer 1: Current TIL (fast path — most common during insertion).
-   * Layer 2: Active snapshot (if any — for reads of pages not yet cleaned up).
-   * Layer 3: Completed disk offsets (for stale reference copies from CoW'd IndirectPages).
+   * Layer 1: Current TIL (fast path — most common during insertion). Layer 2: Active snapshot (if any
+   * — for reads of pages not yet cleaned up). Layer 3: Completed disk offsets (for stale reference
+   * copies from CoW'd IndirectPages).
    *
    * @param ref the page reference whose associated container is to be returned
    * @return the page container, or {@code null} if not in any TIL layer
@@ -252,7 +258,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         ref.setLogKey(Constants.NULL_ID_INT);
         ref.setActiveTilGeneration(-1);
         layer3Hits++;
-        return null;  // Page is on disk, not in TIL — caller loads from disk
+        return null; // Page is on disk, not in TIL — caller loads from disk
       }
     }
 
@@ -292,8 +298,7 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     // Close the old cached page if it's different from the pages going into TIL
     if (oldCachedPage != null && !oldCachedPage.isClosed()) {
-      final boolean isInNewContainer =
-          (oldCachedPage == value.getComplete() || oldCachedPage == value.getModified());
+      final boolean isInNewContainer = (oldCachedPage == value.getComplete() || oldCachedPage == value.getModified());
       if (!isInNewContainer) {
         oldCachedPage.markOrphaned();
         oldCachedPage.close();
@@ -313,9 +318,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     // the container at that index. The visible symptom is a ClassCastException
     // in KeyedTrieWriter.prepareIndirectPage when the trie navigation later
     // walks the structural page's reference and gets back the foreign container.
-    final boolean ownsExistingKey = existingKey != Constants.NULL_ID_INT
-        && existingKey >= 0
-        && existingKey < size
+    final boolean ownsExistingKey = existingKey != Constants.NULL_ID_INT && existingKey >= 0 && existingKey < size
         && ref.getActiveTilGeneration() == currentGeneration;
     if (ownsExistingKey) {
       // Close orphaned HOT leaf pages from the overwritten container.
@@ -340,9 +343,8 @@ public final class TransactionIntentLog implements AutoCloseable {
       // reference copies that still carry the old identity resolve to the new entry instead of
       // the stale disk offset (#1077).
       final int priorGeneration = ref.getActiveTilGeneration();
-      final boolean supersedesPriorEntry =
-          existingKey != Constants.NULL_ID_INT && existingKey >= 0 && priorGeneration >= 0
-              && priorGeneration != currentGeneration;
+      final boolean supersedesPriorEntry = existingKey != Constants.NULL_ID_INT && existingKey >= 0
+          && priorGeneration >= 0 && priorGeneration != currentGeneration;
 
       // New entry
       ensureCapacity();
@@ -374,13 +376,15 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Remove the HOT leaf pages of a TIL container from the shared HOT-leaf buffer cache.
    *
-   * <p>A {@link HOTLeafPage} instance can be referenced by both a {@link PageContainer} in this
-   * log and the {@code hotLeafPageCache}. Once a page is in the log it is transaction-private and
-   * must survive — unevicted — until commit serializes it. The eviction paths
-   * ({@code ClockSweeper.sweep}, {@code ShardedPageCache.evictUnderPressure}) only gate on guard
-   * count, so a cache-resident dirty leaf would otherwise have its off-heap slot reclaimed under
-   * memory pressure, corrupting the committed page. This mirrors the record-page-cache removal
-   * already performed above for {@link KeyValueLeafPage}s.</p>
+   * <p>
+   * A {@link HOTLeafPage} instance can be referenced by both a {@link PageContainer} in this log and
+   * the {@code hotLeafPageCache}. Once a page is in the log it is transaction-private and must
+   * survive — unevicted — until commit serializes it. The eviction paths ({@code ClockSweeper.sweep},
+   * {@code ShardedPageCache.evictUnderPressure}) only gate on guard count, so a cache-resident dirty
+   * leaf would otherwise have its off-heap slot reclaimed under memory pressure, corrupting the
+   * committed page. This mirrors the record-page-cache removal already performed above for
+   * {@link KeyValueLeafPage}s.
+   * </p>
    */
   private void removeHOTLeavesFromCache(final PageContainer value) {
     if (value == null) {
@@ -423,8 +427,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Forget the HOT-leaf index; the log indices it holds no longer address the current arrays.
-   * Called wherever {@link #entries} is replaced or emptied.
+   * Forget the HOT-leaf index; the log indices it holds no longer address the current arrays. Called
+   * wherever {@link #entries} is replaced or emptied.
    */
   private void resetHOTLeafIndex() {
     hotLeafIndexCount = 0;
@@ -432,8 +436,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Ensure the entries/entryRefs arrays have room for one more element.
-   * Doubles capacity when full.
+   * Ensure the entries/entryRefs arrays have room for one more element. Doubles capacity when full.
    */
   private void ensureCapacity() {
     if (size == entries.length) {
@@ -444,8 +447,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Get the original PageReference stored at a given logKey. Used to copy disk offsets
-   * when a duplicate reference (from HOTIndirectPage COW) resolves to the same TIL entry.
+   * Get the original PageReference stored at a given logKey. Used to copy disk offsets when a
+   * duplicate reference (from HOTIndirectPage COW) resolves to the same TIL entry.
    *
    * @param logKey the log key
    * @return the original PageReference, or null if not found
@@ -460,21 +463,20 @@ public final class TransactionIntentLog implements AutoCloseable {
   // ==================== SNAPSHOT (O(1) array swap) ====================
 
   /**
-   * Side-channel disk-offset sentinel: the background flush DECLINED to write this KVL
-   * entry (its serialization left unresolved overflow references — the encoded bytes are
-   * only valid once the recursive final commit writes the OverflowPages, #1076).
-   * {@link #cleanupSnapshot()} promotes such entries back into the live TIL instead of
-   * applying an offset and closing them, so the final commit serializes them with real
-   * overflow keys. Distinct from the {@code NULL_ID_LONG} init value, which still means
-   * "background write incomplete" and fails the cleanup loudly.
+   * Side-channel disk-offset sentinel: the background flush DECLINED to write this KVL entry (its
+   * serialization left unresolved overflow references — the encoded bytes are only valid once the
+   * recursive final commit writes the OverflowPages, #1076). {@link #cleanupSnapshot()} promotes such
+   * entries back into the live TIL instead of applying an offset and closing them, so the final
+   * commit serializes them with real overflow keys. Distinct from the {@code NULL_ID_LONG} init
+   * value, which still means "background write incomplete" and fails the cleanup loudly.
    */
   public static final long SNAPSHOT_PROMOTE_TO_TIL = Long.MIN_VALUE;
 
   /**
    * Freeze current entries for background flush. O(1) — array reference swap + generation increment.
    * <p>
-   * After this call, the insert thread continues with fresh empty arrays. The frozen arrays
-   * are available to the background thread via {@link #getSnapshotEntry(int)} etc.
+   * After this call, the insert thread continues with fresh empty arrays. The frozen arrays are
+   * available to the background thread via {@link #getSnapshotEntry(int)} etc.
    *
    * @return snapshotSize (0 = nothing to flush)
    */
@@ -506,22 +508,20 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Check if a page reference is in the frozen snapshot zone.
-   * Used to trigger CoW when the insert thread needs to modify a frozen page.
+   * Check if a page reference is in the frozen snapshot zone. Used to trigger CoW when the insert
+   * thread needs to modify a frozen page.
    *
    * @param ref the page reference to check
    * @return true if the reference is in the frozen snapshot
    */
   public boolean isFrozen(final PageReference ref) {
-    return snapshotEntries != null
-        && ref.getActiveTilGeneration() == snapshotGeneration
-        && ref.getLogKey() >= 0
+    return snapshotEntries != null && ref.getActiveTilGeneration() == snapshotGeneration && ref.getLogKey() >= 0
         && ref.getLogKey() < snapshotSize;
   }
 
   /**
-   * Mark the snapshot flush as complete. Called by the background thread after all KVL pages
-   * have been written to disk and their offsets stored in the side-channel arrays.
+   * Mark the snapshot flush as complete. Called by the background thread after all KVL pages have
+   * been written to disk and their offsets stored in the side-channel arrays.
    */
   public void markSnapshotFlushComplete() {
     snapshotCommitComplete = true;
@@ -560,8 +560,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Store a disk offset from the background thread into the side-channel.
-   * The background thread NEVER writes to PageReference directly.
+   * Store a disk offset from the background thread into the side-channel. The background thread NEVER
+   * writes to PageReference directly.
    */
   public void setSnapshotDiskOffset(final int index, final long offset) {
     snapshotDiskOffsets[index] = offset;
@@ -577,11 +577,11 @@ public final class TransactionIntentLog implements AutoCloseable {
   // ==================== SNAPSHOT CLEANUP ====================
 
   /**
-   * Clean up a completed snapshot: apply disk offsets to KVL page refs, close written KVL pages,
-   * and promote IndirectPages to the current TIL.
+   * Clean up a completed snapshot: apply disk offsets to KVL page refs, close written KVL pages, and
+   * promote IndirectPages to the current TIL.
    * <p>
-   * MUST be called from the insert thread after the background thread has completed
-   * (after semaphore acquire provides happens-before).
+   * MUST be called from the insert thread after the background thread has completed (after semaphore
+   * acquire provides happens-before).
    *
    * @throws SirixIOException if any KVL entry is missing a disk offset (background write incomplete)
    */
@@ -766,8 +766,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Best-effort cleanup of snapshot pages. Does NOT validate disk offsets — used for
-   * rollback/error paths where background writes may be incomplete.
+   * Best-effort cleanup of snapshot pages. Does NOT validate disk offsets — used for rollback/error
+   * paths where background writes may be incomplete.
    */
   private void clearSnapshotPages() {
     if (snapshotEntries != null) {
@@ -797,26 +797,23 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /**
    * Close HOTLeafPages from an overwritten container that are not reused in the new container.
-   * Prevents FrameSlot memory leaks when leaf splits overwrite TIL entries — the old complete
-   * page (original from disk) is orphaned and its 65KB off-heap MemorySegment must be released.
+   * Prevents FrameSlot memory leaks when leaf splits overwrite TIL entries — the old complete page
+   * (original from disk) is orphaned and its 65KB off-heap MemorySegment must be released.
    */
-  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer,
-      final PageContainer newContainer, final int excludeIndex) {
+  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer, final PageContainer newContainer,
+      final int excludeIndex) {
     final Page oldComplete = oldContainer.getComplete();
     final Page oldModified = oldContainer.getModified();
     final Page newComplete = newContainer.getComplete();
     final Page newModified = newContainer.getModified();
 
-    if (oldComplete instanceof HOTLeafPage completeLeaf
-        && completeLeaf != newComplete && completeLeaf != newModified
+    if (oldComplete instanceof HOTLeafPage completeLeaf && completeLeaf != newComplete && completeLeaf != newModified
         && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)
         && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
       completeLeaf.close();
     }
-    if (oldModified != oldComplete
-        && oldModified instanceof HOTLeafPage modifiedLeaf
-        && modifiedLeaf != newComplete && modifiedLeaf != newModified
-        && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)
+    if (oldModified != oldComplete && oldModified instanceof HOTLeafPage modifiedLeaf && modifiedLeaf != newComplete
+        && modifiedLeaf != newModified && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)
         && !bufferManager.getHOTLeafPageCache().containsPage(modifiedLeaf)) {
       modifiedLeaf.close();
     }
@@ -825,16 +822,20 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Retire the {@link KeyValueLeafPage}s of an overwritten container that the new one does not reuse.
    *
-   * <p>The HOT counterpart above existed; this did not, so re-putting the same reference into its
+   * <p>
+   * The HOT counterpart above existed; this did not, so re-putting the same reference into its
    * existing log slot dropped the previous container's record pages with nothing left pointing at
    * them. {@link #put} has already taken them OUT of the record-page cache (that is what gives the
    * log exclusive ownership), so no eviction path can reclaim them either — every re-put stranded up
    * to two 64 KiB frames for the process's lifetime, and a write-heavy transaction re-puts the same
    * page on every modification. It showed up as the last population of survivors in the
-   * {@code -Dsirix.debug.memory.leaks} census: cached at some point, never orphaned, never closed.</p>
+   * {@code -Dsirix.debug.memory.leaks} census: cached at some point, never orphaned, never closed.
+   * </p>
    *
-   * <p>Same three exemptions as the HOT path — reused by the new container, held by another log
-   * entry, or still owned by the shared cache (which then owns the teardown).</p>
+   * <p>
+   * Same three exemptions as the HOT path — reused by the new container, held by another log entry,
+   * or still owned by the shared cache (which then owns the teardown).
+   * </p>
    */
   private void closeOrphanedRecordPages(final PageContainer oldContainer, final PageContainer newContainer,
       final int excludeIndex) {
@@ -843,17 +844,14 @@ public final class TransactionIntentLog implements AutoCloseable {
     final Page newComplete = newContainer.getComplete();
     final Page newModified = newContainer.getModified();
 
-    if (oldComplete instanceof KeyValueLeafPage completePage
-        && completePage != newComplete && completePage != newModified
-        && !completePage.isClosed()
+    if (oldComplete instanceof KeyValueLeafPage completePage && completePage != newComplete
+        && completePage != newModified && !completePage.isClosed()
         && !isRecordPageInOtherEntry(completePage, excludeIndex)
         && !bufferManager.getRecordPageCache().containsPage(completePage)) {
       completePage.retire();
     }
-    if (oldModified != oldComplete
-        && oldModified instanceof KeyValueLeafPage modifiedPage
-        && modifiedPage != newComplete && modifiedPage != newModified
-        && !modifiedPage.isClosed()
+    if (oldModified != oldComplete && oldModified instanceof KeyValueLeafPage modifiedPage
+        && modifiedPage != newComplete && modifiedPage != newModified && !modifiedPage.isClosed()
         && !isRecordPageInOtherEntry(modifiedPage, excludeIndex)
         && !bufferManager.getRecordPageCache().containsPage(modifiedPage)) {
       modifiedPage.retire();
@@ -874,8 +872,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Whether {@code page} is also held by a log entry other than {@code excludeIndex}. Walks only
-   * the entries that can hold a HOT leaf — {@link #hotLeafIndices}, a superset re-checked against
+   * Whether {@code page} is also held by a log entry other than {@code excludeIndex}. Walks only the
+   * entries that can hold a HOT leaf — {@link #hotLeafIndices}, a superset re-checked against
    * {@code entries[i]} — because this runs on {@link #put}'s HOT-leaf CoW path, once per replaced
    * container, and a full walk made that quadratic in the log size.
    */
@@ -894,19 +892,21 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Release the off-heap {@code MemorySegment}s of HOT leaf pages that incremental leaf
-   * consolidation or a subtree rebuild merged away. Each page is no longer reachable from the
-   * trie, so the tree-recursive commit never visits its entry — and a per-reference commit that
-   * did reach it would skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB
-   * slots instead of pinning them until end-of-transaction {@link #clear()}.
+   * Release the off-heap {@code MemorySegment}s of HOT leaf pages that incremental leaf consolidation
+   * or a subtree rebuild merged away. Each page is no longer reachable from the trie, so the
+   * tree-recursive commit never visits its entry — and a per-reference commit that did reach it would
+   * skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB slots instead of pinning
+   * them until end-of-transaction {@link #clear()}.
    *
-   * <p>Batched on purpose: the sharing guard ("is this leaf still referenced by another TIL
-   * entry — a CoW reference copy") is a scan of the whole log. Doing it once for the whole drop
-   * list is {@code O(size + orphans)}; doing it per leaf would be {@code O(size * orphans)} —
-   * quadratic, since a large transaction's drop list and log both grow with the entry count.
+   * <p>
+   * Batched on purpose: the sharing guard ("is this leaf still referenced by another TIL entry — a
+   * CoW reference copy") is a scan of the whole log. Doing it once for the whole drop list is
+   * {@code O(size + orphans)}; doing it per leaf would be {@code O(size * orphans)} — quadratic,
+   * since a large transaction's drop list and log both grow with the entry count.
    *
-   * <p>A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never
-   * freed, so no concurrent reader loses its segment.
+   * <p>
+   * A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never freed, so
+   * no concurrent reader loses its segment.
    *
    * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
    */

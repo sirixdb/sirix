@@ -52,7 +52,8 @@ import static java.util.Objects.requireNonNull;
  * <h2>Order Preservation</h2>
  * <ul>
  * <li><b>pathNodeKey:</b> XOR with sign bit for unsigned byte comparison</li>
- * <li><b>Integer values:</b> sign-flipped two's-complement (lossless for the full 64-bit range)</li>
+ * <li><b>Integer values:</b> sign-flipped two's-complement (lossless for the full 64-bit
+ * range)</li>
  * <li><b>Floating-point values:</b> IEEE 754 order-preserving encoding</li>
  * <li><b>String values:</b> UTF-8 (already lexicographically ordered)</li>
  * </ul>
@@ -130,9 +131,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
 
   /**
    * A CAS key is a 10-byte header plus a value region the encoders bound themselves: 8 bytes for
-   * every numeric family, 1 for a boolean, and at most {@link #MAX_STRING_VALUE_BYTES} for a
-   * string, which {@link #encodeAtomicOrderPreserving} truncates to. So the bound is a constant
-   * and no key of any type can exceed it.
+   * every numeric family, 1 for a boolean, and at most {@link #MAX_STRING_VALUE_BYTES} for a string,
+   * which {@link #encodeAtomicOrderPreserving} truncates to. So the bound is a constant and no key of
+   * any type can exceed it.
    */
   @Override
   public int maxSerializedLength(final CASValue key) {
@@ -270,11 +271,11 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * lossless, order-preserving 8-byte big-endian key.
    *
    * <p>
-   * The signed 64-bit value is sign-flipped (XOR with the sign bit) so that unsigned byte
-   * comparison matches signed numeric order. Unlike {@link #encodeNumericOrderPreserving}, the
-   * value is not routed through {@code double}, so integers above 2<sup>53</sup> keep full
-   * precision. The encoding is exact for the entire signed 64-bit range; xs:integer magnitudes
-   * beyond {@code Long} range are narrowed by {@link Numeric#longValue()}.
+   * The signed 64-bit value is sign-flipped (XOR with the sign bit) so that unsigned byte comparison
+   * matches signed numeric order. Unlike {@link #encodeNumericOrderPreserving}, the value is not
+   * routed through {@code double}, so integers above 2<sup>53</sup> keep full precision. The encoding
+   * is exact for the entire signed 64-bit range; xs:integer magnitudes beyond {@code Long} range are
+   * narrowed by {@link Numeric#longValue()}.
    * </p>
    */
   private int encodeIntegerOrderPreserving(Atomic value, byte[] dest, int offset) {

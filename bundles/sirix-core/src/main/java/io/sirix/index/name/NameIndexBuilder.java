@@ -69,7 +69,9 @@ public final class NameIndexBuilder {
     this.useHOT = true;
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into it,
     // so an index that already holds entries keeps the incremental path.
-    this.bulkLoader = hotWriter.isEmptyTree() ? hotWriter.createBulkLoader() : null;
+    this.bulkLoader = hotWriter.isEmptyTree()
+        ? hotWriter.createBulkLoader()
+        : null;
   }
 
   public VisitResultType build(QNm name, ImmutableNode node) {
@@ -103,10 +105,12 @@ public final class NameIndexBuilder {
   /**
    * Add {@code node} to {@code name}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
+   * <p>
+   * A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
    * reference needs neither a read-back of the stored references nor a re-insert of them. Doing so
-   * made building an index quadratic in how many nodes share a name — which, for a name index, is
-   * the point of the index.</p>
+   * made building an index quadratic in how many nodes share a name — which, for a name index, is the
+   * point of the index.
+   * </p>
    */
   private void buildHOT(QNm name, ImmutableNode node) {
     assert hotWriter != null;
@@ -118,9 +122,8 @@ public final class NameIndexBuilder {
   }
 
   /**
-   * Materialise everything the traversal collected. Must be called exactly once, after the
-   * document traversal that feeds {@link #build} has finished; a no-op unless this builder is
-   * bulk-loading.
+   * Materialise everything the traversal collected. Must be called exactly once, after the document
+   * traversal that feeds {@link #build} has finished; a no-op unless this builder is bulk-loading.
    */
   public void finish() {
     if (bulkLoader != null) {

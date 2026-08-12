@@ -106,11 +106,13 @@ public final class NameIndexListener {
   /**
    * Add {@code nodeKey} to {@code name}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write OR-merges the incoming bitmap into the stored one, so the references
-   * already recorded for {@code name} need neither be read back nor re-inserted — doing so cost
-   * one range scan plus one full trie descent per already-stored node key, making a bulk insert
-   * of k nodes sharing a name quadratic in k. (It also handed the live record straight to
-   * {@code addNodeKey}, the in-place mutation the RBTree path above clones to avoid.)</p>
+   * <p>
+   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
+   * recorded for {@code name} need neither be read back nor re-inserted — doing so cost one range
+   * scan plus one full trie descent per already-stored node key, making a bulk insert of k nodes
+   * sharing a name quadratic in k. (It also handed the live record straight to {@code addNodeKey},
+   * the in-place mutation the RBTree path above clones to avoid.)
+   * </p>
    */
   private void handleInsertHOT(long nodeKey, QNm name) {
     assert hotWriter != null;

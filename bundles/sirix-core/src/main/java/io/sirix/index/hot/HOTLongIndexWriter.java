@@ -90,8 +90,8 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    */
-  private HOTLongIndexWriter(StorageEngineWriter storageEngineWriter, HOTLongKeySerializer keySerializer, IndexType indexType,
-      int indexNumber) {
+  private HOTLongIndexWriter(StorageEngineWriter storageEngineWriter, HOTLongKeySerializer keySerializer,
+      IndexType indexType, int indexNumber) {
     super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
 
@@ -113,14 +113,15 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * @param indexNumber the index number
    * @return a new HOTLongIndexWriter instance
    */
-  public static HOTLongIndexWriter create(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
+  public static HOTLongIndexWriter create(StorageEngineWriter storageEngineWriter, IndexType indexType,
+      int indexNumber) {
     return new HOTLongIndexWriter(storageEngineWriter, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
-   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH).
-   * Splits the input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into
-   * its {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
+   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH). Splits the
+   * input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into its
+   * {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
    */
   public NodeReferences index(long key, NodeReferences value, RBTreeReader.MoveCursor move) {
     requireNonNull(value);
@@ -138,11 +139,13 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Add a single nodeKey to {@code key}'s chunked bitmap.
    *
-   * <p>Equivalent to {@link #index(long, NodeReferences, RBTreeReader.MoveCursor)} with a
-   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot
-   * write is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to
-   * ADD one reference never has to materialise — let alone read back — the references already
-   * stored under {@code key}.</p>
+   * <p>
+   * Equivalent to {@link #index(long, NodeReferences, RBTreeReader.MoveCursor)} with a one-element
+   * {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write is an
+   * OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
+   * reference never has to materialise — let alone read back — the references already stored under
+   * {@code key}.
+   * </p>
    *
    * @param key the logical index key (a path-class record)
    * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
@@ -156,9 +159,11 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
    * revision.
    *
-   * <p>Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
-   * <em>replaces</em> the root rather than merging into it. Callers that may run against a
-   * populated tree must check first and fall back to {@link #indexNodeKey(long, long)}.</p>
+   * <p>
+   * Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
+   * <em>replaces</em> the root rather than merging into it. Callers that may run against a populated
+   * tree must check first and fall back to {@link #indexNodeKey(long, long)}.
+   * </p>
    *
    * @return a fresh bulk loader bound to this writer
    */
@@ -258,7 +263,9 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
 
     final byte[] keyBuf = KEY_BUFFER.get();
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    final byte[] keySlice = compLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, compLen);
+    final byte[] keySlice = compLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, compLen);
 
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
     final HOTLeafPage leaf = navResult.leaf();

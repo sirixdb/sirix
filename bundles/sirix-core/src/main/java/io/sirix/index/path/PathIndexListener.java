@@ -57,9 +57,9 @@ public final class PathIndexListener {
   }
 
   /**
-   * Returns the {@link PathSummaryReader} backing this listener. Used by JSON-specific dispatch
-   * (e.g. fused {@code OBJECT_NAMED_ARRAY} which must mirror its index entry at both the
-   * OBJECT_KEY layer and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
+   * Returns the {@link PathSummaryReader} backing this listener. Used by JSON-specific dispatch (e.g.
+   * fused {@code OBJECT_NAMED_ARRAY} which must mirror its index entry at both the OBJECT_KEY layer
+   * and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
    */
   public PathSummaryReader getPathSummaryReader() {
     return pathSummaryReader;
@@ -117,10 +117,12 @@ public final class PathIndexListener {
   /**
    * Add {@code nodeKey} to {@code pathNodeKey}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write OR-merges the incoming bitmap into the stored one, so the references
-   * already recorded for {@code pathNodeKey} need neither be read back nor re-inserted — doing so
-   * cost one range scan plus one full trie descent per already-stored node key, and every node
-   * under an indexed path shares a single PATH key, so that grew with the whole index.</p>
+   * <p>
+   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
+   * recorded for {@code pathNodeKey} need neither be read back nor re-inserted — doing so cost one
+   * range scan plus one full trie descent per already-stored node key, and every node under an
+   * indexed path shares a single PATH key, so that grew with the whole index.
+   * </p>
    */
   private void handleInsertHOT(final long nodeKey, final long pathNodeKey) {
     assert hotWriter != null;

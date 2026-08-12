@@ -90,7 +90,9 @@ public final class CASIndexBuilder {
     // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into
     // it, so an index that already holds entries (a rebuild over a populated definition) keeps
     // the incremental path.
-    this.bulkLoader = hotWriter.isEmptyTree() ? hotWriter.createBulkLoader() : null;
+    this.bulkLoader = hotWriter.isEmptyTree()
+        ? hotWriter.createBulkLoader()
+        : null;
   }
 
   public VisitResult process(final ImmutableNode node, final long pathNodeKey) {
@@ -101,10 +103,8 @@ public final class CASIndexBuilder {
           case ImmutableNumberNode immutableNumberNode -> new Str(String.valueOf(immutableNumberNode.getValue()));
           case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
           // Fused kinds carry primitive values inline.
-          case ObjectNamedNumberNode namedNum ->
-            new Str(String.valueOf(namedNum.getValue()));
-          case ObjectNamedBooleanNode namedBool ->
-            new Str(String.valueOf(namedBool.getValue()));
+          case ObjectNamedNumberNode namedNum -> new Str(String.valueOf(namedNum.getValue()));
+          case ObjectNamedBooleanNode namedBool -> new Str(String.valueOf(namedBool.getValue()));
           case ObjectNamedStringNode namedStr ->
             new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING));
           case null, default -> throw new IllegalStateException("Value not supported.");
@@ -116,8 +116,8 @@ public final class CASIndexBuilder {
             AtomicUtil.toType(strValue, type);
           isOfType = true;
         } catch (final SirixRuntimeException e) {
-          LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}",
-              strValue, type, node.getNodeKey(), e);
+          LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", strValue, type,
+              node.getNodeKey(), e);
         }
 
         if (isOfType) {
@@ -139,10 +139,12 @@ public final class CASIndexBuilder {
    * Whether {@code pathNodeKey} is one of the path-class records this index covers. An empty path
    * configuration means "index every path".
    *
-   * <p>The resolved PCR set is computed once and reused: the builder runs a single traversal of an
+   * <p>
+   * The resolved PCR set is computed once and reused: the builder runs a single traversal of an
    * already-shredded revision, so the path summary cannot gain nodes underneath it, and
    * {@link PathSummaryReader#getPCRsForPaths(java.util.Collection)} allocates and fills a fresh
-   * {@code LongOpenHashSet} on every call — once per value node, on the build hot path.</p>
+   * {@code LongOpenHashSet} on every call — once per value node, on the build hot path.
+   * </p>
    */
   private boolean matchesIndexedPath(final long pathNodeKey) {
     if (paths.isEmpty()) {
@@ -169,12 +171,14 @@ public final class CASIndexBuilder {
   /**
    * Add {@code node} to {@code value}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write is an OR-merge of the incoming bitmap into the stored one
-   * ({@code HOTLeafPage#mergeWithNodeRefs}), so adding one reference needs neither a read-back of
-   * the stored references nor a re-insert of them. Doing so made building an index quadratic in
-   * the number of nodes sharing a value: the n-th occurrence of a value range-scanned that value's
-   * chunks and then re-inserted all n-1 node keys already stored, each through a full trie descent
-   * — on a corpus where a value repeats k times, k(k+1)/2 slot writes instead of k.</p>
+   * <p>
+   * A HOT slot write is an OR-merge of the incoming bitmap into the stored one
+   * ({@code HOTLeafPage#mergeWithNodeRefs}), so adding one reference needs neither a read-back of the
+   * stored references nor a re-insert of them. Doing so made building an index quadratic in the
+   * number of nodes sharing a value: the n-th occurrence of a value range-scanned that value's chunks
+   * and then re-inserted all n-1 node keys already stored, each through a full trie descent — on a
+   * corpus where a value repeats k times, k(k+1)/2 slot writes instead of k.
+   * </p>
    */
   private void processHOT(final ImmutableNode node, final CASValue value) throws SirixIOException {
     assert hotWriter != null;
@@ -186,9 +190,8 @@ public final class CASIndexBuilder {
   }
 
   /**
-   * Materialise everything the traversal collected. Must be called exactly once, after the
-   * document traversal that feeds {@link #process} has finished; a no-op unless this builder is
-   * bulk-loading.
+   * Materialise everything the traversal collected. Must be called exactly once, after the document
+   * traversal that feeds {@link #process} has finished; a no-op unless this builder is bulk-loading.
    */
   public void finish() {
     if (bulkLoader != null) {

@@ -80,13 +80,17 @@ public interface HOTKeySerializer<K> {
   /**
    * Upper bound, in bytes, on what {@link #serialize} will write for {@code key}.
    *
-   * <p>Callers size their buffer from this <em>before</em> serializing. Checking the returned
-   * length against the buffer afterwards does not work: by then the write has already happened,
-   * and for a variable-length key it has happened past the end of the buffer.</p>
+   * <p>
+   * Callers size their buffer from this <em>before</em> serializing. Checking the returned length
+   * against the buffer afterwards does not work: by then the write has already happened, and for a
+   * variable-length key it has happened past the end of the buffer.
+   * </p>
    *
-   * <p>Deliberately not defaulted. A serializer that under-reports its own bound reintroduces
-   * exactly the overflow this method exists to prevent, so every implementation has to state one.
-   * An over-estimate is always safe.</p>
+   * <p>
+   * Deliberately not defaulted. A serializer that under-reports its own bound reintroduces exactly
+   * the overflow this method exists to prevent, so every implementation has to state one. An
+   * over-estimate is always safe.
+   * </p>
    *
    * @param key the key that is about to be serialized
    * @return a value {@code >= serialize(key, ...)} would return
@@ -148,29 +152,30 @@ public interface HOTKeySerializer<K> {
   }
 
   /**
-   * Number of bytes used to encode the chunk index trailer of a chunked composite key.
-   * Big-endian 32-bit unsigned, so {@code chunkIdx} can range over all positive ints.
-   * Sized to fit {@code nodeKey >>> 16} for any 64-bit nodeKey up to ~2^48 — comfortably above
-   * any practical Sirix dataset.
+   * Number of bytes used to encode the chunk index trailer of a chunked composite key. Big-endian
+   * 32-bit unsigned, so {@code chunkIdx} can range over all positive ints. Sized to fit
+   * {@code nodeKey >>> 16} for any 64-bit nodeKey up to ~2^48 — comfortably above any practical Sirix
+   * dataset.
    */
   int CHUNK_IDX_BYTES = 4;
 
   /**
-   * Append a 4-byte big-endian {@code chunkIdx} trailer to a serialised key. The {@code key} is
-   * first serialised at {@code offset}; the chunkIdx bytes follow immediately after. Callers
-   * MUST size {@code dest} to at least {@code prefixLen + CHUNK_IDX_BYTES} starting from
-   * {@code offset}.
+   * Append a 4-byte big-endian {@code chunkIdx} trailer to a serialised key. The {@code key} is first
+   * serialised at {@code offset}; the chunkIdx bytes follow immediately after. Callers MUST size
+   * {@code dest} to at least {@code prefixLen + CHUNK_IDX_BYTES} starting from {@code offset}.
    *
-   * <p>Big-endian byte order keeps adjacent chunkIdx values adjacent in lex order, so a
-   * {@code (prefix, chunkIdx)} composite preserves the sortedness needed by
-   * {@code HOTRangeCursor}'s navigate-then-walk-forward primitive when ranging over all chunks
-   * of one logical key (PROJECTION pattern).</p>
+   * <p>
+   * Big-endian byte order keeps adjacent chunkIdx values adjacent in lex order, so a
+   * {@code (prefix, chunkIdx)} composite preserves the sortedness needed by {@code HOTRangeCursor}'s
+   * navigate-then-walk-forward primitive when ranging over all chunks of one logical key (PROJECTION
+   * pattern).
+   * </p>
    *
-   * @param key       the logical key (e.g. a {@code QNm} for NAME, a {@code CASValue} for CAS)
-   * @param chunkIdx  the chunk index — typically {@code (int) (nodeKey >>> 16)} so each chunk
-   *                  covers one Roaring 16-bit container
-   * @param dest      destination buffer
-   * @param offset    offset in {@code dest}
+   * @param key the logical key (e.g. a {@code QNm} for NAME, a {@code CASValue} for CAS)
+   * @param chunkIdx the chunk index — typically {@code (int) (nodeKey >>> 16)} so each chunk covers
+   *        one Roaring 16-bit container
+   * @param dest destination buffer
+   * @param offset offset in {@code dest}
    * @return total number of bytes written ({@code prefixLen + CHUNK_IDX_BYTES})
    */
   default int serializeWithChunkIdx(K key, int chunkIdx, byte[] dest, int offset) {
@@ -180,9 +185,9 @@ public interface HOTKeySerializer<K> {
   }
 
   /**
-   * Same as {@link #serialize(Object, byte[], int)} but explicitly named to advertise
-   * "this is the prefix of a chunked composite key." The default delegates to {@code serialize}
-   * because the chunked composite is just {@code (prefix ‖ chunkIdx_be4)}.
+   * Same as {@link #serialize(Object, byte[], int)} but explicitly named to advertise "this is the
+   * prefix of a chunked composite key." The default delegates to {@code serialize} because the
+   * chunked composite is just {@code (prefix ‖ chunkIdx_be4)}.
    *
    * @return the prefix length (everything before the chunkIdx trailer)
    */
@@ -193,24 +198,22 @@ public interface HOTKeySerializer<K> {
   /**
    * Read the trailing 4-byte big-endian {@code chunkIdx} from a chunked composite key.
    *
-   * @param keyBytes  the full composite key bytes
+   * @param keyBytes the full composite key bytes
    * @param keyOffset offset in {@code keyBytes} where the composite key starts
-   * @param keyLen    full length of the composite key (prefix + {@link #CHUNK_IDX_BYTES})
+   * @param keyLen full length of the composite key (prefix + {@link #CHUNK_IDX_BYTES})
    * @return the chunkIdx
    */
   static int readChunkIdx(byte[] keyBytes, int keyOffset, int keyLen) {
     final int chunkIdxStart = keyOffset + keyLen - CHUNK_IDX_BYTES;
-    return ((keyBytes[chunkIdxStart] & 0xFF) << 24)
-        | ((keyBytes[chunkIdxStart + 1] & 0xFF) << 16)
-        | ((keyBytes[chunkIdxStart + 2] & 0xFF) << 8)
-        | (keyBytes[chunkIdxStart + 3] & 0xFF);
+    return ((keyBytes[chunkIdxStart] & 0xFF) << 24) | ((keyBytes[chunkIdxStart + 1] & 0xFF) << 16)
+        | ((keyBytes[chunkIdxStart + 2] & 0xFF) << 8) | (keyBytes[chunkIdxStart + 3] & 0xFF);
   }
 
   /**
    * Write a 4-byte big-endian {@code chunkIdx} into the destination buffer at the given offset.
    */
   static void writeChunkIdxBE(byte[] dest, int offset, int chunkIdx) {
-    dest[offset]     = (byte) (chunkIdx >>> 24);
+    dest[offset] = (byte) (chunkIdx >>> 24);
     dest[offset + 1] = (byte) (chunkIdx >>> 16);
     dest[offset + 2] = (byte) (chunkIdx >>> 8);
     dest[offset + 3] = (byte) chunkIdx;

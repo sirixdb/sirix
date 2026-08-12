@@ -27,12 +27,14 @@ import static org.junit.Assert.assertFalse;
 /**
  * PATH and NAME index construction over the default (HOT) index backend.
  *
- * <p>Both families used to add a node to a key's posting list by reading the whole list back and
+ * <p>
+ * Both families used to add a node to a key's posting list by reading the whole list back and
  * re-inserting it, which is quadratic in how many nodes share the key — and sharing keys is the
  * entire point of these two indexes: every node under an indexed path shares one PATH key, and
  * every element with the same name shares one NAME key. Building over an existing revision now
- * bulk-loads instead, so the tests below pin both the postings and the absence of the trie
- * rebuilds the incremental path used to trigger.</p>
+ * bulk-loads instead, so the tests below pin both the postings and the absence of the trie rebuilds
+ * the incremental path used to trigger.
+ * </p>
  */
 public final class JsonPathAndNameIndexBuildTest {
 
@@ -60,15 +62,18 @@ public final class JsonPathAndNameIndexBuildTest {
       if (i > 0) {
         json.append(',');
       }
-      json.append("{\"title\":\"t").append(i).append("\",\"category\":\"")
-          .append(CATEGORIES[i % CATEGORIES.length]).append("\"}");
+      json.append("{\"title\":\"t")
+          .append(i)
+          .append("\",\"category\":\"")
+          .append(CATEGORIES[i % CATEGORIES.length])
+          .append("\"}");
     }
     return json.append(']').toString();
   }
 
   private static void shred(final JsonNodeTrx trx, final String json) {
-    new JsonShredder.Builder(trx, JsonShredder.createStringReader(json), InsertPosition.AS_FIRST_CHILD)
-        .commitAfterwards().build().call();
+    new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
+        InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
   }
 
   private static TreeSet<Long> collect(final Iterator<NodeReferences> hits) {
@@ -93,7 +98,7 @@ public final class JsonPathAndNameIndexBuildTest {
   private TreeSet<Long> pathPostings(final Path databasePath, final boolean indexFirst) {
     final var database = JsonTestHelper.getDatabase(databasePath);
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       final JsonIndexController indexController;
       if (indexFirst) {
         indexController = manager.getWtxIndexController(trx.getRevisionNumber());
@@ -114,7 +119,7 @@ public final class JsonPathAndNameIndexBuildTest {
   private TreeSet<Long> namePostings(final Path databasePath, final boolean indexFirst) {
     final var database = JsonTestHelper.getDatabase(databasePath);
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       // A NAME definition's ID is offset by the name-index page slot, so ask for the ID the
       // definition itself carries rather than assuming 0.
       final IndexDef requested = nameIndexDef();
@@ -178,7 +183,7 @@ public final class JsonPathAndNameIndexBuildTest {
       final boolean indexFirst) {
     final var database = JsonTestHelper.getDatabase(databasePath);
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       final IndexDef requested = nameIndexDef();
       final JsonIndexController indexController;
       if (indexFirst) {
@@ -201,7 +206,7 @@ public final class JsonPathAndNameIndexBuildTest {
   public void buildingOverAnExistingRevisionRebuildsNoSubtree() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       shred(trx, document());
       final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
@@ -209,8 +214,7 @@ public final class JsonPathAndNameIndexBuildTest {
       final long selfHealsBefore = AbstractHOTIndexWriter.STRUCTURAL_SELFHEAL_REBUILD.get();
       final long strandsBefore = AbstractHOTIndexWriter.STRAND_LEAF_REBUILD.get();
 
-      indexController.createIndexes(Set.of(pathIndexDef(),
-          IndexDefs.createNameIdxDef(1, IndexDef.DbType.JSON)), trx);
+      indexController.createIndexes(Set.of(pathIndexDef(), IndexDefs.createNameIdxDef(1, IndexDef.DbType.JSON)), trx);
 
       assertEquals("subtree rebuilds during a bulk build", rebuildsBefore,
           AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get());

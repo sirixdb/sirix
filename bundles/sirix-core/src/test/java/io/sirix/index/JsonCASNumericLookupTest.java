@@ -30,11 +30,13 @@ import static org.junit.Assert.assertEquals;
 /**
  * Equality lookups against a numeric CAS index.
  *
- * <p>A HOT index key is a byte string that carries the value's type id, so a probe key has to be
- * typed like the entries the index stores rather than like whatever atomic the caller passed —
- * otherwise an {@code xs:decimal} index probed with a numerically equal {@code xs:double} builds a
- * different key and the lookup silently returns nothing. The RBTree backend never had that
- * problem, which is what made it easy to miss.</p>
+ * <p>
+ * A HOT index key is a byte string that carries the value's type id, so a probe key has to be typed
+ * like the entries the index stores rather than like whatever atomic the caller passed — otherwise
+ * an {@code xs:decimal} index probed with a numerically equal {@code xs:double} builds a different
+ * key and the lookup silently returns nothing. The RBTree backend never had that problem, which is
+ * what made it easy to miss.
+ * </p>
  */
 public final class JsonCASNumericLookupTest {
 
@@ -57,10 +59,10 @@ public final class JsonCASNumericLookupTest {
   }
 
   /** Shred {@code json}, index {@code path} as {@code contentType}, and hand back a prober. */
-  private static Prober index(final String json, final String path, final Type contentType,
-      final JsonNodeTrx trx, final JsonResourceSession manager) {
-    new JsonShredder.Builder(trx, JsonShredder.createStringReader(json), InsertPosition.AS_FIRST_CHILD)
-        .commitAfterwards().build().call();
+  private static Prober index(final String json, final String path, final Type contentType, final JsonNodeTrx trx,
+      final JsonResourceSession manager) {
+    new JsonShredder.Builder(trx, JsonShredder.createStringReader(json),
+        InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
 
     final JsonIndexController indexController = manager.getWtxIndexController(trx.getRevisionNumber());
     indexController.createIndexes(Set.of(IndexDefs.createCASIdxDef(false, contentType,
@@ -85,7 +87,7 @@ public final class JsonCASNumericLookupTest {
   public void decimalIndexIsFoundByAnyNumericProbeType() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       final Prober prober =
           index("[{\"v\":2.33},{\"v\":7.5},{\"v\":2.33},{\"other\":1}]", "/[]/v", Type.DEC, trx, manager);
 
@@ -101,7 +103,7 @@ public final class JsonCASNumericLookupTest {
   public void integerIndexIsFoundByAnyNumericProbeType() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx trx = manager.beginNodeTrx()) {
+        final JsonNodeTrx trx = manager.beginNodeTrx()) {
       final Prober prober = index("[{\"n\":3},{\"n\":10},{\"n\":3}]", "/[]/n", Type.INR, trx, manager);
 
       assertEquals("every n must be indexed", 3, prober.all());

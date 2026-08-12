@@ -55,9 +55,12 @@ final class JsonNameIndexBuilder extends AbstractJsonNodeVisitor implements Inde
   }
 
   private QNm resolveName(final QNm cachedName, final int nameKey) {
-    if (cachedName != null) return cachedName;
+    if (cachedName != null)
+      return cachedName;
     final String localName = builder.storageEngineReader.getName(nameKey, NodeKind.OBJECT_NAMED_OBJECT);
-    return localName == null ? null : new QNm(localName);
+    return localName == null
+        ? null
+        : new QNm(localName);
   }
 
   @Override

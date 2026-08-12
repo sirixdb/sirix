@@ -33,12 +33,11 @@ final class KeySerializerUtf8Test {
   private static final int CAS_MAX_VALUE_BYTES = 246;
 
   private static String[] samples() {
-    return new String[] {"hello", "", "a", "Ünïcödé", "日本語のフィールド名", "emoji 🚀 rocket",
-        "unpaired \uD800 surrogate", "low \uDC00 surrogate", "mixed ascii then Ü",
-        "x".repeat(CAS_MAX_VALUE_BYTES - 1), "x".repeat(CAS_MAX_VALUE_BYTES),
-        "x".repeat(CAS_MAX_VALUE_BYTES + 50), "x".repeat(CAS_MAX_VALUE_BYTES) + "Ü",
+    return new String[] {"hello", "", "a", "Ünïcödé", "日本語のフィールド名", "emoji 🚀 rocket", "unpaired \uD800 surrogate",
+        "low \uDC00 surrogate", "mixed ascii then Ü", "x".repeat(CAS_MAX_VALUE_BYTES - 1),
+        "x".repeat(CAS_MAX_VALUE_BYTES), "x".repeat(CAS_MAX_VALUE_BYTES + 50), "x".repeat(CAS_MAX_VALUE_BYTES) + "Ü",
         "x".repeat(CAS_MAX_VALUE_BYTES - 1) + "Ü", "Ü" + "x".repeat(CAS_MAX_VALUE_BYTES)};
-    }
+  }
 
   /** What the CAS serializer's value region held before the ASCII fast path existed. */
   private static byte[] referenceCasValueBytes(final String value, final int capacity) {
@@ -57,8 +56,7 @@ final class KeySerializerUtf8Test {
       for (final int capacity : new int[] {512, CAS_HEADER_BYTES + 32, CAS_HEADER_BYTES + CAS_MAX_VALUE_BYTES}) {
         final byte[] dest = new byte[capacity];
         final int length = CASKeySerializer.INSTANCE.serialize(new CASValue(new Str(value), Type.STR, 7), dest, 0);
-        assertArrayEquals(referenceCasValueBytes(value, capacity),
-            Arrays.copyOfRange(dest, CAS_HEADER_BYTES, length),
+        assertArrayEquals(referenceCasValueBytes(value, capacity), Arrays.copyOfRange(dest, CAS_HEADER_BYTES, length),
             "value bytes for \"" + value + "\" at capacity " + capacity);
       }
     }
@@ -83,16 +81,14 @@ final class KeySerializerUtf8Test {
   void namePrefixesMatchReferenceEncoding() {
     for (final String prefix : new String[] {"ns", "nsÜ", "🚀", "unpaired \uD800"}) {
       final byte[] dest = new byte[2048];
-      final int length = NameKeySerializer.INSTANCE.serialize(new QNm("http://example.org", prefix, "local"),
-          dest, 0);
+      final int length = NameKeySerializer.INSTANCE.serialize(new QNm("http://example.org", prefix, "local"), dest, 0);
 
       final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
       final byte[] expected = new byte[2 + prefixBytes.length + "local".length()];
       expected[0] = (byte) 0xFF;
       expected[1] = (byte) prefixBytes.length;
       System.arraycopy(prefixBytes, 0, expected, 2, prefixBytes.length);
-      System.arraycopy("local".getBytes(StandardCharsets.UTF_8), 0, expected, 2 + prefixBytes.length,
-          "local".length());
+      System.arraycopy("local".getBytes(StandardCharsets.UTF_8), 0, expected, 2 + prefixBytes.length, "local".length());
 
       assertArrayEquals(expected, Arrays.copyOf(dest, length), "prefixed name bytes for \"" + prefix + '"');
     }

@@ -65,12 +65,11 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexWriter<K extends Comparable<? super K>> extends AbstractHOTIndexWriter<K> {
 
   /**
-   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte
-   * header + {@code MAX_STRING_VALUE_BYTES = 246}) PLUS
-   * {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4) chunkIdx trailer = 260 bytes minimum;
-   * rounded to 512 for headroom across future serializer changes. Previously 256, which
-   * overflowed by 4 bytes whenever the prefix maxed out (regression caught by
-   * {@code JsonIntegrationTest.testCreateAndScanCASIndex3} via long-string CAS values).
+   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte header +
+   * {@code MAX_STRING_VALUE_BYTES = 246}) PLUS {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4)
+   * chunkIdx trailer = 260 bytes minimum; rounded to 512 for headroom across future serializer
+   * changes. Previously 256, which overflowed by 4 bytes whenever the prefix maxed out (regression
+   * caught by {@code JsonIntegrationTest.testCreateAndScanCASIndex3} via long-string CAS values).
    */
   private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
@@ -94,8 +93,8 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  private HOTIndexWriter(StorageEngineWriter storageEngineWriter, HOTKeySerializer<K> keySerializer, IndexType indexType,
-      int indexNumber) {
+  private HOTIndexWriter(StorageEngineWriter storageEngineWriter, HOTKeySerializer<K> keySerializer,
+      IndexType indexType, int indexNumber) {
     super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
 
@@ -134,20 +133,26 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Index a key-value pair using chunked-bitmap storage.
    *
-   * <p>The logical {@link NodeReferences} is split across multiple HOT slots, one per
-   * <em>chunk</em>. A chunk holds the low-16 bits of all nodeKeys whose
-   * {@code (int)(nodeKey >>> 16)} equals its chunkIdx. The HOT key for a chunk is the composite
-   * {@code prefix(key) ‖ chunkIdx_be4}; see {@link HOTKeySerializer#serializeWithChunkIdx}.</p>
+   * <p>
+   * The logical {@link NodeReferences} is split across multiple HOT slots, one per <em>chunk</em>. A
+   * chunk holds the low-16 bits of all nodeKeys whose {@code (int)(nodeKey >>> 16)} equals its
+   * chunkIdx. The HOT key for a chunk is the composite {@code prefix(key) ‖ chunkIdx_be4}; see
+   * {@link HOTKeySerializer#serializeWithChunkIdx}.
+   * </p>
    *
    * <h3>Why chunk?</h3>
-   * <p>Per-revision write cost grows with the size of the slot value rewritten on update.
-   * Without chunking, every commit that touches a single nodeKey on a popular logical key
-   * rewrites the whole bitmap (potentially MBs). With chunking, only the one Roaring chunk
-   * of the modified nodeKey is rewritten — typical chunk size is a few hundred bytes.</p>
+   * <p>
+   * Per-revision write cost grows with the size of the slot value rewritten on update. Without
+   * chunking, every commit that touches a single nodeKey on a popular logical key rewrites the whole
+   * bitmap (potentially MBs). With chunking, only the one Roaring chunk of the modified nodeKey is
+   * rewritten — typical chunk size is a few hundred bytes.
+   * </p>
    *
-   * <p>If the chunk slot already exists, {@link HOTLeafPage#mergeWithNodeRefs} handles the
-   * OR-merge of the new bit into the existing chunk's bitmap; failure paths (page split /
-   * compact) are inherited unchanged from the per-slot write.</p>
+   * <p>
+   * If the chunk slot already exists, {@link HOTLeafPage#mergeWithNodeRefs} handles the OR-merge of
+   * the new bit into the existing chunk's bitmap; failure paths (page split / compact) are inherited
+   * unchanged from the per-slot write.
+   * </p>
    *
    * @param key the logical index key (e.g. a {@code QNm} for NAME, a {@code CASValue} for CAS)
    * @param value the node references
@@ -172,11 +177,13 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Add a single nodeKey to {@code key}'s chunked bitmap.
    *
-   * <p>Equivalent to {@link #index(Comparable, NodeReferences, RBTreeReader.MoveCursor)} with a
-   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot
-   * write is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to
-   * ADD one reference never has to materialise — let alone read back — the references already
-   * stored under {@code key}.</p>
+   * <p>
+   * Equivalent to {@link #index(Comparable, NodeReferences, RBTreeReader.MoveCursor)} with a
+   * one-element {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write
+   * is an OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
+   * reference never has to materialise — let alone read back — the references already stored under
+   * {@code key}.
+   * </p>
    *
    * @param key the logical index key
    * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
@@ -191,10 +198,11 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
    * revision.
    *
-   * <p>Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
-   * <em>replaces</em> the root rather than merging into it. Callers that may run against a
-   * populated tree must check first and fall back to
-   * {@link #indexNodeKey(Comparable, long)}.</p>
+   * <p>
+   * Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
+   * <em>replaces</em> the root rather than merging into it. Callers that may run against a populated
+   * tree must check first and fall back to {@link #indexNodeKey(Comparable, long)}.
+   * </p>
    *
    * @return a fresh bulk loader bound to this writer
    */
@@ -205,11 +213,12 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Add one nodeKey to its chunk slot. Chunked-bitmap write hot path.
    *
-   * <p>Builds {@code prefix(key) ‖ chunkIdx_be4} where
-   * {@code chunkIdx = (int)(nodeKey >>> 16)}, encodes a single-bit
-   * {@link NodeReferences} containing {@code nodeKey & 0xFFFF}, and calls the inherited
+   * <p>
+   * Builds {@code prefix(key) ‖ chunkIdx_be4} where {@code chunkIdx = (int)(nodeKey >>> 16)}, encodes
+   * a single-bit {@link NodeReferences} containing {@code nodeKey & 0xFFFF}, and calls the inherited
    * {@link AbstractHOTIndexWriter#doIndex} which delegates to {@link HOTLeafPage#mergeWithNodeRefs}
-   * (OR-merge with any pre-existing chunk).</p>
+   * (OR-merge with any pre-existing chunk).
+   * </p>
    */
   private void addNodeKeyToChunk(K key, long nodeKey) {
     AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
@@ -233,15 +242,17 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Reassemble all chunks of a logical key into a single {@link NodeReferences}.
    *
-   * <p>Range-scans composite keys in {@code [(prefix, 0), (prefix, 0xFFFFFFFF)]} via
-   * {@link HOTTrieReader#lowerBound} (Phase 0b — Binna §4.2) so the seek is O(tree-height)
-   * even when the smallest existing chunkIdx for {@code key} is {@code > 0}. For every
-   * matching chunk slot the value bitmap is decoded and each bit16 is expanded to a full
-   * 64-bit nodeKey via {@code (chunkIdx << 16) | bit16}.</p>
+   * <p>
+   * Range-scans composite keys in {@code [(prefix, 0), (prefix, 0xFFFFFFFF)]} via
+   * {@link HOTTrieReader#lowerBound} (Phase 0b — Binna §4.2) so the seek is O(tree-height) even when
+   * the smallest existing chunkIdx for {@code key} is {@code > 0}. For every matching chunk slot the
+   * value bitmap is decoded and each bit16 is expanded to a full 64-bit nodeKey via
+   * {@code (chunkIdx << 16) | bit16}.
+   * </p>
    *
-   * @param key  the logical index key
-   * @param mode the search mode (only {@code EQUAL} is meaningful here; range modes go through
-   *             the reader's {@code range}/{@code iteratorFrom} APIs)
+   * @param key the logical index key
+   * @param mode the search mode (only {@code EQUAL} is meaningful here; range modes go through the
+   *        reader's {@code range}/{@code iteratorFrom} APIs)
    * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
    */
   public @Nullable NodeReferences get(K key, SearchMode mode) {
@@ -317,10 +328,12 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Remove a single nodeKey from the chunked bitmap of {@code key}.
    *
-   * <p>Locates the chunk slot {@code (prefix, (int)(nodeKey >>> 16))}, deserializes the chunk
-   * bitmap, removes {@code nodeKey & 0xFFFF}, re-serializes (or tombstones if the chunk is now
-   * empty). Other chunks of the same logical key are untouched — slot-granular CoW ensures the
-   * other chunks do not even appear in the new revision's TIL fragment.</p>
+   * <p>
+   * Locates the chunk slot {@code (prefix, (int)(nodeKey >>> 16))}, deserializes the chunk bitmap,
+   * removes {@code nodeKey & 0xFFFF}, re-serializes (or tombstones if the chunk is now empty). Other
+   * chunks of the same logical key are untouched — slot-granular CoW ensures the other chunks do not
+   * even appear in the new revision's TIL fragment.
+   * </p>
    *
    * @return true if a bit was actually cleared, false if absent
    */
@@ -334,7 +347,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     final byte[] keyBuf = chunkedKeyBuffer(key);
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
 
-    final byte[] keySlice = compLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, compLen);
+    final byte[] keySlice = compLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, compLen);
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
     final HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
@@ -371,14 +386,15 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   }
 
   /**
-   * The thread-local key buffer, grown first if {@code key} could need more than it currently
-   * holds.
+   * The thread-local key buffer, grown first if {@code key} could need more than it currently holds.
    *
-   * <p>Sizing has to happen BEFORE the write. The previous shape serialized into the buffer and
-   * only then compared the returned length against {@code buffer.length} — by which point a key
-   * larger than the buffer had already been written past its end. Only NAME keys can reach that:
-   * a CAS key is bounded by a constant well under the buffer, but a local name is raw UTF-8 of
-   * whatever the document called the field.</p>
+   * <p>
+   * Sizing has to happen BEFORE the write. The previous shape serialized into the buffer and only
+   * then compared the returned length against {@code buffer.length} — by which point a key larger
+   * than the buffer had already been written past its end. Only NAME keys can reach that: a CAS key
+   * is bounded by a constant well under the buffer, but a local name is raw UTF-8 of whatever the
+   * document called the field.
+   * </p>
    *
    * @param key the key about to be serialized
    * @return a buffer with room for {@code key}'s prefix

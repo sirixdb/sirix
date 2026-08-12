@@ -6,15 +6,19 @@ package io.sirix.index.hot;
 /**
  * Writes the US-ASCII prefix of a {@link String} straight into a key buffer.
  *
- * <p>Index keys are built one per indexed node, so {@code String.getBytes(UTF_8)} on that path is a
+ * <p>
+ * Index keys are built one per indexed node, so {@code String.getBytes(UTF_8)} on that path is a
  * {@code byte[]} per node that exists only to be copied into the destination and dropped. Field
- * names and the overwhelming majority of indexed values are ASCII, where UTF-8 is one byte per
- * char and the intermediate array buys nothing.</p>
+ * names and the overwhelming majority of indexed values are ASCII, where UTF-8 is one byte per char
+ * and the intermediate array buys nothing.
+ * </p>
  *
- * <p>Callers check {@link #isAsciiPrefix} first and fall back to {@code getBytes} otherwise, so
- * this never has to reproduce UTF-8's multi-byte forms or {@code getBytes}' replacement of
- * unpaired surrogates — the bytes are identical to the prefix {@code getBytes} would have
- * produced, by construction.</p>
+ * <p>
+ * Callers check {@link #isAsciiPrefix} first and fall back to {@code getBytes} otherwise, so this
+ * never has to reproduce UTF-8's multi-byte forms or {@code getBytes}' replacement of unpaired
+ * surrogates — the bytes are identical to the prefix {@code getBytes} would have produced, by
+ * construction.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */

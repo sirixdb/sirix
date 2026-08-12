@@ -109,8 +109,7 @@ public final class CASIndexListener {
       AtomicUtil.toType(value, type);
       isOfType = true;
     } catch (final SirixRuntimeException e) {
-      logger.debug("Value '{}' is not of type {}, skipping CAS index insert for node {}",
-          value, type, nodeKey, e);
+      logger.debug("Value '{}' is not of type {}, skipping CAS index insert for node {}", value, type, nodeKey, e);
     }
 
     if (isOfType) {
@@ -136,10 +135,12 @@ public final class CASIndexListener {
   /**
    * Add {@code nodeKey} to {@code indexValue}'s posting list in the HOT backend.
    *
-   * <p>A HOT slot write OR-merges the incoming bitmap into the stored one, so the references
-   * already recorded for {@code indexValue} need neither be read back nor re-inserted — doing so
-   * cost one range scan plus one full trie descent per already-stored node key, making a bulk
-   * insert of k nodes sharing a value quadratic in k.</p>
+   * <p>
+   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
+   * recorded for {@code indexValue} need neither be read back nor re-inserted — doing so cost one
+   * range scan plus one full trie descent per already-stored node key, making a bulk insert of k
+   * nodes sharing a value quadratic in k.
+   * </p>
    */
   private void insertHOT(final long nodeKey, final CASValue indexValue) {
     assert hotWriter != null;

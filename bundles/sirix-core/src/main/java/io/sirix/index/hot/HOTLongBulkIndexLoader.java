@@ -8,8 +8,10 @@ import static java.util.Objects.requireNonNull;
 /**
  * {@link AbstractHOTBulkIndexLoader} for the PATH index's primitive {@code long} keys.
  *
- * <p>Separate from {@link HOTBulkIndexLoader} purely to keep the key primitive: a PATH build adds
- * one entry per indexed node, so a {@code Long} key would be one box per node.</p>
+ * <p>
+ * Separate from {@link HOTBulkIndexLoader} purely to keep the key primitive: a PATH build adds one
+ * entry per indexed node, so a {@code Long} key would be one box per node.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
