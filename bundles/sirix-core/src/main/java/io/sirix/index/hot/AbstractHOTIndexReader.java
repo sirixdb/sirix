@@ -38,10 +38,12 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
 import org.jspecify.annotations.Nullable;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
@@ -71,6 +73,15 @@ public abstract class AbstractHOTIndexReader<K> {
   protected final int indexNumber;
 
   /**
+   * Pooled trie reader for point-lookup chunk walks: constructing a {@link HOTTrieReader} allocates
+   * its path-stack arrays, which on the lookup path was per-call garbage. One instance is parked here
+   * between calls ({@link HOTTrieReader#close()} releases the leaf guard and clears the path but
+   * keeps the object reusable). Handed out via {@link AtomicReference#getAndSet} so concurrent
+   * lookups through the same reader instance stay correct — a loser simply constructs a fresh one.
+   */
+  private final AtomicReference<HOTTrieReader> pooledTrieReader = new AtomicReference<>();
+
+  /**
    * Protected constructor.
    *
    * @param storageEngineReader the storage engine reader
@@ -81,6 +92,69 @@ public abstract class AbstractHOTIndexReader<K> {
     this.storageEngineReader = requireNonNull(storageEngineReader);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
+  }
+
+  /**
+   * Point-lookup chunk collection shared by the CAS/NAME and PATH readers: seek
+   * {@code lowerBound(prefix ‖ chunk0)} and walk forward, merging every slot whose composite key is
+   * exactly {@code prefix ‖ chunkIdx}, until the first key whose leading {@code prefixLen} bytes
+   * exceed the prefix — lex order makes that stop authoritative, every later key exceeds it too.
+   * Entries that merely EXTEND the prefix (longer logical keys sharing its bytes) are skipped, not
+   * stopped on: their composites sort between this prefix's chunk slots whenever their next byte is
+   * below the chunk trailer's.
+   *
+   * <p>
+   * Zero-copy by construction: slot filtering reads off the leaf via
+   * {@link HOTLeafPage#compareKeyPrefix} / {@link HOTLeafPage#getKeyLength}, the chunkIdx via
+   * {@link HOTLeafPage#readKeyIntBE}, and the chunk payload merges straight from slot memory via
+   * {@link NodeReferencesSerializer#mergeChunkInto} — no key or value is ever materialized. The trie
+   * reader is pooled across calls.
+   *
+   * @param prefixBuf buffer holding the serialized logical key
+   * @param prefixLen serialized length of the logical key
+   * @return the merged logical bitmap, or {@code null} when no chunk holds a live reference
+   */
+  protected final @Nullable Roaring64Bitmap collectChunksViaLowerBoundWalk(final byte[] prefixBuf,
+      final int prefixLen) {
+    final PageReference rootRef = getRootReference();
+    if (rootRef == null) {
+      return null;
+    }
+    final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
+    final byte[] fromBytes = new byte[compositeLen];
+    System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
+    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
+
+    HOTTrieReader trie = pooledTrieReader.getAndSet(null);
+    if (trie == null) {
+      trie = new HOTTrieReader(storageEngineReader);
+    }
+    Roaring64Bitmap merged = null;
+    try {
+      final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
+      HOTLeafPage leaf = lowerBound.leaf;
+      int idx = lowerBound.indexInLeaf;
+      walk: while (leaf != null) {
+        final int entryCount = leaf.getEntryCount();
+        while (idx < entryCount) {
+          final int cmp = leaf.compareKeyPrefix(idx, prefixBuf, prefixLen);
+          if (cmp > 0) {
+            break walk;
+          }
+          if (cmp == 0 && leaf.getKeyLength(idx) == compositeLen) {
+            final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
+            merged = NodeReferencesSerializer.mergeChunkInto(leaf, leaf.valueRef(idx), chunkIdx << 16, merged);
+          }
+          idx++;
+        }
+        leaf = trie.advanceToNextLeaf();
+        idx = 0;
+      }
+    } finally {
+      trie.close(); // releases the leaf guard + clears the path; the object stays reusable
+      pooledTrieReader.compareAndSet(null, trie);
+    }
+    return merged;
   }
 
   /**

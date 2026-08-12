@@ -28,10 +28,12 @@
 package io.sirix.index.hot;
 
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.HOTLeafPage;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
@@ -278,6 +280,74 @@ public final class NodeReferencesSerializer {
   }
 
   /**
+   * Merge one serialized chunk bitmap — still resident in its leaf's off-heap slot memory — into
+   * {@code target}, expanding each stored bit16 to {@code high | bit16}. The read path's chunk
+   * reassembly ran {@code getValue → deserialize → NodeReferences → Roaring64Bitmap → iterate} per
+   * chunk before this: two heap copies and two container allocations to move at most 64 longs. This
+   * reads the packed format directly off the slot via the leaf's zero-alloc value-ref accessors; only
+   * the (rare, > {@link #PACKED_THRESHOLD}-cardinality) Roaring format still round-trips through a
+   * heap array.
+   *
+   * @param leaf the leaf page holding the chunk slot
+   * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
+   * @param high the pre-shifted chunk base ({@code chunkIdx << 16}, chunkIdx treated unsigned)
+   * @param target the accumulator, or {@code null} if none exists yet
+   * @return the accumulator — {@code target} if given, freshly created on the first merged bit, or
+   *         unchanged/{@code null} for a tombstone or empty chunk
+   */
+  public static @Nullable Roaring64Bitmap mergeChunkInto(final HOTLeafPage leaf, final long ref, final long high,
+      @Nullable Roaring64Bitmap target) {
+    final int length = HOTLeafPage.refLength(ref);
+    if (length <= 0) {
+      return target;
+    }
+    final byte format = leaf.refByteAt(ref, 0);
+    if (format == TOMBSTONE_FORMAT) {
+      return target;
+    }
+    if (format == PACKED_FORMAT) {
+      if (length < 2) {
+        return target;
+      }
+      final int count = leaf.refByteAt(ref, 1) & 0xFF;
+      if (count == 0 || 2 + count * 8 > length) {
+        return target;
+      }
+      if (target == null) {
+        target = new Roaring64Bitmap();
+      }
+      for (int i = 0; i < count; i++) {
+        // Stored big-endian; refLongAt reads little-endian off the segment.
+        final long bit16 = Long.reverseBytes(leaf.refLongAt(ref, 2 + i * 8)) & 0xFFFFL;
+        target.add(high | bit16);
+      }
+      return target;
+    }
+    if (format == ROARING_FORMAT) {
+      final byte[] bytes = new byte[length - 1];
+      leaf.copyRefInto(ref, 1, bytes, 0, length - 1);
+      final Roaring64Bitmap chunkBitmap = new Roaring64Bitmap();
+      try {
+        chunkBitmap.deserialize(ByteBuffer.wrap(bytes));
+      } catch (IOException e) {
+        throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
+      }
+      if (chunkBitmap.isEmpty()) {
+        return target;
+      }
+      if (target == null) {
+        target = new Roaring64Bitmap();
+      }
+      final LongIterator it = chunkBitmap.getLongIterator();
+      while (it.hasNext()) {
+        target.add(high | (it.next() & 0xFFFFL));
+      }
+      return target;
+    }
+    throw new IllegalArgumentException("Unknown NodeReferences format: " + format);
+  }
+
+  /**
    * {@link #isTombstone(byte[], int, int)} over a slot value still in off-heap memory.
    *
    * <p>
@@ -440,7 +510,7 @@ public final class NodeReferencesSerializer {
     buf[0] = ROARING_FORMAT;
     try {
       bitmap.serialize(ByteBuffer.wrap(buf, 1, size));
-    } catch (java.io.IOException e) {
+    } catch (IOException e) {
       throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap serialization", e);
     }
     return buf;
@@ -451,7 +521,7 @@ public final class NodeReferencesSerializer {
     final int size = (int) bitmap.serializedSizeInBytes();
     try {
       bitmap.serialize(ByteBuffer.wrap(dest, offset + 1, size));
-    } catch (java.io.IOException e) {
+    } catch (IOException e) {
       throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap serialization", e);
     }
     return 1 + size;
@@ -490,7 +560,7 @@ public final class NodeReferencesSerializer {
     final Roaring64Bitmap bitmap = new Roaring64Bitmap();
     try {
       bitmap.deserialize(ByteBuffer.wrap(bytes, offset, length));
-    } catch (java.io.IOException e) {
+    } catch (IOException e) {
       throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
     }
     return NodeReferences.owning(bitmap);

@@ -10,6 +10,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.utils.OS;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -247,6 +248,132 @@ class HOTLeafPageTest {
     assertEquals(key.length, keySlice.byteSize());
     assertEquals(value.length, valueSlice.byteSize());
 
+    page.close();
+  }
+
+  /** Composite key {@code logicalPrefix ‖ chunkIdx_be4}, as the chunked posting lists store them. */
+  private static byte[] composite(String logicalPrefix, int chunkIdx) {
+    final byte[] prefix = logicalPrefix.getBytes(StandardCharsets.UTF_8);
+    final byte[] key = new byte[prefix.length + 4];
+    System.arraycopy(prefix, 0, key, 0, prefix.length);
+    key[prefix.length] = (byte) (chunkIdx >>> 24);
+    key[prefix.length + 1] = (byte) (chunkIdx >>> 16);
+    key[prefix.length + 2] = (byte) (chunkIdx >>> 8);
+    key[prefix.length + 3] = (byte) chunkIdx;
+    return key;
+  }
+
+  /**
+   * A leaf whose entries share the common prefix {@code "shared/"} (maintained by {@code put}'s LCP
+   * tracking), so the zero-copy key accessors exercise BOTH regions: on-heap commonPrefix and
+   * off-heap suffix.
+   */
+  private static HOTLeafPage prefixedLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] value = new byte[] {1};
+    assertTrue(page.put(composite("shared/alpha", 5), value));
+    assertTrue(page.put(composite("shared/alpha", 0x00010002), value));
+    assertTrue(page.put(composite("shared/alphaX", 1), value));
+    assertTrue(page.put(composite("shared/beta", 0), value));
+    return page;
+  }
+
+  @Test
+  void testGetKeyLengthMatchesMaterializedKey() {
+    final HOTLeafPage page = prefixedLeaf();
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      assertEquals(page.getKey(i).length, page.getKeyLength(i), "entry " + i);
+    }
+    page.close();
+  }
+
+  @Test
+  void testCompareKeyPrefixSpansPrefixAndSuffix() {
+    final HOTLeafPage page = prefixedLeaf();
+    final byte[] alpha = "shared/alpha".getBytes(StandardCharsets.UTF_8);
+    final int alphaChunkIdx = page.findEntry(composite("shared/alpha", 5));
+    final int extensionIdx = page.findEntry(composite("shared/alphaX", 1));
+    final int betaIdx = page.findEntry(composite("shared/beta", 0));
+    assertTrue(alphaChunkIdx >= 0 && extensionIdx >= 0 && betaIdx >= 0);
+
+    // Exact chunk slot and extension slot both START WITH the logical prefix.
+    assertEquals(0, page.compareKeyPrefix(alphaChunkIdx, alpha, alpha.length));
+    assertEquals(0, page.compareKeyPrefix(extensionIdx, alpha, alpha.length));
+    // A key on a different branch compares by its first differing byte ('b' > 'a').
+    assertTrue(page.compareKeyPrefix(betaIdx, alpha, alpha.length) > 0);
+    // Divergence INSIDE the shared commonPrefix region ("shared/" vs "sharez/").
+    final byte[] sharez = "sharez/alpha".getBytes(StandardCharsets.UTF_8);
+    assertTrue(page.compareKeyPrefix(alphaChunkIdx, sharez, sharez.length) < 0);
+    // A probe longer than the key: equal through the key's bytes -> the key is less.
+    final byte[] longProbe = composite("shared/alpha", 5); // 16 bytes, == full key of alphaChunkIdx
+    final byte[] longer = new byte[longProbe.length + 2];
+    System.arraycopy(longProbe, 0, longer, 0, longProbe.length);
+    assertTrue(page.compareKeyPrefix(alphaChunkIdx, longer, longer.length) < 0);
+    page.close();
+  }
+
+  @Test
+  void testCompareKeyPrefixPartExcludesChunkTrailer() {
+    final HOTLeafPage page = prefixedLeaf();
+    final byte[] alpha = "shared/alpha".getBytes(StandardCharsets.UTF_8);
+    final int alphaChunkIdx = page.findEntry(composite("shared/alpha", 5));
+    final int extensionIdx = page.findEntry(composite("shared/alphaX", 1));
+
+    // Trimming the 4-byte trailer leaves exactly the logical prefix.
+    assertEquals(0, page.compareKeyPrefixPart(alphaChunkIdx, 4, alpha, alpha.length));
+    // The extension key's trimmed part ("shared/alphaX") is longer -> greater.
+    assertTrue(page.compareKeyPrefixPart(extensionIdx, 4, alpha, alpha.length) > 0);
+    // Against a longer probe the trimmed part is shorter -> less.
+    final byte[] alphaY = "shared/alphaY".getBytes(StandardCharsets.UTF_8);
+    assertTrue(page.compareKeyPrefixPart(alphaChunkIdx, 4, alphaY, alphaY.length) < 0);
+    page.close();
+  }
+
+  @Test
+  void testReadKeyIntBEAcrossRegions() {
+    final HOTLeafPage page = prefixedLeaf();
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      final byte[] key = page.getKey(i);
+      // Every alignment: fully inside the commonPrefix, spanning the boundary, and the trailer.
+      for (final int pos : new int[] {0, 3, 5, key.length - 4}) {
+        final int expected = ((key[pos] & 0xFF) << 24) | ((key[pos + 1] & 0xFF) << 16) | ((key[pos + 2] & 0xFF) << 8)
+            | (key[pos + 3] & 0xFF);
+        assertEquals(expected, page.readKeyIntBE(i, pos), "entry " + i + " pos " + pos);
+      }
+    }
+    page.close();
+  }
+
+  @Test
+  void testMergeChunkIntoPackedTombstoneAndRoaring() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+
+    // Packed chunk (2 bit16 values), a tombstone, and a Roaring chunk (>64 values).
+    final NodeReferences packed = new NodeReferences();
+    packed.addNodeKey(0x0001);
+    packed.addNodeKey(0xFFFF);
+    final NodeReferences tombstone = new NodeReferences();
+    final NodeReferences roaring = new NodeReferences();
+    for (int v = 0; v < 100; v++) {
+      roaring.addNodeKey(v * 3);
+    }
+    assertTrue(page.put(composite("k", 3), NodeReferencesSerializer.serialize(packed)));
+    assertTrue(page.put(composite("k", 4), NodeReferencesSerializer.serialize(tombstone)));
+    assertTrue(page.put(composite("k", 5), NodeReferencesSerializer.serialize(roaring)));
+
+    Roaring64Bitmap merged = null;
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      final long chunkIdx = page.readKeyIntBE(i, page.getKeyLength(i) - 4) & 0xFFFFFFFFL;
+      merged = NodeReferencesSerializer.mergeChunkInto(page, page.valueRef(i), chunkIdx << 16, merged);
+    }
+
+    final Roaring64Bitmap expected = new Roaring64Bitmap();
+    expected.add((3L << 16) | 0x0001);
+    expected.add((3L << 16) | 0xFFFF);
+    for (int v = 0; v < 100; v++) {
+      expected.add((5L << 16) | (v * 3));
+    }
+    assertEquals(expected, merged);
     page.close();
   }
 }

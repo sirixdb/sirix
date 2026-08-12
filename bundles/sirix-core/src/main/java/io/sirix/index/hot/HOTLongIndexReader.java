@@ -36,7 +36,6 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.AbstractMap;
@@ -114,54 +113,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   private @Nullable NodeReferences reassembleChunksForLongPrefix(byte[] prefixBuf, int prefixLen) {
-    final PageReference rootRef = getRootReference();
-    if (rootRef == null) {
-      return null;
-    }
-
-    final byte[] fromBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
-    System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
-    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
-
-    final byte[] toBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
-    System.arraycopy(prefixBuf, 0, toBytes, 0, prefixLen);
-    HOTKeySerializer.writeChunkIdxBE(toBytes, prefixLen, 0xFFFFFFFF);
-
-    Roaring64Bitmap merged = null;
-    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
-        HOTRangeCursor cursor = reader.range(rootRef, fromBytes, toBytes)) {
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, prefixBuf, 0, prefixLen) != 0) {
-          cursor.advance();
-          continue;
-        }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          cursor.advance();
-          continue;
-        }
-        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-        if (chunkBitmap.isEmpty()) {
-          cursor.advance();
-          continue;
-        }
-        if (merged == null) {
-          merged = new Roaring64Bitmap();
-        }
-        final long high = ((long) chunkIdx) << 16;
-        final LongIterator bIt = chunkBitmap.getLongIterator();
-        while (bIt.hasNext()) {
-          merged.add(high | (bIt.next() & 0xFFFFL));
-        }
-        cursor.advance();
-      }
-    }
+    final Roaring64Bitmap merged = collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
     if (merged == null || merged.isEmpty()) {
       return null;
     }
@@ -276,19 +228,18 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
       }
       // Skip lex-pre-fromPrefix groups (HOT path-stack walk isn't lex-monotonic; see
       // HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter for the full rationale).
+      // Zero-copy per slot: length + prefix filtering read straight off the leaf.
       while (cursor.hasNext()) {
-        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-        if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int idx = cursor.currentEntryIndex();
+        if (leaf.getKeyLength(idx) < HOTKeySerializer.CHUNK_IDX_BYTES) {
           cursor.advance();
           continue;
         }
-        if (fromPrefixFilter != null) {
-          final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen, fromPrefixFilter, 0,
-              fromPrefixFilter.length) < 0) {
-            cursor.advance();
-            continue;
-          }
+        if (fromPrefixFilter != null && leaf.compareKeyPrefixPart(idx, HOTKeySerializer.CHUNK_IDX_BYTES,
+            fromPrefixFilter, fromPrefixFilter.length) < 0) {
+          cursor.advance();
+          continue;
         }
         break;
       }
@@ -296,38 +247,20 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
         nextEntry = null;
         return;
       }
-      byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-      if (groupComposite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
-        cursor.advance();
-        advance();
-        return;
-      }
+      // Materialize the group's composite key ONCE — it doubles as the logical-key bytes for
+      // deserialization at emit. Per-slot filtering below stays zero-copy against it.
+      final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
       final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+      final int compositeLen = groupComposite.length;
       Roaring64Bitmap merged = null;
       while (cursor.hasNext()) {
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+        if (leaf.getKeyLength(idx) != compositeLen || leaf.compareKeyPrefix(idx, groupComposite, prefixLen) != 0) {
           break;
         }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-          final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-          if (!chunkBitmap.isEmpty()) {
-            if (merged == null) {
-              merged = new Roaring64Bitmap();
-            }
-            final long high = ((long) chunkIdx) << 16;
-            final LongIterator bIt = chunkBitmap.getLongIterator();
-            while (bIt.hasNext()) {
-              merged.add(high | (bIt.next() & 0xFFFFL));
-            }
-          }
-        }
+        final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
+        merged = NodeReferencesSerializer.mergeChunkInto(leaf, leaf.valueRef(idx), chunkIdx << 16, merged);
         cursor.advance();
       }
       if (merged == null || merged.isEmpty()) {
