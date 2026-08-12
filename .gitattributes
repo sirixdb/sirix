@@ -8,3 +8,13 @@
 # Files.readString and compare the raw string against the serializer's \n-delimited output.
 *.out text eol=lf
 *.xq text eol=lf
+
+# Everything else is normalized to LF in the repository and checked out as LF, so a Windows
+# clone cannot reintroduce CRLF into the index. Without this, files committed from a CRLF
+# checkout stay CRLF in the object store, disagree with what git checks out, and read as
+# permanently modified — which also makes git refuse to replay any patch touching them.
+* text=auto eol=lf
+
+# ...except the Windows launchers, which cmd.exe expects with CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
