@@ -38,7 +38,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Iterator;
 import java.util.Map;
@@ -81,6 +80,9 @@ public abstract class AbstractHOTIndexReader<K> {
    */
   private final AtomicReference<HOTTrieReader> pooledTrieReader = new AtomicReference<>();
 
+  /** Pooled chunk accumulator for the lookup walk — same handoff discipline as the trie reader. */
+  private final AtomicReference<NodeReferencesSerializer.ChunkAccumulator> pooledAccumulator = new AtomicReference<>();
+
   /**
    * Protected constructor.
    *
@@ -112,10 +114,10 @@ public abstract class AbstractHOTIndexReader<K> {
    *
    * @param prefixBuf buffer holding the serialized logical key
    * @param prefixLen serialized length of the logical key
-   * @return the merged logical bitmap, or {@code null} when no chunk holds a live reference
+   * @return the reassembled references — compact for small results — or {@code null} when no chunk
+   *         holds a live reference
    */
-  protected final @Nullable Roaring64Bitmap collectChunksViaLowerBoundWalk(final byte[] prefixBuf,
-      final int prefixLen) {
+  protected final @Nullable NodeReferences collectChunksViaLowerBoundWalk(final byte[] prefixBuf, final int prefixLen) {
     final PageReference rootRef = getRootReference();
     if (rootRef == null) {
       return null;
@@ -129,7 +131,10 @@ public abstract class AbstractHOTIndexReader<K> {
     if (trie == null) {
       trie = new HOTTrieReader(storageEngineReader);
     }
-    Roaring64Bitmap merged = null;
+    NodeReferencesSerializer.ChunkAccumulator accumulator = pooledAccumulator.getAndSet(null);
+    if (accumulator == null) {
+      accumulator = new NodeReferencesSerializer.ChunkAccumulator();
+    }
     try {
       final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
       HOTLeafPage leaf = lowerBound.leaf;
@@ -143,18 +148,20 @@ public abstract class AbstractHOTIndexReader<K> {
           }
           if (cmp == 0 && leaf.getKeyLength(idx) == compositeLen) {
             final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-            merged = NodeReferencesSerializer.mergeChunkInto(leaf, leaf.valueRef(idx), chunkIdx << 16, merged);
+            accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16);
           }
           idx++;
         }
         leaf = trie.advanceToNextLeaf();
         idx = 0;
       }
+      return accumulator.toNodeReferencesAndReset();
     } finally {
+      accumulator.reset(); // no-op on the success path; drops partial state if the walk threw
       trie.close(); // releases the leaf guard + clears the path; the object stays reusable
       pooledTrieReader.compareAndSet(null, trie);
+      pooledAccumulator.compareAndSet(null, accumulator);
     }
-    return merged;
   }
 
   /**

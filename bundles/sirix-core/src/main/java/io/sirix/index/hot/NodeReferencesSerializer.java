@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
 
@@ -277,6 +278,127 @@ public final class NodeReferencesSerializer {
    */
   public static boolean isTombstone(byte[] bytes, int offset, int length) {
     return length == 1 && bytes[offset] == TOMBSTONE_FORMAT;
+  }
+
+  /**
+   * Accumulates a lookup's chunk payloads into the cheapest sufficient representation: a sorted
+   * {@code long[]} while the result stays small (the average CAS posting list holds one or two node
+   * keys), spilling to a {@link Roaring64Bitmap} past {@link #COMPACT_LIMIT} or when a Roaring-format
+   * chunk appears. The emitted {@link NodeReferences#ofSortedArray} result costs one right-sized
+   * array + one wrapper instead of a bitmap container tree per lookup — the single largest allocation
+   * the read path had left.
+   *
+   * <p>
+   * Sortedness precondition: chunks must be appended in ascending composite-key order (the chunk
+   * walk's natural order — chunkIdx-major, bit16-minor, duplicate-free), which makes every append
+   * strictly ascending. Not thread-safe; pool per reader or per iterator.
+   */
+  public static final class ChunkAccumulator {
+
+    private static final int COMPACT_LIMIT = 512;
+
+    private long[] keys = new long[8];
+    private int count;
+    private @Nullable Roaring64Bitmap bitmap;
+
+    /** Drop all accumulated state (also called implicitly by {@link #toNodeReferencesAndReset}). */
+    public void reset() {
+      count = 0;
+      bitmap = null;
+    }
+
+    private void add(final long key) {
+      Roaring64Bitmap spilled = bitmap;
+      if (spilled != null) {
+        spilled.add(key);
+        return;
+      }
+      if (count == keys.length) {
+        if (count >= COMPACT_LIMIT) {
+          spilled = new Roaring64Bitmap();
+          for (int i = 0; i < count; i++) {
+            spilled.add(keys[i]);
+          }
+          bitmap = spilled;
+          count = 0;
+          spilled.add(key);
+          return;
+        }
+        keys = Arrays.copyOf(keys, count * 2);
+      }
+      keys[count++] = key;
+    }
+
+    /**
+     * Append one chunk payload, expanding each stored bit16 to {@code high | bit16}. Same format
+     * handling as {@link #mergeChunkInto}: packed reads straight off slot memory, tombstones and empty
+     * payloads are skipped, the (rare) Roaring format round-trips through a heap array.
+     *
+     * @param leaf the leaf page holding the chunk slot
+     * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
+     * @param high the pre-shifted chunk base ({@code chunkIdx << 16}, chunkIdx treated unsigned)
+     */
+    public void addChunk(final HOTLeafPage leaf, final long ref, final long high) {
+      final int length = HOTLeafPage.refLength(ref);
+      if (length <= 0) {
+        return;
+      }
+      final byte format = leaf.refByteAt(ref, 0);
+      if (format == TOMBSTONE_FORMAT) {
+        return;
+      }
+      if (format == PACKED_FORMAT) {
+        if (length < 2) {
+          return;
+        }
+        final int chunkCount = leaf.refByteAt(ref, 1) & 0xFF;
+        if (chunkCount == 0 || 2 + chunkCount * 8 > length) {
+          return;
+        }
+        for (int i = 0; i < chunkCount; i++) {
+          // Stored big-endian; refLongAt reads little-endian off the segment.
+          final long bit16 = Long.reverseBytes(leaf.refLongAt(ref, 2 + i * 8)) & 0xFFFFL;
+          add(high | bit16);
+        }
+        return;
+      }
+      if (format == ROARING_FORMAT) {
+        final byte[] bytes = new byte[length - 1];
+        leaf.copyRefInto(ref, 1, bytes, 0, length - 1);
+        final Roaring64Bitmap chunkBitmap = new Roaring64Bitmap();
+        try {
+          chunkBitmap.deserialize(ByteBuffer.wrap(bytes));
+        } catch (IOException e) {
+          throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
+        }
+        final LongIterator it = chunkBitmap.getLongIterator();
+        while (it.hasNext()) {
+          add(high | (it.next() & 0xFFFFL));
+        }
+        return;
+      }
+      throw new IllegalArgumentException("Unknown NodeReferences format: " + format);
+    }
+
+    /**
+     * Emit the accumulated result — compact when it stayed small, bitmap-backed when it spilled — and
+     * reset for reuse. {@code null} when nothing live was accumulated.
+     */
+    public @Nullable NodeReferences toNodeReferencesAndReset() {
+      final Roaring64Bitmap spilled = bitmap;
+      if (spilled != null) {
+        reset();
+        return spilled.isEmpty()
+            ? null
+            : NodeReferences.owning(spilled);
+      }
+      final int resultCount = count;
+      if (resultCount == 0) {
+        return null;
+      }
+      count = 0;
+      return NodeReferences.ofSortedArray(Arrays.copyOf(keys, resultCount), resultCount);
+    }
   }
 
   /**

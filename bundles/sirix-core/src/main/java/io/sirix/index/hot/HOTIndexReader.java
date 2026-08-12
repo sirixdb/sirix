@@ -141,9 +141,13 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    * {@code prefixBuf[0..prefixLen)}. Shared by {@link #get} and the range iterators.
    */
   private @Nullable NodeReferences reassembleChunksForPrefix(byte[] prefixBuf, int prefixLen) {
-    Roaring64Bitmap merged = collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
+    final NodeReferences collected = collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
+    if (collected != null) {
+      return collected;
+    }
 
-    if (merged == null || merged.isEmpty()) {
+    Roaring64Bitmap merged = null;
+    {
       if (Boolean.getBoolean("hot.cas.leftmostfallback.enable")) {
         // Historical Phase 7v retry, now OPT-IN: a full leaf-walk scan robust against
         // non-lex-order leaves, for tries written before the writer enforced I8/I12 (the
@@ -338,6 +342,9 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
      * </p>
      */
     private final byte @Nullable [] fromPrefixFilter;
+    /** Per-iterator chunk accumulator, reset per logical group. */
+    private final NodeReferencesSerializer.ChunkAccumulator accumulator =
+        new NodeReferencesSerializer.ChunkAccumulator();
     private Map.@Nullable Entry<K, NodeReferences> nextEntry;
 
     ChunkAggregatingIterator(byte[] fromComposite, byte @Nullable [] toComposite, byte @Nullable [] fromPrefixFilter) {
@@ -413,8 +420,6 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
         final int compositeLen = groupComposite.length;
 
-        Roaring64Bitmap merged = null;
-
         while (cursor.hasNext()) {
           final HOTLeafPage leaf = cursor.currentLeafPage();
           final int idx = cursor.currentEntryIndex();
@@ -422,12 +427,13 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
             break;
           }
           final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-          merged = NodeReferencesSerializer.mergeChunkInto(leaf, leaf.valueRef(idx), chunkIdx << 16, merged);
+          accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16);
           cursor.advance();
         }
 
-        if (merged != null && !merged.isEmpty()) {
-          nextEntry = new LazyKeyEntry(groupComposite, prefixLen, NodeReferences.owning(merged));
+        final NodeReferences groupRefs = accumulator.toNodeReferencesAndReset();
+        if (groupRefs != null) {
+          nextEntry = new LazyKeyEntry(groupComposite, prefixLen, groupRefs);
           return;
         }
       }

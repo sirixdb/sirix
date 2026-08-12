@@ -201,7 +201,7 @@ public final class ValidTimeIndexScan {
 
     while (index.hasNext()) {
       final NodeReferences refs = index.next();
-      final var it = refs.getNodeKeys().getLongIterator();
+      final var it = refs.nodeKeyIterator();
       while (it.hasNext()) {
         final long indexedNodeKey = it.next();
         final long objectKey = moveToContainingObjectKey(rtx, indexedNodeKey);

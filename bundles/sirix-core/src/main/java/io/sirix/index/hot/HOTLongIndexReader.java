@@ -36,7 +36,6 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
-import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Arrays;
 import java.util.Iterator;
@@ -112,11 +111,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   }
 
   private @Nullable NodeReferences reassembleChunksForLongPrefix(byte[] prefixBuf, int prefixLen) {
-    final Roaring64Bitmap merged = collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
-    if (merged == null || merged.isEmpty()) {
-      return null;
-    }
-    return NodeReferences.owning(merged);
+    return collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
   }
 
   /**
@@ -176,6 +171,9 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     private final @Nullable HOTRangeCursor cursor;
     /** See {@code HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter} for rationale. */
     private final byte @Nullable [] fromPrefixFilter;
+    /** Per-iterator chunk accumulator, reset per logical group. */
+    private final NodeReferencesSerializer.ChunkAccumulator accumulator =
+        new NodeReferencesSerializer.ChunkAccumulator();
     private Map.@Nullable Entry<Long, NodeReferences> nextEntry;
 
     ChunkAggregatingLongIterator(byte[] fromComposite, byte @Nullable [] toComposite,
@@ -251,7 +249,6 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
       final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
       final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
       final int compositeLen = groupComposite.length;
-      Roaring64Bitmap merged = null;
       while (cursor.hasNext()) {
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int idx = cursor.currentEntryIndex();
@@ -259,14 +256,15 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
           break;
         }
         final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-        merged = NodeReferencesSerializer.mergeChunkInto(leaf, leaf.valueRef(idx), chunkIdx << 16, merged);
+        accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16);
         cursor.advance();
       }
-      if (merged == null || merged.isEmpty()) {
+      final NodeReferences groupRefs = accumulator.toNodeReferencesAndReset();
+      if (groupRefs == null) {
         advance();
         return;
       }
-      nextEntry = new LazyKeyEntry(groupComposite, prefixLen, NodeReferences.owning(merged));
+      nextEntry = new LazyKeyEntry(groupComposite, prefixLen, groupRefs);
     }
   }
 

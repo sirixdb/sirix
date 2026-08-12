@@ -282,11 +282,12 @@ public final class IndexExpr implements Expr {
         ? resourceSession.openPathSummary()
         : resourceSession.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
-        final var currNodeKeys = new LongLinkedOpenHashSet(currentNodeReferences.getNodeKeys().toArray());
+        final var currNodeKeys = new LongLinkedOpenHashSet((int) currentNodeReferences.cardinality());
+        currentNodeReferences.forEachNodeKey(currNodeKeys::add);
         // if array numberOfArrayIndexes are given (only some might be specified we have to drop false
         // positive nodes
         if (numberOfArrayIndexes != 0 || checkPathBecauseOfFieldNameChecks) {
-          final var nodeKeyIter = currentNodeReferences.getNodeKeys().getLongIterator();
+          final var nodeKeyIter = currentNodeReferences.nodeKeyIterator();
           while (nodeKeyIter.hasNext()) {
             final var nodeKey = nodeKeyIter.next();
             final var currentPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
