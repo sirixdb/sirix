@@ -31,20 +31,23 @@ import io.brackit.query.util.Cfg;
 /**
  * Compile chain for SirixDB queries.
  *
- * <p>Uses sequential execution by default. Parallel (block-based) execution is available via
+ * <p>
+ * Uses sequential execution by default. Parallel (block-based) execution is available via
  * {@link #createParallel} factory methods for read-only queries. Brackit's
  * {@link BlockPipelineStrategy} leverages ForkJoinPool-based work-stealing to parallelize FLWOR
  * expressions automatically. The strategy only activates for FLWOR PipeExpr AST nodes, so simple
  * queries incur zero overhead.
  *
- * <p>Thread-safety for parallel execution is provided by per-worker read-only transactions:
+ * <p>
+ * Thread-safety for parallel execution is provided by per-worker read-only transactions:
  * collections wrap raw transactions in thread-safe proxies that transparently obtain per-thread
  * cursors from the resource session's shared pool.
  *
- * <p>Analytical queries get the vectorized fast paths without being asked to. A chain built with a
+ * <p>
+ * Analytical queries get the vectorized fast paths without being asked to. A chain built with a
  * {@link JsonResourceSession} binds an executor to it; a chain built from a store alone reads the
- * resource off each query's own {@code jn:doc}/{@code jn:open} (see {@link StoreBoundExecutorCache}).
- * An executor a caller registered explicitly via
+ * resource off each query's own {@code jn:doc}/{@code jn:open} (see
+ * {@link StoreBoundExecutorCache}). An executor a caller registered explicitly via
  * {@link SequentialPipelineStrategy#setVectorizedExecutor} always wins over both. Whether a
  * resolved executor may actually serve a given scan stays the decision of
  * {@code SirixVectorizedExecutor.acceptsSource}, so auto-wiring can only ever add speed, never
@@ -78,16 +81,15 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   private SirixOptimizer lastOptimizer;
 
   /**
-   * Optional per-chain {@link SirixVectorizedExecutor}. When non-null,
-   * {@link #compile} installs it as Brackit's thread-local vectorized
-   * executor for the duration of each compile call — the resulting
-   * {@code Expr} tree captures the executor reference at compile time,
-   * so the thread-local does not need to be live during execution.
+   * Optional per-chain {@link SirixVectorizedExecutor}. When non-null, {@link #compile} installs it
+   * as Brackit's thread-local vectorized executor for the duration of each compile call — the
+   * resulting {@code Expr} tree captures the executor reference at compile time, so the thread-local
+   * does not need to be live during execution.
    *
-   * <p>Lazily built from {@link #autoExecutorSession} on first compile
-   * and reused thereafter. {@code null} when the chain wasn't configured
-   * with a session (single-shot / multi-resource workflows fall back to
-   * {@link SequentialPipelineStrategy#setVectorizedExecutor}).
+   * <p>
+   * Lazily built from {@link #autoExecutorSession} on first compile and reused thereafter.
+   * {@code null} when the chain wasn't configured with a session (single-shot / multi-resource
+   * workflows fall back to {@link SequentialPipelineStrategy#setVectorizedExecutor}).
    */
   private volatile SirixVectorizedExecutor autoExecutor;
 
@@ -98,15 +100,15 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   private final JsonResourceSession autoExecutorSession;
 
   /**
-   * Revision the auto-executor binds to; {@link #MOST_RECENT_REVISION} resolves to the
-   * session's most recent revision at first compile.
+   * Revision the auto-executor binds to; {@link #MOST_RECENT_REVISION} resolves to the session's most
+   * recent revision at first compile.
    */
   private final int autoExecutorRevision;
 
   /**
-   * Kill switch for the store-resolved auto-wiring. On by default: the analytical fast paths were
-   * the configuration that got measured, so leaving them off unless a caller named a session meant
-   * the benchmarked system and the delivered one were not the same. Set
+   * Kill switch for the store-resolved auto-wiring. On by default: the analytical fast paths were the
+   * configuration that got measured, so leaving them off unless a caller named a session meant the
+   * benchmarked system and the delivered one were not the same. Set
    * {@code -Dsirix.query.autoVectorize=false} to compile every query through the generic pipeline.
    */
   private static final boolean AUTO_VECTORIZE_ENABLED =
@@ -147,7 +149,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * Chain over a JSON store that compiles every query to the generic pipeline — no auto-wiring, no
    * vectorized substitution.
    *
-   * <p>Exists for the callers that treat "no executor registered" as a statement rather than an
+   * <p>
+   * Exists for the callers that treat "no executor registered" as a statement rather than an
    * omission: a differential test whose ground truth IS the generic pipeline, or an A/B harness
    * measuring what the fast paths are worth. Those callers used to get this from
    * {@link #createWithJsonStore(JsonDBStore)} by saying nothing, which auto-wiring turned into a
@@ -161,24 +164,23 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Convenience factory that auto-wires a {@link SirixVectorizedExecutor}
-   * against the supplied resource session. Queries compiled through the
-   * returned chain receive the analytical fast paths (projection byte-scan,
-   * page-skip, PAX SIMD) without the caller having to register the
-   * executor via {@link SequentialPipelineStrategy#setVectorizedExecutor}.
+   * Convenience factory that auto-wires a {@link SirixVectorizedExecutor} against the supplied
+   * resource session. Queries compiled through the returned chain receive the analytical fast paths
+   * (projection byte-scan, page-skip, PAX SIMD) without the caller having to register the executor
+   * via {@link SequentialPipelineStrategy#setVectorizedExecutor}.
    *
-   * <p>The executor reference is lazily built on the first
-   * {@code compile} and torn down on {@link #close()}. Use this variant when the caller already
-   * holds the session — it saves resolving one per query and works for a resource this chain's
-   * store cannot look up. For everything else {@link #createWithJsonStore(JsonDBStore)} now
-   * auto-wires per query, including multi-resource workloads.
+   * <p>
+   * The executor reference is lazily built on the first {@code compile} and torn down on
+   * {@link #close()}. Use this variant when the caller already holds the session — it saves resolving
+   * one per query and works for a resource this chain's store cannot look up. For everything else
+   * {@link #createWithJsonStore(JsonDBStore)} now auto-wires per query, including multi-resource
+   * workloads.
    *
    * @param jsonStore the JSON item store
-   * @param session   the resource session analytical queries will target;
-   *                  the executor uses its current most-recent revision
+   * @param session the resource session analytical queries will target; the executor uses its current
+   *        most-recent revision
    */
-  public static SirixCompileChain createWithJsonStore(final JsonDBStore jsonStore,
-      final JsonResourceSession session) {
+  public static SirixCompileChain createWithJsonStore(final JsonDBStore jsonStore, final JsonResourceSession session) {
     return new SirixCompileChain(null, jsonStore, false, true, session);
   }
 
@@ -188,22 +190,23 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   /**
    * Variant of {@link #createWithJsonStore(JsonDBStore, JsonResourceSession)} that carries BOTH
-   * stores (XML + JSON) and pins the auto-wired executor to an explicit revision — the shape the
-   * REST layer needs: a resource-scoped request may name any committed revision, and analytical
-   * serving must answer AT that revision, never a later one.
+   * stores (XML + JSON) and pins the auto-wired executor to an explicit revision — the shape the REST
+   * layer needs: a resource-scoped request may name any committed revision, and analytical serving
+   * must answer AT that revision, never a later one.
    *
-   * <p>The same single-resource contract applies: queries compiled through the returned chain
-   * must only target the supplied session's resource — the analytical detection captures source
-   * paths, not resource identity, so the caller has to prove single-resource targeting before
-   * using this factory (see the REST layer's serving gate).
+   * <p>
+   * The same single-resource contract applies: queries compiled through the returned chain must only
+   * target the supplied session's resource — the analytical detection captures source paths, not
+   * resource identity, so the caller has to prove single-resource targeting before using this factory
+   * (see the REST layer's serving gate).
    *
    * @param nodeStore the XML node store
    * @param jsonStore the JSON item store
-   * @param session   the resource session analytical queries will target
-   * @param revision  the committed revision analytical queries are answered at; {@code >= 1}
+   * @param session the resource session analytical queries will target
+   * @param revision the committed revision analytical queries are answered at; {@code >= 1}
    */
-  public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore,
-      final JsonDBStore jsonStore, final JsonResourceSession session, final int revision) {
+  public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore,
+      final JsonResourceSession session, final int revision) {
     if (session == null) {
       throw new IllegalArgumentException("session must not be null");
     }
@@ -243,10 +246,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Create a parallel compile chain that additionally enables morsel-driven fan-out
-   * for PipeExprs that fall out of the vectorized fast path. Morsel wrapping is a
-   * process-wide toggle on {@link SequentialPipelineStrategy}, so enabling it here
-   * affects all compile chains in the JVM until disabled.
+   * Create a parallel compile chain that additionally enables morsel-driven fan-out for PipeExprs
+   * that fall out of the vectorized fast path. Morsel wrapping is a process-wide toggle on
+   * {@link SequentialPipelineStrategy}, so enabling it here affects all compile chains in the JVM
+   * until disabled.
    *
    * @param nodeStore the XML node store (or null)
    * @param jsonStore the JSON item store (or null)
@@ -255,6 +258,39 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   public static SirixCompileChain createParallelWithMorsel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
     SequentialPipelineStrategy.setMorselEnabled(true);
     return createParallel(nodeStore, jsonStore);
+  }
+
+  /**
+   * Create a compile chain whose scan-shaped pipelines fan out morsel-driven, over splits of the
+   * source itself.
+   *
+   * <p>
+   * Note this is <em>not</em> {@link #createParallelWithMorsel}, despite the name overlap, and the
+   * difference is why that method could never do what it claimed. Morsel wrapping lives in
+   * {@link SequentialPipelineStrategy}, but {@code createParallelWithMorsel} also asks for the
+   * parallel translator — and that installs {@code BlockPipelineStrategy}, which does not extend
+   * {@code SequentialPipelineStrategy}. The flag was therefore set and then never consulted: the
+   * chain it returns is the block-parallel chain, nothing more. This factory keeps the sequential
+   * translator, which is the one that knows how to split.
+   *
+   * <p>
+   * The fan-out replaces the pipeline expression itself, so each worker runs the whole chain — leaf
+   * scan, predicates and the return expression — over its own piece of the source. Pieces come from
+   * {@code SplittableSequence}; a source that cannot split iterates serially, so this is never slower
+   * than the ordinary chain by more than the check.
+   *
+   * <p>
+   * <b>Results are unordered.</b> Morsel wrapping is a process-wide toggle on
+   * {@link SequentialPipelineStrategy}, so enabling it here affects every compile chain in the JVM
+   * until it is disabled.
+   *
+   * @param nodeStore the XML node store (or null)
+   * @param jsonStore the JSON item store (or null)
+   * @return a sequential compile chain with morsel fan-out enabled
+   */
+  public static SirixCompileChain createWithMorsel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
+    SequentialPipelineStrategy.setMorselEnabled(true);
+    return new SirixCompileChain(nodeStore, jsonStore);
   }
 
   /**
@@ -281,10 +317,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Full constructor with parallel execution and optional auto-executor
-   * session. When {@code autoExecutorSession} is non-null, queries
-   * compiled through this chain transparently receive the vectorized
-   * fast paths — see {@link #createWithJsonStore(JsonDBStore, JsonResourceSession)}.
+   * Full constructor with parallel execution and optional auto-executor session. When
+   * {@code autoExecutorSession} is non-null, queries compiled through this chain transparently
+   * receive the vectorized fast paths — see
+   * {@link #createWithJsonStore(JsonDBStore, JsonResourceSession)}.
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore, final boolean parallel,
       final boolean ordered, final JsonResourceSession autoExecutorSession) {
@@ -292,8 +328,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Full constructor with parallel execution, optional auto-executor session and an explicit
-   * executor revision ({@link #MOST_RECENT_REVISION} defers resolution to the first compile).
+   * Full constructor with parallel execution, optional auto-executor session and an explicit executor
+   * revision ({@link #MOST_RECENT_REVISION} defers resolution to the first compile).
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore, final boolean parallel,
       final boolean ordered, final JsonResourceSession autoExecutorSession, final int autoExecutorRevision) {
@@ -325,19 +361,20 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   }
 
   /**
-   * Resolve the auto-executor, constructing it lazily against
-   * {@link #autoExecutorSession} if not yet built. Callers must hold a
-   * happens-before guarantee against concurrent construction by the
-   * volatile {@link #autoExecutor} write — a second invocation observes
-   * the published instance rather than rebuilding.
+   * Resolve the auto-executor, constructing it lazily against {@link #autoExecutorSession} if not yet
+   * built. Callers must hold a happens-before guarantee against concurrent construction by the
+   * volatile {@link #autoExecutor} write — a second invocation observes the published instance rather
+   * than rebuilding.
    */
   private SirixVectorizedExecutor ensureAutoExecutor() {
-    if (autoExecutorSession == null) return null;
+    if (autoExecutorSession == null)
+      return null;
     SirixVectorizedExecutor exec = autoExecutor;
     // A chain pinned to an explicit revision keeps one executor for its whole life; that revision
     // is immutable, so its caches can never go stale.
     if (autoExecutorRevision != MOST_RECENT_REVISION) {
-      if (exec != null) return exec;
+      if (exec != null)
+        return exec;
       synchronized (this) {
         exec = autoExecutor;
         if (exec == null) {
@@ -353,7 +390,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // chain answer from the pre-commit state. It reads as a stale cache long after the write that
     // invalidated it, and only for callers that used the auto-wiring.
     final int mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
-    if (exec != null && exec.getRevision() == mostRecent) return exec;
+    if (exec != null && exec.getRevision() == mostRecent)
+      return exec;
     synchronized (this) {
       exec = autoExecutor;
       if (exec == null || exec.getRevision() != mostRecent) {
@@ -415,10 +453,11 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   /**
    * Parse hook: this is the earliest point at which the query exists as a tree, and it runs before
    * the analysis, optimization and translation {@link CompileChain#compile} performs — which is
-   * exactly the window in which the vectorized executor has to be registered, because the
-   * translator captures it into the compiled expression.
+   * exactly the window in which the vectorized executor has to be registered, because the translator
+   * captures it into the compiled expression.
    *
-   * <p>Only fires for a store-only chain with nothing already registered; the resolved executor is
+   * <p>
+   * Only fires for a store-only chain with nothing already registered; the resolved executor is
    * removed again by {@link #compile}'s {@code finally}. {@code parse} is reachable only from
    * {@code compile} — this class is final — so the registration cannot outlive that call.
    */
@@ -428,7 +467,15 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (storeBoundExecutors == null || SequentialPipelineStrategy.getVectorizedExecutor() != null) {
       return ast;
     }
-    final StoreBoundExecutorCache.DocumentSource source = StoreBoundExecutorCache.firstDocumentSource(ast);
+    final StoreBoundExecutorCache.DocumentSource named = StoreBoundExecutorCache.firstDocumentSource(ast);
+    // No literal jn:doc does not mean no document: a query reading `declare variable $doc external`
+    // names its resource nowhere but in the binding the caller already made, which is the ordinary
+    // embedding shape and used to lose the fast path outright. See BoundDocumentHint, including why
+    // using a hint this query may not honour is safe — the runtime source gate re-checks the actual
+    // binding per evaluation and declines to the generic pipeline on any mismatch.
+    final StoreBoundExecutorCache.DocumentSource source = named != null
+        ? named
+        : BoundDocumentHint.peek();
     if (source == null || storeBoundExecutors.resolve(source) == null) {
       // Nothing to bind, or the document cannot be opened — compile the generic pipeline.
       return ast;
@@ -439,9 +486,9 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // both rather than only on the one it named first.
     SequentialPipelineStrategy.setThreadVectorizedExecutor(
         new RevisionTrackingExecutor(() -> storeBoundExecutors.resolve(source),
-                                     ref -> storeBoundExecutors.resolve(ref) == null
-                                         ? null
-                                         : () -> storeBoundExecutors.resolve(ref)));
+            ref -> storeBoundExecutors.resolve(ref) == null
+                ? null
+                : () -> storeBoundExecutors.resolve(ref)));
     return ast;
   }
 
@@ -475,14 +522,16 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * @return the Mesh, or null if optimization was disabled or no compilation happened
    */
   public Mesh getMesh() {
-    return lastOptimizer != null ? lastOptimizer.getMesh() : null;
+    return lastOptimizer != null
+        ? lastOptimizer.getMesh()
+        : null;
   }
 
   /**
-   * Collect histograms for fields that had cache misses during the last optimization.
-   * Call this after query execution completes and all resource sessions are closed.
-   * The collected histograms are stored in {@link io.sirix.query.compiler.optimizer.stats.StatisticsCatalog}
-   * and benefit subsequent queries.
+   * Collect histograms for fields that had cache misses during the last optimization. Call this after
+   * query execution completes and all resource sessions are closed. The collected histograms are
+   * stored in {@link io.sirix.query.compiler.optimizer.stats.StatisticsCatalog} and benefit
+   * subsequent queries.
    */
   public void collectPendingHistograms() {
     if (lastOptimizer != null) {

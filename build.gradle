@@ -77,6 +77,18 @@ allprojects {
             url = "https://central.sonatype.com/repository/maven-snapshots/"
         }
     }
+
+    // brackit is developed alongside sirix and is consumed as a moving SNAPSHOT, so Gradle's
+    // default of trusting a cached changing module for 24 hours resolves a version of it that no
+    // longer exists anywhere. That failure is silent and asymmetric: one lane passing
+    // --refresh-dependencies compiles against today's brackit while every other lane compiles
+    // against yesterday's, and the error surfaces as a missing symbol rather than a stale cache.
+    configurations.configureEach {
+        resolutionStrategy {
+            cacheChangingModulesFor 0, 'seconds'
+            cacheDynamicVersionsFor 0, 'seconds'
+        }
+    }
 }
 
 subprojects {
@@ -161,7 +173,10 @@ subprojects {
     }
 
     spotless {
-        enforceCheck false
+        // One rule, generally enforced: the sirix formatter profile. Ratcheting scopes the
+        // check to files changed since main, so legacy formatting debt never blocks a build
+        // and no repo-wide reformat is required.
+        ratchetFrom 'origin/main'
         java {
             targetExclude "**/index/art/Abstract*Test.java",
                           "**/index/art/NavigableKeySetStringTest.java",

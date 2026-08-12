@@ -25,25 +25,36 @@ import java.util.List;
  * ({@code docs/COMPARISON_POSTGRES_BULK.md}) needs: a {@code (year, title)} projection over the
  * movie corpus, published wildcard so any {@code sourcePath} Brackit passes will match.
  *
- * <p>Sibling of {@link ProjectionIndexBenchSetup}, which covers the synthetic
+ * <p>
+ * Sibling of {@link ProjectionIndexBenchSetup}, which covers the synthetic
  * {@code (age, active, dept, city)} record shape. Both live in their own compilation unit so they
  * can import Brackit's {@link Path} without colliding with {@link java.nio.file.Path}, which the
  * bench mains use throughout.
  *
- * <p>Only the two columns the measured queries touch are declared. Every extra column costs a full
+ * <p>
+ * Only the two columns the measured queries touch are declared. Every extra column costs a full
  * pass of build time, and declaring columns the benchmark never reads would inflate the build cost
  * this comparison reports.
  */
 public final class MoviesProjectionSetup {
 
-  private static final String[] FIELD_NAMES = {"year", "title"};
+  /**
+   * The columns the measured shapes read. {@code thumbnail_width}/{@code thumbnail_height} join
+   * {@code year}/{@code title} because the two-predicate conjunction and the product aggregate are
+   * exactly the shapes the storage scan is furthest behind DuckDB on, and a projection that does not
+   * carry their columns cannot serve them at all.
+   *
+   * <p>
+   * Every extra column is a full pass of build time, which is reported alongside the query times —
+   * declaring one the benchmark never reads would inflate the cost this comparison publishes.
+   */
+  private static final String[] FIELD_NAMES = {"year", "title", "thumbnail_width", "thumbnail_height"};
 
-  private MoviesProjectionSetup() {
-  }
+  private MoviesProjectionSetup() {}
 
   /**
-   * Build the {@code (year, title)} projection for {@code session}'s most recent revision and
-   * install it wildcard-keyed.
+   * Build the {@code (year, title)} projection for {@code session}'s most recent revision and install
+   * it wildcard-keyed.
    *
    * @param session the resource session to project
    * @return leaf and row counts, for diagnostic output
@@ -52,18 +63,17 @@ public final class MoviesProjectionSetup {
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
     final Path<QNm> yearPath = Path.parse("/[]/year", PathParser.Type.JSON);
     final Path<QNm> titlePath = Path.parse("/[]/title", PathParser.Type.JSON);
+    final Path<QNm> widthPath = Path.parse("/[]/thumbnail_width", PathParser.Type.JSON);
+    final Path<QNm> heightPath = Path.parse("/[]/thumbnail_height", PathParser.Type.JSON);
 
-    final IndexDef def = IndexDefs.createProjectionIdxDef(rootPath,
-                                                          List.of(yearPath, titlePath),
-                                                          List.of(Type.LON, Type.STR),
-                                                          0,
-                                                          IndexDef.DbType.JSON);
+    final IndexDef def = IndexDefs.createProjectionIdxDef(rootPath, List.of(yearPath, titlePath, widthPath, heightPath),
+        List.of(Type.LON, Type.STR, Type.LON, Type.LON), 0, IndexDef.DbType.JSON);
 
     final List<byte[]> leaves = new ArrayList<>();
     final ProjectionIndexBuilder builder;
     final int revision = session.getMostRecentRevisionNumber();
     try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
-         final PathSummaryReader pathSummary = session.openPathSummary(revision)) {
+        final PathSummaryReader pathSummary = session.openPathSummary(revision)) {
       builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
       builder.build(rtx);
     }
@@ -78,8 +88,7 @@ public final class MoviesProjectionSetup {
     // serve sum/avg/min/max from the projection - silently falling back to the full storage scan,
     // which is exactly the path this run exists to avoid measuring by accident.
     final String resourceKey = session.getResourceConfig().getResource().toString();
-    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves,
-                                            builder.numericColumnNonIntegralFlags());
+    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves, builder.numericColumnNonIntegralFlags());
     return new ProjectionIndexBenchSetup.BuildResult(leaves.size(), totalRows);
   }
 }

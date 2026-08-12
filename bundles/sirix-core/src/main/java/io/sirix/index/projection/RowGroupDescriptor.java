@@ -11,19 +11,21 @@ import java.util.Arrays;
 
 /**
  * The projection leaf <em>descriptor</em> ("PIXD"): the tiny HOT slot value of the
- * segment-directory storage layout (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3). It carries
- * the raw-form header (rowCount, columnCount, kinds, record-key fences) plus one fixed-size
- * entry per segment: {@code columnSegmentId}, exact {@code byteLen}, XXH3-64 {@code contentHash}
- * (the write-path no-op comparator AND the read-path integrity check — segment pages persist
- * behind bare offset keys with no checksum of their own), and the per-column stats mirror
- * (flags, min, max) for descriptor-only pruning decisions.
+ * segment-directory storage layout (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §2.3). It carries the
+ * raw-form header (rowCount, columnCount, kinds, record-key fences) plus one fixed-size entry per
+ * segment: {@code columnSegmentId}, exact {@code byteLen}, XXH3-64 {@code contentHash} (the
+ * write-path no-op comparator AND the read-path integrity check — segment pages persist behind bare
+ * offset keys with no checksum of their own), and the per-column stats mirror (flags, min, max) for
+ * descriptor-only pruning decisions.
  *
- * <p><b>Mirror discipline (5.2-k):</b> flags/min/max here are a cache of the segment truth
- * (the BODY segment carries the authoritative copies). Pruning may consult the mirror;
- * provenance gates must read segment bytes.
+ * <p>
+ * <b>Mirror discipline (5.2-k):</b> flags/min/max here are a cache of the segment truth (the BODY
+ * segment carries the authoritative copies). Pruning may consult the mirror; provenance gates must
+ * read segment bytes.
  *
- * <p>Wire layout (all little-endian, fixed offsets — the readers are positional and
- * allocation-free for the scan hot path):
+ * <p>
+ * Wire layout (all little-endian, fixed offsets — the readers are positional and allocation-free
+ * for the scan hot path):
  *
  * <pre>
  *   int    MAGIC = "PIXD"                        [offset 0]
@@ -40,21 +42,23 @@ import java.util.Arrays;
  *                  included), concatenated in ascending-columnSegmentId (= entry) order
  * </pre>
  *
- * <p><b>Hybrid inline/referenced storage</b> (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md,
- * mirroring {@link io.sirix.page.KeyValueLeafPage}'s inline-record-or-{@link
- * io.sirix.page.OverflowPage}-spill split): each entry is either REFERENCED (bytes in a
- * side-map {@code OverflowPage}, as before) or INLINE (bytes in the trailing region of this
- * slot value, the HOT analogue of a record living inline in the slot heap). The storage class
+ * <p>
+ * <b>Hybrid inline/referenced storage</b> (docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md,
+ * mirroring {@link io.sirix.page.KeyValueLeafPage}'s
+ * inline-record-or-{@link io.sirix.page.OverflowPage}-spill split): each entry is either REFERENCED
+ * (bytes in a side-map {@code OverflowPage}, as before) or INLINE (bytes in the trailing region of
+ * this slot value, the HOT analogue of a record living inline in the slot heap). The storage class
  * is the high bit of the entry's {@code byteLen} field ({@link #SEG_INLINE_FLAG}); {@code
- * byteLen} readers mask it off, so a descriptor carrying no INLINE entry serializes exactly as
- * one from before the hybrid existed — the inline region is a compatible superset, which is why
- * it never cost a version of its own. Inline bytes are the <em>same</em> bytes a page would hold
+ * byteLen} readers mask it off, so a descriptor carrying no INLINE entry serializes exactly as one
+ * from before the hybrid existed — the inline region is a compatible superset, which is why it
+ * never cost a version of its own. Inline bytes are the <em>same</em> bytes a page would hold
  * (header included), so verification and the maintenance no-op hash stay uniform across both
  * classes.
  *
- * <p>A zero-length slot value is the leaf tombstone; a descriptor with {@code rowCount == 0}
- * is a live empty leaf (deletes can legitimately empty a mid-store leaf) — the two are
- * distinct states by design (5.1-4).
+ * <p>
+ * A zero-length slot value is the leaf tombstone; a descriptor with {@code rowCount == 0} is a live
+ * empty leaf (deletes can legitimately empty a mid-store leaf) — the two are distinct states by
+ * design (5.1-4).
  */
 public final class RowGroupDescriptor {
 
@@ -63,73 +67,77 @@ public final class RowGroupDescriptor {
 
   /**
    * Wire-format version, and there is exactly ONE — the current one, like
-   * {@link io.sirix.BinaryEncodingVersion} and {@link ProjectionIndexMetadata}'s. The byte exists
-   * so that a future format change can be REJECTED rather than misread, not so two formats can
-   * coexist: {@link #validate} refuses any other value outright, so a changed payload fails loudly
-   * instead of being read at shifted offsets.
+   * {@link io.sirix.BinaryEncodingVersion} and {@link ProjectionIndexMetadata}'s. The byte exists so
+   * that a future format change can be REJECTED rather than misread, not so two formats can coexist:
+   * {@link #validate} refuses any other value outright, so a changed payload fails loudly instead of
+   * being read at shifted offsets.
    *
-   * <p>It starts at 0 rather than carrying a history. Earlier values existed only within this
-   * codebase's own development — the entry's columnSegmentId widening from 1 to 2 bytes, the
-   * descriptor being reduced to a zone map — and no resource written with them exists, so
-   * numbering as though a migration path had to be preserved would document a compatibility
-   * guarantee this project does not make. A zero here is unambiguous because {@link #isDescriptor}
-   * gates on the magic first: a zero-filled buffer is rejected as "not a descriptor", never read
-   * as a version-0 one.
+   * <p>
+   * It starts at 0 rather than carrying a history. Earlier values existed only within this codebase's
+   * own development — the entry's columnSegmentId widening from 1 to 2 bytes, the descriptor being
+   * reduced to a zone map — and no resource written with them exists, so numbering as though a
+   * migration path had to be preserved would document a compatibility guarantee this project does not
+   * make. A zero here is unambiguous because {@link #isDescriptor} gates on the magic first: a
+   * zero-filled buffer is rejected as "not a descriptor", never read as a version-0 one.
    *
-   * <p>Bump it when the payload's shape changes. That is what makes such a change safe: an old
-   * descriptor is refused and its store rebuilt, instead of its bytes being read at shifted
-   * offsets.
+   * <p>
+   * Bump it when the payload's shape changes. That is what makes such a change safe: an old
+   * descriptor is refused and its store rebuilt, instead of its bytes being read at shifted offsets.
    */
   public static final byte VERSION = 0;
 
   /**
    * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key:
-   * {@code SEGMENTS_PER_COLUMN · c + 2 ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID}. Derived — not restated — from the
-   * id-scheme constants so the invariant has a single authority (a fourth per-column segment
-   * kind automatically tightens this cap). With a 16-bit sub-id this is {@code (65535-2)/3 = 21844}
-   * columns (was 84 at 8 bits); the on-disk entry columnSegmentId field is 2 bytes to match.
+   * {@code SEGMENTS_PER_COLUMN · c + 4 ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID} (sub-id +4, the bloom segment,
+   * is the largest of the per-column stride). Derived — not restated — from the id-scheme constants
+   * so the invariant has a single authority (a further per-column segment kind automatically tightens
+   * this cap). With a 16-bit sub-id this is {@code (65535-2)/4 = 16383} columns (was 84 at 8 bits);
+   * the on-disk entry columnSegmentId field is 2 bytes to match.
    */
   public static final int MAX_COLUMNS =
       (HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID - 2) / ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN;
 
-  /** Fixed size of one segment entry (2-byte columnSegmentId + int byteLen + long hash + byte flags + 2 longs). */
+  /**
+   * Fixed size of one segment entry (2-byte columnSegmentId + int byteLen + long hash + byte flags +
+   * 2 longs).
+   */
   public static final int ENTRY_BYTES = 2 + 4 + 8 + 1 + 8 + 8;
 
   /**
    * High bit of an entry's {@code byteLen} int marking the segment as INLINE (bytes in this
-   * descriptor's trailing region) rather than REFERENCED (bytes in a side-map page). Safe to
-   * overload the sign bit: a segment is capped at {@link #MAX_SEGMENT_BYTES} (16 MB ≪ 2^31), so
-   * the true length never touches it. {@link #entryByteLen} masks it off; {@link
-   * #entryIsInline} tests it. Chosen over a {@code colFlags} bit so the column-provenance mirror
+   * descriptor's trailing region) rather than REFERENCED (bytes in a side-map page). Safe to overload
+   * the sign bit: a segment is capped at {@link #MAX_SEGMENT_BYTES} (16 MB ≪ 2^31), so the true
+   * length never touches it. {@link #entryByteLen} masks it off; {@link #entryIsInline} tests it.
+   * Chosen over a {@code colFlags} bit so the column-provenance mirror
    * (UNREPRESENTABLE/NON_INTEGRAL/PURE_DOUBLE_SOURCE) stays byte-for-byte untouched.
    */
   public static final int SEG_INLINE_FLAG = 0x8000_0000;
 
   /**
    * Upper bound on one projection segment or serialized descriptor. This is the PROJECTION's own
-   * domain limit, not a page-layer one: {@link OverflowPage} deliberately imposes no ceiling
-   * (a node record spilled there is unbounded), so bounding a projection segment is this layer's
-   * job. It exists to keep {@link #SEG_INLINE_FLAG}'s overload of the {@code byteLen} sign bit
-   * sound — the true length must stay far below 2^31 — and to fail a runaway encode loudly at the
-   * producer instead of at some later assembly.
+   * domain limit, not a page-layer one: {@link OverflowPage} deliberately imposes no ceiling (a node
+   * record spilled there is unbounded), so bounding a projection segment is this layer's job. It
+   * exists to keep {@link #SEG_INLINE_FLAG}'s overload of the {@code byteLen} sign bit sound — the
+   * true length must stay far below 2^31 — and to fail a runaway encode loudly at the producer
+   * instead of at some later assembly.
    */
   public static final int MAX_SEGMENT_BYTES = 16 * 1024 * 1024;
 
   /**
-   * Upper bound on a descriptor stored as an <b>inline</b> HOT leaf slot value (the descriptor-directory
-   * layout), whose on-disk length prefix is an unsigned short ({@code HOTLeafPage} enforces the same
-   * 0xFFFF limit independently). The segment-slot layout stores its zone-map descriptor via
-   * {@code putBlob}, which spills past this into an {@link OverflowPage}, so it is NOT bounded here —
-   * only by {@link #MAX_SEGMENT_BYTES}. Enforced at the descriptor-directory
-   * {@code writeSlotValue} call site, not in {@link #serialize} (which caps at the projection's
-   * segment ceiling so a wide segment-slot descriptor can still be produced).
+   * Upper bound on a descriptor stored as an <b>inline</b> HOT leaf slot value (the
+   * descriptor-directory layout), whose on-disk length prefix is an unsigned short
+   * ({@code HOTLeafPage} enforces the same 0xFFFF limit independently). The segment-slot layout
+   * stores its zone-map descriptor via {@code putBlob}, which spills past this into an
+   * {@link OverflowPage}, so it is NOT bounded here — only by {@link #MAX_SEGMENT_BYTES}. Enforced at
+   * the descriptor-directory {@code writeSlotValue} call site, not in {@link #serialize} (which caps
+   * at the projection's segment ceiling so a wide segment-slot descriptor can still be produced).
    */
   public static final int MAX_SLOT_VALUE_BYTES = 0xFFFF;
 
   /**
-   * Smallest structurally possible descriptor: fixed head through the kinds offset (zero
-   * columns) plus the columnSegmentCount short. Cheap plausibility floor for slice-level readers
-   * that only need head fields without a full {@link #validate}.
+   * Smallest structurally possible descriptor: fixed head through the kinds offset (zero columns)
+   * plus the columnSegmentCount short. Cheap plausibility floor for slice-level readers that only
+   * need head fields without a full {@link #validate}.
    */
   public static final int MIN_BYTES = 27 + 2;
 
@@ -139,14 +147,13 @@ public final class RowGroupDescriptor {
   private static final int OFF_LAST_KEY = 19;
   private static final int OFF_KINDS = 27;
 
-  private RowGroupDescriptor() {
-  }
+  private RowGroupDescriptor() {}
 
   // ==================== write ====================
 
   /**
-   * Serialize an all-referenced descriptor (no inline segments) — the pre-hybrid layout. Entry
-   * arrays are parallel, {@code columnSegmentCount} entries each; entries must be sorted by ascending
+   * Serialize an all-referenced descriptor (no inline segments) — the pre-hybrid layout. Entry arrays
+   * are parallel, {@code columnSegmentCount} entries each; entries must be sorted by ascending
    * {@code columnSegmentId} (binary-searchable, deterministic bytes).
    */
   public static byte[] serialize(final int rowCount, final long firstRecordKey, final long lastRecordKey,
@@ -159,21 +166,20 @@ public final class RowGroupDescriptor {
   /**
    * Serialize a descriptor with per-segment storage classes (hybrid inline/referenced). When
    * {@code inline != null && inline[i]}, entry {@code i}'s {@code byteLen} field is stored with
-   * {@link #SEG_INLINE_FLAG} set and {@code segmentBytes[i]} (the segment's full bytes, PIXS
-   * header included) is appended to the trailing inline region in ascending-{@code columnSegmentId}
-   * (= entry) order; those are the same bytes a referenced page would hold. Entries with
+   * {@link #SEG_INLINE_FLAG} set and {@code segmentBytes[i]} (the segment's full bytes, PIXS header
+   * included) is appended to the trailing inline region in ascending-{@code columnSegmentId} (=
+   * entry) order; those are the same bytes a referenced page would hold. Entries with
    * {@code inline[i] == false} (or {@code inline == null}) are referenced as before and their
-   * {@code segmentBytes[i]} is ignored. {@code byteLens[i]} always carries the true segment
-   * length for both classes.
+   * {@code segmentBytes[i]} is ignored. {@code byteLens[i]} always carries the true segment length
+   * for both classes.
    */
   public static byte[] serialize(final int rowCount, final long firstRecordKey, final long lastRecordKey,
       final byte[] kinds, final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
       final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs,
       final boolean @Nullable [] inline, final byte @Nullable [][] segmentBytes) {
-    checkSerializeShape(rowCount, kinds, columnSegmentCount, columnSegmentIds, byteLens, contentHashes,
-        colFlags, mins, maxs);
-    final long inlineRegion =
-        inlineRegionBytes(columnSegmentCount, columnSegmentIds, byteLens, inline, segmentBytes);
+    checkSerializeShape(rowCount, kinds, columnSegmentCount, columnSegmentIds, byteLens, contentHashes, colFlags, mins,
+        maxs);
+    final long inlineRegion = inlineRegionBytes(columnSegmentCount, columnSegmentIds, byteLens, inline, segmentBytes);
     final int entriesEnd = OFF_KINDS + kinds.length + 2 + columnSegmentCount * ENTRY_BYTES;
     // Absolute ceiling: a descriptor is stored either as an inline HOT slot value (descriptor-directory
     // layout, capped at MAX_SLOT_VALUE_BYTES by writeSlotValue) or spilled into ONE OverflowPage
@@ -183,8 +189,8 @@ public final class RowGroupDescriptor {
     // so an overflowing sum is REJECTED rather than wrapping past this guard.
     final long totalSizeLong = (long) entriesEnd + inlineRegion;
     if (totalSizeLong > MAX_SEGMENT_BYTES) {
-      throw new IllegalArgumentException("descriptor of " + totalSizeLong + " bytes exceeds the projection"
-          + " segment ceiling " + MAX_SEGMENT_BYTES);
+      throw new IllegalArgumentException(
+          "descriptor of " + totalSizeLong + " bytes exceeds the projection" + " segment ceiling " + MAX_SEGMENT_BYTES);
     }
     final byte[] out = new byte[(int) totalSizeLong];
     putIntLE(out, 0, MAGIC);
@@ -196,9 +202,10 @@ public final class RowGroupDescriptor {
     System.arraycopy(kinds, 0, out, OFF_KINDS, kinds.length);
     int pos = OFF_KINDS + kinds.length;
     putShortLE(out, pos, (short) columnSegmentCount);
-    writeColumnSegmentEntries(out, pos + 2, columnSegmentCount, columnSegmentIds, byteLens,
-        contentHashes, colFlags, mins, maxs, inline);
-    // Trailing inline region, entry order (= ascending columnSegmentId, matching the read-side offset walk).
+    writeColumnSegmentEntries(out, pos + 2, columnSegmentCount, columnSegmentIds, byteLens, contentHashes, colFlags,
+        mins, maxs, inline);
+    // Trailing inline region, entry order (= ascending columnSegmentId, matching the read-side offset
+    // walk).
     if (inline != null) {
       int inlinePos = entriesEnd;
       for (int i = 0; i < columnSegmentCount; i++) {
@@ -212,9 +219,9 @@ public final class RowGroupDescriptor {
   }
 
   /** Range and index-alignment guards for {@link #serialize} — everything checkable up front. */
-  private static void checkSerializeShape(final int rowCount, final byte[] kinds,
-      final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
-      final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs) {
+  private static void checkSerializeShape(final int rowCount, final byte[] kinds, final int columnSegmentCount,
+      final int[] columnSegmentIds, final int[] byteLens, final long[] contentHashes, final byte[] colFlags,
+      final long[] mins, final long[] maxs) {
     if (kinds.length > MAX_COLUMNS) {
       throw new IllegalArgumentException("columnCount " + kinds.length + " exceeds MAX_COLUMNS=" + MAX_COLUMNS);
     }
@@ -224,21 +231,22 @@ public final class RowGroupDescriptor {
     if (columnSegmentCount < 0 || columnSegmentCount > 0xFFFF) {
       throw new IllegalArgumentException("columnSegmentCount out of range: " + columnSegmentCount);
     }
-    if (columnSegmentIds.length < columnSegmentCount || byteLens.length < columnSegmentCount || contentHashes.length < columnSegmentCount
-        || colFlags.length < columnSegmentCount || mins.length < columnSegmentCount || maxs.length < columnSegmentCount) {
+    if (columnSegmentIds.length < columnSegmentCount || byteLens.length < columnSegmentCount
+        || contentHashes.length < columnSegmentCount || colFlags.length < columnSegmentCount
+        || mins.length < columnSegmentCount || maxs.length < columnSegmentCount) {
       throw new IllegalArgumentException("entry array shorter than columnSegmentCount=" + columnSegmentCount
-          + ": columnSegmentIds=" + columnSegmentIds.length + " byteLens=" + byteLens.length
-          + " contentHashes=" + contentHashes.length + " colFlags=" + colFlags.length
-          + " mins=" + mins.length + " maxs=" + maxs.length);
+          + ": columnSegmentIds=" + columnSegmentIds.length + " byteLens=" + byteLens.length + " contentHashes="
+          + contentHashes.length + " colFlags=" + colFlags.length + " mins=" + mins.length + " maxs=" + maxs.length);
     }
   }
 
   /**
-   * Total size of the trailing inline region, validating per-entry consistency on the way: an
-   * inline entry must supply bytes matching its recorded byteLen, so a later positional read
-   * (offset = Σ prior inline byteLens) never drifts.
+   * Total size of the trailing inline region, validating per-entry consistency on the way: an inline
+   * entry must supply bytes matching its recorded byteLen, so a later positional read (offset = Σ
+   * prior inline byteLens) never drifts.
    *
-   * <p>Accumulated as a {@code long}: at the u16 columnSegmentCount ceiling the sum of per-entry
+   * <p>
+   * Accumulated as a {@code long}: at the u16 columnSegmentCount ceiling the sum of per-entry
    * byteLens can exceed 2^31 and wrap negative, which would slip past the caller's size guard and
    * surface as a {@code NegativeArraySizeException} from the allocation instead of an attributable
    * error. {@link #validate} accumulates the same quantity as a long; the writer must agree with it.
@@ -253,12 +261,12 @@ public final class RowGroupDescriptor {
       }
       if (inline != null && inline[i]) {
         if (segmentBytes == null || segmentBytes[i] == null) {
-          throw new IllegalArgumentException("inline entry " + i + " (columnSegmentId " + columnSegmentIds[i]
-              + ") has no bytes");
+          throw new IllegalArgumentException(
+              "inline entry " + i + " (columnSegmentId " + columnSegmentIds[i] + ") has no bytes");
         }
         if (segmentBytes[i].length != byteLens[i]) {
-          throw new IllegalArgumentException("inline entry " + i + " byteLen " + byteLens[i]
-              + " != bytes " + segmentBytes[i].length);
+          throw new IllegalArgumentException(
+              "inline entry " + i + " byteLen " + byteLens[i] + " != bytes " + segmentBytes[i].length);
         }
         inlineRegion += byteLens[i];
       }
@@ -267,14 +275,13 @@ public final class RowGroupDescriptor {
   }
 
   /**
-   * Write the fixed-size entry table at {@code pos}, enforcing the two invariants every reader
-   * relies on: each id fits the 16-bit entry field, and the entries ascend strictly by id (which is
-   * what makes {@link #entryIndexOf} a binary search and the write-path merge-joins monotonic).
+   * Write the fixed-size entry table at {@code pos}, enforcing the two invariants every reader relies
+   * on: each id fits the 16-bit entry field, and the entries ascend strictly by id (which is what
+   * makes {@link #entryIndexOf} a binary search and the write-path merge-joins monotonic).
    */
-  private static void writeColumnSegmentEntries(final byte[] out, final int pos,
-      final int columnSegmentCount, final int[] columnSegmentIds, final int[] byteLens,
-      final long[] contentHashes, final byte[] colFlags, final long[] mins, final long[] maxs,
-      final boolean @Nullable [] inline) {
+  private static void writeColumnSegmentEntries(final byte[] out, final int pos, final int columnSegmentCount,
+      final int[] columnSegmentIds, final int[] byteLens, final long[] contentHashes, final byte[] colFlags,
+      final long[] mins, final long[] maxs, final boolean @Nullable [] inline) {
     int entryPos = pos;
     int prevId = -1;
     for (int i = 0; i < columnSegmentCount; i++) {
@@ -284,13 +291,14 @@ public final class RowGroupDescriptor {
             + HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID + "]: " + id);
       }
       if (id <= prevId) {
-        throw new IllegalArgumentException("segment entries must be sorted by ascending columnSegmentId: "
-            + id + " after " + prevId);
+        throw new IllegalArgumentException(
+            "segment entries must be sorted by ascending columnSegmentId: " + id + " after " + prevId);
       }
       prevId = id;
       putShortLE(out, entryPos, (short) id);
-      putIntLE(out, entryPos + 2,
-          inline != null && inline[i] ? (byteLens[i] | SEG_INLINE_FLAG) : byteLens[i]);
+      putIntLE(out, entryPos + 2, inline != null && inline[i]
+          ? (byteLens[i] | SEG_INLINE_FLAG)
+          : byteLens[i]);
       putLongLE(out, entryPos + 6, contentHashes[i]);
       out[entryPos + 14] = colFlags[i];
       putLongLE(out, entryPos + 15, mins[i]);
@@ -302,15 +310,17 @@ public final class RowGroupDescriptor {
   /**
    * Re-serialize {@code d} with every segment marked REFERENCED (no inline region) — the
    * zone-map-only form the segment-slot layout stores, where each segment's bytes live in its own
-   * slot rather than inline in the descriptor. Preserves every entry's columnSegmentId / byteLen / hash /
-   * flags / min / max; only the storage-class (inline) bit is cleared, so a later
-   * {@code assembleRaw} resolves every segment through the resolver (its slot) instead of the
-   * inline region.
+   * slot rather than inline in the descriptor. Preserves every entry's columnSegmentId / byteLen /
+   * hash / flags / min / max; only the storage-class (inline) bit is cleared, so a later
+   * {@code assembleRaw} resolves every segment through the resolver (its slot) instead of the inline
+   * region.
    *
-   * <p>Returns {@code d} itself when no entry is inline — an already-zone-map-only descriptor is
-   * exactly what this produces, so the rebuild below would allocate seven arrays and re-serialize
-   * the whole descriptor to reproduce identical bytes. This runs on EVERY segment-slot row-group
-   * write, so at wide-column sizes the copy dominated the write.</p>
+   * <p>
+   * Returns {@code d} itself when no entry is inline — an already-zone-map-only descriptor is exactly
+   * what this produces, so the rebuild below would allocate seven arrays and re-serialize the whole
+   * descriptor to reproduce identical bytes. This runs on EVERY segment-slot row-group write, so at
+   * wide-column sizes the copy dominated the write.
+   * </p>
    */
   public static byte[] toZoneMapOnly(final byte[] d) {
     final int segmentCount = columnSegmentCount(d);
@@ -344,8 +354,8 @@ public final class RowGroupDescriptor {
       mins[i] = entryMin(d, i);
       maxs[i] = entryMax(d, i);
     }
-    return serialize(rowCount(d), firstRecordKey(d), lastRecordKey(d), kinds, sc, columnSegmentIds, byteLens,
-        hashes, flags, mins, maxs); // all-referenced overload → no inline region
+    return serialize(rowCount(d), firstRecordKey(d), lastRecordKey(d), kinds, sc, columnSegmentIds, byteLens, hashes,
+        flags, mins, maxs); // all-referenced overload → no inline region
   }
 
   // ==================== positional readers (allocation-free) ====================
@@ -357,22 +367,22 @@ public final class RowGroupDescriptor {
 
   /**
    * Structural validation: magic, version, plausible counts, exact length. Throws
-   * {@link IllegalStateException} on corruption; unknown version also throws (the metadata
-   * version gate triggers a rebuild before hydration ever reaches an incompatible leaf).
+   * {@link IllegalStateException} on corruption; unknown version also throws (the metadata version
+   * gate triggers a rebuild before hydration ever reaches an incompatible leaf).
    */
   public static void validate(final byte[] d) {
     if (!isDescriptor(d)) {
       throw new IllegalStateException("Not a leaf descriptor (missing PIXD magic)");
     }
     if (d.length < OFF_KINDS || d[4] != VERSION) {
-      throw new IllegalStateException("Unknown leaf-descriptor version "
-          + (d.length > 4 ? d[4] : "<missing>") + " (expected " + VERSION + ") or truncated header");
+      throw new IllegalStateException("Unknown leaf-descriptor version " + (d.length > 4
+          ? d[4]
+          : "<missing>") + " (expected " + VERSION + ") or truncated header");
     }
     final int rowCount = ProjectionIndexRowGroupCodec.getIntLE(d, OFF_ROW_COUNT);
     final int columnCount = getShortLE(d, OFF_COLUMN_COUNT) & 0xFFFF;
     if (rowCount < 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS || columnCount > MAX_COLUMNS) {
-      throw new IllegalStateException("Corrupt leaf descriptor: rowCount=" + rowCount
-          + " columnCount=" + columnCount);
+      throw new IllegalStateException("Corrupt leaf descriptor: rowCount=" + rowCount + " columnCount=" + columnCount);
     }
     final int segCountOff = OFF_KINDS + columnCount;
     if (d.length < segCountOff + 2) {
@@ -381,8 +391,8 @@ public final class RowGroupDescriptor {
     final int columnSegmentCount = getShortLE(d, segCountOff) & 0xFFFF;
     final int entriesEnd = segCountOff + 2 + columnSegmentCount * ENTRY_BYTES;
     if (d.length < entriesEnd) {
-      throw new IllegalStateException("Corrupt leaf descriptor: truncated entry table (length "
-          + d.length + " < " + entriesEnd + ", columnSegmentCount=" + columnSegmentCount + ")");
+      throw new IllegalStateException("Corrupt leaf descriptor: truncated entry table (length " + d.length + " < "
+          + entriesEnd + ", columnSegmentCount=" + columnSegmentCount + ")");
     }
     // Trailing inline region: exact length = entry table end + Σ byteLen of inline entries.
     // A referenced-only descriptor has inlineTotal == 0 → the pre-hybrid length rule.
@@ -394,8 +404,8 @@ public final class RowGroupDescriptor {
     }
     final long expected = (long) entriesEnd + inlineTotal;
     if (d.length != expected) {
-      throw new IllegalStateException("Corrupt leaf descriptor: length " + d.length
-          + " != expected " + expected + " (columnSegmentCount=" + columnSegmentCount + ", inlineBytes=" + inlineTotal + ")");
+      throw new IllegalStateException("Corrupt leaf descriptor: length " + d.length + " != expected " + expected
+          + " (columnSegmentCount=" + columnSegmentCount + ", inlineBytes=" + inlineTotal + ")");
     }
   }
 
@@ -431,7 +441,7 @@ public final class RowGroupDescriptor {
    * Index of the entry for {@code columnSegmentId}, or {@code -1} when absent. Entries are sorted
    * ascending by columnSegmentId (serialize enforces it), so this binary-searches: the write-side
    * carry-forward loops call this once per encoded segment, and at wide-table segment counts (up to
-   * {@code 3·MAX_COLUMNS} ≈ 65k) a linear scan would make those loops quadratic.
+   * {@code 4·MAX_COLUMNS} ≈ 65k) a linear scan would make those loops quadratic.
    */
   public static int entryIndexOf(final byte[] d, final int columnSegmentId) {
     final int base = entriesOffset(d);
@@ -456,21 +466,27 @@ public final class RowGroupDescriptor {
     return getShortLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES) & 0xFFFF;
   }
 
-  /** The segment's true length in bytes, with the {@link #SEG_INLINE_FLAG} storage-class bit masked off. */
+  /**
+   * The segment's true length in bytes, with the {@link #SEG_INLINE_FLAG} storage-class bit masked
+   * off.
+   */
   public static int entryByteLen(final byte[] d, final int entryIndex) {
     return ProjectionIndexRowGroupCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 2) & ~SEG_INLINE_FLAG;
   }
 
-  /** {@code true} iff entry {@code entryIndex}'s bytes are stored inline in this descriptor's trailing region. */
+  /**
+   * {@code true} iff entry {@code entryIndex}'s bytes are stored inline in this descriptor's trailing
+   * region.
+   */
   public static boolean entryIsInline(final byte[] d, final int entryIndex) {
     return (ProjectionIndexRowGroupCodec.getIntLE(d, entriesOffset(d) + entryIndex * ENTRY_BYTES + 2)
         & SEG_INLINE_FLAG) != 0;
   }
 
   /**
-   * Absolute offset in {@code d} where inline entry {@code entryIndex}'s bytes begin: the entry
-   * table end plus the summed byteLens of the inline entries preceding it (inline bytes are laid
-   * out in ascending entry order). Caller must ensure the entry is inline.
+   * Absolute offset in {@code d} where inline entry {@code entryIndex}'s bytes begin: the entry table
+   * end plus the summed byteLens of the inline entries preceding it (inline bytes are laid out in
+   * ascending entry order). Caller must ensure the entry is inline.
    */
   public static int inlineDataOffset(final byte[] d, final int entryIndex) {
     int off = entriesOffset(d) + columnSegmentCount(d) * ENTRY_BYTES;
@@ -483,9 +499,9 @@ public final class RowGroupDescriptor {
   }
 
   /**
-   * The full inline segment bytes (PIXS header included — the same bytes a referenced page holds)
-   * for inline entry {@code entryIndex}, copied out for standalone verification and cursor use.
-   * Caller must ensure the entry is inline.
+   * The full inline segment bytes (PIXS header included — the same bytes a referenced page holds) for
+   * inline entry {@code entryIndex}, copied out for standalone verification and cursor use. Caller
+   * must ensure the entry is inline.
    */
   public static byte[] inlineColumnSegmentBytes(final byte[] d, final int entryIndex) {
     return inlineColumnSegmentBytesAt(d, entryIndex, inlineDataOffset(d, entryIndex));
@@ -509,10 +525,11 @@ public final class RowGroupDescriptor {
   }
 
   /**
-   * Absolute inline-data offset of every entry in one O(columnSegmentCount) pass: {@code result[i]} is the
-   * inline byte offset of entry {@code i} when it is inline, or {@code -1} when it is referenced.
-   * Lets a full-leaf assembly resolve all inline segments in O(columnSegmentCount) total instead of the
-   * O(columnSegmentCount²) that per-segment {@link #inlineDataOffset} prefix walks would cost.
+   * Absolute inline-data offset of every entry in one O(columnSegmentCount) pass: {@code result[i]}
+   * is the inline byte offset of entry {@code i} when it is inline, or {@code -1} when it is
+   * referenced. Lets a full-leaf assembly resolve all inline segments in O(columnSegmentCount) total
+   * instead of the O(columnSegmentCount²) that per-segment {@link #inlineDataOffset} prefix walks
+   * would cost.
    */
   public static int[] inlineOffsets(final byte[] d) {
     final int columnSegmentCount = columnSegmentCount(d);

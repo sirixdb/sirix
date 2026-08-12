@@ -28,6 +28,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so Spotless can resolve the origin/main ratchet ref.
+          fetch-depth: 0
 
       - name: Resolve release tag
         id: tag

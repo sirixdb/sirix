@@ -35,6 +35,7 @@ import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
+import io.sirix.settings.Fixed;
 import io.sirix.utils.WeakIdentitySet;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
@@ -71,70 +72,77 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
-@SuppressWarnings({ "unchecked" })
+@SuppressWarnings({"unchecked"})
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   /**
-   * SIMD vector species for bitmap operations.
-   * Uses the preferred species for the current platform (256-bit AVX2 or 512-bit AVX-512).
+   * SIMD vector species for bitmap operations. Uses the preferred species for the current platform
+   * (256-bit AVX2 or 512-bit AVX-512).
    */
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
-  
-  
+
+
   /**
-   * Enable detailed memory leak tracking.
-   * Accessed via centralized {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
+   * Enable detailed memory leak tracking. Accessed via centralized
+   * {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
    * 
    * @see DiagnosticSettings#isMemoryLeakTrackingEnabled()
    */
   public static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
-  
+
   // DIAGNOSTIC COUNTERS (enabled via DEBUG_MEMORY_LEAKS)
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED = new java.util.concurrent.atomic.AtomicLong(0);
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_CLOSED = new java.util.concurrent.atomic.AtomicLong(0);
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_BY_TYPE = 
-    new java.util.concurrent.ConcurrentHashMap<>();
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE = 
-    new java.util.concurrent.ConcurrentHashMap<>();
-  
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED =
+      new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CLOSED =
+      new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_BY_TYPE =
+      new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
   /**
    * Every page that has been created and not yet closed, held WEAKLY and keyed by IDENTITY.
    *
-   * <p>Weakly, because this registry used to hold strong references: registering a page made it
+   * <p>
+   * Weakly, because this registry used to hold strong references: registering a page made it
    * immortal, so {@link #PAGES_FINALIZED_WITHOUT_CLOSE} — which counts pages collected without
    * {@code close()} — could never be anything but zero while leak tracking was ON, the only time it
    * is populated at all. The Cleaner literally could not fire. Weak references restore the split the
    * two mechanisms were designed for: what remains here is the set of pages still reachable from
    * somewhere (retained leaks, reported at shutdown with their creation stacks), and what leaves here
    * without being closed is a page that became garbage while still holding an off-heap frame
-   * (unreachable leaks, reported by the Cleaner).</p>
+   * (unreachable leaks, reported by the Cleaner).
+   * </p>
    *
-   * <p>By identity, because {@link #equals(Object)} is overridden on this type: two distinct
-   * instances of the same page key and revision are equal, and an equality-keyed registry would drop
-   * one of them from the census.</p>
+   * <p>
+   * By identity, because {@link #equals(Object)} is overridden on this type: two distinct instances
+   * of the same page key and revision are equal, and an equality-keyed registry would drop one of
+   * them from the census.
+   * </p>
    */
   public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = new WeakIdentitySet<>();
-  
+
   // LEAK DETECTION: Track finalized pages
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
-  
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE =
+      new java.util.concurrent.atomic.AtomicLong(0);
+
   // Track finalized pages by type and pageKey for diagnostics
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_TYPE = 
-    new java.util.concurrent.ConcurrentHashMap<>();
-  public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY = 
-    new java.util.concurrent.ConcurrentHashMap<>();
-    
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_TYPE =
+      new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
   /**
    * Page-0 instances specifically — same weak-identity registry as {@link #ALL_LIVE_PAGES}, and for
    * the same reasons. Page 0 gets its own because multiple instances legitimately share that key
    * across revisions, which is precisely when an equality-keyed set loses track of them.
    */
   public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = new WeakIdentitySet<>();
-  
+
   /**
-   * Version counter for detecting page reuse (LeanStore/Umbra approach).
-   * Incremented when page is evicted and reused for a different logical page.
+   * Version counter for detecting page reuse (LeanStore/Umbra approach). Incremented when page is
+   * evicted and reused for a different logical page.
    */
   private final AtomicInteger version = new AtomicInteger(0);
 
@@ -151,8 +159,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private static final int CLOSED_BIT = 4;
 
   /**
-   * Packed state flags: HOT (bit 0), orphaned (bit 1), closed (bit 2).
-   * Accessed via VarHandle for lock-free CAS operations.
+   * Packed state flags: HOT (bit 0), orphaned (bit 1), closed (bit 2). Accessed via VarHandle for
+   * lock-free CAS operations.
    */
   @SuppressWarnings("unused") // Accessed via VarHandle
   private volatile int stateFlags = 0;
@@ -162,30 +170,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   static {
     try {
-      STATE_FLAGS_HANDLE = MethodHandles.lookup()
-          .findVarHandle(KeyValueLeafPage.class, "stateFlags", int.class);
+      STATE_FLAGS_HANDLE = MethodHandles.lookup().findVarHandle(KeyValueLeafPage.class, "stateFlags", int.class);
     } catch (NoSuchFieldException | IllegalAccessException e) {
       throw new ExceptionInInitializerError(e);
     }
   }
 
   /**
-   * Guard count for preventing eviction during active use (LeanStore/Umbra pattern).
-   * Pages with guardCount > 0 cannot be evicted.
-   * This is simpler than per-transaction pinning - it's just a reference count.
+   * Guard count for preventing eviction during active use (LeanStore/Umbra pattern). Pages with
+   * guardCount > 0 cannot be evicted. This is simpler than per-transaction pinning - it's just a
+   * reference count.
    */
   private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
-   * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
-   * Used to trace where leaked pages come from.
+   * DIAGNOSTIC: Stack trace of where this page was created (only captured when
+   * DEBUG_MEMORY_LEAKS=true). Used to trace where leaked pages come from.
    */
   private final StackTraceElement[] creationStackTrace;
 
   /**
    * DIAGNOSTIC: Where and on which thread this page was closed (only captured when
-   * DEBUG_MEMORY_LEAKS=true). Lets a reader that observes a closed page report WHO freed it
-   * out from under it (use-after-free triage).
+   * DEBUG_MEMORY_LEAKS=true). Lets a reader that observes a closed page report WHO freed it out from
+   * under it (use-after-free triage).
    */
   private volatile Throwable closeSite;
 
@@ -198,19 +205,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private static final Cleaner LEAK_CLEANER = Cleaner.create();
 
   /**
-   * Heap-allocated state captured by the leak-detection {@link Cleaner.Cleanable} so it
-   * does NOT capture the enclosing {@code KeyValueLeafPage} instance — capturing
-   * {@code this} would make the page strongly reachable via the Cleaner queue, defeating
-   * the very leak detection it implements. Holds:
+   * Heap-allocated state captured by the leak-detection {@link Cleaner.Cleanable} so it does NOT
+   * capture the enclosing {@code KeyValueLeafPage} instance — capturing {@code this} would make the
+   * page strongly reachable via the Cleaner queue, defeating the very leak detection it implements.
+   * Holds:
    * <ul>
-   *   <li>The diagnostic facts the leak log needs (pageKey, indexType, revision,
-   *       creationStackTrace).</li>
-   *   <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action
-   *       reads it and skips logging when the page was closed properly.</li>
+   * <li>The diagnostic facts the leak log needs (pageKey, indexType, revision,
+   * creationStackTrace).</li>
+   * <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action reads it and
+   * skips logging when the page was closed properly.</li>
    * </ul>
-   * Non-static state class so users can read the closed flag through the
-   * {@code Cleaner.Cleanable} owner; reference is held by the page only when
-   * {@link #DEBUG_MEMORY_LEAKS} is on, so production builds pay zero overhead.
+   * Non-static state class so users can read the closed flag through the {@code Cleaner.Cleanable}
+   * owner; reference is held by the page only when {@link #DEBUG_MEMORY_LEAKS} is on, so production
+   * builds pay zero overhead.
    */
   private static final class LeakDetectorState implements Runnable {
     final long pageKey;
@@ -234,22 +241,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
       if (indexType != null) {
-        FINALIZED_BY_TYPE.computeIfAbsent(indexType,
-            _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0))
+                         .incrementAndGet();
       }
-      FINALIZED_BY_PAGE_KEY.computeIfAbsent(pageKey,
-          _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      FINALIZED_BY_PAGE_KEY.computeIfAbsent(pageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0))
+                           .incrementAndGet();
       if (LOGGER.isWarnEnabled()) {
-        final StringBuilder leakMsg = new StringBuilder()
-            .append(String.format(
-                "Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
-                pageKey, indexType, revision));
+        final StringBuilder leakMsg = new StringBuilder().append(
+            String.format("Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly", pageKey,
+                indexType, revision));
         if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
           leakMsg.append("\n  Creation stack trace:");
           for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
             final StackTraceElement frame = creationStackTrace[i];
-            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
-                frame.getClassName(), frame.getMethodName(),
+            leakMsg.append(String.format("\n    at %s.%s(%s:%d)", frame.getClassName(), frame.getMethodName(),
                 frame.getFileName(), frame.getLineNumber()));
           }
         }
@@ -259,13 +264,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Non-null only when {@link #DEBUG_MEMORY_LEAKS} is on; the page sets {@code .closed}
-   * on this state in {@link #close()} so the Cleaner action skips the leak log.
+   * Non-null only when {@link #DEBUG_MEMORY_LEAKS} is on; the page sets {@code .closed} on this state
+   * in {@link #close()} so the Cleaner action skips the leak log.
    */
   private final LeakDetectorState leakDetectorState;
 
   /**
    * Get the creation stack trace for leak diagnostics.
+   * 
    * @return stack trace from constructor, or null if DEBUG_MEMORY_LEAKS disabled
    */
   public StackTraceElement[] getCreationStackTrace() {
@@ -284,7 +290,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
 
-
   /**
    * The index of the last slot (the slot with the largest offset).
    */
@@ -297,10 +302,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private boolean addedReferences;
 
   /**
-   * Hard ceiling for the slotted-page backing memory: the largest {@link FrameSlotAllocator}
-   * size class (256 KiB). {@link #growSlottedPage()} doubles the capacity, so any growth past
-   * this ceiling would throw in the allocator. Records that cannot fit within it are diverted
-   * to {@link OverflowPage}s instead (#1076).
+   * Hard ceiling for the slotted-page backing memory: the largest {@link FrameSlotAllocator} size
+   * class (256 KiB). {@link #growSlottedPage()} doubles the capacity, so any growth past this ceiling
+   * would throw in the allocator. Records that cannot fit within it are diverted to
+   * {@link OverflowPage}s instead (#1076).
    */
   public static final int MAX_SLOTTED_PAGE_CAPACITY =
       (int) FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
@@ -322,9 +327,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private long recordPageKey;
 
   /**
-   * The record-ID mapped to the records.
-   * Lazily allocated on first write to save ~8KB per page when FlyweightNode
-   * records go directly to the slotted page heap (zero records[] path).
+   * The record-ID mapped to the records. Lazily allocated on first write to save ~8KB per page when
+   * FlyweightNode records go directly to the slotted page heap (zero records[] path).
    */
   private DataRecord[] records;
 
@@ -339,8 +343,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * FSST symbol table for string compression (shared across all strings in page).
-   * Null if FSST compression is not used.
+   * FSST symbol table for string compression (shared across all strings in page). Null if FSST
+   * compression is not used.
    */
   private byte[] fsstSymbolTable;
 
@@ -350,30 +354,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * The dictionary id of this page's symbol table, or {@link #NO_FSST_SYMBOL_TABLE_ID}.
    *
-   * <p>Set on the write path before the page is serialized, and on the read path from the page's
-   * bytes. When it is set and {@link #fsstSymbolTable} is still null, the table has not been
-   * fetched from the dictionary trie yet.
+   * <p>
+   * Set on the write path before the page is serialized, and on the read path from the page's bytes.
+   * When it is set and {@link #fsstSymbolTable} is still null, the table has not been fetched from
+   * the dictionary trie yet.
    */
   private long fsstSymbolTableId = NO_FSST_SYMBOL_TABLE_ID;
 
   /**
-   * PAX region table appended to every KVL page. Null when no regions have
-   * been populated. Populated with number / string / struct / DeweyID
-   * regions; scan operators read contiguous payload buffers from it instead
-   * of decoding varints per slot.
+   * PAX region table appended to every KVL page. Null when no regions have been populated. Populated
+   * with number / string / struct / DeweyID regions; scan operators read contiguous payload buffers
+   * from it instead of decoding varints per slot.
    *
-   * <p>{@code volatile}: minted and populated under the page monitor by the
-   * synchronized region builders but read by concurrent scan workers that
-   * take no lock — a plain field gives those readers neither a guaranteed
-   * sight of the install nor a happens-before edge to the payloads behind it.
+   * <p>
+   * {@code volatile}: minted and populated under the page monitor by the synchronized region builders
+   * but read by concurrent scan workers that take no lock — a plain field gives those readers neither
+   * a guaranteed sight of the install nor a happens-before edge to the payloads behind it.
    */
   private volatile RegionTable regionTable;
 
   /**
-   * FSST-compression flyweight (StringNode), lazy-init only on the write-path where
-   * FSST compression actually runs. For analytical scan workloads these objects were
-   * the top non-page allocator — 7.6% of samples (async-profiler alloc mode) per KVLP
-   * constructor. Using a shared sentinel so the null-check in the read path is elided.
+   * FSST-compression flyweight (StringNode), lazy-init only on the write-path where FSST compression
+   * actually runs. For analytical scan workloads these objects were the top non-page allocator — 7.6%
+   * of samples (async-profiler alloc mode) per KVLP constructor. Using a shared sentinel so the
+   * null-check in the read path is elided.
    */
   private StringNode fsstStringFlyweight;
 
@@ -387,9 +391,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Fused-string sibling of {@link #fsstStringFlyweight} — same lazy-init rationale, for the
-   * kind-50 compress pass. On real JSON the fused records hold nearly all string bytes, so this
-   * is the flyweight that matters for FSST's reach.
+   * Fused-string sibling of {@link #fsstStringFlyweight} — same lazy-init rationale, for the kind-50
+   * compress pass. On real JSON the fused records hold nearly all string bytes, so this is the
+   * flyweight that matters for FSST's reach.
    */
   private ObjectNamedStringNode fsstFusedStringFlyweight;
 
@@ -411,9 +415,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Reference to the complete page for lazy slot copying at commit time.
-   * Set during combineRecordPagesForModification, used by addReferences() to copy
-   * slots that need preservation but weren't modified (records[i] == null).
+   * Reference to the complete page for lazy slot copying at commit time. Set during
+   * combineRecordPagesForModification, used by addReferences() to copy slots that need preservation
+   * but weren't modified (records[i] == null).
    */
   private KeyValueLeafPage completePageRef;
 
@@ -443,22 +447,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   // Note: isClosed flag is now packed into stateFlags (bit 2) for lock-free access
 
   /**
-   * Flag indicating whether memory was externally allocated (e.g., by Arena in tests).
-   * If true, close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
+   * Flag indicating whether memory was externally allocated (e.g., by Arena in tests). If true,
+   * close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
    */
   private final boolean externallyAllocatedMemory;
 
   private MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
 
   /**
-   * Backing buffer from decompression (for zero-copy deserialization).
-   * When non-null, this buffer must be released on close().
+   * Backing buffer from decompression (for zero-copy deserialization). When non-null, this buffer
+   * must be released on close().
    */
   private MemorySegment backingBuffer;
 
   /**
-   * Releaser to return backing buffer to allocator.
-   * Called on close() to return the decompression buffer to the allocator pool.
+   * Releaser to return backing buffer to allocator. Called on close() to return the decompression
+   * buffer to the allocator pool.
    */
   private Runnable backingBufferReleaser;
 
@@ -466,20 +470,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Slotted page MemorySegment (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap).
-   * Stores records in a heap with per-record offset tables,
-   * enabling O(1) field access via flyweight binding. The page layout is defined by
-   * {@link PageLayout}: header (32 B) + bitmap (128 B) + directory (8 KB) + heap.
+   * Stores records in a heap with per-record offset tables, enabling O(1) field access via flyweight
+   * binding. The page layout is defined by {@link PageLayout}: header (32 B) + bitmap (128 B) +
+   * directory (8 KB) + heap.
    *
-   * <p>FlyweightNode records are serialized directly to the heap at createRecord time
-   * and bound for in-place mutation. Non-FlyweightNode records are serialized to the
-   * heap at commit time via processEntries.
+   * <p>
+   * FlyweightNode records are serialized directly to the heap at createRecord time and bound for
+   * in-place mutation. Non-FlyweightNode records are serialized to the heap at commit time via
+   * processEntries.
    */
   private MemorySegment slottedPage;
 
   /**
-   * Actual capacity in bytes of the slottedPage segment.
-   * Tracked separately because slottedPage is reinterpreted to Long.MAX_VALUE
-   * to eliminate JIT bounds checks on MemorySegment get/set operations.
+   * Actual capacity in bytes of the slottedPage segment. Tracked separately because slottedPage is
+   * reinterpreted to Long.MAX_VALUE to eliminate JIT bounds checks on MemorySegment get/set
+   * operations.
    */
   private int slottedPageCapacity;
 
@@ -493,11 +498,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private int cachedPopulatedCount;
 
   /**
-   * Constructor which initializes a new {@link KeyValueLeafPage}.
-   * Memory is externally provided (e.g., by Arena in tests) and will NOT be released by close().
+   * Constructor which initializes a new {@link KeyValueLeafPage}. Memory is externally provided
+   * (e.g., by Arena in tests) and will NOT be released by close().
    *
-   * @param recordPageKey  base key assigned to this node page
-   * @param indexType      the index type
+   * @param recordPageKey base key assigned to this node page
+   * @param indexType the index type
    * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
@@ -509,10 +514,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
    *
-   * @param recordPageKey              base key assigned to this node page
-   * @param indexType                  the index type
-   * @param resourceConfig             the resource configuration
-   * @param externallyAllocatedMemory  if true, memory was allocated externally and won't be released by close()
+   * @param recordPageKey base key assigned to this node page
+   * @param indexType the index type
+   * @param resourceConfig the resource configuration
+   * @param externallyAllocatedMemory if true, memory was allocated externally and won't be released
+   *        by close()
    */
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
@@ -555,8 +561,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
-      this.leakDetectorState =
-          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      this.leakDetectorState = new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
       LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
@@ -565,16 +570,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
-   * The slotted page will be set by the caller via {@link #setSlottedPage(MemorySegment)}.
+   * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage. The
+   * slotted page will be set by the caller via {@link #setSlottedPage(MemorySegment)}.
    *
-   * @param recordPageKey     This is the base key of all contained nodes.
-   * @param revision          The current revision.
-   * @param indexType         The index type.
-   * @param resourceConfig    The resource configuration.
+   * @param recordPageKey This is the base key of all contained nodes.
+   * @param revision The current revision.
+   * @param indexType The index type.
+   * @param resourceConfig The resource configuration.
    * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
-   * @param recordPersister   Persistenter.
-   * @param references        References to overflow pages.
+   * @param recordPersister Persistenter.
+   * @param references References to overflow pages.
    */
   public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
@@ -612,8 +617,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
-      this.leakDetectorState =
-          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      this.leakDetectorState = new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
       LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
@@ -622,14 +626,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Create a deep copy of this page for Copy-on-Write during async epoch boundaries.
-   * Copies slotted page MemorySegment, records[], references map, FSST symbol table.
-   * The copy is fully independent — no shared mutable state with the original.
+   * Create a deep copy of this page for Copy-on-Write during async epoch boundaries. Copies slotted
+   * page MemorySegment, records[], references map, FSST symbol table. The copy is fully independent —
+   * no shared mutable state with the original.
    *
-   * <p>Uses the deserialization constructor to set lastSlotIndex directly (no public setter).
-   * Slotted page is deep-copied via allocate + MemorySegment.copy, then set via setSlottedPage().
-   * records[] is shallow-copied (DataRecord objects are not mutated concurrently).
-   * Serialization caches (compressedSegment, bytes, hashCode) are left null — copy is dirty.</p>
+   * <p>
+   * Uses the deserialization constructor to set lastSlotIndex directly (no public setter). Slotted
+   * page is deep-copied via allocate + MemorySegment.copy, then set via setSlottedPage(). records[]
+   * is shallow-copied (DataRecord objects are not mutated concurrently). Serialization caches
+   * (compressedSegment, bytes, hashCode) are left null — copy is dirty.
+   * </p>
    *
    * @return a fully independent deep copy of this page
    */
@@ -641,14 +647,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
 
     // Use deserialization constructor:
-    //   - sets lastSlotIndex, externallyAllocatedMemory=false
-    //   - records=null, no slotted page allocation (caller sets via setSlottedPage)
-    //   - releases slotMemory/deweyIdMemory if non-null (we pass null)
-    final var copy = new KeyValueLeafPage(
-        recordPageKey, revision, indexType, resourceConfig,
-        areDeweyIDsStored, recordPersister, refsCopy,
-        null, null,
-        lastSlotIndex);
+    // - sets lastSlotIndex, externallyAllocatedMemory=false
+    // - records=null, no slotted page allocation (caller sets via setSlottedPage)
+    // - releases slotMemory/deweyIdMemory if non-null (we pass null)
+    final var copy = new KeyValueLeafPage(recordPageKey, revision, indexType, resourceConfig, areDeweyIDsStored,
+        recordPersister, refsCopy, null, null, lastSlotIndex);
 
     // Deep-copy slotted page MemorySegment (primary data store)
     if (slottedPage != null) {
@@ -697,7 +700,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   @Override
   public DataRecord getRecord(int offset) {
-    return records != null ? records[offset] : null;
+    return records != null
+        ? records[offset]
+        : null;
   }
 
   @Override
@@ -747,14 +752,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Store a newly created record, serializing non-FlyweightNode data to the slotted page heap
-   * immediately. This is called from the createRecord path where node factories may reuse
-   * singleton objects. By serializing now and nulling records[], we preserve data before the
-   * singleton is reused for the next node creation.
+   * immediately. This is called from the createRecord path where node factories may reuse singleton
+   * objects. By serializing now and nulling records[], we preserve data before the singleton is
+   * reused for the next node creation.
    *
-   * <p>For FlyweightNode records, this delegates to {@link #setRecord} which handles heap
-   * serialization and binding. For non-FlyweightNode on slotted pages, the record is serialized
-   * to the heap and records[offset] is nulled — prepareRecordForModification will deserialize
-   * a fresh object from the heap when mutation is needed.
+   * <p>
+   * For FlyweightNode records, this delegates to {@link #setRecord} which handles heap serialization
+   * and binding. For non-FlyweightNode on slotted pages, the record is serialized to the heap and
+   * records[offset] is nulled — prepareRecordForModification will deserialize a fresh object from the
+   * heap when mutation is needed.
    *
    * @param record the newly created record
    */
@@ -790,26 +796,32 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Serialize a FlyweightNode to the slotted page heap, update directory/bitmap, and bind.
    *
-   * <p>After this call the node is bound: getters/setters operate on page memory.
-   * processEntries will skip this record at commit time because {@code fn.isBound()} is true.
+   * <p>
+   * After this call the node is bound: getters/setters operate on page memory. processEntries will
+   * skip this record at commit time because {@code fn.isBound()} is true.
    *
-   * @param fn      the flyweight node to serialize
+   * @param fn the flyweight node to serialize
    * @param nodeKey the node's key
-   * @param offset  the slot index within the page (0-1023)
-   * @return {@code true} if the record was serialized to the heap; {@code false} if it does not
-   *         fit within {@link #MAX_SLOTTED_PAGE_CAPACITY} and must be diverted to an
-   *         {@link OverflowPage} by the caller (#1076) — the page is left unchanged then
+   * @param offset the slot index within the page (0-1023)
+   * @return {@code true} if the record was serialized to the heap; {@code false} if it does not fit
+   *         within {@link #MAX_SLOTTED_PAGE_CAPACITY} and must be diverted to an {@link OverflowPage}
+   *         by the caller (#1076) — the page is left unchanged then
    */
   private boolean serializeToHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
     ensureSlottedPage();
     // Get DeweyID bytes if stored (must capture BEFORE binding overwrites the node state)
-    final byte[] deweyIdBytes = areDeweyIDsStored ? fn.getDeweyIDAsBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final byte[] deweyIdBytes = areDeweyIDsStored
+        ? fn.getDeweyIDAsBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
 
     // Ensure heap has enough space for this record (value nodes can be large)
     final int heapEnd = cachedHeapEnd;
-    final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
-        + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
+    final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen + (areDeweyIDsStored
+        ? PageLayout.DEWEY_ID_TRAILER_SIZE
+        : 0);
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < estimatedSize) {
       if (slottedPageCapacity * 2 > MAX_SLOTTED_PAGE_CAPACITY) {
         // Growing further would exceed the largest allocator size class — divert to overflow.
@@ -835,8 +847,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final int totalBytes;
     if (areDeweyIDsStored) {
       if (deweyIdLen > 0) {
-        MemorySegment.copy(deweyIdBytes, 0, slottedPage,
-            java.lang.foreign.ValueLayout.JAVA_BYTE, absOffset + recordBytes, deweyIdLen);
+        MemorySegment.copy(deweyIdBytes, 0, slottedPage, java.lang.foreign.ValueLayout.JAVA_BYTE,
+            absOffset + recordBytes, deweyIdLen);
       }
       totalBytes = recordBytes + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
       PageLayout.writeDeweyIdTrailer(slottedPage, absOffset + totalBytes, deweyIdLen);
@@ -871,14 +883,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   // ==================== DIRECT-TO-HEAP CREATION ====================
 
   /**
-   * Prepare the heap for a direct record write. Ensures slotted page exists and has
-   * enough space. Returns the absolute offset where the caller should write.
+   * Prepare the heap for a direct record write. Ensures slotted page exists and has enough space.
+   * Returns the absolute offset where the caller should write.
    *
    * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
-   * @param deweyIdLen          length of DeweyID bytes (0 if none)
+   * @param deweyIdLen length of DeweyID bytes (0 if none)
    * @return absolute byte offset in the slotted page MemorySegment to write at
-   * @throws SirixIOException if the record cannot fit within the largest slotted-page size
-   *         class — value-carrying factories should use
+   * @throws SirixIOException if the record cannot fit within the largest slotted-page size class —
+   *         value-carrying factories should use
    *         {@link #prepareHeapForDirectWriteOrOverflow(int, int)} and divert to overflow storage
    */
   public long prepareHeapForDirectWrite(final int estimatedRecordSize, final int deweyIdLen) {
@@ -893,19 +905,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Like {@link #prepareHeapForDirectWrite(int, int)}, but returns {@link #DIRECT_WRITE_OVERFLOW}
-   * instead of throwing when the record cannot fit within {@link #MAX_SLOTTED_PAGE_CAPACITY}
-   * (either because the record alone is too large, or because the page heap is too full). The
-   * caller must then store the record as a heap object via {@link #setRecord(DataRecord)} so
+   * instead of throwing when the record cannot fit within {@link #MAX_SLOTTED_PAGE_CAPACITY} (either
+   * because the record alone is too large, or because the page heap is too full). The caller must
+   * then store the record as a heap object via {@link #setRecord(DataRecord)} so
    * {@code processEntries} diverts it to an {@link OverflowPage} at serialization time (#1076).
    *
    * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
-   * @param deweyIdLen          length of DeweyID bytes (0 if none)
+   * @param deweyIdLen length of DeweyID bytes (0 if none)
    * @return absolute byte offset to write at, or {@link #DIRECT_WRITE_OVERFLOW}
    */
   public long prepareHeapForDirectWriteOrOverflow(final int estimatedRecordSize, final int deweyIdLen) {
     ensureSlottedPage();
     final int deweyOverhead = areDeweyIDsStored
-        ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE : 0;
+        ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE
+        : 0;
     final int totalEstimated = estimatedRecordSize + deweyOverhead;
     final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalEstimated) {
@@ -918,32 +931,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Complete a direct record write. Handles DeweyID trailer, directory entry, bitmap,
-   * heap counters, and flyweight binding. Called after the caller has written the record
-   * bytes via a static writeNewRecord method.
+   * Complete a direct record write. Handles DeweyID trailer, directory entry, bitmap, heap counters,
+   * and flyweight binding. Called after the caller has written the record bytes via a static
+   * writeNewRecord method.
    *
-   * @param nodeKindId   the node kind ID (e.g. NodeKind.OBJECT.getId())
-   * @param nodeKey      the node key
-   * @param slotOffset   the slot index (0-1023)
-   * @param recordBytes  number of bytes written by writeNewRecord
+   * @param nodeKindId the node kind ID (e.g. NodeKind.OBJECT.getId())
+   * @param nodeKey the node key
+   * @param slotOffset the slot index (0-1023)
+   * @param recordBytes number of bytes written by writeNewRecord
    * @param deweyIdBytes DeweyID bytes (null if not stored)
    */
-  public void completeDirectWrite(final int nodeKindId, final long nodeKey,
-      final int slotOffset, final int recordBytes, final byte[] deweyIdBytes) {
+  public void completeDirectWrite(final int nodeKindId, final long nodeKey, final int slotOffset, final int recordBytes,
+      final byte[] deweyIdBytes) {
     addedReferences = false;
     compressedSegment = null;
     bytes = null;
 
     final int heapEnd = cachedHeapEnd;
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
 
     // DeweyID trailer
     final int totalBytes;
     if (areDeweyIDsStored) {
       if (deweyIdLen > 0) {
-        MemorySegment.copy(deweyIdBytes, 0, slottedPage,
-            java.lang.foreign.ValueLayout.JAVA_BYTE, absOffset + recordBytes, deweyIdLen);
+        MemorySegment.copy(deweyIdBytes, 0, slottedPage, java.lang.foreign.ValueLayout.JAVA_BYTE,
+            absOffset + recordBytes, deweyIdLen);
       }
       totalBytes = recordBytes + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
       PageLayout.writeDeweyIdTrailer(slottedPage, absOffset + totalBytes, deweyIdLen);
@@ -981,13 +996,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Resize a record whose varint width changed. Appends new version at heap end,
-   * updates directory, re-binds, and sets ownerPage. Old space becomes dead
-   * (reclaimed on page compaction/rewrite at commit time).
+   * Resize a record whose varint width changed. Appends new version at heap end, updates directory,
+   * re-binds, and sets ownerPage. Old space becomes dead (reclaimed on page compaction/rewrite at
+   * commit time).
    *
-   * @param fn      the flyweight node (unbound, with updated Java fields)
+   * @param fn the flyweight node (unbound, with updated Java fields)
    * @param nodeKey the node's key
-   * @param offset  the slot index within the page (0-1023)
+   * @param offset the slot index within the page (0-1023)
    */
   public void resizeRecord(final FlyweightNode fn, final long nodeKey, final int offset) {
     compressedSegment = null;
@@ -996,25 +1011,27 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Resize a single field in a bound record by raw-copying unchanged fields and re-encoding
-   * only the changed field. Avoids the full unbind/re-serialize round-trip of {@link #resizeRecord}.
+   * Resize a single field in a bound record by raw-copying unchanged fields and re-encoding only the
+   * changed field. Avoids the full unbind/re-serialize round-trip of {@link #resizeRecord}.
    *
-   * <p>Bump-allocates new heap space, calls {@link DeltaVarIntCodec#resizeField} to perform
-   * three-segment copy (before + changed + after), preserves DeweyID trailer, updates directory,
-   * and re-binds the flyweight to the new location.
+   * <p>
+   * Bump-allocates new heap space, calls {@link DeltaVarIntCodec#resizeField} to perform
+   * three-segment copy (before + changed + after), preserves DeweyID trailer, updates directory, and
+   * re-binds the flyweight to the new location.
    *
-   * <p><b>HFT note</b>: Zero allocations. Uses {@link MemorySegment#copy} (AVX/SSE intrinsics).
-   * Cold path — only called on varint width change, which is rare (~5% of mutations).
+   * <p>
+   * <b>HFT note</b>: Zero allocations. Uses {@link MemorySegment#copy} (AVX/SSE intrinsics). Cold
+   * path — only called on varint width change, which is rare (~5% of mutations).
    *
-   * @param fn         the bound flyweight node (must be bound to this page's slotted page)
-   * @param nodeKey    the node's key
-   * @param slotIndex  the slot index within the page (0-1023)
+   * @param fn the bound flyweight node (must be bound to this page's slotted page)
+   * @param nodeKey the node's key
+   * @param slotIndex the slot index within the page (0-1023)
    * @param fieldIndex the index of the field to resize (0 to fieldCount-1)
    * @param fieldCount total number of fields in this record type's offset table
-   * @param encoder    encodes the new field value at the target offset
+   * @param encoder encodes the new field value at the target offset
    */
-  public void resizeRecordField(final FlyweightNode fn, final long nodeKey, final int slotIndex,
-      final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder) {
+  public void resizeRecordField(final FlyweightNode fn, final long nodeKey, final int slotIndex, final int fieldIndex,
+      final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder) {
     assert slottedPage != null : "resizeRecordField requires slotted page";
     assert PageLayout.isSlotPopulated(slottedPage, slotIndex) : "slot not populated: " + slotIndex;
 
@@ -1053,11 +1070,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // --- Raw-copy resize: copy unchanged fields, re-encode changed field ---
     final long newRecordBase = PageLayout.heapAbsoluteOffset(heapEnd);
-    final int newRecordLen = DeltaVarIntCodec.resizeField(
-        slottedPage, oldRecordBase, oldRecordOnlyLen,
-        fieldCount, fieldIndex,
-        slottedPage, newRecordBase,
-        encoder);
+    final int newRecordLen = DeltaVarIntCodec.resizeField(slottedPage, oldRecordBase, oldRecordOnlyLen, fieldCount,
+        fieldIndex, slottedPage, newRecordBase, encoder);
 
     // --- Copy DeweyID data + trailer from old location ---
     final int newTotalLen;
@@ -1091,11 +1105,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Zero-copy raw slot bytes from source page to this page's heap.
-   * Copies the record body + DeweyID trailer verbatim, avoiding deserialize-serialize round-trip.
+   * Zero-copy raw slot bytes from source page to this page's heap. Copies the record body + DeweyID
+   * trailer verbatim, avoiding deserialize-serialize round-trip.
    *
    * @param sourcePage the source page to copy from
-   * @param slotIndex  the slot index to copy
+   * @param slotIndex the slot index to copy
    */
   public void copySlotFromPage(final KeyValueLeafPage sourcePage, final int slotIndex) {
     final MemorySegment srcPage = sourcePage.getSlottedPage();
@@ -1154,8 +1168,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage == null) {
       return false;
     }
-    final int offset = (int) (recordKey - ((recordKey >> Constants.NDP_NODE_COUNT_EXPONENT)
-        << Constants.NDP_NODE_COUNT_EXPONENT));
+    final int offset =
+        (int) (recordKey - ((recordKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     return PageLayout.isSlotPopulated(slottedPage, offset);
   }
 
@@ -1179,19 +1193,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Bulk-copy the slotted-page state from {@code src} into a buffer owned by
-   * this page. Used by the single-fragment combine fast path to avoid the
-   * per-slot {@code setSlotWithNodeKind} loop; one MemorySegment.copy
-   * replaces ~1024 small copies + directory writes + bitmap updates.
+   * Bulk-copy the slotted-page state from {@code src} into a buffer owned by this page. Used by the
+   * single-fragment combine fast path to avoid the per-slot {@code setSlotWithNodeKind} loop; one
+   * MemorySegment.copy replaces ~1024 small copies + directory writes + bitmap updates.
    *
-   * <p>If {@code this} already has a slotted page (via eager
-   * {@code ensureSlottedPage} in the constructor), it is released first —
-   * the constructor's allocation is wasted for the combine path, but
-   * reusing it in place requires handling size-class mismatches that rarely
-   * hit. Net: trade one 64 KiB release for a 1024× loop skip.
+   * <p>
+   * If {@code this} already has a slotted page (via eager {@code ensureSlottedPage} in the
+   * constructor), it is released first — the constructor's allocation is wasted for the combine path,
+   * but reusing it in place requires handling size-class mismatches that rarely hit. Net: trade one
+   * 64 KiB release for a 1024× loop skip.
    *
-   * <p>Overwrites the header's revision field after the copy so downstream
-   * readers observe this page's target revision (not the donor fragment's).
+   * <p>
+   * Overwrites the header's revision field after the copy so downstream readers observe this page's
+   * target revision (not the donor fragment's).
    */
   public void copySlottedPageFrom(final KeyValueLeafPage src) {
     final MemorySegment srcSp = src.slottedPage;
@@ -1229,8 +1243,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Grow the slotted page by doubling its size.
-   * Copies all existing data (header + bitmap + directory + heap) to the new segment.
+   * Grow the slotted page by doubling its size. Copies all existing data (header + bitmap + directory
+   * + heap) to the new segment.
    */
   private void growSlottedPage() {
     final int currentSize = slottedPageCapacity;
@@ -1280,16 +1294,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         : "heapEnd drift: cached=" + cachedHeapEnd + " segment=" + PageLayout.getHeapEnd(slottedPage);
     assert cachedHeapUsed == PageLayout.getHeapUsed(slottedPage)
         : "heapUsed drift: cached=" + cachedHeapUsed + " segment=" + PageLayout.getHeapUsed(slottedPage);
-    assert cachedPopulatedCount == PageLayout.getPopulatedCount(slottedPage)
-        : "populatedCount drift: cached=" + cachedPopulatedCount + " segment=" + PageLayout.getPopulatedCount(slottedPage);
+    assert cachedPopulatedCount == PageLayout.getPopulatedCount(slottedPage) : "populatedCount drift: cached="
+        + cachedPopulatedCount + " segment=" + PageLayout.getPopulatedCount(slottedPage);
   }
 
   /**
-   * Write raw slot data to the slotted page heap.
-   * Used by setSlot() and addReferences() when slottedPage is active.
-   * Data is stored without a length prefix — the directory entry holds the length.
+   * Write raw slot data to the slotted page heap. Used by setSlot() and addReferences() when
+   * slottedPage is active. Data is stored without a length prefix — the directory entry holds the
+   * length.
    *
-   * @param data       the raw slot data to store
+   * @param data the raw slot data to store
    * @param slotNumber the slot index (0-1023)
    * @param nodeKindId the node kind ID (0 for legacy format, &gt;0 for flyweight)
    */
@@ -1339,17 +1353,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Write raw slot data from a source segment at a given offset to the slotted page heap.
-   * Zero-copy variant for direct page deserialization.
+   * Write raw slot data from a source segment at a given offset to the slotted page heap. Zero-copy
+   * variant for direct page deserialization.
    *
-   * @param source       the source MemorySegment containing the data
+   * @param source the source MemorySegment containing the data
    * @param sourceOffset byte offset within source where data starts
-   * @param dataSize     number of bytes to copy
-   * @param slotNumber   the slot index (0-1023)
-   * @param nodeKindId   the node kind ID (0 for legacy format, 24-43 for flyweight)
+   * @param dataSize number of bytes to copy
+   * @param slotNumber the slot index (0-1023)
+   * @param nodeKindId the node kind ID (0 for legacy format, 24-43 for flyweight)
    */
-  void setSlotToHeapDirect(final MemorySegment source, final long sourceOffset,
-      final int dataSize, final int slotNumber, final int nodeKindId) {
+  void setSlotToHeapDirect(final MemorySegment source, final long sourceOffset, final int dataSize,
+      final int slotNumber, final int nodeKindId) {
     if (dataSize <= 0) {
       return;
     }
@@ -1425,8 +1439,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Set compressed page data as a MemorySegment (zero-copy path).
-   * Clears the legacy bytes cache.
+   * Set compressed page data as a MemorySegment (zero-copy path). Clears the legacy bytes cache.
    *
    * @param segment the compressed segment (Arena.ofAuto()-managed)
    */
@@ -1439,9 +1452,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Release node object references to allow GC to reclaim them.
    * <p>
    * MUST only be called after {@code addReferences()} has serialized all records into
-   * {@code slotMemory} and the compressed form is cached via {@code setCompressedSegment()}
-   * or {@code setBytes()}. After this call, individual records can still be reconstructed
-   * on demand from {@code slotMemory} via {@code getSlot(offset)} in
+   * {@code slotMemory} and the compressed form is cached via {@code setCompressedSegment()} or
+   * {@code setBytes()}. After this call, individual records can still be reconstructed on demand from
+   * {@code slotMemory} via {@code getSlot(offset)} in
    * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
    */
   public void clearRecordsForGC() {
@@ -1489,7 +1502,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   @Override
   public <I extends Iterable<DataRecord>> I values() {
     final DataRecord[] r = records;
-    return (I) new ArrayIterator(r != null ? r : EMPTY_RECORDS, r != null ? r.length : 0);
+    return (I) new ArrayIterator(r != null
+        ? r
+        : EMPTY_RECORDS,
+        r != null
+            ? r.length
+            : 0);
   }
 
   public Map<Long, PageReference> getReferencesMap() {
@@ -1497,8 +1515,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Set reference to the complete page for lazy slot copying at commit time.
-   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
+   * Set reference to the complete page for lazy slot copying at commit time. Used by DIFFERENTIAL,
+   * INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
    *
    * @param completePage the complete page to copy slots from
    */
@@ -1516,8 +1534,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Mark a slot for preservation during lazy copy at commit time.
-   * At addReferences(), if this slot has records[i] == null, it will be copied from completePageRef.
+   * Mark a slot for preservation during lazy copy at commit time. At addReferences(), if this slot
+   * has records[i] == null, it will be copied from completePageRef.
    *
    * @param slotNumber the slot number to mark for preservation (0 to Constants.NDP_NODE_COUNT-1)
    */
@@ -1537,8 +1555,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Get the preservation bitmap for testing/debugging.
-   * Returns a fresh copy from the slotted page MemorySegment.
+   * Get the preservation bitmap for testing/debugging. Returns a fresh copy from the slotted page
+   * MemorySegment.
    *
    * @return a fresh long[16] copy, or null if slotted page is not initialized
    */
@@ -1548,8 +1566,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final long[] copy = new long[BITMAP_WORDS];
     for (int i = 0; i < BITMAP_WORDS; i++) {
-      copy[i] = slottedPage.get(LE.LONG,
-          PageLayout.PRESERVATION_BITMAP_OFF + ((long) i << 3));
+      copy[i] = slottedPage.get(LE.LONG, PageLayout.PRESERVATION_BITMAP_OFF + ((long) i << 3));
     }
     return copy;
   }
@@ -1577,10 +1594,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Set slot data with an explicit nodeKindId. Used during page combining
-   * to preserve the flyweight format indicator from the source page.
+   * Set slot data with an explicit nodeKindId. Used during page combining to preserve the flyweight
+   * format indicator from the source page.
    *
-   * @param data       the raw slot data to store
+   * @param data the raw slot data to store
    * @param slotNumber the slot index (0-1023)
    * @param nodeKindId the node kind ID (0 for legacy, &gt;0 for flyweight)
    */
@@ -1590,8 +1607,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Get the nodeKindId for a slot from the slotted page directory.
-   * Returns 0 if the slotted page is not initialized or the slot is unpopulated.
+   * Get the nodeKindId for a slot from the slotted page directory. Returns 0 if the slotted page is
+   * not initialized or the slot is unpopulated.
    *
    * @param slotNumber the slot index (0-1023)
    * @return the nodeKindId (&gt;0 for flyweight format, 0 for legacy)
@@ -1604,10 +1621,61 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read a fused-named slot's nameKey directly from the slot bytes without binding
-   * a flyweight singleton or moving a transaction cursor. Callers MUST verify
-   * the slot is populated and holds a fused {@code OBJECT_NAMED_*} record (kindId 48-53)
-   * — the method does no validation for the vectorized scan hot path.
+   * Read a slot's parent node key straight from the slot bytes, without binding a flyweight or moving
+   * a transaction cursor.
+   *
+   * <p>
+   * This is what lets a scan decide whether a record belongs to a given parent — the children of one
+   * JSON array, say — while inspecting every slot of a page. Doing it by materializing each node
+   * would cost far more than the scan it is filtering for: on a corpus with ~15 nodes per array
+   * element, the filter runs 15x more often than it succeeds.
+   *
+   * <p>
+   * Works for every node kind because PARENT_KEY is field index 0 in all of them (see the
+   * {@code *_PARENT_KEY} constants in {@link NodeFieldLayout}); only the offset table's length
+   * varies, and that comes from {@link NodeFieldLayout#fieldCountForKind(int)}.
+   *
+   * @param slotNumber the slot index (0-1023)
+   * @return the parent node key, or {@link Fixed#NULL_NODE_KEY} when the slot is unpopulated or the
+   *         page holds no slotted image
+   */
+  public long getSlotParentKey(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
+    if (fieldCount <= 0 || isParentless(kindId)) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJECT_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    // Parent keys are delta-encoded against the record's own node key.
+    final long nodeKey = (getPageKey() << PageLayout.SLOT_COUNT_EXPONENT) | slotNumber;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, nodeKey);
+  }
+
+  /**
+   * Whether a node kind has no PARENT_KEY at field index 0.
+   *
+   * <p>
+   * Only the document roots, and getting this wrong is quiet rather than loud: their field 0 is
+   * FIRST_CHILD_KEY, so reading it as a parent reports the root's own first child as its parent. On a
+   * JSON document that child is the top-level array, which makes the root look like a member of that
+   * array — a scan filtering "children of the array" then admits the document root and hands a
+   * consumer a node kind it has no case for.
+   */
+  private static boolean isParentless(final int kindId) {
+    return kindId == NodeKind.JSON_DOCUMENT.getId() || kindId == NodeKind.XML_DOCUMENT.getId();
+  }
+
+  /**
+   * Read a fused-named slot's nameKey directly from the slot bytes without binding a flyweight
+   * singleton or moving a transaction cursor. Callers MUST verify the slot is populated and holds a
+   * fused {@code OBJECT_NAMED_*} record (kindId 48-53) — the method does no validation for the
+   * vectorized scan hot path.
    *
    * @param slotNumber the slot index (assumed populated + fused-named kind)
    * @return the signed nameKey from the slot
@@ -1631,10 +1699,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read the inline nameKey from a fused {@code OBJECT_NAMED_*} slot (kindIds 48-51).
-   * Same varint layout as {@link #getObjectKeyNameKeyFromSlot} but different field count
-   * (offset-table size varies between 8 and 9 across the four kinds). The accessor picks
-   * up the correct field-count for the slot's kind from {@link NodeFieldLayout}.
+   * Read the inline nameKey from a fused {@code OBJECT_NAMED_*} slot (kindIds 48-51). Same varint
+   * layout as {@link #getObjectKeyNameKeyFromSlot} but different field count (offset-table size
+   * varies between 8 and 9 across the four kinds). The accessor picks up the correct field-count for
+   * the slot's kind from {@link NodeFieldLayout}.
    */
   public int getFusedObjectNamedNameKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
@@ -1649,9 +1717,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read the inline nameKey from a fused structural {@code OBJECT_NAMED_OBJECT/ARRAY} slot
-   * (kindIds 52/53). NAME_KEY is at field index 5 for these (vs index 3 for primitive-fused
-   * 48-51). Caller must verify the slot holds a structural-fused record.
+   * Read the inline nameKey from a fused structural {@code OBJECT_NAMED_OBJECT/ARRAY} slot (kindIds
+   * 52/53). NAME_KEY is at field index 5 for these (vs index 3 for primitive-fused 48-51). Caller
+   * must verify the slot holds a structural-fused record.
    */
   public int getFusedStructuralNameKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
@@ -1666,44 +1734,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * True for the kinds (52, 53). Layout-dependent — these have a
-   * 12-field offset table with NAME_KEY at index 5; do NOT use them on hot paths that assume
-   * the primitive-fused layout (kindIds 48-51).
+   * True for the kinds (52, 53). Layout-dependent — these have a 12-field offset table with NAME_KEY
+   * at index 5; do NOT use them on hot paths that assume the primitive-fused layout (kindIds 48-51).
    */
   public static boolean isFusedStructuralKindId(final int kindId) {
-    return kindId == FUSED_OBJECT_NAMED_OBJECT_KIND_ID
-        || kindId == FUSED_OBJECT_NAMED_ARRAY_KIND_ID;
+    return kindId == FUSED_OBJECT_NAMED_OBJECT_KIND_ID || kindId == FUSED_OBJECT_NAMED_ARRAY_KIND_ID;
   }
 
   /**
-   * Read the boolean payload of an OBJECT_NAMED_BOOLEAN slot (kindId 48) directly off
-   * the slotted page. Caller must verify the slot holds an OBJECT_NAMED_BOOLEAN.
+   * Read the boolean payload of an OBJECT_NAMED_BOOLEAN slot (kindId 48) directly off the slotted
+   * page. Caller must verify the slot holds an OBJECT_NAMED_BOOLEAN.
    */
   public boolean getFusedObjectNamedBooleanValueFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_VALUE) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_VALUE) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_BOOLEAN_FIELD_COUNT;
     return sp.get(ValueLayout.JAVA_BYTE, dataStart + fieldOff) != 0;
   }
 
   /**
-   * Decode the inline numeric value from an OBJECT_NAMED_NUMBER slot (kindId 49) directly
-   * off the slotted page. Returns {@link Long#MIN_VALUE} if the payload's number type is
-   * not Integer or Long (e.g. float/double/BigDecimal) — caller falls back to the cursor
-   * path. Mirrors {@link #getNumberValueLongFromSlot} for the fused shape.
+   * Decode the inline numeric value from an OBJECT_NAMED_NUMBER slot (kindId 49) directly off the
+   * slotted page. Returns {@link Long#MIN_VALUE} if the payload's number type is not Integer or Long
+   * (e.g. float/double/BigDecimal) — caller falls back to the cursor path. Mirrors
+   * {@link #getNumberValueLongFromSlot} for the fused shape.
    *
-   * <p>Caller must verify the slot holds {@code OBJECT_NAMED_NUMBER}.
+   * <p>
+   * Caller must verify the slot holds {@code OBJECT_NAMED_NUMBER}.
    */
   public long getFusedObjectNamedNumberValueLongFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     // Payload is field index 8 (OBJNAMEDNUM_PAYLOAD).
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT;
     final long payloadStart = dataStart + fieldOff;
     final byte numberType = sp.get(ValueLayout.JAVA_BYTE, payloadStart);
@@ -1717,9 +1782,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Decode the inline value from an OBJECT_NAMED_NUMBER slot as a double, or {@link Double#NaN}
-   * when the payload is not Double/Float-typed. NaN is a safe sentinel: JSON has no NaN literal,
-   * so no stored value can collide with it. The companion of
+   * Decode the inline value from an OBJECT_NAMED_NUMBER slot as a double, or {@link Double#NaN} when
+   * the payload is not Double/Float-typed. NaN is a safe sentinel: JSON has no NaN literal, so no
+   * stored value can collide with it. The companion of
    * {@link #getFusedObjectNamedNumberValueLongFromSlot}, for the values that method declines —
    * together they cover every numeric type the double-region writer can column-ize.
    */
@@ -1730,31 +1795,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Decode an OBJECT_NAMED_NUMBER slot's BigDecimal payload as its EXACT {@code (unscaled, scale)},
    * allocating nothing.
    *
-   * <p>Returns the unscaled value and writes the scale to {@code scaleOut[0]}, or
-   * {@link #DECIMAL_SCALE_UNAVAILABLE} when the slot cannot be carried exactly — a non-decimal
-   * type, an unscaled magnitude wider than a {@code long}, or a scale outside
-   * {@code [0, }{@link DoubleRegion#MAX_DECIMAL_SCALE}{@code ]}. A negative scale ({@code 1E+3})
-   * is declined rather than normalized: rescaling it would multiply the unscaled value and can
-   * overflow, and such literals are vanishingly rare in JSON.
+   * <p>
+   * Returns the unscaled value and writes the scale to {@code scaleOut[0]}, or
+   * {@link #DECIMAL_SCALE_UNAVAILABLE} when the slot cannot be carried exactly — a non-decimal type,
+   * an unscaled magnitude wider than a {@code long}, or a scale outside
+   * {@code [0, }{@link DoubleRegion#MAX_DECIMAL_SCALE}{@code ]}. A negative scale ({@code 1E+3}) is
+   * declined rather than normalized: rescaling it would multiply the unscaled value and can overflow,
+   * and such literals are vanishingly rare in JSON.
    *
-   * <h2>Why this exists next to {@link #getFusedObjectNamedNumberValueDoubleFromSlot}</h2>
-   * That method answers the same payload as a {@code double}, and must return {@link Double#NaN}
-   * whenever the double image is inexact — which is almost every real decimal, because only dyadic
-   * rationals survive the conversion. Going straight to the unscaled integer skips the lossy hop
-   * entirely, so a price like {@code 19.99} is carried exactly instead of being turned away.
+   * <h2>Why this exists next to {@link #getFusedObjectNamedNumberValueDoubleFromSlot}</h2> That
+   * method answers the same payload as a {@code double}, and must return {@link Double#NaN} whenever
+   * the double image is inexact — which is almost every real decimal, because only dyadic rationals
+   * survive the conversion. Going straight to the unscaled integer skips the lossy hop entirely, so a
+   * price like {@code 19.99} is carried exactly instead of being turned away.
    *
-   * <h2>HFT</h2>
-   * The double-typed path built a {@code byte[]}, a {@code BigInteger} and a {@code BigDecimal} per
-   * value per page build, purely to answer "is this exact?". This reads the two's-complement bytes
-   * straight into a {@code long} — no allocation, no GC pressure on page reconstruction.
+   * <h2>HFT</h2> The double-typed path built a {@code byte[]}, a {@code BigInteger} and a
+   * {@code BigDecimal} per value per page build, purely to answer "is this exact?". This reads the
+   * two's-complement bytes straight into a {@code long} — no allocation, no GC pressure on page
+   * reconstruction.
    */
-  public long getFusedObjectNamedNumberValueDecimalFromSlot(final int slotNumber,
-      final int[] scaleOut) {
+  public long getFusedObjectNamedNumberValueDecimalFromSlot(final int slotNumber, final int[] scaleOut) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
     if (sp.get(ValueLayout.JAVA_BYTE, payloadStart) != NUMBER_TYPE_BIG_DECIMAL) {
       scaleOut[0] = DECIMAL_SCALE_UNAVAILABLE;
@@ -1770,7 +1834,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       shift += 7;
     } while ((b & 0x80) != 0);
     if (len <= 0 || len > Long.BYTES) {
-      scaleOut[0] = DECIMAL_SCALE_UNAVAILABLE;  // wider than a long — the record path keeps it
+      scaleOut[0] = DECIMAL_SCALE_UNAVAILABLE; // wider than a long — the record path keeps it
       return 0L;
     }
     // Big-endian two's complement, exactly as BigInteger(byte[]) reads it, then sign-extended from
@@ -1791,24 +1855,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Whether an OBJECT_NAMED_NUMBER slot's payload is BigDecimal-typed.
    *
-   * <p>The column a value joins is decided by its DECLARED type, exactly as {@code DECIMAL(P,S)} and
+   * <p>
+   * The column a value joins is decided by its DECLARED type, exactly as {@code DECIMAL(P,S)} and
    * {@code DOUBLE} are separate physical columns in a relational engine — never by whether that one
    * value's double image happens to round-trip. Two decimals can share a double image, so a tag
    * mixing an exact-as-double decimal with an inexact one would otherwise be encoded over double
    * images, and a decimal predicate over it would put rows on the wrong side of the threshold.
    *
-   * <p>Reads one byte off the slot's payload header; allocates nothing.
+   * <p>
+   * Reads one byte off the slot's payload header; allocates nothing.
    *
-   * <p>Caller must verify the slot holds {@code OBJECT_NAMED_NUMBER}.
+   * <p>
+   * Caller must verify the slot holds {@code OBJECT_NAMED_NUMBER}.
    */
   public boolean isFusedObjectNamedNumberDecimalSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
-    final long payloadStart =
-        recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
     return sp.get(ValueLayout.JAVA_BYTE, payloadStart) == NUMBER_TYPE_BIG_DECIMAL;
   }
 
@@ -1816,8 +1881,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
     final byte numberType = sp.get(ValueLayout.JAVA_BYTE, payloadStart);
     if (numberType == NUMBER_TYPE_DOUBLE) {
@@ -1843,85 +1907,140 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         shift += 7;
       } while ((b & 0x80) != 0);
       if (len <= 0 || len > 12) {
-        return Double.NaN;  // an unscaled value this wide has no exact double image anyway
+        return Double.NaN; // an unscaled value this wide has no exact double image anyway
       }
       final byte[] unscaled = new byte[(int) len];
       MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, pos, unscaled, 0, (int) len);
       final int scale = DeltaVarIntCodec.decodeSignedFromSegment(sp, pos + len);
       final BigDecimal bd = new BigDecimal(new BigInteger(unscaled), scale);
       final double d = bd.doubleValue();
-      return Double.isFinite(d) && bd.compareTo(new BigDecimal(d)) == 0 ? d : Double.NaN;
+      return Double.isFinite(d) && bd.compareTo(new BigDecimal(d)) == 0
+          ? d
+          : Double.NaN;
     }
     return Double.NaN;
   }
 
   /**
-   * Read the inline string bytes from an OBJECT_NAMED_STRING slot (kindId 50). Goes
-   * through the thread-local {@code STRING_REGION_BUILD_SCRATCH} and returns a trimmed
-   * copy. Caller must verify the slot holds {@code OBJECT_NAMED_STRING}.
+   * Read the inline string bytes from an OBJECT_NAMED_STRING slot (kindId 50). Goes through the
+   * thread-local {@code STRING_REGION_BUILD_SCRATCH} and returns a trimmed copy. Caller must verify
+   * the slot holds {@code OBJECT_NAMED_STRING}.
    */
   /**
    * Whether the fused OBJECT_NAMED_STRING slot's stored payload bytes are FSST-encoded.
    *
-   * <p>One flag-byte read; pairs with {@link #readFusedObjectNamedStringStoredBytes} for callers
-   * that must see the stored form rather than the value — the region builder above all, whose
-   * dictionaries mirror the heap verbatim so value elision stays a pure byte copy.
+   * <p>
+   * One flag-byte read; pairs with {@link #readFusedObjectNamedStringStoredBytes} for callers that
+   * must see the stored form rather than the value — the region builder above all, whose dictionaries
+   * mirror the heap verbatim so value elision stays a pure byte copy.
    */
   public boolean isFusedObjectNamedStringValueCompressed(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return false;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
+      return false;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
     return sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
   }
 
   /**
-   * The fused OBJECT_NAMED_STRING slot's stored payload bytes, verbatim — FSST-encoded when the
-   * slot was compressed, raw otherwise — with no decode attempted.
+   * The fused OBJECT_NAMED_STRING slot's stored payload bytes, verbatim — FSST-encoded when the slot
+   * was compressed, raw otherwise — with no decode attempted.
    *
-   * <p>{@link #readFusedObjectNamedStringBytes} answers "what is the value"; this answers "what
-   * is stored". The region builder must use this one: its dictionary entries have to be
-   * bit-identical to the heap so that eliding the heap copy and re-injecting it from the region
-   * is a straight copy in both directions, decodable later through the page's symbol table by
-   * whoever actually materialises the value.
+   * <p>
+   * {@link #readFusedObjectNamedStringBytes} answers "what is the value"; this answers "what is
+   * stored". The region builder must use this one: its dictionary entries have to be bit-identical to
+   * the heap so that eliding the heap copy and re-injecting it from the region is a straight copy in
+   * both directions, decodable later through the page's symbol table by whoever actually materialises
+   * the value.
    *
    * @return the stored bytes, or {@code null} for an absent/empty payload
    */
   public byte[] readFusedObjectNamedStringStoredBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return null;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
+      return null;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
-    final long payloadStart =
-        recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
     final long lenOff = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
-    if (length <= 0) return null;
+    if (length <= 0)
+      return null;
     final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
     final byte[] out = new byte[length];
     MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, out, 0, length);
     return out;
   }
 
+  /**
+   * Shared result for a zero-length {@code STRING_VALUE} payload: an empty string is a legitimate
+   * value and must stay distinguishable from a corrupt slot, which answers {@code null}.
+   */
+  private static final byte[] EMPTY_STRING_VALUE_BYTES = new byte[0];
+
+  /**
+   * The UTF-8 bytes of a standalone {@code STRING_VALUE} slot — an ARRAY ELEMENT, the one string
+   * shape the PAX string column never held.
+   *
+   * <p>
+   * Same payload layout as the fused object-named string ({@code [isCompressed][len][bytes]}), a
+   * different field table: {@link NodeFieldLayout#STRING_VALUE_FIELD_COUNT} fields with the payload
+   * at {@link NodeFieldLayout#STRVAL_PAYLOAD}.
+   *
+   * @return the value — the shared empty array for a zero-length value — or {@code null} when the
+   *         slot is unpopulated, carries a negative length, or is FSST-compressed with no symbol
+   *         table resolved on this instance
+   */
+  public byte[] readStringValueBytes(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return null;
+    }
+    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.STRING_VALUE_FIELD_COUNT + fieldOff;
+    final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length < 0) {
+      return null;
+    }
+    if (length == 0) {
+      return EMPTY_STRING_VALUE_BYTES;
+    }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final long dataOff = lenOff + lenBytes;
+    final byte[] stored = new byte[length];
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, stored, 0, length);
+    if (!compressed) {
+      return stored;
+    }
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      return null;
+    }
+    return FSSTCompressor.decode(stored, symbols);
+  }
+
   public byte[] readFusedObjectNamedStringBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) return null;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
+      return null;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
     final long payloadStart = dataStart + fieldOff;
     // Payload layout: [isCompressed:1][length:varint][bytes].
     final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
     final long lenOff = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
-    if (length <= 0) return null;
+    if (length <= 0)
+      return null;
     final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
     final long dataOff = lenOff + lenBytes;
     if (!compressed) {
@@ -1930,7 +2049,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return out;
     }
     final byte[][] symbols = fsstSymbols();
-    if (symbols.length == 0) return null;
+    if (symbols.length == 0)
+      return null;
     // Share the legacy-path thread-local scratch so fused region-builds don't churn
     // the young generation with per-slot byte[] allocations (see agent review E2/R2).
     byte[] scratch = STRING_REGION_BUILD_SCRATCH.get();
@@ -1940,22 +2060,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       STRING_REGION_BUILD_SCRATCH.set(scratch);
     }
     final int decoded = decodeFsstInto(sp, dataOff, length, symbols, scratch);
-    if (decoded < 0) return null;
+    if (decoded < 0)
+      return null;
     final byte[] out = new byte[decoded];
     System.arraycopy(scratch, 0, out, 0, decoded);
     return out;
   }
 
-  // ============== Phase 1 fused-structural getters (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY) ==============
+  // ============== Phase 1 fused-structural getters (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY)
+  // ==============
   // Phase 1 reserves the field accessors but no production path emits these kinds yet — the
   // getters are dormant. Each getter trusts the caller has already validated the slot's
   // kindId is 52 or 53. When P2 enables emission, callers can use these to read structural
   // fields from a slotted page without binding the flyweight node.
 
   /**
-   * Read {@code firstChildKey} from a fused {@code OBJECT_NAMED_OBJECT} or
-   * {@code OBJECT_NAMED_ARRAY} slot (kindIds 52/53). Both kinds share the field layout
-   * defined by {@link NodeFieldLayout#OBJNAMEDOBJ_FIRST_CHILD_KEY}.
+   * Read {@code firstChildKey} from a fused {@code OBJECT_NAMED_OBJECT} or {@code OBJECT_NAMED_ARRAY}
+   * slot (kindIds 52/53). Both kinds share the field layout defined by
+   * {@link NodeFieldLayout#OBJNAMEDOBJ_FIRST_CHILD_KEY}.
    *
    * @param slotNumber the populated slot index
    * @return the firstChildKey for the record at {@code slotNumber}
@@ -1972,8 +2094,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read {@code lastChildKey} from a fused {@code OBJECT_NAMED_OBJECT} or
-   * {@code OBJECT_NAMED_ARRAY} slot (kindIds 52/53).
+   * Read {@code lastChildKey} from a fused {@code OBJECT_NAMED_OBJECT} or {@code OBJECT_NAMED_ARRAY}
+   * slot (kindIds 52/53).
    */
   public long getFusedObjectNamedStructuralLastChildKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
@@ -1987,15 +2109,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read {@code childCount} from a fused {@code OBJECT_NAMED_OBJECT} or
-   * {@code OBJECT_NAMED_ARRAY} slot (kindIds 52/53).
+   * Read {@code childCount} from a fused {@code OBJECT_NAMED_OBJECT} or {@code OBJECT_NAMED_ARRAY}
+   * slot (kindIds 52/53).
    */
   public long getFusedObjectNamedStructuralChildCountFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDOBJ_CHILD_COUNT) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDOBJ_CHILD_COUNT) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
     return DeltaVarIntCodec.decodeSignedLongFromSegment(sp, dataStart + fieldOff);
   }
@@ -2014,24 +2135,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return DeltaVarIntCodec.decodeSignedLongFromSegment(sp, dataStart + fieldOff);
   }
 
-  /** Compute the per-slot record nodeKey: pageKeyBase derived from {@link #recordPageKey}
-   *  shifted by the page-record exponent. Used by structural-fused getters that need the
-   *  delta base to decode delta-varint fields. */
+  /**
+   * Compute the per-slot record nodeKey: pageKeyBase derived from {@link #recordPageKey} shifted by
+   * the page-record exponent. Used by structural-fused getters that need the delta base to decode
+   * delta-varint fields.
+   */
   private long nodeKeyForSlot(final int slotNumber) {
     return (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotNumber;
   }
 
   /**
-   * Return the distinct OBJECT_KEY {@code nameKey}s present on this page.
-   * Fast path: reads directly from the PAX dictKeys header (one VarHandle
-   * load per distinct nameKey — typically 3 to 10 entries). Slow path
-   * (region absent): iterates populated slots via the bitmap and
-   * collects distinct nameKeys into a growable array.
+   * Return the distinct OBJECT_KEY {@code nameKey}s present on this page. Fast path: reads directly
+   * from the PAX dictKeys header (one VarHandle load per distinct nameKey — typically 3 to 10
+   * entries). Slow path (region absent): iterates populated slots via the bitmap and collects
+   * distinct nameKeys into a growable array.
    *
-   * <p>Used by the page-skip index builder to decide which pages are
-   * candidates for a given anchor nameKey, so analytical scans can skip
-   * pages that hold no slot with that field instead of fetching each
-   * page only to bail out on empty {@code getObjectKeySlotsForNameKey}.
+   * <p>
+   * Used by the page-skip index builder to decide which pages are candidates for a given anchor
+   * nameKey, so analytical scans can skip pages that hold no slot with that field instead of fetching
+   * each page only to bail out on empty {@code getObjectKeySlotsForNameKey}.
    */
   public int[] getDistinctObjectKeyNameKeys() {
     final MemorySegment payload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
@@ -2044,30 +2166,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // produced by the current writer; this branch only executes on
     // legacy-format pages read from older stores.
     final MemorySegment sp = slottedPage;
-    if (sp == null) return EMPTY_INT_ARRAY;
+    if (sp == null)
+      return EMPTY_INT_ARRAY;
     int[] distinct = new int[8];
     int n = 0;
     for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
-      if (!PageLayout.isSlotPopulated(sp, slot)) continue;
+      if (!PageLayout.isSlotPopulated(sp, slot))
+        continue;
       final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
-      if (!isFusedAnyObjectNamedKindId(kindId)) continue;
+      if (!isFusedAnyObjectNamedKindId(kindId))
+        continue;
       final int nameKey = getObjectKeyNameKeyFromSlot(slot);
       // -1 is the not-a-named-slot sentinel; other negative values are
       // legitimate nameKeys (String hashes — 'active'/'amount' hash negative).
-      if (nameKey == -1) continue;
+      if (nameKey == -1)
+        continue;
       boolean seen = false;
       for (int i = 0; i < n; i++) {
-        if (distinct[i] == nameKey) { seen = true; break; }
+        if (distinct[i] == nameKey) {
+          seen = true;
+          break;
+        }
       }
       if (!seen) {
-        if (n == distinct.length) distinct = Arrays.copyOf(distinct, distinct.length * 2);
+        if (n == distinct.length)
+          distinct = Arrays.copyOf(distinct, distinct.length * 2);
         distinct[n++] = nameKey;
       }
     }
-    if (n == 0) return EMPTY_INT_ARRAY;
-    return n == distinct.length ? distinct : Arrays.copyOf(distinct, n);
+    if (n == 0)
+      return EMPTY_INT_ARRAY;
+    return n == distinct.length
+        ? distinct
+        : Arrays.copyOf(distinct, n);
   }
 
   /** Number payload type code for Integer (varint). See NodeKind.serializeNumber. */
@@ -2078,23 +2211,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int NUMBER_VALUE_KIND_ID = 28;
   private static final int STRING_VALUE_KIND_ID = 30;
+  /** {@link #STRING_VALUE_KIND_ID}, for the serializer in {@code PageKind}. */
+  public static final int STRING_VALUE_KIND_ID_PUBLIC = STRING_VALUE_KIND_ID;
   /** Fused OBJECT_NAMED_* kind ids. Public so {@link PageKind} can dispatch on them. */
   public static final int FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID = 48;
   public static final int FUSED_OBJECT_NAMED_NUMBER_KIND_ID = 49;
   public static final int FUSED_OBJECT_NAMED_STRING_KIND_ID = 50;
   public static final int FUSED_OBJECT_NAMED_NULL_KIND_ID = 51;
-  /** Phase 1 reserved fused-structural kindIds. Recognized by {@link
-   *  #isFusedAnyObjectNamedKindId} but NOT by the iter#30
-   *  {@link #isFusedObjectNamedKindId} primitive-only predicate, since the primitive-fused
-   *  hot path assumes a 9-field layout with NAME_KEY at index 3 — the structural-fused
-   *  records have a 12-field layout with NAME_KEY at index 5. */
+  /**
+   * Phase 1 reserved fused-structural kindIds. Recognized by {@link #isFusedAnyObjectNamedKindId} but
+   * NOT by the iter#30 {@link #isFusedObjectNamedKindId} primitive-only predicate, since the
+   * primitive-fused hot path assumes a 9-field layout with NAME_KEY at index 3 — the structural-fused
+   * records have a 12-field layout with NAME_KEY at index 5.
+   */
   public static final int FUSED_OBJECT_NAMED_OBJECT_KIND_ID = 52;
   public static final int FUSED_OBJECT_NAMED_ARRAY_KIND_ID = 53;
 
   /**
    * True when {@code kindId} identifies a record whose value participates in the PAX
-   * {@link RegionTable#KIND_NUMBER} region. Used by mutation paths to gate cache
-   * invalidation: only number-affecting writes pay the (already-cheap) invalidation cost.
+   * {@link RegionTable#KIND_NUMBER} region. Used by mutation paths to gate cache invalidation: only
+   * number-affecting writes pay the (already-cheap) invalidation cost.
    */
   static boolean isNumberValueKindId(final int kindId) {
     return kindId == NUMBER_VALUE_KIND_ID || kindId == FUSED_OBJECT_NAMED_NUMBER_KIND_ID;
@@ -2112,7 +2248,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * True when {@code kindId} identifies a record whose value participates in the PAX
    * {@link RegionTable#KIND_BOOLEAN} region.
    *
-   * <p>Only the FUSED kind qualifies, and deliberately so: {@link #collectAndEncodeBooleanRegion}
+   * <p>
+   * Only the FUSED kind qualifies, and deliberately so: {@link #collectAndEncodeBooleanRegion}
    * matches on {@link #FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID} alone, so a standalone
    * {@code BOOLEAN_VALUE} contributes no column row and writing one invalidates nothing. This
    * predicate must keep tracking the builder's selection exactly — a drop-set wider than the
@@ -2125,16 +2262,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Lazy pre-parsed FSST symbol table, built once per page on first access. Resolved through
    * {@code FSSTCompressor.parsedFor}, so pages sharing one table byte[] (the common case —
-   * distribution and copy paths share the reference) also share one parsed {@code byte[][]},
-   * which is the identity the encode-side matcher cache keys on.
+   * distribution and copy paths share the reference) also share one parsed {@code byte[][]}, which is
+   * the identity the encode-side matcher cache keys on.
    */
   private volatile byte[][] parsedFsstSymbols;
   private static final byte[][] EMPTY_FSST_SYMBOLS = new byte[0][];
 
   /**
    * The page's parsed FSST symbols for direct-byte consumers (vectorized scans decoding region
-   * dictionary entries). Empty when the page has no resolved table — callers that meet a
-   * compressed entry with empty symbols must fall back to a record-level read, which resolves.
+   * dictionary entries). Empty when the page has no resolved table — callers that meet a compressed
+   * entry with empty symbols must fall back to a record-level read, which resolves.
    */
   public byte[][] parsedFsstSymbols() {
     return fsstSymbols();
@@ -2156,16 +2293,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Decode raw bytes if this page's values are FSST-compressed; otherwise
-   * copy verbatim. {@code in[0..inLen)} is the raw bytes; decoded output
-   * goes to {@code out[outOff..)}. Returns decoded length or -1 on failure.
-   * Fixed-in-place decode: safe when {@code in == out && outOff == 0} for
-   * non-compressed passthrough (we write the same bytes). For compressed
-   * input, caller should pass distinct buffers or accept in-place overwrite
-   * since FSST expands (decoded ≥ encoded).
+   * Decode raw bytes if this page's values are FSST-compressed; otherwise copy verbatim.
+   * {@code in[0..inLen)} is the raw bytes; decoded output goes to {@code out[outOff..)}. Returns
+   * decoded length or -1 on failure. Fixed-in-place decode: safe when
+   * {@code in == out && outOff == 0} for non-compressed passthrough (we write the same bytes). For
+   * compressed input, caller should pass distinct buffers or accept in-place overwrite since FSST
+   * expands (decoded ≥ encoded).
    */
-  public int decodeRawIfCompressed(final byte[] in, final int inLen,
-      final byte[] out, final int outOff) {
+  public int decodeRawIfCompressed(final byte[] in, final int inLen, final byte[] out, final int outOff) {
     if (fsstSymbolTable == null) {
       if (in != out || outOff != 0) {
         System.arraycopy(in, 0, out, outOff, inLen);
@@ -2181,19 +2316,27 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     // Decode into a temp: FSST expands, so writing into `in` in-place risks
     // overwriting unread bytes. Small (<=256) so stack-ish.
-    final byte[] tmp = in == out ? new byte[inLen * 3 + 8] : null;
-    final byte[] dst = tmp != null ? tmp : out;
-    final int dstOff = tmp != null ? 0 : outOff;
+    final byte[] tmp = in == out
+        ? new byte[inLen * 3 + 8]
+        : null;
+    final byte[] dst = tmp != null
+        ? tmp
+        : out;
+    final int dstOff = tmp != null
+        ? 0
+        : outOff;
     int outPos = dstOff;
-    for (int pos = 0; pos < inLen; ) {
+    for (int pos = 0; pos < inLen;) {
       final int b = in[pos++] & 0xFF;
       if (b == 0xFF) {
-        if (pos >= inLen || outPos >= dst.length) return -1;
+        if (pos >= inLen || outPos >= dst.length)
+          return -1;
         dst[outPos++] = in[pos++];
       } else if (b < symbols.length) {
         final byte[] sym = symbols[b];
         final int sl = sym.length;
-        if (outPos + sl > dst.length) return -1;
+        if (outPos + sl > dst.length)
+          return -1;
         System.arraycopy(sym, 0, dst, outPos, sl);
         outPos += sl;
       } else {
@@ -2202,38 +2345,35 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final int decLen = outPos - dstOff;
     if (tmp != null) {
-      if (decLen > out.length - outOff) return -1;
+      if (decLen > out.length - outOff)
+        return -1;
       System.arraycopy(tmp, 0, out, outOff, decLen);
     }
     return decLen;
   }
 
   /**
-   * Thread-local staging buffer for FSST-compressed source bytes — one
-   * bulk copy from the MemorySegment into this scratch avoids N byte-
-   * sized {@code sp.get} calls inside {@link #decodeFsstInto}, which
-   * profile-dominated via MemorySegment safety-check overhead
+   * Thread-local staging buffer for FSST-compressed source bytes — one bulk copy from the
+   * MemorySegment into this scratch avoids N byte- sized {@code sp.get} calls inside
+   * {@link #decodeFsstInto}, which profile-dominated via MemorySegment safety-check overhead
    * (isAlignedForElement / checkValidStateRaw / VarHandle dispatch).
    */
-  private static final ThreadLocal<byte[]> FSST_SRC_BUF =
-      ThreadLocal.withInitial(() -> new byte[512]);
+  private static final ThreadLocal<byte[]> FSST_SRC_BUF = ThreadLocal.withInitial(() -> new byte[512]);
 
   /**
-   * Decode {@code length} FSST-compressed bytes starting at {@code dataOff}
-   * of {@code sp} into {@code scratch}. Mirrors
-   * {@code FSSTCompressor.decodeRawCompressed} but reads from a
-   * MemorySegment and writes into a caller-provided buffer — no allocation.
-   * Returns decoded byte count, or -1 if output overflows.
+   * Decode {@code length} FSST-compressed bytes starting at {@code dataOff} of {@code sp} into
+   * {@code scratch}. Mirrors {@code FSSTCompressor.decodeRawCompressed} but reads from a
+   * MemorySegment and writes into a caller-provided buffer — no allocation. Returns decoded byte
+   * count, or -1 if output overflows.
    *
-   * <p>Copies the compressed source into a thread-local byte[] via one
-   * {@link MemorySegment#copy} up front so the symbol-dispatch loop reads
-   * plain array bytes instead of paying per-byte MemorySegment safety
-   * checks (alignment/session/bounds). For short FSST payloads — typical
-   * of JSON string columns — the bulk copy is essentially free and the
-   * tight array loop JITs cleanly.
+   * <p>
+   * Copies the compressed source into a thread-local byte[] via one {@link MemorySegment#copy} up
+   * front so the symbol-dispatch loop reads plain array bytes instead of paying per-byte
+   * MemorySegment safety checks (alignment/session/bounds). For short FSST payloads — typical of JSON
+   * string columns — the bulk copy is essentially free and the tight array loop JITs cleanly.
    */
-  private static int decodeFsstInto(final MemorySegment sp, final long dataOff,
-      final int length, final byte[][] symbols, final byte[] scratch) {
+  private static int decodeFsstInto(final MemorySegment sp, final long dataOff, final int length,
+      final byte[][] symbols, final byte[] scratch) {
     byte[] src = FSST_SRC_BUF.get();
     if (src.length < length) {
       src = new byte[Math.max(length, src.length * 2)];
@@ -2267,14 +2407,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Read the delta-encoded firstChildKey from a fused structural slot
-   * ({@code OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY}, kindIds 52/53)
-   * without moving any cursor or binding a singleton. Returns the raw nodeKey.
+   * ({@code OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY}, kindIds 52/53) without moving any cursor
+   * or binding a singleton. Returns the raw nodeKey.
    *
-   * <p>Phase 4 — the legacy OBJECT_KEY (kindId 26) record is gone, so this helper
-   * now reads from fused-structural slots only. Primitive-fused records (48-51)
-   * carry NO firstChild and callers must short-circuit on those.
+   * <p>
+   * Phase 4 — the legacy OBJECT_KEY (kindId 26) record is gone, so this helper now reads from
+   * fused-structural slots only. Primitive-fused records (48-51) carry NO firstChild and callers must
+   * short-circuit on those.
    *
-   * <p>Caller must verify the slot holds a fused-structural record first.
+   * <p>
+   * Caller must verify the slot holds a fused-structural record first.
    */
   public long getObjectKeyFirstChildKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
     final MemorySegment sp = slottedPage;
@@ -2295,23 +2437,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Read the delta-encoded parentKey (enclosing OBJECT's nodeKey) from any fused-named
-   * slot without moving any cursor or binding a singleton.
-   * Decoded directly off the slotted page so the vectorized scan can join
-   * sibling fields in Pass 2 by parent-OBJECT nodeKey in O(1) per slot.
+   * Read the delta-encoded parentKey (enclosing OBJECT's nodeKey) from any fused-named slot without
+   * moving any cursor or binding a singleton. Decoded directly off the slotted page so the vectorized
+   * scan can join sibling fields in Pass 2 by parent-OBJECT nodeKey in O(1) per slot.
    *
-   * <p>All fused-named layouts (primitive 48-51 and structural 52-53) place PARENT_KEY
-   * at field-table index 0; only the field-count differs.
+   * <p>
+   * All fused-named layouts (primitive 48-51 and structural 52-53) place PARENT_KEY at field-table
+   * index 0; only the field-count differs.
    *
-   * <p>Caller must verify the slot holds a fused-named record; no validation is
-   * performed to keep the hot path branch-free beyond the kind-id dispatch that
-   * selects the field-count constant.
+   * <p>
+   * Caller must verify the slot holds a fused-named record; no validation is performed to keep the
+   * hot path branch-free beyond the kind-id dispatch that selects the field-count constant.
    *
-   * @param slotNumber       the slot index (assumed populated + fused-named kind)
-   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
-   *                         delta-decoder reconstructs parentKey against it
-   * @return parentKey (enclosing OBJECT nodeKey); {@code -1L} if the page was
-   *         evicted mid-scan
+   * @param slotNumber the slot index (assumed populated + fused-named kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the delta-decoder reconstructs
+   *        parentKey against it
+   * @return parentKey (enclosing OBJECT nodeKey); {@code -1L} if the page was evicted mid-scan
    */
   public long getObjectKeyParentKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
     final MemorySegment sp = slottedPage;
@@ -2326,30 +2467,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return -1L;
     }
     // PARENT_KEY = field index 0 across all fused-named layouts.
-    final int fieldOff =
-        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1) & 0xFF;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1) & 0xFF;
     final long dataStart = recordBase + 1 + fieldCount;
     return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
   }
 
   /**
-   * Read the pathNodeKey stored on a fused-named slot — the fully-qualified
-   * path identifier pointing into the PathSummary. Decoded directly off the
-   * slotted page without cursor movement or singleton binding, so the
-   * vectorized scan can filter matched slots by scope in O(1) per slot.
+   * Read the pathNodeKey stored on a fused-named slot — the fully-qualified path identifier pointing
+   * into the PathSummary. Decoded directly off the slotted page without cursor movement or singleton
+   * binding, so the vectorized scan can filter matched slots by scope in O(1) per slot.
    *
-   * <p>Phase 4 — the legacy OBJECT_KEY (kind 26) and OBJECT_KEY_PAX (kind 126) records
-   * have been removed; this helper now dispatches purely on fused-named layouts.
+   * <p>
+   * Phase 4 — the legacy OBJECT_KEY (kind 26) and OBJECT_KEY_PAX (kind 126) records have been
+   * removed; this helper now dispatches purely on fused-named layouts.
    *
-   * <p>Caller must verify the slot holds a fused-named record; no validation is
-   * performed to keep the per-slot cost down to a single byte read for the
-   * offset and a varint decode for the value.
+   * <p>
+   * Caller must verify the slot holds a fused-named record; no validation is performed to keep the
+   * per-slot cost down to a single byte read for the offset and a varint decode for the value.
    *
-   * @param slotNumber       the slot index (assumed populated + fused-named kind)
-   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
-   *                         delta-decoder reconstructs pathNodeKey against it
-   * @return the pathNodeKey; {@code 0L} if the slot has no path statistics
-   *         (resource opened without path summary)
+   * @param slotNumber the slot index (assumed populated + fused-named kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the delta-decoder reconstructs
+   *        pathNodeKey against it
+   * @return the pathNodeKey; {@code 0L} if the slot has no path statistics (resource opened without
+   *         path summary)
    */
   public long getObjectKeyPathNodeKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
     final MemorySegment sp = slottedPage;
@@ -2372,42 +2512,38 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Bulk-decode the {@code pathNodeKey}, {@code parentKey}, and
-   * {@code firstChildKey} columns for {@code count} OBJECT_KEY slots in one
-   * tight loop. Mirrors the semantics of
-   * {@link #getObjectKeyPathNodeKeyFromSlot},
-   * {@link #getObjectKeyParentKeyFromSlot}, and
+   * Bulk-decode the {@code pathNodeKey}, {@code parentKey}, and {@code firstChildKey} columns for
+   * {@code count} OBJECT_KEY slots in one tight loop. Mirrors the semantics of
+   * {@link #getObjectKeyPathNodeKeyFromSlot}, {@link #getObjectKeyParentKeyFromSlot}, and
    * {@link #getObjectKeyFirstChildKeyFromSlot}, but:
    *
    * <ul>
-   *   <li>Hoists the slotted-page null check + session checks out of the
-   *       per-slot loop so the JIT can peel loop-invariant guards.</li>
-   *   <li>Shares the heap-offset lookup and record base across the three
-   *       varint decodes per slot — dropping two byte reads that each of
-   *       the three getters would pay independently.</li>
-   *   <li>Probes the kind id once per slot so a page that happens to mix
-   *       dense and PAX OBJECT_KEY encodings (same kind family, different
-   *       field layout) stays correct.</li>
+   * <li>Hoists the slotted-page null check + session checks out of the per-slot loop so the JIT can
+   * peel loop-invariant guards.</li>
+   * <li>Shares the heap-offset lookup and record base across the three varint decodes per slot —
+   * dropping two byte reads that each of the three getters would pay independently.</li>
+   * <li>Probes the kind id once per slot so a page that happens to mix dense and PAX OBJECT_KEY
+   * encodings (same kind family, different field layout) stays correct.</li>
    * </ul>
    *
-   * <p>If the page has been evicted mid-scan ({@code slottedPage == null}),
-   * the method fills the output arrays with {@code -1L} so callers can skip
-   * the slot via the same sentinel contract as the per-slot getters.
+   * <p>
+   * If the page has been evicted mid-scan ({@code slottedPage == null}), the method fills the output
+   * arrays with {@code -1L} so callers can skip the slot via the same sentinel contract as the
+   * per-slot getters.
    *
-   * <p>CPU profile on 10M cold filterCount showed the three per-slot getters
-   * accounting for ~4.5% of the worker thread. A single bulk call in the
-   * scan driver (see {@code SirixVectorizedExecutor.collectColumns}) removes
-   * the per-iteration method-dispatch + per-call MemorySegment session
-   * checks so the JIT can keep the tight inner loop in registers.
+   * <p>
+   * CPU profile on 10M cold filterCount showed the three per-slot getters accounting for ~4.5% of the
+   * worker thread. A single bulk call in the scan driver (see
+   * {@code SirixVectorizedExecutor.collectColumns}) removes the per-iteration method-dispatch +
+   * per-call MemorySegment session checks so the JIT can keep the tight inner loop in registers.
    *
-   * @param slots             slot indices to decode (valid for {@code 0..count})
-   * @param count             number of slots to decode
-   * @param pageBase          base nodeKey for this page (pageKey {@literal <<}
-   *                          {@link Constants#INP_REFERENCE_COUNT_EXPONENT})
-   * @param outPathNodeKeys   result column — pathNodeKey per slot, sized
-   *                          {@code >= count}. Values match
-   *                          {@link #getObjectKeyPathNodeKeyFromSlot}.
-   * @param outParentKeys     result column — parentKey per slot.
+   * @param slots slot indices to decode (valid for {@code 0..count})
+   * @param count number of slots to decode
+   * @param pageBase base nodeKey for this page (pageKey {@literal <<}
+   *        {@link Constants#INP_REFERENCE_COUNT_EXPONENT})
+   * @param outPathNodeKeys result column — pathNodeKey per slot, sized {@code >= count}. Values match
+   *        {@link #getObjectKeyPathNodeKeyFromSlot}.
+   * @param outParentKeys result column — parentKey per slot.
    * @param outFirstChildKeys result column — firstChildKey per slot.
    */
   public void bulkDecodeObjectKeyColumns(final int[] slots, final int count, final long pageBase,
@@ -2436,15 +2572,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         // Primitive-fused: parentKey at field 0, pathNodeKey at field 4, no firstChildKey.
         final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
         final long dataStart = offsetTable + fieldCount;
-        final int parentFieldOff =
-            sp.get(ValueLayout.JAVA_BYTE, offsetTable + 0) & 0xFF;
-        final int pathFieldOff =
-            sp.get(ValueLayout.JAVA_BYTE, offsetTable + 4) & 0xFF;
-        outParentKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+        final int parentFieldOff = sp.get(ValueLayout.JAVA_BYTE, offsetTable + 0) & 0xFF;
+        final int pathFieldOff = sp.get(ValueLayout.JAVA_BYTE, offsetTable + 4) & 0xFF;
+        outParentKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
         outFirstChildKeys[i] = -1L;
-        outPathNodeKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
+        outPathNodeKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
         continue;
       }
       if (isFusedStructuralKindId(kindId)) {
@@ -2457,12 +2589,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJNAMEDOBJ_FIRST_CHILD_KEY) & 0xFF;
         final int pathFieldOff =
             sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJNAMEDOBJ_PATH_NODE_KEY) & 0xFF;
-        outParentKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
-        outFirstChildKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
-        outPathNodeKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
+        outParentKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+        outFirstChildKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+        outPathNodeKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
         continue;
       }
       // Non-fused-named slot: surface sentinel.
@@ -2473,15 +2602,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Two-column variant of {@link #bulkDecodeObjectKeyColumns} that skips the
-   * {@code pathNodeKey} decode — used by {@code collectColumns} pass 2,
-   * which only needs {@code parentKey} (for the batch parent-row join) and
-   * {@code firstChildKey} (for the sibling value read). Decoding the
-   * third column there would waste one varint read per sibling slot per
-   * field per page.
+   * Two-column variant of {@link #bulkDecodeObjectKeyColumns} that skips the {@code pathNodeKey}
+   * decode — used by {@code collectColumns} pass 2, which only needs {@code parentKey} (for the batch
+   * parent-row join) and {@code firstChildKey} (for the sibling value read). Decoding the third
+   * column there would waste one varint read per sibling slot per field per page.
    */
-  public void bulkDecodeObjectKeyParentAndChildKeys(final int[] slots, final int count,
-      final long pageBase, final long[] outParentKeys, final long[] outFirstChildKeys) {
+  public void bulkDecodeObjectKeyParentAndChildKeys(final int[] slots, final int count, final long pageBase,
+      final long[] outParentKeys, final long[] outFirstChildKeys) {
     final MemorySegment sp = slottedPage;
     if (sp == null || count == 0) {
       for (int i = 0; i < count; i++) {
@@ -2501,10 +2628,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       if (isFusedObjectNamedKindId(kindId)) {
         final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
         final long dataStart = offsetTable + fieldCount;
-        final int parentFieldOff =
-            sp.get(ValueLayout.JAVA_BYTE, offsetTable + 0) & 0xFF;
-        outParentKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+        final int parentFieldOff = sp.get(ValueLayout.JAVA_BYTE, offsetTable + 0) & 0xFF;
+        outParentKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
         outFirstChildKeys[i] = -1L;
         continue;
       }
@@ -2515,10 +2640,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
             sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJNAMEDOBJ_PARENT_KEY) & 0xFF;
         final int firstChildFieldOff =
             sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJNAMEDOBJ_FIRST_CHILD_KEY) & 0xFF;
-        outParentKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
-        outFirstChildKeys[i] =
-            DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+        outParentKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+        outFirstChildKeys[i] = DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
         continue;
       }
       outParentKeys[i] = -1L;
@@ -2528,25 +2651,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no
-   * Integer boxing). Built lazily the first time a vectorized scan asks for a
-   * given field, reused by every subsequent query on the same page. Memory:
-   * one int[] per distinct queried nameKey; for a JSON-array workload that's
-   * typically ~5 arrays of ~150 entries each.
+   * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no Integer boxing). Built
+   * lazily the first time a vectorized scan asks for a given field, reused by every subsequent query
+   * on the same page. Memory: one int[] per distinct queried nameKey; for a JSON-array workload
+   * that's typically ~5 arrays of ~150 entries each.
    *
-   * <p>Immutable once built. For a read-only resource session the page's
-   * content doesn't change, so invalidation isn't needed.
+   * <p>
+   * Immutable once built. For a read-only resource session the page's content doesn't change, so
+   * invalidation isn't needed.
    */
   private volatile Int2ObjectOpenHashMap<int[]> objectKeySlotsByName;
   private static final int[] EMPTY_INT_ARRAY = new int[0];
 
   /** Thread-local scratch for SIMD findMatchingSlots output. Avoids per-page int[] alloc. */
-  private static final ThreadLocal<int[]> MATCHING_SLOTS_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[256]);
+  private static final ThreadLocal<int[]> MATCHING_SLOTS_SCRATCH = ThreadLocal.withInitial(() -> new int[256]);
 
   /**
-   * {@code true} when the slot kind is a fused {@code OBJECT_NAMED_*} record (kindIds 48-51).
-   * Fused records play the OBJECT_KEY role and carry the nameKey inline, so
+   * {@code true} when the slot kind is a fused {@code OBJECT_NAMED_*} record (kindIds 48-51). Fused
+   * records play the OBJECT_KEY role and carry the nameKey inline, so
    * {@link #getObjectKeySlotsForNameKey} includes them when searching by name.
    */
   public static boolean isFusedObjectNamedKindId(final int kindId) {
@@ -2554,24 +2676,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * {@code true} when the slot kind is ANY fused named record — the iter#30 primitive-fused
-   * leaves (kindIds 48-51, see {@link #isFusedObjectNamedKindId}) OR the Phase 1 reserved
-   * structural-fused kinds (52, 53). Used by predicates that classify "any record carrying
-   * both a fieldname and inline payload/sub-tree" without assuming the primitive-leaf field
-   * layout. Phase 1 doesn't emit 52/53, so this predicate is dormant on the wire path.
+   * {@code true} when the slot kind is ANY fused named record — the iter#30 primitive-fused leaves
+   * (kindIds 48-51, see {@link #isFusedObjectNamedKindId}) OR the Phase 1 reserved structural-fused
+   * kinds (52, 53). Used by predicates that classify "any record carrying both a fieldname and inline
+   * payload/sub-tree" without assuming the primitive-leaf field layout. Phase 1 doesn't emit 52/53,
+   * so this predicate is dormant on the wire path.
    */
   public static boolean isFusedAnyObjectNamedKindId(final int kindId) {
     return kindId >= FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID && kindId <= FUSED_OBJECT_NAMED_ARRAY_KIND_ID;
   }
 
   /**
-   * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass
-   * bitmap walk the first time; array reuse thereafter. Borrowed from DuckDB /
-   * ClickHouse column pre-scan: pay the per-slot decode cost once, amortize
-   * across the many scans any realistic analytical query does.
+   * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass bitmap walk the first
+   * time; array reuse thereafter. Borrowed from DuckDB / ClickHouse column pre-scan: pay the per-slot
+   * decode cost once, amortize across the many scans any realistic analytical query does.
    *
-   * <p>Zero-allocation on the hot path once built — all subsequent calls just
-   * return the cached int[].
+   * <p>
+   * Zero-allocation on the hot path once built — all subsequent calls just return the cached int[].
    */
   public int[] getObjectKeySlotsForNameKey(final int fieldKey) {
     Int2ObjectOpenHashMap<int[]> cache = objectKeySlotsByName;
@@ -2585,14 +2706,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
     final int[] cached = cache.get(fieldKey);
-    if (cached != null) return cached;
+    if (cached != null)
+      return cached;
     return buildObjectKeySlotsForNameKey(cache, fieldKey);
   }
 
-  private int[] buildObjectKeySlotsForNameKey(final Int2ObjectOpenHashMap<int[]> cache,
-      final int fieldKey) {
+  private int[] buildObjectKeySlotsForNameKey(final Int2ObjectOpenHashMap<int[]> cache, final int fieldKey) {
     final MemorySegment sp = slottedPage;
-    if (sp == null) return EMPTY_INT_ARRAY;
+    if (sp == null)
+      return EMPTY_INT_ARRAY;
 
     // Fast path: ObjectKeyNameKeyRegion lets us SIMD-scan the dict-encoded nameKey
     // column instead of walking every populated slot, decoding kind-id, and decoding
@@ -2613,9 +2735,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         tmp = new int[Math.max(upperBound, tmp.length * 2)];
         MATCHING_SLOTS_SCRATCH.set(tmp);
       }
-      final int matched = ObjectKeyNameKeyRegion.findMatchingSlots(
-          nameKeyPayload, fieldKey, tmp);
-      if (matched == 0) return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
+      final int matched = ObjectKeyNameKeyRegion.findMatchingSlots(nameKeyPayload, fieldKey, tmp);
+      if (matched == 0)
+        return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
       final int[] result = Arrays.copyOf(tmp, matched);
       return cachePut(cache, fieldKey, result);
     }
@@ -2651,23 +2773,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         word &= word - 1;
       }
     }
-    final int[] result = (count == buf.length) ? buf : Arrays.copyOf(buf, count);
+    final int[] result = (count == buf.length)
+        ? buf
+        : Arrays.copyOf(buf, count);
     return cachePut(cache, fieldKey, result);
   }
 
-  private static int[] cachePut(final Int2ObjectOpenHashMap<int[]> cache, final int fieldKey,
-      final int[] result) {
+  private static int[] cachePut(final Int2ObjectOpenHashMap<int[]> cache, final int fieldKey, final int[] result) {
     synchronized (cache) {
       final int[] existing = cache.get(fieldKey);
-      if (existing != null) return existing;
+      if (existing != null)
+        return existing;
       cache.put(fieldKey, result);
     }
     return result;
   }
 
   /**
-   * Set slot data by copying directly from a source MemorySegment.
-   * Zero-copy path for page deserialization.
+   * Set slot data by copying directly from a source MemorySegment. Zero-copy path for page
+   * deserialization.
    *
    * @param source the source MemorySegment containing the data
    * @param sourceOffset the byte offset within source where data starts
@@ -2688,9 +2812,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Get the slot bitmap for O(k) iteration over populated slots.
-   * Returns a mutable copy — callers may modify the returned array without
-   * affecting page state. Each call allocates a fresh array.
+   * Get the slot bitmap for O(k) iteration over populated slots. Returns a mutable copy — callers may
+   * modify the returned array without affecting page state. Each call allocates a fresh array.
    *
    * @return a fresh long[16] copy of the bitmap (all zeros if page is closed)
    */
@@ -2707,8 +2830,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Check if a specific slot is populated using the bitmap.
-   * This is O(1) and avoids memory access to slotOffsets.
+   * Check if a specific slot is populated using the bitmap. This is O(1) and avoids memory access to
+   * slotOffsets.
    *
    * @param slotNumber the slot index (0-1023)
    * @return true if the slot is populated
@@ -2720,20 +2843,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Returns a primitive int array of populated slot indices for O(k) iteration.
    * <p>
-   * This enables efficient iteration over only populated slots instead of
-   * iterating all 1024 slots and checking for null. For sparse pages with
-   * k populated slots, this is O(k) instead of O(1024).
+   * This enables efficient iteration over only populated slots instead of iterating all 1024 slots
+   * and checking for null. For sparse pages with k populated slots, this is O(k) instead of O(1024).
    * <p>
-   * Note: This allocates a new array on each call. For hot paths where the
-   * same page is iterated multiple times, consider using {@link #forEachPopulatedSlot}.
+   * Note: This allocates a new array on each call. For hot paths where the same page is iterated
+   * multiple times, consider using {@link #forEachPopulatedSlot}.
    * <p>
    * Example usage:
+   * 
    * <pre>{@code
    * int[] slots = page.populatedSlots();
    * for (int i = 0; i < slots.length; i++) {
-   *     int slot = slots[i];
-   *     MemorySegment data = page.getSlot(slot);
-   *     // process data - no null check needed
+   *   int slot = slots[i];
+   *   MemorySegment data = page.getSlot(slot);
+   *   // process data - no null check needed
    * }
    * }</pre>
    * 
@@ -2749,19 +2872,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Second pass: collect slot indices using Brian Kernighan's algorithm
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      if (slottedPage == null) break;
+      if (slottedPage == null)
+        break;
       final long word = PageLayout.getBitmapWord(slottedPage, wordIndex);
       long remaining = word;
-      final int baseSlot = wordIndex << 6;  // wordIndex * 64
+      final int baseSlot = wordIndex << 6; // wordIndex * 64
       while (remaining != 0) {
         final int bit = Long.numberOfTrailingZeros(remaining);
         result[idx++] = baseSlot + bit;
-        remaining &= remaining - 1;  // Clear lowest set bit
+        remaining &= remaining - 1; // Clear lowest set bit
       }
     }
     return result;
   }
-  
+
   /**
    * Functional interface for slot consumer to enable zero-allocation iteration.
    */
@@ -2769,24 +2893,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public interface SlotConsumer {
     /**
      * Process a populated slot.
+     * 
      * @param slotIndex the slot index
      * @return true to continue iteration, false to stop early
      */
     boolean accept(int slotIndex);
   }
-  
+
   /**
    * Zero-allocation iteration over populated slots.
    * <p>
-   * This method iterates over populated slots without allocating any arrays.
-   * The consumer returns false to stop iteration early.
+   * This method iterates over populated slots without allocating any arrays. The consumer returns
+   * false to stop iteration early.
    * <p>
    * Example usage:
+   * 
    * <pre>{@code
    * page.forEachPopulatedSlot(slot -> {
-   *     MemorySegment data = page.getSlot(slot);
-   *     // process data
-   *     return true;  // continue iteration
+   *   MemorySegment data = page.getSlot(slot);
+   *   // process data
+   *   return true; // continue iteration
    * });
    * }</pre>
    * 
@@ -2796,9 +2922,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public int forEachPopulatedSlot(SlotConsumer consumer) {
     int processed = 0;
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      if (slottedPage == null) break;
+      if (slottedPage == null)
+        break;
       long word = PageLayout.getBitmapWord(slottedPage, wordIndex);
-      final int baseSlot = wordIndex << 6;  // wordIndex * 64
+      final int baseSlot = wordIndex << 6; // wordIndex * 64
       while (word != 0) {
         final int bit = Long.numberOfTrailingZeros(word);
         final int slot = baseSlot + bit;
@@ -2806,23 +2933,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (!consumer.accept(slot)) {
           return processed;
         }
-        word &= word - 1;  // Clear lowest set bit
+        word &= word - 1; // Clear lowest set bit
       }
     }
     return processed;
   }
 
   /**
-   * Get the count of populated slots using SIMD-accelerated population count.
-   * Uses Vector API for parallel bitCount across multiple longs.
-   * This is O(BITMAP_WORDS / SIMD_WIDTH) instead of O(1024).
+   * Get the count of populated slots using SIMD-accelerated population count. Uses Vector API for
+   * parallel bitCount across multiple longs. This is O(BITMAP_WORDS / SIMD_WIDTH) instead of O(1024).
    * 
    * @return number of populated slots
    */
   public int populatedSlotCount() {
-    return slottedPage != null ? PageLayout.countPopulatedSlots(slottedPage) : 0;
+    return slottedPage != null
+        ? PageLayout.countPopulatedSlots(slottedPage)
+        : 0;
   }
-  
+
   /**
    * Check if all slots are populated using SIMD-accelerated comparison.
    * 
@@ -2831,10 +2959,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public boolean isFullyPopulated() {
     return slottedPage != null && PageLayout.countPopulatedSlots(slottedPage) == PageLayout.SLOT_COUNT;
   }
-  
+
   /**
-   * SIMD-accelerated bitmap OR into destination array.
-   * Computes: dest[i] |= src[i] for all bitmap words.
+   * SIMD-accelerated bitmap OR into destination array. Computes: dest[i] |= src[i] for all bitmap
+   * words.
    * 
    * @param dest destination bitmap (modified in place)
    * @param src source bitmap to OR into dest
@@ -2843,23 +2971,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     int i = 0;
     final int simdWidth = LONG_SPECIES.length();
     final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-    
+
     for (; i < simdBound; i += simdWidth) {
       LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
       LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
       destVec.or(srcVec).intoArray(dest, i);
     }
-    
+
     // Scalar tail
     for (; i < BITMAP_WORDS; i++) {
       dest[i] |= src[i];
     }
   }
-  
+
   /**
-   * Check if any bits in src are NOT set in dest using SIMD.
-   * Returns true if there exist slots in src that are not yet in dest.
-   * Useful for early termination in page combining.
+   * Check if any bits in src are NOT set in dest using SIMD. Returns true if there exist slots in src
+   * that are not yet in dest. Useful for early termination in page combining.
    * 
    * @param dest the "filled" bitmap
    * @param src the source bitmap to check
@@ -2869,7 +2996,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     int i = 0;
     final int simdWidth = LONG_SPECIES.length();
     final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-    
+
     for (; i < simdBound; i += simdWidth) {
       LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
       LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
@@ -2879,7 +3006,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         return true;
       }
     }
-    
+
     // Scalar tail
     for (; i < BITMAP_WORDS; i++) {
       if ((src[i] & ~dest[i]) != 0) {
@@ -2891,8 +3018,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   /**
-   * Get the slotted page MemorySegment for serialization.
-   * When non-null, the page uses LeanStore-style heap storage instead of legacy slotMemory.
+   * Get the slotted page MemorySegment for serialization. When non-null, the page uses
+   * LeanStore-style heap storage instead of legacy slotMemory.
    *
    * @return the slotted page segment, or null if not yet initialized
    */
@@ -2906,8 +3033,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Set the slotted page MemorySegment (used during deserialization).
-   * Releases any previously allocated slotted page.
+   * Set the slotted page MemorySegment (used during deserialization). Releases any previously
+   * allocated slotted page.
    *
    * @param slottedPage the slotted page segment
    */
@@ -2933,11 +3060,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   @Override
   public int getUsedSlotsSize() {
-    return slottedPage != null ? cachedHeapUsed : 0;
+    return slottedPage != null
+        ? cachedHeapUsed
+        : 0;
   }
 
   public int getSlotMemoryByteSize() {
-    return slottedPage != null ? PageLayout.HEAP_START + cachedHeapEnd : 0;
+    return slottedPage != null
+        ? PageLayout.HEAP_START + cachedHeapEnd
+        : 0;
   }
 
 
@@ -3006,8 +3137,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Set a DeweyID for a slot by re-allocating the slot's heap region with DeweyID data appended.
-   * Format: [record data][deweyId data][deweyIdLen:2 bytes (u16)].
-   * The old allocation becomes dead heap space.
+   * Format: [record data][deweyId data][deweyIdLen:2 bytes (u16)]. The old allocation becomes dead
+   * heap space.
    */
   private void setDeweyIdToHeap(final MemorySegment deweyId, final int slotNumber) {
     final int deweyIdLen = (int) deweyId.byteSize();
@@ -3102,18 +3233,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
 
   @Override
-  public <C extends KeyValuePage<DataRecord>> C newInstance(long recordPageKey,
-      IndexType indexType, StorageEngineReader storageEngineReader) {
+  public <C extends KeyValuePage<DataRecord>> C newInstance(long recordPageKey, IndexType indexType,
+      StorageEngineReader storageEngineReader) {
     final ResourceConfiguration config = storageEngineReader.getResourceSession().getResourceConfig();
-    return (C) new KeyValueLeafPage(
-        recordPageKey,
-        indexType,
-        config,
-        storageEngineReader.getRevisionNumber(),
-        null,
-        null,
-        false
-    );
+    return (C) new KeyValueLeafPage(recordPageKey, indexType, config, storageEngineReader.getRevisionNumber(), null,
+        null, false);
   }
 
   @Override
@@ -3162,15 +3286,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Closes this page and releases associated memory resources.
    * <p>
-   * This method is thread-safe and idempotent. If the page has active guards
-   * (indicating it's in use by a transaction), the close operation is skipped
-   * to prevent data corruption.
+   * This method is thread-safe and idempotent. If the page has active guards (indicating it's in use
+   * by a transaction), the close operation is skipped to prevent data corruption.
    * <p>
-   * Memory segments allocated by the global allocator are returned to the pool.
-   * Externally allocated memory (e.g., test arenas) is not released.
+   * Memory segments allocated by the global allocator are returned to the pool. Externally allocated
+   * memory (e.g., test arenas) is not released.
    * <p>
-   * For zero-copy pages, the backing buffer (from decompression) is released
-   * via the backingBufferReleaser callback.
+   * For zero-copy pages, the backing buffer (from decompression) is released via the
+   * backingBufferReleaser callback.
    */
   @Override
   public synchronized void close() {
@@ -3184,8 +3307,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     int currentGuardCount = guardCount.get();
     if (currentGuardCount > 0) {
       if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("Close skipped for guarded page: pageKey={}, type={}, guardCount={}",
-            recordPageKey, indexType, currentGuardCount);
+        LOGGER.debug("Close skipped for guarded page: pageKey={}, type={}, guardCount={}", recordPageKey, indexType,
+            currentGuardCount);
       }
       return;
     }
@@ -3198,9 +3321,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     } while (!STATE_FLAGS_HANDLE.compareAndSet(this, currentFlags, newFlags));
 
     if (DEBUG_MEMORY_LEAKS) {
-      closeSite = new Throwable(
-          "page " + recordPageKey + " (" + indexType + ", rev=" + revision + ") closed by thread "
-              + Thread.currentThread().getName());
+      closeSite = new Throwable("page " + recordPageKey + " (" + indexType + ", rev=" + revision + ") closed by thread "
+          + Thread.currentThread().getName());
     }
 
     // Tell the Cleaner-registered leak detector that this page closed cleanly. The
@@ -3213,7 +3335,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Update diagnostic counters if tracking is enabled
     if (DEBUG_MEMORY_LEAKS) {
       PAGES_CLOSED.incrementAndGet();
-      PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0))
+                          .incrementAndGet();
       ALL_LIVE_PAGES.remove(this);
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.remove(this);
@@ -3230,7 +3353,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       backingBufferReleaser = null;
       backingBuffer = null;
     }
-    
+
     // Unbind all flyweight nodes BEFORE releasing memory — they may still be
     // referenced by cursors/transactions and must fall back to Java field values.
     if (slottedPage != null) {
@@ -3263,13 +3386,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Get the actual memory size used by this page's memory segments.
-   * Used for accurate Caffeine cache weighing.
+   * Get the actual memory size used by this page's memory segments. Used for accurate Caffeine cache
+   * weighing.
    * 
    * @return Total size in bytes of all memory segments used by this page
    */
   public long getActualMemorySize() {
-    return slottedPage != null ? slottedPageCapacity : 0;
+    return slottedPage != null
+        ? slottedPageCapacity
+        : 0;
   }
 
   /**
@@ -3301,9 +3426,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Drop the FSST binding as one unit — table bytes, id, and parsed cache. Split clearing is
-   * how stale-binding bugs happen: a surviving id with no bytes claims an encoding the page no
-   * longer holds, and a pooled frame's next occupant would trip the rebind guard on it.
+   * Drop the FSST binding as one unit — table bytes, id, and parsed cache. Split clearing is how
+   * stale-binding bugs happen: a surviving id with no bytes claims an encoding the page no longer
+   * holds, and a pooled frame's next occupant would trip the rebind guard on it.
    */
   private void clearFsstBinding() {
     fsstSymbolTable = null;
@@ -3315,10 +3440,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * The id of the symbol table this page's strings were encoded against, or
    * {@link #NO_FSST_SYMBOL_TABLE_ID} when the page carries no reference.
    *
-   * <p>A page holds the id rather than the table because the table lives in the dictionary trie,
-   * shared by every page of the revision. It is resolved on the first string the page is asked to
-   * decode — deserialization has no storage-engine reader to walk the trie with, and a page whose
-   * strings are never read should not pay for the lookup.
+   * <p>
+   * A page holds the id rather than the table because the table lives in the dictionary trie, shared
+   * by every page of the revision. It is resolved on the first string the page is asked to decode —
+   * deserialization has no storage-engine reader to walk the trie with, and a page whose strings are
+   * never read should not pay for the lookup.
    *
    * @return the symbol table id, or {@link #NO_FSST_SYMBOL_TABLE_ID}
    */
@@ -3327,9 +3453,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Record which symbol table this page's strings were encoded against. A binding is set at
-   * most once per page life; it is cleared only by the page-recycling paths ({@code reset},
-   * teardown), never through this setter — "unbind" has no meaning while encoded bytes remain.
+   * Record which symbol table this page's strings were encoded against. A binding is set at most once
+   * per page life; it is cleared only by the page-recycling paths ({@code reset}, teardown), never
+   * through this setter — "unbind" has no meaning while encoded bytes remain.
    *
    * @param id the symbol table id; must be positive
    * @throws IllegalArgumentException if {@code id} is not positive
@@ -3349,9 +3475,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Returns the PAX region table. {@code null} indicates V0 format or that no
-   * regions have been attached. Callers on the hot path should prefer
-   * {@link #regionPayload(byte)} to avoid a nullcheck at each slot read.
+   * Returns the PAX region table. {@code null} indicates V0 format or that no regions have been
+   * attached. Callers on the hot path should prefer {@link #regionPayload(byte)} to avoid a nullcheck
+   * at each slot read.
    */
   public RegionTable getRegionTable() {
     return regionTable;
@@ -3365,18 +3491,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Direct payload lookup for a region kind. Returns {@code null} when no table
-   * is present or the region is absent. Inlineable one-branch hot-path shim.
+   * Direct payload lookup for a region kind. Returns {@code null} when no table is present or the
+   * region is absent. Inlineable one-branch hot-path shim.
    */
   public MemorySegment regionPayload(final byte kind) {
     final RegionTable t = regionTable;
-    return t == null ? null : t.payload(kind);
+    return t == null
+        ? null
+        : t.payload(kind);
   }
 
   /**
-   * Lazily parsed number-region header. {@code null} if the page has no number
-   * region (e.g. path-summary pages, index pages, pages with no numeric values).
-   * Cached after first parse — zero allocation on subsequent calls.
+   * Lazily parsed number-region header. {@code null} if the page has no number region (e.g.
+   * path-summary pages, index pages, pages with no numeric values). Cached after first parse — zero
+   * allocation on subsequent calls.
    */
   private volatile NumberRegion.Header cachedNumberHeader;
 
@@ -3384,16 +3512,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Drop the cached {@link NumberRegion.Header} and every payload the number builder installs —
    * {@link RegionTable#KIND_NUMBER}, {@link RegionTable#KIND_NUMBER_ZONEMAP} and
    * {@link RegionTable#KIND_DOUBLE}, i.e. exactly {@code NUMBER_DERIVE_MASK} — so the next reader
-   * rebuilds from the slotted page. Called from every mutation path that adds, modifies, or
-   * removes a NUMBER_VALUE / OBJECT_NAMED_NUMBER record.
+   * rebuilds from the slotted page. Called from every mutation path that adds, modifies, or removes a
+   * NUMBER_VALUE / OBJECT_NAMED_NUMBER record.
    *
-   * <h2>HFT cost model</h2>
-   * Steady-state cost when no region is currently cached: one volatile read + one branch.
-   * On the first invalidation per page after a region was built: one volatile write +
-   * one payload-slot store. After that, calls collapse to the fast-path until
-   * the next reader rebuilds.
+   * <h2>HFT cost model</h2> Steady-state cost when no region is currently cached: one volatile read +
+   * one branch. On the first invalidation per page after a region was built: one volatile write + one
+   * payload-slot store. After that, calls collapse to the fast-path until the next reader rebuilds.
    *
-   * <p>Package-private so unit tests can verify the contract without reflection.
+   * <p>
+   * Package-private so unit tests can verify the contract without reflection.
    */
   void invalidateNumberRegion() {
     final RegionTable rt = regionTable;
@@ -3402,9 +3529,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // leave such a region installed across a mutation that invalidated it.
     // Probed over the WHOLE derive mask: the builder installs the long column, its zone map and the
     // double column together, and an all-double page carries KIND_DOUBLE alone.
-    final boolean present = rt != null
-        && (rt.hasRegion(RegionTable.KIND_NUMBER) || rt.hasRegion(RegionTable.KIND_NUMBER_ZONEMAP)
-            || rt.hasRegion(RegionTable.KIND_DOUBLE));
+    final boolean present = rt != null && (rt.hasRegion(RegionTable.KIND_NUMBER)
+        || rt.hasRegion(RegionTable.KIND_NUMBER_ZONEMAP) || rt.hasRegion(RegionTable.KIND_DOUBLE));
     if (cachedNumberHeader == null && !present && (regionDeriveAttempted & NUMBER_DERIVE_MASK) == 0) {
       return;
     }
@@ -3425,7 +3551,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
   }
 
-  /** Atomically clear derive-memo bits; the read-modify-write needs the same monitor the setters hold. */
+  /**
+   * Atomically clear derive-memo bits; the read-modify-write needs the same monitor the setters hold.
+   */
   private synchronized void clearRegionDeriveAttempted(final int mask) {
     regionDeriveAttempted &= ~mask;
   }
@@ -3433,17 +3561,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Drop every column region a record of {@code nodeKindId} contributes a row to.
    *
-   * <p>The single definition of "which columns does this kind feed", shared by all five mutation
-   * entry points. It exists because the dispatch used to be copied per site as a number/string
-   * if-else chain, and a copied chain is how a region ends up with a drop-set narrower than its
-   * derive-set: the chain was exclusive, yet a fused {@code OBJECT_NAMED_NUMBER} row belongs to the
-   * number column AND to the field-name column, so at most one of the two was ever dropped.
+   * <p>
+   * The single definition of "which columns does this kind feed", shared by all five mutation entry
+   * points. It exists because the dispatch used to be copied per site as a number/string if-else
+   * chain, and a copied chain is how a region ends up with a drop-set narrower than its derive-set:
+   * the chain was exclusive, yet a fused {@code OBJECT_NAMED_NUMBER} row belongs to the number column
+   * AND to the field-name column, so at most one of the two was ever dropped.
    *
-   * <p>The value columns are mutually exclusive by kind, so they stay an if-else. The names column
-   * is not: every fused {@code OBJECT_NAMED_*} record is one of its rows whatever its value type,
-   * and its row POSITION is what {@link RegionTable#KIND_RECORD_ORDINAL} indexes — the alignment a
-   * fused cross-column predicate trusts. A stale ordinal column is a wrong answer rather than a
-   * stale bound, so it falls with the names it indexes.
+   * <p>
+   * The value columns are mutually exclusive by kind, so they stay an if-else. The names column is
+   * not: every fused {@code OBJECT_NAMED_*} record is one of its rows whatever its value type, and
+   * its row POSITION is what {@link RegionTable#KIND_RECORD_ORDINAL} indexes — the alignment a fused
+   * cross-column predicate trusts. A stale ordinal column is a wrong answer rather than a stale
+   * bound, so it falls with the names it indexes.
    */
   private void invalidateRegionsForKindId(final int nodeKindId) {
     if (isNumberValueKindId(nodeKindId)) {
@@ -3459,13 +3589,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Invalidate every column region the record CURRENTLY in {@code slotOffset} belongs to. Called
-   * from {@link #setRecord} and {@link #setNewRecord} before mutation, so deletion or replacement
-   * of an existing column-bearing record is detected even when the new record kind is something
-   * else (e.g. {@code DeletedNode}).
+   * Invalidate every column region the record CURRENTLY in {@code slotOffset} belongs to. Called from
+   * {@link #setRecord} and {@link #setNewRecord} before mutation, so deletion or replacement of an
+   * existing column-bearing record is detected even when the new record kind is something else (e.g.
+   * {@code DeletedNode}).
    *
-   * <p>The "new record IS column-bearing" case is handled separately by {@link #serializeToHeap}
-   * and {@link #completeDirectWrite} which already know the kind id being written.
+   * <p>
+   * The "new record IS column-bearing" case is handled separately by {@link #serializeToHeap} and
+   * {@link #completeDirectWrite} which already know the kind id being written.
    */
   private void maybeInvalidateRegionsForExistingSlot(final int slotOffset) {
     // Deliberately NOT gated on the cached headers alone: a page read from disk has its regions
@@ -3483,8 +3614,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // the rest of the page's life, across the very mutations that would have made them derivable.
     // Tested against the whole memo rather than a named subset: any bit set means some builder
     // recorded an attempt that a mutation must retract, and a future mask gets this for free.
-    if (regionTable == null && cachedNumberHeader == null && cachedStringHeader == null
-        && regionDeriveAttempted == 0) {
+    if (regionTable == null && cachedNumberHeader == null && cachedStringHeader == null && regionDeriveAttempted == 0) {
       return;
     }
     final MemorySegment sp = slottedPage;
@@ -3522,18 +3652,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Ensure the number region is attached. Called from the versioning layer's
-   * {@code combineRecordPages} after a new KVLP has been reconstructed from
-   * one or more fragments. The argument carries the donor page's region —
-   * typically the first (or only) fragment.
+   * {@code combineRecordPages} after a new KVLP has been reconstructed from one or more fragments.
+   * The argument carries the donor page's region — typically the first (or only) fragment.
    *
-   * <p><b>Caller contract.</b> The donor shortcut — copying
-   * {@code donor.regionTable} by reference — is only correct when the target
-   * is a byte-identical copy of the donor (i.e. single-fragment combine). For
-   * multi-fragment combines the caller <b>must</b> pass {@code null} (or use
-   * {@link #ensureNumberRegion()}) so the region is rebuilt from the combined
-   * slotted heap. Passing a donor in a multi-fragment context silently
-   * corrupts aggregates that lean on the PAX number region (zone maps, sum,
-   * min/max), so a fail-fast assertion guards the invariant in debug builds.
+   * <p>
+   * <b>Caller contract.</b> The donor shortcut — copying {@code donor.regionTable} by reference — is
+   * only correct when the target is a byte-identical copy of the donor (i.e. single-fragment
+   * combine). For multi-fragment combines the caller <b>must</b> pass {@code null} (or use
+   * {@link #ensureNumberRegion()}) so the region is rebuilt from the combined slotted heap. Passing a
+   * donor in a multi-fragment context silently corrupts aggregates that lean on the PAX number region
+   * (zone maps, sum, min/max), so a fail-fast assertion guards the invariant in debug builds.
    */
   public void ensureNumberRegion(final KeyValueLeafPage donor) {
     if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
@@ -3564,22 +3692,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Walk the slotted page, collect each fused {@code OBJECT_NAMED_NUMBER} slot's value
-   * + its inline nameKey/pathNodeKey, encode into a NumberRegion payload. Returns
-   * {@code null} when the page has no numeric values or no slotted page yet.
+   * Walk the slotted page, collect each fused {@code OBJECT_NAMED_NUMBER} slot's value + its inline
+   * nameKey/pathNodeKey, encode into a NumberRegion payload. Returns {@code null} when the page has
+   * no numeric values or no slotted page yet.
    *
-   * <p>Side-effect: on success, attaches the region to the page so subsequent
-   * lookups skip this build.
+   * <p>
+   * Side-effect: on success, attaches the region to the page so subsequent lookups skip this build.
    *
-   * <p>Two-phase, like every region builder. The WALK runs under the page GUARD — pinning the
-   * frame against close() and the recycling that follows, without serializing record readers'
-   * guard traffic behind a 1024-slot derivation — and entirely off the page monitor. The INSTALL
-   * takes the monitor for a few table stores; that short section is what keeps the table unique
-   * and the memo coherent when concurrent workers reach the same page through different doors
-   * (the region-only ensure, this builder's getter, the header getters), where an unsynchronized
-   * check-then-act once let two workers mint separate tables and the second install orphaned the
-   * first thread's derivations. Two workers racing the walk cost one redundant walk, never a torn
-   * table: the install re-checks the memo and the loser discards its result.
+   * <p>
+   * Two-phase, like every region builder. The WALK runs under the page GUARD — pinning the frame
+   * against close() and the recycling that follows, without serializing record readers' guard traffic
+   * behind a 1024-slot derivation — and entirely off the page monitor. The INSTALL takes the monitor
+   * for a few table stores; that short section is what keeps the table unique and the memo coherent
+   * when concurrent workers reach the same page through different doors (the region-only ensure, this
+   * builder's getter, the header getters), where an unsynchronized check-then-act once let two
+   * workers mint separate tables and the second install orphaned the first thread's derivations. Two
+   * workers racing the walk cost one redundant walk, never a torn table: the install re-checks the
+   * memo and the loser discards its result.
    */
   private MemorySegment tryBuildNumberRegionFromSlottedPage() {
     if ((regionDeriveAttempted & NUMBER_DERIVE_MASK) != 0) {
@@ -3588,11 +3717,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final byte[] encoded;
     final byte[] doubles;
     if (!acquireGuard()) {
-      return null;  // mid-close — nothing to derive from
+      return null; // mid-close — nothing to derive from
     }
     try {
       if (slottedPage == null) {
-        return null;  // deliberately unmemoized: there was nothing to walk
+        return null; // deliberately unmemoized: there was nothing to walk
       }
       encoded = collectAndEncodeNumberRegion();
       doubles = tryBuildDoubleRegionFromSlottedPage();
@@ -3601,7 +3730,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     synchronized (this) {
       if ((regionDeriveAttempted & NUMBER_DERIVE_MASK) != 0) {
-        return regionPayload(RegionTable.KIND_NUMBER);  // a racing walk installed first
+        return regionPayload(RegionTable.KIND_NUMBER); // a racing walk installed first
       }
       if (encoded == null) {
         // No longs — but the page may still be ALL-double. Returning before installing the double
@@ -3625,7 +3754,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       // stale-bounds failure in its most direct form — and the same argument covers the double
       // column below.
       table.set(RegionTable.KIND_NUMBER_ZONEMAP,
-                NumberZoneMapRegion.encode(new NumberRegion.Header().parseInto(installed)));
+          NumberZoneMapRegion.encode(new NumberRegion.Header().parseInto(installed)));
       table.set(RegionTable.KIND_DOUBLE, doubles);
       regionDeriveAttempted |= NUMBER_DERIVE_MASK;
       return installed;
@@ -3711,17 +3840,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (count == 0) {
       return null;
     }
-    final byte tagKind = allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE : NumberRegion.TAG_KIND_NAME;
-    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final byte tagKind = allPathNodeKeysValid
+        ? NumberRegion.TAG_KIND_PATH_NODE
+        : NumberRegion.TAG_KIND_NAME;
+    final int[] tagBuf = allPathNodeKeysValid
+        ? pathBuf
+        : nameBuf;
     return NumberRegion.encode(valBuf, tagBuf, count, tagKind);
   }
 
   /**
    * Rebuild the double column from the slotted page — the reconstruction-path counterpart of the
    * writer's collection in {@code PageKind.buildRegionTable}, selecting exactly what it selects:
-   * Double-, Float- and exactly-representable-BigDecimal-typed fused number slots, with the
-   * per-field ordinal counted across BOTH numeric types so a later merge can split a liveness
-   * bitmap between the columns.
+   * Double-, Float- and exactly-representable-BigDecimal-typed fused number slots, with the per-field
+   * ordinal counted across BOTH numeric types so a later merge can split a liveness bitmap between
+   * the columns.
    *
    * @return the payload bytes, or {@code null} when the page holds no such values
    */
@@ -3734,8 +3867,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private static final ThreadLocal<int[]> REBUILD_DECIMAL_SCALE_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
   /** One-element out-parameter for the decimal decoder, so the hot loop allocates nothing. */
-  private static final ThreadLocal<int[]> REBUILD_DECIMAL_OUT_SCRATCH =
-      ThreadLocal.withInitial(() -> new int[1]);
+  private static final ThreadLocal<int[]> REBUILD_DECIMAL_OUT_SCRATCH = ThreadLocal.withInitial(() -> new int[1]);
   private static final ThreadLocal<int[]> REBUILD_DOUBLE_NAME_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
   private static final ThreadLocal<int[]> REBUILD_DOUBLE_PATH_SCRATCH =
@@ -3778,7 +3910,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         final int nameKey = getFusedObjectNamedNameKeyFromSlot(slot);
         final int ordinal = DoubleRegion.nextFieldOrdinal(fieldOrdinal, nameKey);
         if (getFusedObjectNamedNumberValueLongFromSlot(slot) != Long.MIN_VALUE) {
-          continue;  // the long column's value; only the ordinal counter needed to see it
+          continue; // the long column's value; only the ordinal counter needed to see it
         }
         int decScale = DECIMAL_SCALE_UNAVAILABLE;
         long decUnscaled = 0L;
@@ -3790,7 +3922,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           decUnscaled = getFusedObjectNamedNumberValueDecimalFromSlot(slot, decOut);
           decScale = decOut[0];
           if (decScale == DECIMAL_SCALE_UNAVAILABLE) {
-            continue;  // a Big* value neither column takes — the oracle will refuse the page
+            continue; // a Big* value neither column takes — the oracle will refuse the page
           }
           // Only ever a zone-map bound, and every bound derived from these is widened outward
           // before use, so the ulp this division can cost cannot prune a matching page.
@@ -3798,7 +3930,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         } else {
           value = getFusedObjectNamedNumberValueDoubleFromSlot(slot);
           if (Double.isNaN(value)) {
-            continue;  // neither Double/Float nor decimal — the oracle will refuse the page
+            continue; // neither Double/Float nor decimal — the oracle will refuse the page
           }
         }
         int pathNodeKeyInt = -1;
@@ -3822,10 +3954,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (count == 0) {
       return null;
     }
-    return DoubleRegion.encode(valBuf, decUnscaledBuf, decScaleBuf,
-                              allPathNodeKeysValid ? pathBuf : nameBuf, ordBuf, count,
-                              allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE
-                                                   : NumberRegion.TAG_KIND_NAME);
+    return DoubleRegion.encode(valBuf, decUnscaledBuf, decScaleBuf, allPathNodeKeysValid
+        ? pathBuf
+        : nameBuf, ordBuf, count,
+        allPathNodeKeysValid
+            ? NumberRegion.TAG_KIND_PATH_NODE
+            : NumberRegion.TAG_KIND_NAME);
   }
 
   /**
@@ -3841,25 +3975,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   // ============================================================
 
   /**
-   * Lazily parsed {@link StringRegion.Header} for the page's
-   * dictionary-encoded string column. {@code null} if the page has no
-   * string records or the region hasn't been built yet.
+   * Lazily parsed {@link StringRegion.Header} for the page's dictionary-encoded string column.
+   * {@code null} if the page has no string records or the region hasn't been built yet.
    */
   private volatile StringRegion.Header cachedStringHeader;
 
   /**
-   * Drop the cached string-region parsed header and payload so the next
-   * reader rebuilds. Called from every mutation path that adds, modifies, or removes
-   * a STRING_VALUE / OBJECT_NAMED_STRING record.
+   * Drop the cached string-region parsed header and payload so the next reader rebuilds. Called from
+   * every mutation path that adds, modifies, or removes a STRING_VALUE / OBJECT_NAMED_STRING record.
    */
   void invalidateStringRegion() {
     final RegionTable rt = regionTable;
     // Same reasoning as invalidateNumberRegion: presence is asked of the table, because a caller
     // can reach the payload without ever parsing a header, and the old guard inferred it from the
     // header alone.
-    final boolean present = rt != null
-        && (rt.hasRegion(RegionTable.KIND_STRING)
-            || rt.hasRegion(RegionTable.KIND_STRING_DICT_SKETCH));
+    final boolean present =
+        rt != null && (rt.hasRegion(RegionTable.KIND_STRING) || rt.hasRegion(RegionTable.KIND_STRING_DICT_SKETCH));
     if (cachedStringHeader == null && !present && (regionDeriveAttempted & STRING_DERIVE_MASK) == 0) {
       return;
     }
@@ -3880,9 +4011,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * {@code BOOL_DERIVE_MASK} — {@link RegionTable#KIND_BOOLEAN}, the one kind
    * {@link #tryBuildBooleanRegionFromSlottedPage} installs.
    *
-   * <p>Cheap for the same reason as its number and string twins: a page with no boolean column
-   * installed and nothing memoised pays one field read plus a branch, which is the steady state of
-   * the write path, where the modify page is built fresh and carries no region table at all.
+   * <p>
+   * Cheap for the same reason as its number and string twins: a page with no boolean column installed
+   * and nothing memoised pays one field read plus a branch, which is the steady state of the write
+   * path, where the modify page is built fresh and carries no region table at all.
    */
   void invalidateBooleanRegion() {
     final RegionTable rt = regionTable;
@@ -3905,17 +4037,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * {@code NAMES_DERIVE_MASK}, the pair {@link #tryBuildObjectKeyNameKeyRegionFromSlottedPage}
    * installs in one walk.
    *
-   * <p>The two must fall TOGETHER. {@link RegionTable#KIND_RECORD_ORDINAL} numbers records by
-   * position in the name column collected in the same pass, so a linkage that outlives the names it
-   * indexes still aligns — against a column that no longer exists. A fused cross-column predicate
-   * takes that alignment as a certificate, so the failure mode is a wrong answer, not a stale
-   * bound. Dropping only one is worse than dropping neither.
+   * <p>
+   * The two must fall TOGETHER. {@link RegionTable#KIND_RECORD_ORDINAL} numbers records by position
+   * in the name column collected in the same pass, so a linkage that outlives the names it indexes
+   * still aligns — against a column that no longer exists. A fused cross-column predicate takes that
+   * alignment as a certificate, so the failure mode is a wrong answer, not a stale bound. Dropping
+   * only one is worse than dropping neither.
    */
   void invalidateNamesRegion() {
     final RegionTable rt = regionTable;
     final boolean present = rt != null
-        && (rt.hasRegion(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
-            || rt.hasRegion(RegionTable.KIND_RECORD_ORDINAL));
+        && (rt.hasRegion(RegionTable.KIND_OBJECT_KEY_NAMEKEY) || rt.hasRegion(RegionTable.KIND_RECORD_ORDINAL));
     if (!present && (regionDeriveAttempted & NAMES_DERIVE_MASK) == 0) {
       return;
     }
@@ -3927,20 +4059,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Thread-local scratch for {@link #readFusedObjectNamedStringBytes} FSST decode.
-   * One array per worker thread, reused for every value read during a region build.
-   * 1 KiB matches typical string max length on JSON-like workloads; grows on first oversize.
+   * Thread-local scratch for {@link #readFusedObjectNamedStringBytes} FSST decode. One array per
+   * worker thread, reused for every value read during a region build. 1 KiB matches typical string
+   * max length on JSON-like workloads; grows on first oversize.
    */
-  private static final ThreadLocal<byte[]> STRING_REGION_BUILD_SCRATCH =
-      ThreadLocal.withInitial(() -> new byte[1024]);
+  private static final ThreadLocal<byte[]> STRING_REGION_BUILD_SCRATCH = ThreadLocal.withInitial(() -> new byte[1024]);
 
   /**
-   * Walk the slotted page, collect each fused OBJECT_NAMED_STRING slot's value + its
-   * parent OBJECT_KEY's nameKey, encode into a StringRegion payload.
+   * Walk the slotted page, collect each fused OBJECT_NAMED_STRING slot's value + its parent
+   * OBJECT_KEY's nameKey, encode into a StringRegion payload.
    *
-   * <p>Returns {@code null} when the page has no string values or no slotted page yet.
-   * Side-effect: on success, attaches the region to the page so subsequent lookups
-   * skip this build.
+   * <p>
+   * Returns {@code null} when the page has no string values or no slotted page yet. Side-effect: on
+   * success, attaches the region to the page so subsequent lookups skip this build.
    */
   private MemorySegment tryBuildStringRegionFromSlottedPage() {
     if ((regionDeriveAttempted & STRING_DERIVE_MASK) != 0) {
@@ -3948,26 +4079,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final byte[] encoded;
     if (!acquireGuard()) {
-      return null;  // mid-close — nothing to derive from
+      return null; // mid-close — nothing to derive from
     }
     try {
       if (slottedPage == null) {
-        return null;  // deliberately unmemoized: there was nothing to walk
+        return null; // deliberately unmemoized: there was nothing to walk
       }
       encoded = collectAndEncodeStringRegion();
     } finally {
       releaseGuard();
     }
     if (encoded == STRING_BUILD_RETRY) {
-      return null;  // undecodable FSST slot — retryable, deliberately unmemoized; see the walk
+      return null; // undecodable FSST slot — retryable, deliberately unmemoized; see the walk
     }
     synchronized (this) {
       if ((regionDeriveAttempted & STRING_DERIVE_MASK) != 0) {
-        return regionPayload(RegionTable.KIND_STRING);  // a racing walk installed first
+        return regionPayload(RegionTable.KIND_STRING); // a racing walk installed first
       }
       if (encoded == null) {
         regionDeriveAttempted |= STRING_DERIVE_MASK;
-        return null;  // no strings on the page — a permanent refusal
+        return null; // no strings on the page — a permanent refusal
       }
       final RegionTable table = regionTableForInstall();
       table.set(RegionTable.KIND_STRING, encoded);
@@ -3978,8 +4109,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       // page paying a dictionary decode forever after. The header is read from the installed
       // segment; the entries are hashed from the array, which is what the sketch builder takes.
       table.set(RegionTable.KIND_STRING_DICT_SKETCH,
-                StringDictSketch.encodeFromStringRegion(
-                    encoded, new StringRegion.Header().parseInto(installed)));
+          StringDictSketch.encodeFromStringRegion(encoded, new StringRegion.Header().parseInto(installed)));
       regionDeriveAttempted |= STRING_DERIVE_MASK;
       return installed;
     }
@@ -3995,17 +4125,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * The string builder's walk-and-encode phase, run under the page guard.
    *
-   * @return the encoded payload; {@code null} when the page holds no strings (a permanent
-   *         refusal); {@link #STRING_BUILD_RETRY} when a slot could not be decoded (retryable)
+   * @return the encoded payload; {@code null} when the page holds no strings (a permanent refusal);
+   *         {@link #STRING_BUILD_RETRY} when a slot could not be decoded (retryable)
    */
   /**
    * This slot's enclosing object's path node key as an int, or {@code -1} when there is none that
-   * fits — which drops the whole page's path-tagged encoder, since a partial tagging would key
-   * some values by path and others by name.
+   * fits — which drops the whole page's path-tagged encoder, since a partial tagging would key some
+   * values by path and others by name.
    */
   private int pathNodeKeyIntForSlot(final int slot, final long pageKeyBase) {
     final long pnk = getObjectKeyPathNodeKeyFromSlot(slot, pageKeyBase + slot);
-    return pnk > 0L && pnk <= (long) Integer.MAX_VALUE ? (int) pnk : -1;
+    return pnk > 0L && pnk <= (long) Integer.MAX_VALUE
+        ? (int) pnk
+        : -1;
   }
 
   private byte[] collectAndEncodeStringRegion() {
@@ -4019,9 +4151,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // pick — avoids a second pass. Path-tagged encoder only gets populated
     // while {@code allPathNodeKeysValid} holds.
     final StringRegion.Encoder nameEnc = new StringRegion.Encoder();
-    final StringRegion.Encoder pathEnc = withPathSummary ? new StringRegion.Encoder() : null;
+    final StringRegion.Encoder pathEnc = withPathSummary
+        ? new StringRegion.Encoder()
+        : null;
     boolean allPathNodeKeysValid = withPathSummary;
     int count = 0;
+    // Array-element values are staged rather than added straight through: they are published only
+    // if EVERY element on the page resolved its enclosing array, so the tag they land under is
+    // always the complete set of that path's values on this page.
+    int elementCount = 0;
+    int orphanCount = 0;
+    boolean elementsUsable = ARRAY_ELEMENT_STRINGS_IN_REGION;
+    int[] elementNameKeys = new int[16];
+    int[] elementPathKeys = new int[16];
+    byte[][] elementValues = new byte[16][];
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
       final int baseSlot = w << 6;
@@ -4033,6 +4176,63 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         final byte[] value;
         int parentNameKey = -1;
         int parentPathNodeKeyInt = -1;
+        if (kindId == STRING_VALUE_KIND_ID) {
+          // An ARRAY ELEMENT. It carries no path node key of its own — measured on the movie
+          // corpus, every one reads back as pathNodeKey -1 — which is exactly why the column
+          // never held them: a path-tagged region has nothing to tag them by. Its enclosing
+          // array DOES have one (the fused OBJECT_NAMED_ARRAY slot), and that is the right tag:
+          // it is the path a query names when it writes `$m.genres[]`.
+          if (!elementsUsable) {
+            continue;
+          }
+          final byte[] elementValue = readStringValueBytes(slot);
+          if (elementValue == null) {
+            // An undecodable value makes the element set for this page incomplete, and a tag that
+            // covers most of its values is worse than absent: every reader here treats tagCount as
+            // the complete count of that path's values on the page. Drop the element contribution
+            // for the whole page rather than publish a partial one.
+            elementsUsable = false;
+            continue;
+          }
+          final int parentSlot = onPageParentSlot(slot, pageKeyBase);
+          if (parentSlot < 0) {
+            // An element whose array opens on the PREVIOUS page. Slot order is node-key order, so
+            // those form a LEADING RUN at the head of the page and nowhere else — kept under the
+            // reserved orphan tag, exactly as PageKind.buildRegionTable keeps them, so the page
+            // holding the array can settle its own last record.
+            if (elementCount > orphanCount) {
+              elementsUsable = false;
+              continue;
+            }
+            elementNameKeys = grow(elementNameKeys, elementCount);
+            elementPathKeys = grow(elementPathKeys, elementCount);
+            elementValues = grow(elementValues, elementCount);
+            elementNameKeys[elementCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+            elementPathKeys[elementCount] = StringRegion.TAG_ORPHAN_ELEMENTS;
+            elementValues[elementCount] = elementValue;
+            elementCount++;
+            orphanCount++;
+            continue;
+          }
+          // The enclosing array is a STRUCTURAL fused record (12 fields, NAME_KEY at index 5) or a
+          // fused OBJECT_NAMED record (NAME_KEY at index 3); a non-fused parent carries no nameKey
+          // in either layout, so decoding one would read a sibling-key field.
+          final int parentKind = PageLayout.getDirNodeKindId(sp, parentSlot);
+          if (!isFusedStructuralKindId(parentKind) && !isFusedObjectNamedKindId(parentKind)) {
+            elementsUsable = false;
+            continue;
+          }
+          elementNameKeys = grow(elementNameKeys, elementCount);
+          elementPathKeys = grow(elementPathKeys, elementCount);
+          elementValues = grow(elementValues, elementCount);
+          elementNameKeys[elementCount] = isFusedStructuralKindId(parentKind)
+              ? getFusedStructuralNameKeyFromSlot(parentSlot)
+              : getFusedObjectNamedNameKeyFromSlot(parentSlot);
+          elementPathKeys[elementCount] = pathNodeKeyIntForSlot(parentSlot, pageKeyBase);
+          elementValues[elementCount] = elementValue;
+          elementCount++;
+          continue;
+        }
         if (kindId == FUSED_OBJECT_NAMED_STRING_KIND_ID) {
           value = readFusedObjectNamedStringBytes(slot);
           if (value == null) {
@@ -4059,35 +4259,99 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         count++;
       }
     }
+    // Array elements go in only when EVERY one of them resolved; see the branch above. The orphan
+    // tag is deliberately negative and is NOT an unresolved path — see PageKind.buildRegionTable.
+    for (int i = 0; elementsUsable && i < elementCount; i++) {
+      if (elementPathKeys[i] < 0 && elementPathKeys[i] != StringRegion.TAG_ORPHAN_ELEMENTS) {
+        allPathNodeKeysValid = false;
+      }
+    }
+    for (int i = 0; elementsUsable && i < elementCount; i++) {
+      nameEnc.addValue(elementNameKeys[i], elementValues[i]);
+      if (pathEnc != null && allPathNodeKeysValid) {
+        pathEnc.addValue(elementPathKeys[i], elementValues[i]);
+      }
+      count++;
+    }
     if (count == 0) {
       return null;
     }
     return allPathNodeKeysValid && pathEnc != null
-        ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE)
-        : nameEnc.finish(StringRegion.TAG_KIND_NAME);
+        ? pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE, elementsUsable)
+        : nameEnc.finish(StringRegion.TAG_KIND_NAME, elementsUsable);
+  }
+
+  /**
+   * Whether array-element strings join the PAX string column.
+   *
+   * <p>
+   * Not final: the value is read once at class initialization, and a test that wants the other
+   * setting cannot arrange to load the class after setting the property. Tests flip it directly.
+   *
+   * <p>
+   * Public because the column it fills is read from {@code sirix-query} — the array-membership column
+   * route is the only reason it exists — so the differential test that holds that route to the record
+   * route's answers has to write it from another module.
+   *
+   * <p>
+   * Off by default because it changes what a page WRITES: a resource built with it carries tags a
+   * resource built without it does not, so the two are not byte-comparable, and every benchmark
+   * corpus has to be re-ingested to get the new columns. Readers are unaffected either way — an
+   * absent tag is a state they all already handle.
+   */
+  public static boolean ARRAY_ELEMENT_STRINGS_IN_REGION = Boolean.getBoolean("sirix.page.arrayElementStrings");
+
+  /** This slot's parent slot when the parent lives on THIS page, else {@code -1}. */
+  private int onPageParentSlot(final int slot, final long pageKeyBase) {
+    final long parentKey = getSlotParentKey(slot);
+    if (parentKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+      return -1;
+    }
+    final long parentSlot = parentKey - pageKeyBase;
+    return parentSlot >= 0 && parentSlot < Constants.NDP_NODE_COUNT
+        ? (int) parentSlot
+        : -1;
+  }
+
+  private static int[] grow(final int[] buf, final int used) {
+    if (used < buf.length) {
+      return buf;
+    }
+    final int[] grown = new int[Math.max(16, buf.length << 1)];
+    System.arraycopy(buf, 0, grown, 0, used);
+    return grown;
+  }
+
+  private static byte[][] grow(final byte[][] buf, final int used) {
+    if (used < buf.length) {
+      return buf;
+    }
+    final byte[][] grown = new byte[Math.max(16, buf.length << 1)][];
+    System.arraycopy(buf, 0, grown, 0, used);
+    return grown;
   }
 
   /**
    * Rebuild the field-name column from the slotted page. The counterpart of
-   * {@link #tryBuildNumberRegionFromSlottedPage} for {@link RegionTable#KIND_OBJECT_KEY_NAMEKEY},
-   * and it must select exactly what the writer selects — the fused primitive OBJECT_NAMED_* kinds —
-   * because the scan's completeness oracle compares this column's slot count against a value
-   * region's tag count.
+   * {@link #tryBuildNumberRegionFromSlottedPage} for {@link RegionTable#KIND_OBJECT_KEY_NAMEKEY}, and
+   * it must select exactly what the writer selects — the fused primitive OBJECT_NAMED_* kinds —
+   * because the scan's completeness oracle compares this column's slot count against a value region's
+   * tag count.
    *
    * @return the payload, or {@code null} when the page has no such slots or the dictionary exceeds
    *         what the region can encode
    */
   private byte[] tryBuildObjectKeyNameKeyRegionFromSlottedPage() {
     if ((regionDeriveAttempted & NAMES_DERIVE_MASK) != 0) {
-      return null;  // completed once already; the installed payloads, if any, are in the table
+      return null; // completed once already; the installed payloads, if any, are in the table
     }
-    final byte[][] built;  // {names payload, ordinals payload}, either possibly null
+    final byte[][] built; // {names payload, ordinals payload}, either possibly null
     if (!acquireGuard()) {
-      return null;  // mid-close — nothing to derive from
+      return null; // mid-close — nothing to derive from
     }
     try {
       if (slottedPage == null) {
-        return null;  // deliberately unmemoized: there was nothing to walk
+        return null; // deliberately unmemoized: there was nothing to walk
       }
       built = collectAndEncodeNameKeyRegion();
     } finally {
@@ -4095,7 +4359,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     synchronized (this) {
       if ((regionDeriveAttempted & NAMES_DERIVE_MASK) != 0) {
-        return null;  // a racing walk installed first
+        return null; // a racing walk installed first
       }
       final byte[] payload = built[0];
       if (payload != null) {
@@ -4142,7 +4406,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       while (word != 0) {
         final int slot = baseSlot + Long.numberOfTrailingZeros(word);
         word &= word - 1;
-        if (!isFusedObjectNamedKindId(PageLayout.getDirNodeKindId(sp, slot))) {
+        // The ROLE predicate, not the LAYOUT one. isFusedObjectNamedKindId names the PRIMITIVE
+        // fused layout (9 fields, NAME_KEY at index 3); the structural kinds OBJECT/ARRAY are a
+        // 12-field layout with NAME_KEY at index 5, so widening that predicate would decode them
+        // with the wrong field table. What this column wants is every slot that CARRIES A FIELD
+        // NAME, which is what isFusedAnyObjectNamedKindId says — and the name is then read through
+        // the accessor that dispatches on layout.
+        //
+        // Leaving array- and object-valued fields out made them invisible to every anchored scan:
+        // `getObjectKeySlotsForNameKey("genres")` answered EMPTY, so a predicate over an array
+        // visited no records at all. It also kept them out of the record-ordinal linkage built in
+        // this same pass, which is what an element-to-record attribution needs.
+        final int slotKind = PageLayout.getDirNodeKindId(sp, slot);
+        if (!isFusedAnyObjectNamedKindId(slotKind)) {
           continue;
         }
         if (count == nameKeys.length) {
@@ -4150,7 +4426,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           slots = Arrays.copyOf(slots, count << 1);
           parentKeys = Arrays.copyOf(parentKeys, count << 1);
         }
-        nameKeys[count] = getFusedObjectNamedNameKeyFromSlot(slot);
+        // Not getObjectKeyNameKeyFromSlot: that one consults the very region this pass is
+        // building, and would answer from a stale payload (or none).
+        nameKeys[count] = isFusedStructuralKindId(slotKind)
+            ? getFusedStructuralNameKeyFromSlot(slot)
+            : getFusedObjectNamedNameKeyFromSlot(slot);
         slots[count] = slot;
         parentKeys[count] = getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
         count++;
@@ -4161,22 +4441,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final byte[] payload = ObjectKeyNameKeyRegion.encode(nameKeys, slots, count);
     if (payload == null) {
-      return new byte[2][];  // more distinct names than the region encodes; callers walk slots
+      return new byte[2][]; // more distinct names than the region encodes; callers walk slots
     }
-    return new byte[][] { payload, RecordOrdinalRegion.encode(parentKeys, pageKeyBase, count) };
+    return new byte[][] {payload, RecordOrdinalRegion.encode(parentKeys, pageKeyBase, count)};
   }
 
   /**
    * Restore the column regions of a page assembled from versioning fragments.
    *
-   * <p>A reconstructed page is built slot by slot from several fragments, so it starts with no
-   * columns of its own even though its records are complete. Rebuilding them here keeps the
-   * invariant every other page in the cache satisfies — that a materialized page carries its
-   * columns — and is what lets a later column scan serve it instead of walking its records.
+   * <p>
+   * A reconstructed page is built slot by slot from several fragments, so it starts with no columns
+   * of its own even though its records are complete. Rebuilding them here keeps the invariant every
+   * other page in the cache satisfies — that a materialized page carries its columns — and is what
+   * lets a later column scan serve it instead of walking its records.
    *
-   * <p>Only the two cheap ones are eager: the field-name column (which every column scan probes
-   * first) and the numeric column. String and boolean columns rebuild on demand, and now bring
-   * their sketch with them.
+   * <p>
+   * Only the two cheap ones are eager: the field-name column (which every column scan probes first)
+   * and the numeric column. String and boolean columns rebuild on demand, and now bring their sketch
+   * with them.
    */
   public void ensureColumnRegions() {
     // One definition of "derive what is missing": the mask dispatcher below. Keeping a second
@@ -4187,42 +4469,39 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /** Kinds the field-name builder derives together: the names column and the record linkage. */
   private static final int NAMES_DERIVE_MASK =
-      RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY)
-          | RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL);
+      RegionTable.maskOf(RegionTable.KIND_OBJECT_KEY_NAMEKEY) | RegionTable.maskOf(RegionTable.KIND_RECORD_ORDINAL);
   /** Kinds the number builder derives together: the long column, its zone map, and the doubles. */
-  private static final int NUMBER_DERIVE_MASK =
-      RegionTable.maskOf(RegionTable.KIND_NUMBER)
-          | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP)
-          | RegionTable.maskOf(RegionTable.KIND_DOUBLE);
+  private static final int NUMBER_DERIVE_MASK = RegionTable.maskOf(RegionTable.KIND_NUMBER)
+      | RegionTable.maskOf(RegionTable.KIND_NUMBER_ZONEMAP) | RegionTable.maskOf(RegionTable.KIND_DOUBLE);
   /** Kind the boolean builder derives. */
   private static final int BOOL_DERIVE_MASK = RegionTable.maskOf(RegionTable.KIND_BOOLEAN);
   /** Kinds the string builder derives together: the dictionary column and its sketch. */
   private static final int STRING_DERIVE_MASK =
-      RegionTable.maskOf(RegionTable.KIND_STRING)
-          | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH);
+      RegionTable.maskOf(RegionTable.KIND_STRING) | RegionTable.maskOf(RegionTable.KIND_STRING_DICT_SKETCH);
 
   /**
-   * Derive every region {@code kindMask} asks for that the table does not yet hold, from the
-   * slotted page.
+   * Derive every region {@code kindMask} asks for that the table does not yet hold, from the slotted
+   * page.
    *
-   * <p>This is what makes a RECONSTRUCTED page a first-class column source. The versioning layer
-   * merges a multi-fragment page into one slotted page — every slot in one coordinate space, which
-   * is precisely the alignment a cross-column (fused) predicate needs and the per-fragment merge
-   * cannot provide — but the merged page starts with an EMPTY region table that only grows when a
-   * lazy getter happens to run. A region-only read that found the resident page missing a
-   * requested kind used to fall through to "no columns" even though every one of them was sitting
-   * derivable in the slots; this call closes that gap on demand, per kind:
-   * the field-name column brings {@link RegionTable#KIND_RECORD_ORDINAL} with it, the number
-   * rebuild installs zone maps and the double column alongside, and string brings its sketch.
+   * <p>
+   * This is what makes a RECONSTRUCTED page a first-class column source. The versioning layer merges
+   * a multi-fragment page into one slotted page — every slot in one coordinate space, which is
+   * precisely the alignment a cross-column (fused) predicate needs and the per-fragment merge cannot
+   * provide — but the merged page starts with an EMPTY region table that only grows when a lazy
+   * getter happens to run. A region-only read that found the resident page missing a requested kind
+   * used to fall through to "no columns" even though every one of them was sitting derivable in the
+   * slots; this call closes that gap on demand, per kind: the field-name column brings
+   * {@link RegionTable#KIND_RECORD_ORDINAL} with it, the number rebuild installs zone maps and the
+   * double column alongside, and string brings its sketch.
    *
-   * <p>Lock-free in the steady state: after the first read of a page, everything requested is
-   * either present or recorded as attempted in {@link #regionDeriveAttempted}, and the method
-   * returns on two volatile reads without touching any lock — N scan workers re-reading a hot
-   * resident page must not serialize on it. When something IS missing, the builders themselves do
-   * the pinning: each runs its walk under the page guard (the frame must not be recycled
-   * mid-walk) and takes the page monitor only for its install, so two workers racing the precheck
-   * cost one redundant walk, never a torn table — and record readers' guard traffic never queues
-   * behind a derivation.
+   * <p>
+   * Lock-free in the steady state: after the first read of a page, everything requested is either
+   * present or recorded as attempted in {@link #regionDeriveAttempted}, and the method returns on two
+   * volatile reads without touching any lock — N scan workers re-reading a hot resident page must not
+   * serialize on it. When something IS missing, the builders themselves do the pinning: each runs its
+   * walk under the page guard (the frame must not be recycled mid-walk) and takes the page monitor
+   * only for its install, so two workers racing the precheck cost one redundant walk, never a torn
+   * table — and record readers' guard traffic never queues behind a derivation.
    */
   public void ensureRegionsFor(final int kindMask) {
     final int pending = pendingDerivations(kindMask);
@@ -4260,8 +4539,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // all, and re-walking its slots on every ensure would penalize exactly the page shape the
     // rebuild was fixed for.
     if ((kindMask & NUMBER_DERIVE_MASK) != 0 && (attempted & NUMBER_DERIVE_MASK) == 0
-        && regionPayload(RegionTable.KIND_NUMBER) == null
-        && regionPayload(RegionTable.KIND_DOUBLE) == null) {
+        && regionPayload(RegionTable.KIND_NUMBER) == null && regionPayload(RegionTable.KIND_DOUBLE) == null) {
       pending |= NUMBER_DERIVE_MASK;
     }
     if ((kindMask & BOOL_DERIVE_MASK) != 0 && (attempted & BOOL_DERIVE_MASK) == 0
@@ -4294,20 +4572,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Region kinds whose builder has RUN TO COMPLETION on this page, successful or refused.
    *
-   * <p>A completed refusal is permanent — the slots never change under a resident page — so the
-   * memo is what stops a page whose ordinals legitimately cannot encode, or that simply holds no
-   * booleans, from re-walking all of its slots and re-installing identical payloads into the
-   * table's arena on EVERY region-only read for as long as it stays cached.
+   * <p>
+   * A completed refusal is permanent — the slots never change under a resident page — so the memo is
+   * what stops a page whose ordinals legitimately cannot encode, or that simply holds no booleans,
+   * from re-walking all of its slots and re-installing identical payloads into the table's arena on
+   * EVERY region-only read for as long as it stays cached.
    *
-   * <p>Three deliberate properties. Bits are set by the builders themselves, in their install
-   * sections — never before the walk, so an exception does not latch a transient failure into a
-   * permanent refusal — and under the page monitor those sections hold, so all entry points share
-   * the memo. Bits are CLEARED wherever the corresponding payloads are dropped or replaced
+   * <p>
+   * Three deliberate properties. Bits are set by the builders themselves, in their install sections —
+   * never before the walk, so an exception does not latch a transient failure into a permanent
+   * refusal — and under the page monitor those sections hold, so all entry points share the memo.
+   * Bits are CLEARED wherever the corresponding payloads are dropped or replaced
    * ({@link #invalidateNumberRegion}, {@link #invalidateStringRegion}, {@link #setRegionTable},
    * {@link #reset}), because a memo that outlives its table reads as "derived and refused" for
    * regions that were merely thrown away. And the field is volatile: the lock-free precheck above
-   * reads it without the monitor, and the volatile read of a bit a builder set after installing
-   * its payloads is the happens-before edge that makes those payloads safely readable.
+   * reads it without the monitor, and the volatile read of a bit a builder set after installing its
+   * payloads is the happens-before edge that makes those payloads safely readable.
    */
   private volatile int regionDeriveAttempted;
 
@@ -4340,10 +4620,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Build (and cache) the page's BooleanRegion by walking all populated fused
-   * {@code OBJECT_NAMED_BOOLEAN} slots and collecting each slot's inline value +
-   * its inline name/path tag. Returns {@code null} when the page has no booleans.
-   * See {@link #tryBuildNumberRegionFromSlottedPage} for the template —
-   * this method mirrors it for the boolean column.
+   * {@code OBJECT_NAMED_BOOLEAN} slots and collecting each slot's inline value + its inline name/path
+   * tag. Returns {@code null} when the page has no booleans. See
+   * {@link #tryBuildNumberRegionFromSlottedPage} for the template — this method mirrors it for the
+   * boolean column.
    */
   private MemorySegment tryBuildBooleanRegionFromSlottedPage() {
     if ((regionDeriveAttempted & BOOL_DERIVE_MASK) != 0) {
@@ -4351,11 +4631,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     final byte[] encoded;
     if (!acquireGuard()) {
-      return null;  // mid-close — nothing to derive from
+      return null; // mid-close — nothing to derive from
     }
     try {
       if (slottedPage == null) {
-        return null;  // deliberately unmemoized: there was nothing to walk
+        return null; // deliberately unmemoized: there was nothing to walk
       }
       encoded = collectAndEncodeBooleanRegion();
     } finally {
@@ -4363,11 +4643,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     }
     synchronized (this) {
       if ((regionDeriveAttempted & BOOL_DERIVE_MASK) != 0) {
-        return regionPayload(RegionTable.KIND_BOOLEAN);  // a racing walk installed first
+        return regionPayload(RegionTable.KIND_BOOLEAN); // a racing walk installed first
       }
       if (encoded == null) {
         regionDeriveAttempted |= BOOL_DERIVE_MASK;
-        return null;  // no booleans, or a dictionary the region cannot encode — permanent
+        return null; // no booleans, or a dictionary the region cannot encode — permanent
       }
       final RegionTable table = regionTableForInstall();
       table.set(RegionTable.KIND_BOOLEAN, encoded);
@@ -4443,7 +4723,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final byte tagKind = allPathNodeKeysValid
         ? BooleanRegion.TAG_KIND_PATH_NODE
         : BooleanRegion.TAG_KIND_NAME;
-    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final int[] tagBuf = allPathNodeKeysValid
+        ? pathBuf
+        : nameBuf;
     return BooleanRegion.encode(valBuf, tagBuf, count, tagKind);
   }
 
@@ -4520,8 +4802,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Get the current version of this page frame.
-   * Used for detecting page reuse via version counter check.
+   * Get the current version of this page frame. Used for detecting page reuse via version counter
+   * check.
    *
    * @return current version number
    */
@@ -4530,17 +4812,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Increment the version counter.
-   * Called when the page frame is reused for a different logical page.
+   * Increment the version counter. Called when the page frame is reused for a different logical page.
    */
   public void incrementVersion() {
     version.incrementAndGet();
   }
 
   /**
-   * Try to acquire a guard on this page.
-   * Returns false if the page is orphaned or closed (cannot be used).
-   * This is the synchronized version that prevents race conditions with close().
+   * Try to acquire a guard on this page. Returns false if the page is orphaned or closed (cannot be
+   * used). This is the synchronized version that prevents race conditions with close().
    *
    * @return true if guard was acquired, false if page is orphaned/closed
    */
@@ -4572,9 +4852,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Release a guard on this page (decrement guard count).
-   * If the page is orphaned and this was the last guard, the page is closed.
-   * This ensures deterministic cleanup without relying on GC/finalizers.
+   * Release a guard on this page (decrement guard count). If the page is orphaned and this was the
+   * last guard, the page is closed. This ensures deterministic cleanup without relying on
+   * GC/finalizers.
    */
   public synchronized void releaseGuard() {
     guardCount.decrementAndGet();
@@ -4586,9 +4866,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Mark this page as orphaned using lock-free CAS.
-   * Called when the page is removed from cache but still has active guards.
-   * The page will be closed when the last guard is released.
+   * Mark this page as orphaned using lock-free CAS. Called when the page is removed from cache but
+   * still has active guards. The page will be closed when the last guard is released.
    */
   public void markOrphaned() {
     int current;
@@ -4610,8 +4889,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Get the current guard count.
-   * Used by ClockSweeper to check if page can be evicted.
+   * Get the current guard count. Used by ClockSweeper to check if page can be evicted.
    *
    * @return current guard count
    */
@@ -4620,12 +4898,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Mark this page as recently accessed (set HOT bit).
-   * Called on every page access for clock eviction algorithm.
+   * Mark this page as recently accessed (set HOT bit). Called on every page access for clock eviction
+   * algorithm.
    * <p>
-   * Uses opaque memory access (no memory barriers) for maximum performance.
-   * The HOT bit is advisory - stale reads are acceptable and will at worst
-   * give a page an extra second chance during eviction.
+   * Uses opaque memory access (no memory barriers) for maximum performance. The HOT bit is advisory -
+   * stale reads are acceptable and will at worst give a page an extra second chance during eviction.
    * </p>
    */
   public void markAccessed() {
@@ -4670,9 +4947,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Reset page data structures for reuse.
-   * Clears records and internal state but keeps MemorySegments allocated.
-   * Used when evicting a page to prepare frame for reuse.
+   * Reset page data structures for reuse. Clears records and internal state but keeps MemorySegments
+   * allocated. Used when evicting a page to prepare frame for reuse.
    */
   public void reset() {
     // Clear record arrays
@@ -4682,8 +4958,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Reset slotted page state (bitmap and heap pointers)
     if (slottedPage != null) {
-      PageLayout.initializePage(slottedPage, recordPageKey, revision,
-          indexType.getID(), areDeweyIDsStored);
+      PageLayout.initializePage(slottedPage, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
       cachedHeapEnd = 0;
       cachedHeapUsed = 0;
       cachedPopulatedCount = 0;
@@ -4705,23 +4980,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     // Clear references
     references.clear();
     addedReferences = false;
-    
+
     // Clear cached data
     bytes = null;
     hashCode = null;
-    
+
     // CRITICAL: Guard count MUST be 0 before reset
     int currentGuardCount = guardCount.get();
     if (currentGuardCount != 0) {
-      throw new IllegalStateException(
-          String.format("CRITICAL BUG: reset() called on page with active guards! " +
-              "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
-              recordPageKey, indexType, revision, currentGuardCount));
+      throw new IllegalStateException(String.format(
+          "CRITICAL BUG: reset() called on page with active guards! "
+              + "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
+          recordPageKey, indexType, revision, currentGuardCount));
     }
-    
+
     // Clear HOT bit using lock-free operation
     clearHot();
-    
+
     // NOTE: We do NOT release MemorySegments here - they stay allocated
     // The allocator's release() method is called separately if needed
   }
@@ -4874,18 +5149,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Append this page's raw string values to {@code samples}, stopping once {@code cap} samples
-   * have been gathered in total.
+   * Append this page's raw string values to {@code samples}, stopping once {@code cap} samples have
+   * been gathered in total.
    *
-   * <p>This feeds {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable}, which pools
-   * samples from <em>many</em> pages and builds one symbol table for the whole revision. The
-   * table used to be built here, per page, and that failed in both directions at once: a full
-   * slot scan plus frequency analysis per page made ingest 18× slower, and one page rarely holds
-   * the {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw
-   * bytes, so the per-page table was rejected on essentially every page anyway.
+   * <p>
+   * This feeds {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable}, which pools samples from
+   * <em>many</em> pages and builds one symbol table for the whole revision. The table used to be
+   * built here, per page, and that failed in both directions at once: a full slot scan plus frequency
+   * analysis per page made ingest 18× slower, and one page rarely holds the
+   * {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw bytes, so
+   * the per-page table was rejected on essentially every page anyway.
    *
-   * <p>Only uncompressed values are gathered: sampling an already-FSST-encoded value would feed
-   * the next table's frequency analysis bytes that are not text.
+   * <p>
+   * Only uncompressed values are gathered: sampling an already-FSST-encoded value would feed the next
+   * table's frequency analysis bytes that are not text.
    *
    * @param samples the list to append to; not cleared first
    * @param cap the total size {@code samples} may reach, bounding the cost of a commit-wide sweep
@@ -4930,8 +5207,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
         if (samples.size() >= cap) {
           return;
         }
-        if (records != null && records[i] != null) continue; // Already scanned above
-        if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
+        if (records != null && records[i] != null)
+          continue; // Already scanned above
+        if (!PageLayout.isSlotPopulated(slottedPage, i))
+          continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
         if (nodeKindId == fusedStringId) {
           // Fused field values are where the string bytes actually are on JSON data; a sampler
@@ -4953,7 +5232,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           try {
             if (!fsstStringFlyweight().isCompressed()) {
               byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
-              if (value != null && value.length > 0) samples.add(value);
+              if (value != null && value.length > 0)
+                samples.add(value);
             }
           } finally {
             fsstStringFlyweight().clearBinding();
@@ -4964,10 +5244,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Compress all string values in the page using the revision's FSST symbol table.
-   * This modifies the string nodes in place to use compressed values.
-   * A no-op until {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable} has handed the
-   * page a table — without one, strings serialize raw.
+   * Compress all string values in the page using the revision's FSST symbol table. This modifies the
+   * string nodes in place to use compressed values. A no-op until
+   * {@code NodeStorageEngineWriter#buildRevisionFsstSymbolTable} has handed the page a table —
+   * without one, strings serialize raw.
    */
   public void compressStringValues() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
@@ -5018,8 +5298,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage != null) {
       final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        if (records != null && records[i] != null) continue; // Already handled above
-        if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
+        if (records != null && records[i] != null)
+          continue; // Already handled above
+        if (!PageLayout.isSlotPopulated(slottedPage, i))
+          continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
         if (nodeKindId == stringValueId) {
           final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
@@ -5031,8 +5313,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
           try {
             byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
             if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
-              byte[] compressed =
-                  FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
+              byte[] compressed = FSSTCompressor.encodeOrNull(originalValue, 0, originalValue.length, parsedSymbols);
               if (compressed != null) {
                 fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
@@ -5072,8 +5353,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Set the FSST symbol table on all string nodes after deserialization.
-   * This allows nodes to use lazy decompression.
+   * Set the FSST symbol table on all string nodes after deserialization. This allows nodes to use
+   * lazy decompression.
    */
   public void propagateFsstSymbolTableToNodes() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {

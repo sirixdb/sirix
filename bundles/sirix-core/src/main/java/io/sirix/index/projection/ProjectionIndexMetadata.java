@@ -6,43 +6,43 @@ package io.sirix.index.projection;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Self-describing metadata payload persisted alongside projection leaves
- * (slot 0 of the HOT sub-tree, leaves at slots 1..{@link #rowGroupCount()}): the
- * projection's root path, per-column field paths, column names, and column
- * kinds. Hydration reads the projection's shape from HERE instead of
- * trusting the caller's argument list — without it, a re-create with a
- * same-arity but different field list would silently install the persisted
- * columns under the wrong names (the exact corruption the column-count guard
- * alone cannot catch).
+ * Self-describing metadata payload persisted alongside projection leaves (slot 0 of the HOT
+ * sub-tree, leaves at slots 1..{@link #rowGroupCount()}): the projection's root path, per-column
+ * field paths, column names, and column kinds. Hydration reads the projection's shape from HERE
+ * instead of trusting the caller's argument list — without it, a re-create with a same-arity but
+ * different field list would silently install the persisted columns under the wrong names (the
+ * exact corruption the column-count guard alone cannot catch).
  *
- * <p>Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a
- * flags byte ({@link #FLAG_STALE}), the leaf count and build revision as
- * little-endian ints, the root path as a length-prefixed UTF-8 string, an
- * int column count, then per column: path (UTF-8, length-prefixed), name
- * (UTF-8, length-prefixed), and one column-kind byte
- * ({@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} /
- * {@code BOOLEAN} / {@code STRING_DICT}).
+ * <p>
+ * Wire form: {@link #MAGIC} ("PIXM" little-endian), a version byte, a flags byte
+ * ({@link #FLAG_STALE}), the leaf count and build revision as little-endian ints, the root path as
+ * a length-prefixed UTF-8 string, an int column count, then per column: path (UTF-8,
+ * length-prefixed), name (UTF-8, length-prefixed), and one column-kind byte
+ * ({@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} / {@code BOOLEAN} /
+ * {@code STRING_DICT}).
  *
- * <p>The per-leaf {@code (firstRecordKey, lastRecordKey)} fences — the
- * incremental maintenance's zone map — used to ride inside this blob, but at
- * scale that made every commit re-persist the whole fence array (~1.5&nbsp;MB at
- * 100k leaves) just because one leaf moved. They now live in their own
- * carry-forward chunks ({@link ProjectionIndexFences}), so this metadata blob
- * stays tiny (shape only) and a commit rewrites only the fence chunks it
- * actually changed.
+ * <p>
+ * The per-leaf {@code (firstRecordKey, lastRecordKey)} fences — the incremental maintenance's zone
+ * map — used to ride inside this blob, but at scale that made every commit re-persist the whole
+ * fence array (~1.5&nbsp;MB at 100k leaves) just because one leaf moved. They now live in their own
+ * carry-forward chunks ({@link ProjectionIndexFences}), so this metadata blob stays tiny (shape
+ * only) and a commit rewrites only the fence chunks it actually changed.
  *
- * <p>The <b>stale</b> flag is the update-time invalidation hook: the
- * projection change listener overwrites slot 0 with {@link #staleTombstone()}
- * when a write transaction modifies the indexed record set, so a later
- * hydrate refuses the outdated columns and rebuilds instead. The leaf count
- * bounds the hydrate read — a rebuild that shrinks the projection may leave
- * stale payloads at higher slots, which hydration must ignore.
+ * <p>
+ * The <b>stale</b> flag is the update-time invalidation hook: the projection change listener
+ * overwrites slot 0 with {@link #staleTombstone()} when a write transaction modifies the indexed
+ * record set, so a later hydrate refuses the outdated columns and rebuilds instead. The leaf count
+ * bounds the hydrate read — a rebuild that shrinks the projection may leave stale payloads at
+ * higher slots, which hydration must ignore.
  *
- * <p>{@link #parse} returns {@code null} for payloads without the magic, so
- * hydrate paths can probe slot 0 and fall back to metadata-less handling for
- * stores written by the bench setups (which persist leaves only).
+ * <p>
+ * {@link #parse} returns {@code null} for payloads without the magic, so hydrate paths can probe
+ * slot 0 and fall back to metadata-less handling for stores written by the bench setups (which
+ * persist leaves only).
  */
 public final class ProjectionIndexMetadata {
 
@@ -55,18 +55,20 @@ public final class ProjectionIndexMetadata {
   /**
    * Wire-format version, and there is exactly ONE — the current one, like
    * {@link io.sirix.BinaryEncodingVersion}. The byte exists so that a future format change can be
-   * REJECTED rather than misread, not so two formats can coexist: {@link #parse} returns
-   * {@code null} for any other value, which every caller treats as "no metadata" and rebuilds.
+   * REJECTED rather than misread, not so two formats can coexist: {@link #parse} returns {@code null}
+   * for any other value, which every caller treats as "no metadata" and rebuilds.
    *
-   * <p>It starts at 0 rather than carrying a history. Earlier values existed only within this
-   * codebase's own development — the fences moving out of this blob, the descriptor layout being
-   * retired — and no resource written with them exists, so numbering as though a migration path had
-   * to be preserved would document a compatibility guarantee this project does not make.
+   * <p>
+   * It starts at 0 rather than carrying a history. Earlier values existed only within this codebase's
+   * own development — the fences moving out of this blob, the descriptor layout being retired — and
+   * no resource written with them exists, so numbering as though a migration path had to be preserved
+   * would document a compatibility guarantee this project does not make.
    *
-   * <p>Bump it when the payload's shape changes. That is what makes such a change safe: an old blob
+   * <p>
+   * Bump it when the payload's shape changes. That is what makes such a change safe: an old blob
    * fails to parse and its store is rebuilt, instead of its bytes being read at shifted offsets.
    */
-  private static final byte VERSION = 0;
+  private static final byte VERSION = 1;
 
   private final String rootPath;
   private final String[] fieldPaths;
@@ -77,15 +79,44 @@ public final class ProjectionIndexMetadata {
 
   private final byte flags;
 
-  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
-      final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0);
+  /**
+   * Per set column, the number of ROWS in the WHOLE index whose set contains each value.
+   *
+   * <p>
+   * Indexed by column, {@code null} for columns without one. This is what lets a bare
+   * {@code count(... satisfies $g eq lit)} be answered by a map probe: the metadata blob is read on
+   * every covering lookup already, so the answer costs no segment fetch and no leaf read.
+   *
+   * <p>
+   * ONE map for the index, not one per leaf. The per-leaf form is what the row-group descriptors
+   * carry, and replicating a summary thousands of times is what overflowed the HOT leaves when it was
+   * tried there; a query that counts over the whole index needs a single number, so it is stored
+   * once. The corollary is the limit: this cannot serve a count restricted to a subset of rows, and
+   * the caller's gate is what keeps it from being asked to.
+   *
+   * <p>
+   * Summing per-leaf counts is exact because a record lives in exactly one leaf, and the per-leaf
+   * counts already count rows rather than occurrences — a record listing the same value twice
+   * contributes one.
+   */
+  private final Map<Integer, Map<String, Long>> setValueRowCounts;
+
+  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null);
   }
 
-  private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths,
-      final String[] fieldNames, final byte[] columnKinds, final int rowGroupCount,
-      final int buildRevision, final byte flags) {
+  /** As above, carrying the index-wide {@link #setValueRowCounts}. */
+  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
+      final Map<Integer, Map<String, Long>> setValueRowCounts) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts);
+  }
+
+  private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
+      final Map<Integer, Map<String, Long>> setValueRowCounts) {
+    this.setValueRowCounts = setValueRowCounts;
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
@@ -106,7 +137,7 @@ public final class ProjectionIndexMetadata {
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE, null);
   }
 
 
@@ -132,9 +163,8 @@ public final class ProjectionIndexMetadata {
   }
 
   /**
-   * Revision the columns were built over — hydration installs the registry
-   * handle with this as its valid-from revision, so time-travel executors
-   * bound to earlier revisions refuse it.
+   * Revision the columns were built over — hydration installs the registry handle with this as its
+   * valid-from revision, so time-travel executors bound to earlier revisions refuse it.
    */
   public int buildRevision() {
     return buildRevision;
@@ -148,10 +178,8 @@ public final class ProjectionIndexMetadata {
 
 
   /** Whether this metadata describes exactly the given shape. */
-  public boolean matches(final String otherRootPath, final String[] otherFieldPaths,
-      final byte[] otherColumnKinds) {
-    return rootPath.equals(otherRootPath)
-        && Arrays.equals(fieldPaths, otherFieldPaths)
+  public boolean matches(final String otherRootPath, final String[] otherFieldPaths, final byte[] otherColumnKinds) {
+    return rootPath.equals(otherRootPath) && Arrays.equals(fieldPaths, otherFieldPaths)
         && Arrays.equals(columnKinds, otherColumnKinds);
   }
 
@@ -169,13 +197,100 @@ public final class ProjectionIndexMetadata {
       putString(out, fieldNames[i]);
       out.write(columnKinds[i]);
     }
+    writeSetValueRowCounts(out);
     return out.toByteArray();
   }
 
   /**
-   * Parse a metadata payload; {@code null} when {@code payload} does not
-   * carry the metadata magic (e.g. a leaf payload from a metadata-less
-   * store).
+   * Largest the whole counts section may become, and the distinct values per column it may hold.
+   *
+   * <p>
+   * Bounded by what the summary COSTS on the COMMON path, not by what the slot could hold. This blob
+   * is read on every covering lookup, and {@code ProjectionIndexHOTStorage.BLOB_INLINE_MAX} is 512
+   * bytes: at or below that the blob rides inline in the slot, above it spills to an
+   * {@link io.sirix.page.OverflowPage} and every lookup pays one extra page read — including the
+   * queries that never ask for a membership count.
+   *
+   * <p>
+   * The shape metadata alone is a few hundred bytes, and 41 genres add ~533, so a summarised column
+   * DOES cross that line. That is the accepted trade: one page read per lookup against a membership
+   * count that would otherwise scan. 1 KB caps how large the spilled page gets; a column that does
+   * not fit is not summarised at all and the reader falls back — the same viability discipline the
+   * scheme selector applies before estimating an encoding, and the reason {@code title}'s 33,254
+   * distinct values (~400 KB) must never be attempted.
+   */
+  private static final int MAX_SET_COUNTS_SECTION_BYTES =
+      Integer.getInteger("sirix.projection.metadataSetCountsBytes", 1024);
+
+  private static final int MAX_SET_COUNTS_VALUES = Integer.getInteger("sirix.projection.metadataSetCountsValues", 256);
+
+  /**
+   * Rows in the index whose set at {@code column} contains {@code value}.
+   *
+   * @return the count, {@code 0} for a value the index does not hold, or {@code null} when the column
+   *         carries no summary and the caller must fall back
+   */
+  public Long setValueRowCount(final int column, final String value) {
+    if (setValueRowCounts == null) {
+      return null;
+    }
+    final Map<String, Long> forColumn = setValueRowCounts.get(column);
+    if (forColumn == null) {
+      return null;
+    }
+    // The map lists every value the index holds for this column, so a miss is a real zero rather
+    // than an unknown — which is what makes an absent literal answerable in the same O(1).
+    final Long count = forColumn.get(value);
+    return count == null
+        ? Long.valueOf(0)
+        : count;
+  }
+
+  /** The index-wide summary, or {@code null} when none was written. */
+  public Map<Integer, Map<String, Long>> setValueRowCounts() {
+    return setValueRowCounts;
+  }
+
+  /** Append the counts section, omitting any column that would breach the bounds. */
+  private void writeSetValueRowCounts(final ByteArrayOutputStream out) {
+    if (setValueRowCounts == null || setValueRowCounts.isEmpty()) {
+      putShortLE(out, 0);
+      return;
+    }
+    final ByteArrayOutputStream section = new ByteArrayOutputStream(1024);
+    int columns = 0;
+    for (final var entry : setValueRowCounts.entrySet()) {
+      final Map<String, Long> values = entry.getValue();
+      if (values == null || values.isEmpty() || values.size() > MAX_SET_COUNTS_VALUES) {
+        continue;
+      }
+      final ByteArrayOutputStream one = new ByteArrayOutputStream(256);
+      putShortLE(one, entry.getKey());
+      putShortLE(one, values.size());
+      for (final var v : values.entrySet()) {
+        final byte[] bytes = v.getKey().getBytes(StandardCharsets.UTF_8);
+        putShortLE(one, bytes.length);
+        one.write(bytes, 0, bytes.length);
+        putIntLE(one, (int) Math.min(v.getValue(), Integer.MAX_VALUE));
+      }
+      if (section.size() + one.size() > MAX_SET_COUNTS_SECTION_BYTES) {
+        continue;
+      }
+      section.write(one.toByteArray(), 0, one.size());
+      columns++;
+    }
+    putShortLE(out, columns);
+    out.write(section.toByteArray(), 0, section.size());
+  }
+
+  private static void putShortLE(final ByteArrayOutputStream out, final int v) {
+    out.write(v & 0xFF);
+    out.write((v >>> 8) & 0xFF);
+  }
+
+  /**
+   * Parse a metadata payload; {@code null} when {@code payload} does not carry the metadata magic
+   * (e.g. a leaf payload from a metadata-less store).
    *
    * @throws IllegalStateException on a structurally corrupt metadata payload
    */
@@ -221,11 +336,38 @@ public final class ProjectionIndexMetadata {
         names[i] = getString(payload, pos);
         kinds[i] = payload[pos[0]++];
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision,
-          flags);
+      // The counts section follows the per-field section. Its presence is guaranteed by the
+      // version byte, which parse() has already checked — a payload from before it existed fails
+      // the version test above and is treated as no metadata, so there is no shifted-offset read.
+      final int setCountColumns = getShortU(payload, pos);
+      Map<Integer, Map<String, Long>> counts = null;
+      for (int c = 0; c < setCountColumns; c++) {
+        final int column = getShortU(payload, pos);
+        final int values = getShortU(payload, pos);
+        final Map<String, Long> forColumn = new LinkedHashMap<>(Math.max(4, values * 2));
+        for (int v = 0; v < values; v++) {
+          final int len = getShortU(payload, pos);
+          final String value = new String(payload, pos[0], len, StandardCharsets.UTF_8);
+          pos[0] += len;
+          final int rows = getIntLE(payload, pos[0]);
+          pos[0] += 4;
+          forColumn.put(value, (long) rows);
+        }
+        if (counts == null) {
+          counts = new LinkedHashMap<>(4);
+        }
+        counts.put(column, forColumn);
+      }
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
+  }
+
+  private static int getShortU(final byte[] payload, final int[] pos) {
+    final int lo = payload[pos[0]++] & 0xFF;
+    final int hi = payload[pos[0]++] & 0xFF;
+    return lo | (hi << 8);
   }
 
   private static void putString(final ByteArrayOutputStream out, final String value) {

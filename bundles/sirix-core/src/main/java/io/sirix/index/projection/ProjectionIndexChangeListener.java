@@ -35,83 +35,71 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Update-time maintenance hook for a projection index, wired through the
- * {@code IndexController} listener lifecycle like the PATH/CAS/NAME
- * listeners — and, like them, maintaining the index INCREMENTALLY.
+ * Update-time maintenance hook for a projection index, wired through the {@code IndexController}
+ * listener lifecycle like the PATH/CAS/NAME listeners — and, like them, maintaining the index
+ * INCREMENTALLY.
  *
  * <h2>Two-phase incremental maintenance</h2>
  *
- * <b>Listen phase (per change, hot path):</b> each notification is
- * classified by pathNodeKey against lazily seeded PCR sets; relevant
- * changes resolve the enclosing <em>record</em> (the row's identity) by
- * walking the node's ancestor chain through raw page-layer record reads —
- * no cursor movement, no allocation beyond the dirty-key set — and add the
- * record's nodeKey to a per-transaction dirty set. Nothing is written yet.
+ * <b>Listen phase (per change, hot path):</b> each notification is classified by pathNodeKey
+ * against lazily seeded PCR sets; relevant changes resolve the enclosing <em>record</em> (the row's
+ * identity) by walking the node's ancestor chain through raw page-layer record reads — no cursor
+ * movement, no allocation beyond the dirty-key set — and add the record's nodeKey to a
+ * per-transaction dirty set. Nothing is written yet.
  *
  * <b>Apply phase (once, at pre-commit via
- * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty
- * records are located in their leaves through the per-leaf record-key zone
- * maps, each touched leaf is rebuilt by re-extracting ALL its rows from the
- * transaction's current state (deleted records simply drop out, updated
- * records pick up their new values — extraction semantics are shared 1:1
- * with the bulk builder via {@link ProjectionIndexRowExtractor}), and new
- * records (node keys are monotonically increasing, so inserts always sort
- * after every indexed key) are appended to the tail leaf / fresh leaves.
- * Slot 0's metadata is rewritten with the updated leaf count and the
- * committing revision as the new build revision, which re-keys the
- * catalog's decoded-leaf cache. All writes ride the write transaction —
- * invisible to concurrent readers until commit, discarded on rollback, and
- * historical revisions keep serving their own immutable snapshots.
+ * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty records are located in their
+ * leaves through the per-leaf record-key zone maps, each touched leaf is rebuilt by re-extracting
+ * ALL its rows from the transaction's current state (deleted records simply drop out, updated
+ * records pick up their new values — extraction semantics are shared 1:1 with the bulk builder via
+ * {@link ProjectionIndexRowExtractor}), and new records (node keys are monotonically increasing, so
+ * inserts always sort after every indexed key) are appended to the tail leaf / fresh leaves. Slot
+ * 0's metadata is rewritten with the updated leaf count and the committing revision as the new
+ * build revision, which re-keys the catalog's decoded-leaf cache. All writes ride the write
+ * transaction — invisible to concurrent readers until commit, discarded on rollback, and historical
+ * revisions keep serving their own immutable snapshots.
  *
- * <h2>Always maintained — the rebuild fallback</h2>
- * Like the PATH/CAS/NAME listeners, this listener keeps its index EXACTLY
- * maintained across every operation — there is no invalidation ladder.
- * Changes the incremental patch cannot attribute provably-correctly degrade
- * to an automatic FULL REBUILD inside the same commit (the shared
- * {@link ProjectionIndexBuilder#buildAndPersist} core re-extracts the whole
- * record set from the transaction's current state — always correct, cost
+ * <h2>Always maintained — the rebuild fallback</h2> Like the PATH/CAS/NAME listeners, this listener
+ * keeps its index EXACTLY maintained across every operation — there is no invalidation ladder.
+ * Changes the incremental patch cannot attribute provably-correctly degrade to an automatic FULL
+ * REBUILD inside the same commit (the shared {@link ProjectionIndexBuilder#buildAndPersist} core
+ * re-extracts the whole record set from the transaction's current state — always correct, cost
  * bounded by the index size, no manual re-creation involved):
  * <ul>
- *   <li>subtree moves ({@link #structuralChange()} — the moved nodes fire
- *       no per-node notifications, so attribution is impossible);</li>
- *   <li>an unresolvable ancestor chain (record read failure mid-walk);</li>
- *   <li>more than {@code -Dsirix.projection.maxIncrementalRecords} dirty
- *       records in one transaction (patching approaches rebuild cost);</li>
- *   <li>any inconsistency discovered while patching (a dirty record that
- *       cannot be located in any leaf, a missing leaf payload, foreign
- *       metadata under this definition's sub-tree).</li>
+ * <li>subtree moves ({@link #structuralChange()} — the moved nodes fire no per-node notifications,
+ * so attribution is impossible);</li>
+ * <li>an unresolvable ancestor chain (record read failure mid-walk);</li>
+ * <li>more than {@code -Dsirix.projection.maxIncrementalRecords} dirty records in one transaction
+ * (patching approaches rebuild cost);</li>
+ * <li>any inconsistency discovered while patching (a dirty record that cannot be located in any
+ * leaf, a missing leaf payload, foreign metadata under this definition's sub-tree).</li>
  * </ul>
- * Cheap exact cases never rebuild: record-set array instances appearing or
- * disappearing are no-ops (their records notify individually — pre-order on
- * insert, post-order on delete), and a NEW path class matching the root
- * path (an exact-path record set re-appearing, or a descendant pattern
- * widening to another subtree) reseeds the root-PCR set so subsequent
- * notifications attribute normally.
+ * Cheap exact cases never rebuild: record-set array instances appearing or disappearing are no-ops
+ * (their records notify individually — pre-order on insert, post-order on delete), and a NEW path
+ * class matching the root path (an exact-path record set re-appearing, or a descendant pattern
+ * widening to another subtree) reseeds the root-PCR set so subsequent notifications attribute
+ * normally.
  *
- * <p>The {@link ProjectionIndexMetadata#staleTombstone() stale tombstone}
- * survives only as a CORRUPTION VALVE: if the apply phase <em>and</em> the
- * rebuild both fail with an unexpected exception, slot 0 is overwritten so
- * readers fall back to the always-correct generic pipeline until a manual
- * {@code jn:create-projection-index} re-run — the projection analogue of any
- * other index family surfacing an unexpected page-layer failure.
+ * <p>
+ * The {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} survives only as a
+ * CORRUPTION VALVE: if the apply phase <em>and</em> the rebuild both fail with an unexpected
+ * exception, slot 0 is overwritten so readers fall back to the always-correct generic pipeline
+ * until a manual {@code jn:create-projection-index} re-run — the projection analogue of any other
+ * index family surfacing an unexpected page-layer failure.
  *
- * <h2>Hot-path cost</h2>
- * The relevant-PCR sets are seeded LAZILY on the first notification, so
- * write transactions that never touch any node pay nothing beyond object
- * construction at open. After seeding, an irrelevant notification is one
- * {@code LongOpenHashSet#contains}; a relevant one adds an ancestor walk
- * bounded by the record's nesting depth (raw record reads served from the
+ * <h2>Hot-path cost</h2> The relevant-PCR sets are seeded LAZILY on the first notification, so
+ * write transactions that never touch any node pay nothing beyond object construction at open.
+ * After seeding, an irrelevant notification is one {@code LongOpenHashSet#contains}; a relevant one
+ * adds an ancestor walk bounded by the record's nesting depth (raw record reads served from the
  * transaction log / page cache).
  */
 public final class ProjectionIndexChangeListener implements PathNodeKeyChangeListener {
 
-  private static final LogWrapper LOGGER =
-      new LogWrapper(LoggerFactory.getLogger(ProjectionIndexChangeListener.class));
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexChangeListener.class));
 
   /**
-   * Dirty-record ceiling per transaction. Beyond this, per-leaf patching
-   * approaches full-rebuild cost, so the listener degrades to the
-   * commit-time full rebuild.
+   * Dirty-record ceiling per transaction. Beyond this, per-leaf patching approaches full-rebuild
+   * cost, so the listener degrades to the commit-time full rebuild.
    */
   private static final int MAX_INCREMENTAL_RECORDS =
       Integer.getInteger("sirix.projection.maxIncrementalRecords", 100_000);
@@ -131,10 +119,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private final IndexDef indexDef;
 
   /**
-   * Navigation handle over the owning write transaction's current state,
-   * used ONLY in the apply phase (pre-commit re-extraction). {@code null}
-   * degrades to the legacy invalidation-only contract: the first relevant
-   * change tombstones the projection.
+   * Navigation handle over the owning write transaction's current state, used ONLY in the apply phase
+   * (pre-commit re-extraction). {@code null} degrades to the legacy invalidation-only contract: the
+   * first relevant change tombstones the projection.
    */
   private final @Nullable JsonNodeReadOnlyTrx maintenanceTrx;
 
@@ -148,17 +135,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private boolean seeded;
 
   /**
-   * Corruption valve ONLY — set when both the incremental apply and the
-   * full rebuild failed unexpectedly (or, in legacy invalidation-only mode
-   * without a maintenance transaction, on the first relevant change).
+   * Corruption valve ONLY — set when both the incremental apply and the full rebuild failed
+   * unexpectedly (or, in legacy invalidation-only mode without a maintenance transaction, on the
+   * first relevant change).
    */
   private boolean invalidated;
 
   /**
-   * The pending state cannot be patched incrementally (subtree move,
-   * over-ceiling transaction, unresolvable chain) — {@link #beforeCommit()}
-   * performs a full rebuild instead. Dirty-key collection stops while set:
-   * the rebuild re-extracts everything anyway.
+   * The pending state cannot be patched incrementally (subtree move, over-ceiling transaction,
+   * unresolvable chain) — {@link #beforeCommit()} performs a full rebuild instead. Dirty-key
+   * collection stops while set: the rebuild re-extracts everything anyway.
    */
   private boolean rebuildPending;
 
@@ -166,14 +152,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable LongOpenHashSet dirtyRecordKeys;
 
   /**
-   * Positive resolution memo: nodeKey → enclosing record's nodeKey, for
-   * nodes proven to lie INSIDE a record. Bulk subtree mutations notify
-   * every descendant; without the memo each notification re-walks the full
-   * ancestor chain (O(nodes × depth) raw record reads) — with it, a walk
-   * stops at the first memoized ancestor. Only positive verdicts are
-   * memoized: a NOT_UNDER node can still have record descendants (it may be
-   * an ancestor of the record set), so negative memoization would be wrong.
-   * Lazily allocated; writes stop at {@link #MEMO_CAP} entries.
+   * Positive resolution memo: nodeKey → enclosing record's nodeKey, for nodes proven to lie INSIDE a
+   * record. Bulk subtree mutations notify every descendant; without the memo each notification
+   * re-walks the full ancestor chain (O(nodes × depth) raw record reads) — with it, a walk stops at
+   * the first memoized ancestor. Only positive verdicts are memoized: a NOT_UNDER node can still have
+   * record descendants (it may be an ancestor of the record set), so negative memoization would be
+   * wrong. Lazily allocated; writes stop at {@link #MEMO_CAP} entries.
    */
   private @Nullable Long2LongOpenHashMap resolvedRecordMemo;
 
@@ -181,10 +165,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private long[] walkChain = new long[32];
 
   /**
-   * Monotone per-listener maintenance epoch: bumped whenever the pending
-   * state changes (new dirty record, invalidation) and when an apply pass
-   * rewrites leaves. Lets wtx-serving callers cache a decoded handle and
-   * revalidate it with one long compare instead of re-decoding per query.
+   * Monotone per-listener maintenance epoch: bumped whenever the pending state changes (new dirty
+   * record, invalidation) and when an apply pass rewrites leaves. Lets wtx-serving callers cache a
+   * decoded handle and revalidate it with one long compare instead of re-decoding per query.
    */
   private long maintenanceEpoch;
 
@@ -196,8 +179,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final @Nullable JsonNodeReadOnlyTrx maintenanceTrx) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
-          "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got "
-              + indexDef.getType());
+          "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
     this.storageEngineWriter = storageEngineWriter;
     this.pathSummary = pathSummary;
@@ -211,10 +193,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Subtree MOVES cannot be attributed incrementally: a record moved OUT of
-   * the record set still exists (so re-extraction would keep its row), and
-   * moved plain containers/value elements fire no per-node notifications at
-   * all. Degrade to the commit-time full rebuild — the index stays exactly
+   * Subtree MOVES cannot be attributed incrementally: a record moved OUT of the record set still
+   * exists (so re-extraction would keep its row), and moved plain containers/value elements fire no
+   * per-node notifications at all. Degrade to the commit-time full rebuild — the index stays exactly
    * maintained, like the other index families.
    */
   @Override
@@ -223,9 +204,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Downgrade from incremental patching to a full rebuild at commit. In
-   * legacy invalidation-only mode (no maintenance transaction) a rebuild is
-   * impossible — tombstone as before.
+   * Downgrade from incremental patching to a full rebuild at commit. In legacy invalidation-only mode
+   * (no maintenance transaction) a rebuild is impossible — tombstone as before.
    */
   private void scheduleRebuild() {
     if (invalidated || rebuildPending) {
@@ -241,20 +221,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   @Override
-  public void listen(final IndexController.ChangeType type, final ImmutableNode node,
-      final long pathNodeKey) {
+  public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
     onChange(node.getNodeKey(), node.getKind(), node.getParentKey(), pathNodeKey);
   }
 
   @Override
-  public void listen(final IndexController.ChangeType type, final long nodeKey,
-      final NodeKind nodeKind, final long pathNodeKey, final @Nullable QNm name,
-      final @Nullable Str value) {
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
     onChange(nodeKey, nodeKind, PARENT_UNKNOWN, pathNodeKey);
   }
 
-  private void onChange(final long nodeKey, final NodeKind kind, final long parentKey,
-      final long pathNodeKey) {
+  private void onChange(final long nodeKey, final NodeKind kind, final long parentKey, final long pathNodeKey) {
     if (invalidated || rebuildPending) {
       return; // the rebuild re-extracts everything — attribution is moot
     }
@@ -294,20 +271,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * One-time PCR-set seeding, deferred to the first notification so
-   * transactions that never write pay nothing. Seeds the root PCRs, their
-   * ancestors (structural deletes of an enclosing container drop the whole
-   * record set), and the field PCRs. Primitive iteration throughout — no
-   * boxing.
+   * One-time PCR-set seeding, deferred to the first notification so transactions that never write pay
+   * nothing. Seeds the root PCRs, their ancestors (structural deletes of an enclosing container drop
+   * the whole record set), and the field PCRs. Primitive iteration throughout — no boxing.
    */
   private void seed() {
     seeded = true;
     rootPcrs = new LongOpenHashSet();
     relevantPcrs = new LongOpenHashSet();
     irrelevantPcrs = new LongOpenHashSet();
-    final LongSet roots =
-        pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath()));
-    for (final LongIterator it = roots.iterator(); it.hasNext(); ) {
+    final LongSet roots = pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath()));
+    for (final LongIterator it = roots.iterator(); it.hasNext();) {
       final long pcr = it.nextLong();
       rootPcrs.add(pcr);
       relevantPcrs.add(pcr);
@@ -323,7 +297,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     for (final Path<QNm> fieldPath : indexDef.getProjectionFields()) {
       final LongSet fieldPcrs = pathSummary.getPCRsForPaths(Set.of(fieldPath));
-      for (final LongIterator it = fieldPcrs.iterator(); it.hasNext(); ) {
+      for (final LongIterator it = fieldPcrs.iterator(); it.hasNext();) {
         relevantPcrs.add(it.nextLong());
       }
     }
@@ -346,15 +320,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Classify an unseen PCR (e.g. a brand-new field path created by this
-   * transaction) by whether its ancestor chain crosses a record-set root,
-   * and cache the verdict so the hot path stays a single set lookup. The
-   * new PCR may itself BE a new record-set root — an exact-path record set
-   * re-appearing after removal, or a descendant pattern widening to another
-   * matching subtree — which the seeded root PCRs cannot know: the root
-   * path is re-checked against the new path class and a match RESEEDS the
-   * root set, so the new roots' records attribute normally (their node
-   * keys are fresh, hence pure appends at apply time).
+   * Classify an unseen PCR (e.g. a brand-new field path created by this transaction) by whether its
+   * ancestor chain crosses a record-set root, and cache the verdict so the hot path stays a single
+   * set lookup. The new PCR may itself BE a new record-set root — an exact-path record set
+   * re-appearing after removal, or a descendant pattern widening to another matching subtree — which
+   * the seeded root PCRs cannot know: the root path is re-checked against the new path class and a
+   * match RESEEDS the root set, so the new roots' records attribute normally (their node keys are
+   * fresh, hence pure appends at apply time).
    */
   private boolean classifyUnseenPcr(final long pathNodeKey) {
     boolean relevant = false;
@@ -384,11 +356,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Whether the (unseen) path class {@code pathNodeKey} matches the
-   * definition's root path (exact or descendant pattern — {@code matches}
-   * covers both). Cursor-neutral; an unreadable or failing reconstruction
-   * cannot be proven irrelevant, so it degrades to the full rebuild and
-   * reports no match.
+   * Whether the (unseen) path class {@code pathNodeKey} matches the definition's root path (exact or
+   * descendant pattern — {@code matches} covers both). Cursor-neutral; an unreadable or failing
+   * reconstruction cannot be proven irrelevant, so it degrades to the full rebuild and reports no
+   * match.
    */
   private boolean matchesRootPath(final long pathNodeKey) {
     final long savedNodeKey = pathSummary.getNodeKey();
@@ -412,17 +383,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Resolve the RECORD a changed node belongs to: walk the ancestor chain
-   * (raw record reads — no cursor movement) until a node at a record-set
-   * root PCR is crossed. Delete notifications fire post-order BEFORE
-   * physical removal, so a deleted node's ancestors are still readable at
-   * listen time.
+   * Resolve the RECORD a changed node belongs to: walk the ancestor chain (raw record reads — no
+   * cursor movement) until a node at a record-set root PCR is crossed. Delete notifications fire
+   * post-order BEFORE physical removal, so a deleted node's ancestors are still readable at listen
+   * time.
    *
-   * @return the record's nodeKey, or one of the negative verdicts
-   *         ({@link #NOT_UNDER_RECORD_SET} / {@link #UNRESOLVED})
+   * @return the record's nodeKey, or one of the negative verdicts ({@link #NOT_UNDER_RECORD_SET} /
+   *         {@link #UNRESOLVED})
    */
-  private long resolveRecordKey(final long nodeKey, final NodeKind kind, long parentKey,
-      final long pathNodeKey) {
+  private long resolveRecordKey(final long nodeKey, final NodeKind kind, long parentKey, final long pathNodeKey) {
     if (pathNodeKey > 0 && rootPcrs.contains(pathNodeKey)) {
       if (isArrayLike(kind)) {
         // The record SET's array instance itself appeared or disappeared —
@@ -477,7 +446,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
         // Crossed the root: under an array-like root the record is the
         // element we came from; a non-array root IS the record.
-        final long recordKey = isArrayLike(parent.getKind()) ? childKey : parentKey;
+        final long recordKey = isArrayLike(parent.getKind())
+            ? childKey
+            : parentKey;
         memoizeChain(chainLength, recordKey);
         if (recordKey == parentKey && resolvedRecordMemo.size() < MEMO_CAP) {
           resolvedRecordMemo.put(recordKey, recordKey);
@@ -508,7 +479,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     return kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_NAMED_ARRAY;
   }
 
-  /** PathNodeKey of a raw record, mirroring the rtx dispatch: only name-carrying and array nodes have one. */
+  /**
+   * PathNodeKey of a raw record, mirroring the rtx dispatch: only name-carrying and array nodes have
+   * one.
+   */
   private static long pathNodeKeyOf(final ImmutableNode node) {
     if (node instanceof final NameNode nameNode) {
       return nameNode.getPathNodeKey();
@@ -522,7 +496,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private @Nullable ImmutableNode readNode(final long nodeKey) {
     try {
       final DataRecord record = storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-      return record instanceof final ImmutableNode node ? node : null;
+      return record instanceof final ImmutableNode node
+          ? node
+          : null;
     } catch (final RuntimeException e) {
       return null;
     }
@@ -543,25 +519,21 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Monotone epoch of this listener's maintenance state — changes whenever
-   * the pending dirty set changes, the projection is invalidated, or an
-   * apply pass rewrites leaves. Wtx-serving callers cache decoded handles
-   * against it: equal epoch (same listener instance) ⇒ the persisted leaves
-   * are byte-identical to when the handle was decoded.
+   * Monotone epoch of this listener's maintenance state — changes whenever the pending dirty set
+   * changes, the projection is invalidated, or an apply pass rewrites leaves. Wtx-serving callers
+   * cache decoded handles against it: equal epoch (same listener instance) ⇒ the persisted leaves are
+   * byte-identical to when the handle was decoded.
    */
   public long maintenanceEpoch() {
     return maintenanceEpoch;
   }
 
   /**
-   * Apply the collected changes to the persisted projection. Invoked once
-   * per commit through the uniform {@link ChangeListener} lifecycle
-   * ({@link IndexController#applyPendingIndexMaintenance()})
-   * BEFORE page serialization, so all writes ride the committing
-   * transaction. Incremental patching that discovers an inconsistency
-   * degrades to the full rebuild; only an unexpected failure of BOTH paths
-   * tombstones (corruption valve) — a stale-but-honest projection beats a
-   * wrong one.
+   * Apply the collected changes to the persisted projection. Invoked once per commit through the
+   * uniform {@link ChangeListener} lifecycle ({@link IndexController#applyPendingIndexMaintenance()})
+   * BEFORE page serialization, so all writes ride the committing transaction. Incremental patching
+   * that discovers an inconsistency degrades to the full rebuild; only an unexpected failure of BOTH
+   * paths tombstones (corruption valve) — a stale-but-honest projection beats a wrong one.
    */
   @Override
   public void beforeCommit() {
@@ -577,6 +549,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       boolean patched = false;
       if (!rebuildPending) {
         try {
+          // The fingerprint blocks are DERIVED from the per-leaf segments this patch is about to
+          // rewrite; a stale filter could prove a freshly added value "absent" — a wrong answer.
+          // Tombstone them first; readers fall back to the per-leaf chain, and the next full
+          // build (or the rebuild below) rewrites them.
+          new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()).removeBloomBlocks(
+              indexDef.getProjectionFields().size());
           patched = applyIncremental(dirty);
         } catch (final RuntimeException incrementalFailure) {
           // The incremental patch is the OPTIONAL fast path: a throw here must degrade to the
@@ -598,24 +576,22 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // Leaves (possibly) rewritten — cached decodes are stale.
       maintenanceEpoch++;
     } catch (final RuntimeException e) {
-      LOGGER.warn("Projection maintenance (incremental and rebuild) failed for index "
-          + indexDef.getID() + " — falling back to invalidation", e);
+      LOGGER.warn("Projection maintenance (incremental and rebuild) failed for index " + indexDef.getID()
+          + " — falling back to invalidation", e);
       invalidate();
     }
   }
 
   /**
-   * Full commit-time rebuild over the transaction's current state — the
-   * exact-maintenance fallback for changes the incremental patch cannot
-   * attribute. Reuses the creation path's build core; a record set with no
-   * remaining instances persists as the truthful EMPTY projection. A
-   * pre-existing tombstone (corruption valve fired in an earlier commit)
-   * is respected — only {@code jn:create-projection-index} resurrects.
+   * Full commit-time rebuild over the transaction's current state — the exact-maintenance fallback
+   * for changes the incremental patch cannot attribute. Reuses the creation path's build core; a
+   * record set with no remaining instances persists as the truthful EMPTY projection. A pre-existing
+   * tombstone (corruption valve fired in an earlier commit) is respected — only
+   * {@code jn:create-projection-index} resurrects.
    */
   private void rebuildFully() {
     final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
-    final ProjectionIndexHOTStorage storage =
-        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
       // No live snapshot to maintain (bench/legacy store, or a valve
@@ -624,8 +600,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     final long savedNodeKey = rtx.getNodeKey();
     try {
-      ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, rtx, storageEngineWriter,
-          true);
+      ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, rtx, storageEngineWriter, true);
     } finally {
       if (!rtx.moveTo(savedNodeKey)) {
         rtx.moveToDocumentRoot();
@@ -636,15 +611,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /**
    * Patch the persisted leaves for the given dirty records.
    *
-   * @return {@code true} when the persisted state is consistent afterwards
-   *         (including "nothing to maintain"); {@code false} when an
-   *         inconsistency was discovered and the caller must run the full
-   *         rebuild instead
+   * @return {@code true} when the persisted state is consistent afterwards (including "nothing to
+   *         maintain"); {@code false} when an inconsistency was discovered and the caller must run
+   *         the full rebuild instead
    */
   private boolean applyIncremental(final LongOpenHashSet dirty) {
     final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
-    final ProjectionIndexHOTStorage storage =
-        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
       // No live snapshot to maintain: a metadata-less (bench/legacy) store,
@@ -666,7 +639,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final byte[] defKinds = new byte[fieldTypes.size()];
     for (int i = 0; i < defPaths.length; i++) {
       defPaths[i] = fieldPaths.get(i).toString();
-      defKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i));
+      defKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i));
     }
     if (!meta.matches(indexDef.getProjectionRootPath().toString(), defPaths, defKinds)) {
       return false;
@@ -754,8 +727,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
     final long savedNodeKey = rtx.getNodeKey();
     try {
-      final ProjectionIndexRowExtractor extractor =
-          new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
       final LongOpenHashSet located = new LongOpenHashSet();
       int newRowGroupCount = rowGroupCount;
       ProjectionIndexRowGroupPage tail = null;
@@ -856,9 +828,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // The layout flag MUST be re-stamped: it is sticky per store, and the public constructor
       // defaults it to the descriptor layout — dropping it here would make every later read
       // reinterpret this store's slot keys under the wrong layout.
-      final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(),
-          meta.fieldPaths(), meta.fieldNames(), meta.columnKinds(), newRowGroupCount,
-          rtx.getRevisionNumber());
+      final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
+          meta.fieldNames(), meta.columnKinds(), newRowGroupCount, rtx.getRevisionNumber());
       storage.putBlob(0, refreshed.serialize());
       final long[] fenceFirsts = new long[newRowGroupCount];
       final long[] fenceLasts = new long[newRowGroupCount];
@@ -874,8 +845,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Write a row group and fold its record-key range into the fence arrays, through whichever
-   * storage layout this store uses. The segment-slot write encodes once and lets
+   * Write a row group and fold its record-key range into the fence arrays, through whichever storage
+   * layout this store uses. The segment-slot write encodes once and lets
    * {@link ProjectionIndexHOTStorage#putRowGroupAsColumnSegmentSlots} do the per-segment
    * carry-forward, so an unchanged column segment stays a true no-op (its slot value and overflow
    * page carry forward untouched) and segments that vanished from the rebuilt row group are
@@ -886,13 +857,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     firsts[(int) slot] = leaf.firstRecordKey();
     lasts[(int) slot] = leaf.lastRecordKey();
     final byte[] raw = leaf.serialize();
-    storage.putRowGroupAsColumnSegmentSlots(slot,
-        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
+    storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
   }
 
   /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
-  private static boolean zoneMapsAscending(final long[] firsts, final long[] lasts,
-      final int rowGroupCount) {
+  private static boolean zoneMapsAscending(final long[] firsts, final long[] lasts, final int rowGroupCount) {
     long prevLast = Long.MIN_VALUE;
     for (int slot = 1; slot <= rowGroupCount; slot++) {
       if (firsts[slot] > lasts[slot]) {
@@ -907,11 +876,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Corruption valve (and the legacy invalidation-only contract): overwrite
-   * slot 0 with the stale tombstone so every reader falls back to the
-   * generic pipeline until a manual {@code jn:create-projection-index}
-   * re-run. Regular maintenance never calls this — unattributable changes
-   * degrade to {@link #rebuildFully()} instead.
+   * Corruption valve (and the legacy invalidation-only contract): overwrite slot 0 with the stale
+   * tombstone so every reader falls back to the generic pipeline until a manual
+   * {@code jn:create-projection-index} re-run. Regular maintenance never calls this — unattributable
+   * changes degrade to {@link #rebuildFully()} instead.
    */
   private void invalidate() {
     invalidated = true;
@@ -924,23 +892,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // through the revision-scoped catalog and pages, so post-tombstone
     // revisions see the stale marker and fall back while earlier revisions
     // keep their own immutable snapshot.
-    final ProjectionIndexHOTStorage storage =
-        new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     // The row-group slots survive the tombstone; the next rebuild reclaims them by probing what is
     // physically live, so the marker carries nothing but "stale".
     storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
   }
 
   /**
-   * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or
-   * corrupt slot-0 payloads — every one of which means "no live snapshot to maintain" and
-   * degrades to the rebuild/no-op ladder rather than throwing mid-commit.
+   * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or corrupt
+   * slot-0 payloads — every one of which means "no live snapshot to maintain" and degrades to the
+   * rebuild/no-op ladder rather than throwing mid-commit.
    *
-   * <p>Catches every {@link RuntimeException}, not just {@link IllegalStateException}: the read
-   * descends real pages, so it can also raise {@code SirixIOException}. {@link #invalidate()} calls
-   * this to recover the store's layout, and the corruption valve must never itself throw — escaping
-   * from there would fail the user's commit in exactly the scenario the valve exists to survive
-   * (and, in invalidation-only mode, would abort the transaction from the {@code listen} hot path).
+   * <p>
+   * Catches every {@link RuntimeException}, not just {@link IllegalStateException}: the read descends
+   * real pages, so it can also raise {@code SirixIOException}. {@link #invalidate()} calls this to
+   * recover the store's layout, and the corruption valve must never itself throw — escaping from
+   * there would fail the user's commit in exactly the scenario the valve exists to survive (and, in
+   * invalidation-only mode, would abort the transaction from the {@code listen} hot path).
    */
   private @Nullable ProjectionIndexMetadata readMetadata(final ProjectionIndexHOTStorage storage) {
     try {
@@ -955,9 +923,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final String[] names = new String[fieldPaths.size()];
     for (int i = 0; i < names.length; i++) {
-      final String path = fieldPaths.get(i).toString();
+      String path = fieldPaths.get(i).toString();
+      // A SET column is declared at the array layer (`/[]/genres/[]`) but is the column `genres`:
+      // its name is the field the elements belong to. Taking the literal last step would name it
+      // "[]", which no query ever asks for — the column would be present and permanently
+      // unreachable, and the query would fall back to the records without saying why.
+      while (path.endsWith("/[]")) {
+        path = path.substring(0, path.length() - 3);
+      }
       final int slash = path.lastIndexOf('/');
-      names[i] = slash < 0 ? path : path.substring(slash + 1);
+      names[i] = slash < 0
+          ? path
+          : path.substring(slash + 1);
     }
     return names;
   }

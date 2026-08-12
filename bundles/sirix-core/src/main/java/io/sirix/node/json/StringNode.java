@@ -30,6 +30,7 @@ package io.sirix.node.json;
 
 import io.sirix.node.AbstractFlyweightNode;
 import io.sirix.utils.ToStringHelper;
+import java.util.Arrays;
 import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -53,7 +54,6 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -64,33 +64,36 @@ import java.lang.foreign.ValueLayout;
 /**
  * JSON String node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
-public final class StringNode extends AbstractFlyweightNode implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
+public final class StringNode extends AbstractFlyweightNode
+    implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-  
+
   // String value (stored as bytes)
   private byte[] value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -105,12 +108,12 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
-  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset;              // Offset where lazy metadata fields start
-  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed;          // Whether value byte[] is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
-  private long valueOffset;             // Offset where value starts (after metadata)
+  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset; // Offset where lazy metadata fields start
+  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed; // Whether value byte[] is parsed
+  private boolean hasHash; // Whether hash is stored (from config)
+  private long valueOffset; // Offset where value starts (after metadata)
 
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
   private MemorySegment page;
@@ -127,15 +130,15 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   private static final int FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT;
 
   /**
-   * Upper bound on the serialized size of everything except the value payload (kind byte +
-   * offset table + delta varints + hash + flags + payload-length varint). Used by
+   * Upper bound on the serialized size of everything except the value payload (kind byte + offset
+   * table + delta varints + hash + flags + payload-length varint). Used by
    * {@link #estimateSerializedSize()}.
    */
   private static final int SERIALIZED_METADATA_UPPER_BOUND = 55;
 
   /**
-   * Constructor for flyweight binding.
-   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   * Constructor for flyweight binding. All fields except nodeKey and hashFunction will be read from
+   * page memory after bind().
    *
    * @param nodeKey the node key
    * @param hashFunction the hash function from resource config
@@ -146,24 +149,22 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Primary constructor with all primitive fields.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
+   * needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
-        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
+        hashFunction, deweyID, false, null);
   }
 
   /**
-   * Primary constructor with all primitive fields and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields and compression support. All fields are already
+   * parsed - no lazy loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, byte[] deweyID,
-      boolean isCompressed, byte[] fsstSymbolTable) {
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID, boolean isCompressed,
+      byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -182,23 +183,21 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
-        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
+        hashFunction, deweyID, false, null);
   }
 
   /**
-   * Constructor with SirixDeweyID and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID and compression support. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
       boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -219,8 +218,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
-  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
-      final int slotIndex) {
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey, final int slotIndex) {
     this.page = page;
     this.recordBase = recordBase;
     this.nodeKey = nodeKey;
@@ -233,7 +231,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   public void unbind() {
-    if (page == null) return;
+    if (page == null)
+      return;
     final long nk = this.nodeKey;
     this.parentKey = readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nk);
     this.rightSiblingKey = readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nk);
@@ -254,7 +253,9 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     this.ownerPage = null;
   }
 
-  public boolean isBound() { return page != null; }
+  public boolean isBound() {
+    return page != null;
+  }
 
   @Override
   public boolean isBoundTo(final MemorySegment page) {
@@ -268,7 +269,9 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   @Override
   public int estimateSerializedSize() {
-    final int payloadLen = value != null ? value.length : 0;
+    final int payloadLen = value != null
+        ? value.length
+        : 0;
     return SERIALIZED_METADATA_UPPER_BOUND + payloadLen;
   }
 
@@ -296,11 +299,54 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
+   * Whether this node's value equals {@code expected}, WITHOUT materializing it.
+   *
+   * <p>
+   * {@link #getRawValue()} allocates a {@code byte[]} and copies the payload out of the page on first
+   * touch. For a comparison that is pure waste: measured on an array-membership scan of a
+   * 3.48M-record corpus, that copy was ~50 % of everything the query allocated, and the value it
+   * built was discarded one {@code equals} later.
+   *
+   * <p>
+   * The length is read first and settles most candidates without touching a single value byte — a
+   * literal of a different length cannot match. A COMPRESSED payload falls back to the materializing
+   * path: its stored bytes are not the value, so comparing them against a plain literal would answer
+   * no to a match that exists.
+   *
+   * @param expected the raw UTF-8 bytes to compare against
+   * @return {@code true} if this node's value equals {@code expected}
+   */
+  public boolean rawValueEquals(final byte[] expected) {
+    if (expected == null) {
+      return false;
+    }
+    if (page != null && !valueParsed) {
+      final int payloadFieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+      final long payloadStart = dataRegionStart + payloadFieldOff;
+      if (page.get(ValueLayout.JAVA_BYTE, payloadStart) != 1) {
+        final long lenOffset = payloadStart + 1;
+        final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lenOffset);
+        if (length != expected.length) {
+          return false;
+        }
+        final long dataOffset = lenOffset + DeltaVarIntCodec.readSignedVarintWidth(page, lenOffset);
+        for (int i = 0; i < length; i++) {
+          if (page.get(ValueLayout.JAVA_BYTE, dataOffset + i) != expected[i]) {
+            return false;
+          }
+        }
+        return true;
+      }
+    }
+    return Arrays.equals(getRawValue(), expected);
+  }
+
+  /**
    * Read the payload (value bytes) directly from page memory when bound.
    */
   private void readPayloadFromPage() {
-    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
-        recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
     final long payloadStart = dataRegionStart + payloadFieldOff;
 
     // Read isCompressed flag (1 byte)
@@ -321,37 +367,35 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Encode a StringNode record directly to a MemorySegment from parameter values.
-   * Static -- reads nothing from any instance. Zero field intermediation.
+   * Encode a StringNode record directly to a MemorySegment from parameter values. Static -- reads
+   * nothing from any instance. Zero field intermediation.
    *
-   * @param target        the target MemorySegment (reinterpreted slotted page)
-   * @param offset        absolute byte offset to write at
-   * @param heapOffsets   pre-allocated offset array (reused, FIELD_COUNT elements)
-   * @param nodeKey       the node key (delta base for structural keys)
-   * @param parentKey     the parent node key
-   * @param rightSibKey   the right sibling key
-   * @param leftSibKey    the left sibling key
-   * @param prevRev       the previous revision number
-   * @param lastModRev    the last modified revision number
-   * @param rawValue      the raw value bytes (possibly compressed)
-   * @param isCompressed  whether the value is FSST compressed
+   * @param target the target MemorySegment (reinterpreted slotted page)
+   * @param offset absolute byte offset to write at
+   * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey the node key (delta base for structural keys)
+   * @param parentKey the parent node key
+   * @param rightSibKey the right sibling key
+   * @param leftSibKey the left sibling key
+   * @param prevRev the previous revision number
+   * @param lastModRev the last modified revision number
+   * @param rawValue the raw value bytes (possibly compressed)
+   * @param isCompressed whether the value is FSST compressed
    * @return the total number of bytes written
    */
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev,
-      final byte[] rawValue, final boolean isCompressed) {
-    final byte[] val = rawValue != null ? rawValue : new byte[0];
-    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
-        prevRev, lastModRev, val, 0, val.length, isCompressed);
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final byte[] rawValue, final boolean isCompressed) {
+    final byte[] val = rawValue != null
+        ? rawValue
+        : new byte[0];
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey, prevRev, lastModRev,
+        val, 0, val.length, isCompressed);
   }
 
-  public static int writeNewRecord(final MemorySegment target, final long offset,
-      final int[] heapOffsets, final long nodeKey,
-      final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev,
-      final byte[] rawValue, final int rawOff, final int rawLen, final boolean isCompressed) {
+  public static int writeNewRecord(final MemorySegment target, final long offset, final int[] heapOffsets,
+      final long nodeKey, final long parentKey, final long rightSibKey, final long leftSibKey, final int prevRev,
+      final int lastModRev, final byte[] rawValue, final int rawOff, final int rawLen, final boolean isCompressed) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -387,7 +431,9 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
     // Field 5: payload [isCompressed:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.STRVAL_PAYLOAD] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
+    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed
+        ? (byte) 1
+        : (byte) 0);
     pos++;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawLen);
     if (rawLen > 0) {
@@ -407,10 +453,11 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
    * Serialize this node from Java fields. Delegates to static writeNewRecord.
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    if (!metadataParsed) parseMetadataFields();
-    if (!valueParsed) parseValueField();
-    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey,
-        parentKey, rightSiblingKey, leftSiblingKey,
+    if (!metadataParsed)
+      parseMetadataFields();
+    if (!valueParsed)
+      parseValueField();
+    return writeNewRecord(target, offset, getHeapOffsets(), nodeKey, parentKey, rightSiblingKey, leftSiblingKey,
         previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
@@ -420,8 +467,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Set DeweyID fields directly after creation, bypassing write-through.
-   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   * Set DeweyID fields directly after creation, bypassing write-through. The DeweyID is already in
+   * the page trailer -- this just sets the Java cache fields.
    */
   public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
     this.sirixDeweyID = id;
@@ -448,8 +495,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_PARENT_KEY) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PARENT_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
@@ -464,8 +510,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeParentKey(final long parentKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.STRVAL_PARENT_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.STRVAL_PARENT_KEY,
+        NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
@@ -509,8 +555,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_PREV_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PREV_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -525,16 +571,16 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizePreviousRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.STRVAL_PREV_REVISION, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.STRVAL_PREV_REVISION,
+        NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_LAST_MOD_REVISION) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_LAST_MOD_REVISION) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -549,8 +595,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLastModifiedRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.STRVAL_LAST_MOD_REVISION, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.STRVAL_LAST_MOD_REVISION,
+        NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
@@ -573,9 +619,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     final byte[] rawValue = getRawValue();
     if (rawValue != null) {
@@ -595,8 +639,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_RIGHT_SIB_KEY) & 0xFF;
+      final int fieldOff =
+          page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_RIGHT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
@@ -611,8 +655,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeRightSiblingKey(final long rightSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.STRVAL_RIGHT_SIB_KEY,
+        NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
@@ -626,8 +670,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_LEFT_SIB_KEY) & 0xFF;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_LEFT_SIB_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
@@ -642,8 +685,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLeftSiblingKey(final long leftSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.STRVAL_LEFT_SIB_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, NodeFieldLayout.STRVAL_LEFT_SIB_KEY,
+        NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
@@ -651,7 +694,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -660,7 +703,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -669,7 +712,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -678,7 +721,7 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -694,12 +737,14 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     if (isCompressed && decodedValue == null && value != null) {
       decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
     }
-    return isCompressed ? decodedValue : value;
+    return isCompressed
+        ? decodedValue
+        : value;
   }
 
   /**
-   * Get the raw (possibly compressed) value bytes without FSST decoding.
-   * Use this for serialization to preserve compression.
+   * Get the raw (possibly compressed) value bytes without FSST decoding. Use this for serialization
+   * to preserve compression.
    * 
    * @return the raw bytes as stored, possibly FSST compressed
    */
@@ -724,7 +769,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
       owner.resizeRecord(this, nk, slot);
       return;
     }
-    if (page != null) unbind();
+    if (page != null)
+      unbind();
     this.value = value;
     this.decodedValue = null;
   }
@@ -749,7 +795,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
       owner.resizeRecord(this, nk, slot);
       return;
     }
-    if (page != null) unbind();
+    if (page != null)
+      unbind();
     this.value = value;
     this.isCompressed = isCompressed;
     this.fsstSymbolTable = fsstSymbolTable;
@@ -875,12 +922,12 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
-   * Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
+   * byte[] allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     // Unbind flyweight — ensures getters use Java fields, not stale page reference
     this.page = null;
     this.nodeKey = nodeKey;
@@ -900,31 +947,31 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long).
-   * Called by getters that access prevRev, lastModRev, or hash.
+   * Parse metadata fields on demand (cheap - just varints and optionally a long). Called by getters
+   * that access prevRev, lastModRev, or hash.
    */
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-    
+
     if (lazySource == null) {
       // Already fully constructed (e.g., from constructor)
       metadataParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
@@ -934,37 +981,37 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   /**
-   * Parse value field on demand (expensive - allocates byte[]).
-   * Called by getValue() and getRawValue().
+   * Parse value field on demand (expensive - allocates byte[]). Called by getValue() and
+   * getRawValue().
    */
   private void parseValueField() {
     if (valueParsed) {
       return;
     }
-    
+
     // Must parse metadata first to know where value starts
     if (!metadataParsed) {
       parseMetadataFields();
     }
-    
+
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn = createBytesIn(valueOffset);
-    
+
     // Read compression flag (1 byte: 0 = none, 1 = FSST)
     this.isCompressed = bytesIn.readByte() == 1;
-    
+
     int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
     this.valueParsed = true;
   }
-  
+
   /**
    * Create a BytesIn for reading from the lazy source at the given offset.
    */
@@ -983,8 +1030,8 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public StringNode toSnapshot() {
     if (page != null) {
@@ -992,17 +1039,19 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
       if (!valueParsed) {
         readPayloadFromPage();
       }
-      return new StringNode(nodeKey,
-          readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nodeKey),
+      return new StringNode(nodeKey, readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nodeKey),
           readSignedField(NodeFieldLayout.STRVAL_PREV_REVISION),
           readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nodeKey),
-          readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nodeKey),
-          hash,
-          value != null ? value.clone() : null,
-          hashFunction,
-          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
-          isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+          readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nodeKey), hash, value != null
+              ? value.clone()
+              : null,
+          hashFunction, getDeweyIDAsBytes() != null
+              ? getDeweyIDAsBytes().clone()
+              : null,
+          isCompressed, fsstSymbolTable != null
+              ? fsstSymbolTable.clone()
+              : null);
     }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
@@ -1011,12 +1060,16 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     if (!valueParsed) {
       parseValueField();
     }
-    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash,
-        value != null ? value.clone() : null,
-        hashFunction,
-        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
-        isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value != null
+            ? value.clone()
+            : null,
+        hashFunction, getDeweyIDAsBytes() != null
+            ? getDeweyIDAsBytes().clone()
+            : null,
+        isCompressed, fsstSymbolTable != null
+            ? fsstSymbolTable.clone()
+            : null);
   }
 
   @Override
@@ -1053,14 +1106,14 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("nodeKey", nodeKey)
-                      .add("value", getValue())
-                      .add("parentKey", parentKey)
-                      .add("previousRevision", previousRevision)
-                      .add("lastModifiedRevision", lastModifiedRevision)
-                      .add("rightSibling", rightSiblingKey)
-                      .add("leftSibling", leftSiblingKey)
-                      .toString();
+                         .add("nodeKey", nodeKey)
+                         .add("value", getValue())
+                         .add("parentKey", parentKey)
+                         .add("previousRevision", previousRevision)
+                         .add("lastModifiedRevision", lastModifiedRevision)
+                         .add("rightSibling", rightSiblingKey)
+                         .add("leftSibling", leftSiblingKey)
+                         .toString();
   }
 
   @Override
@@ -1073,8 +1126,6 @@ public final class StringNode extends AbstractFlyweightNode implements StructNod
     if (!(obj instanceof final StringNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equals(getValue(), other.getValue());
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equals(getValue(), other.getValue());
   }
 }

@@ -225,8 +225,8 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   }
 
   /**
-   * Invalidate stale statistics and cached plans after a commit.
-   * Must never throw — statistics cleanup must not fail the commit.
+   * Invalidate stale statistics and cached plans after a commit. Must never throw — statistics
+   * cleanup must not fail the commit.
    */
   private static void invalidateStatisticsForResource(NodeTrx trx) {
     try {
@@ -260,6 +260,11 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
   @Override
   public void bind(QNm name, Sequence sequence) {
     queryContextDelegate.bind(name, sequence);
+    // A document bound here is the only place a query using `declare variable $doc external` ever
+    // names its resource — the query text does not, and no compile-time walk can find it. Recorded
+    // so a store-only compile chain can still wire the analytical fast paths; see BoundDocumentHint
+    // for why a hint that turns out to name the wrong document costs nothing but the fast path.
+    BoundDocumentHint.remember(sequence);
   }
 
   @Override

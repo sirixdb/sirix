@@ -67,7 +67,7 @@ second argument, e.g. `just bench JsonWritePathBenchmark compressionPipeline=NON
 - Minimize object allocations in hot paths
 - Use `StringBuilder` for string concatenation in loops
 
-The project uses [Spotless](https://github.com/diffplug/spotless) for formatting. Run `./gradlew spotlessApply` before committing.
+The project uses [Spotless](https://github.com/diffplug/spotless) for formatting, and CI enforces `spotlessCheck`. The check is ratcheted from `origin/main`, so only files changed since `main` are checked — legacy formatting is never your problem. Run `./gradlew spotlessApply` before committing, or install the `pre-commit` hook from the repo root (install instructions are in its header).
 
 ## Project Structure
 

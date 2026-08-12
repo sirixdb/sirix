@@ -20,6 +20,8 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.path.summary.PathStats;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -35,56 +37,49 @@ import java.util.Set;
 import java.util.function.Consumer;
 
 /**
- * Function for creating a columnar <em>projection index</em> over a set of
- * record fields — the analytical fast path behind aggregate / filter /
- * group-by queries. Supported signatures:
+ * Function for creating a columnar <em>projection index</em> over a set of record fields — the
+ * analytical fast path behind aggregate / filter / group-by queries. Supported signatures:
  * <ul>
  * <li><code>jn:create-projection-index($doc as json-item(), $rootPath as xs:string,
  * $fields as xs:string*, $types as xs:string*) as json-item()</code></li>
  * <li><code>jn:create-projection-index($doc as json-item(), $rootPath as xs:string,
- * $fields as xs:string*) as json-item()</code> — every field typed as
- * {@code string}</li>
+ * $fields as xs:string*) as json-item()</code> — every field typed as {@code string}</li>
  * </ul>
  *
- * <p>{@code $rootPath} selects the record set (e.g. {@code /[]} for a
- * top-level array, {@code /wrapper/records/[]} for a nested one);
- * {@code $fields} are the projected column paths relative to the document
- * root; {@code $types} declare the per-column primitive shape —
- * {@code "long"} (also accepts {@code integer}/{@code int}),
- * {@code "boolean"} ({@code bool}), or {@code "string"} ({@code str}).
- * Floating-point column types are not supported yet: numeric columns store
- * 64-bit longs and non-integral values are flagged unrepresentable, so
- * declaring a {@code double} column would silently degrade — it is rejected
- * instead.
+ * <p>
+ * {@code $rootPath} selects the record set (e.g. {@code /[]} for a top-level array,
+ * {@code /wrapper/records/[]} for a nested one); {@code $fields} are the projected column paths
+ * relative to the document root; {@code $types} declare the per-column primitive shape —
+ * {@code "long"} (also accepts {@code integer}/{@code int}), {@code "boolean"} ({@code bool}), or
+ * {@code "string"} ({@code str}). Floating-point column types are not supported yet: numeric
+ * columns store 64-bit longs and non-integral values are flagged unrepresentable, so declaring a
+ * {@code double} column would silently degrade — it is rejected instead.
  *
- * <p>Projection indexes work like the other index families
- * ({@code jn:create-path-index} etc.): each definition is catalogued in the
- * resource's index set with its own id (numbered within the PROJECTION
- * type), a resource can carry SEVERAL projections side by side, and the
- * analytical executor discovers them through the revision-scoped catalog
- * and page layer ({@code ProjectionIndexCatalog}) — after re-opening a
- * database, queries use persisted projections WITHOUT re-running this
- * function. Calling it with an already-catalogued shape verifies the
- * persisted columns and returns; a stale or missing store (e.g. after an
- * update invalidated it) is rebuilt under the same definition; a different
- * shape creates an additional projection. Shape comparison uses the parsed
- * paths' canonical form, so spelling variants that parse to the same path
- * match.
+ * <p>
+ * Projection indexes work like the other index families ({@code jn:create-path-index} etc.): each
+ * definition is catalogued in the resource's index set with its own id (numbered within the
+ * PROJECTION type), a resource can carry SEVERAL projections side by side, and the analytical
+ * executor discovers them through the revision-scoped catalog and page layer
+ * ({@code ProjectionIndexCatalog}) — after re-opening a database, queries use persisted projections
+ * WITHOUT re-running this function. Calling it with an already-catalogued shape verifies the
+ * persisted columns and returns; a stale or missing store (e.g. after an update invalidated it) is
+ * rebuilt under the same definition; a different shape creates an additional projection. Shape
+ * comparison uses the parsed paths' canonical form, so spelling variants that parse to the same
+ * path match.
  *
- * <p>The projection is built over the passed document's revision — like the
- * sibling functions, a document bound to an older revision reverts the
- * write transaction to that revision first — and written compactly (see
- * {@code ProjectionIndexRowGroupCodec}) together with a self-describing
- * {@link ProjectionIndexMetadata} payload into the session's write
- * transaction: call {@code sdb:commit($doc)} afterwards to persist.
+ * <p>
+ * The projection is built over the passed document's revision — like the sibling functions, a
+ * document bound to an older revision reverts the write transaction to that revision first — and
+ * written compactly (see {@code ProjectionIndexRowGroupCodec}) together with a self-describing
+ * {@link ProjectionIndexMetadata} payload into the session's write transaction: call
+ * {@code sdb:commit($doc)} afterwards to persist.
  *
- * <p><b>Experimental.</b> The projection is a static snapshot maintained by
- * <em>invalidation</em>: an update transaction that touches the record set
- * tombstones the persisted columns, queries at later revisions fall back to
- * the always-correct generic pipeline, and re-running this function
- * rebuilds. The resource must be created with a path summary. Column lookup
- * is by trailing field name, so creation rejects field names that resolve
- * ambiguously under the record set.
+ * <p>
+ * <b>Experimental.</b> The projection is a static snapshot maintained by <em>invalidation</em>: an
+ * update transaction that touches the record set tombstones the persisted columns, queries at later
+ * revisions fall back to the always-correct generic pipeline, and re-running this function
+ * rebuilds. The resource must be created with a path summary. Column lookup is by trailing field
+ * name, so creation rejects field names that resolve ambiguously under the record set.
  *
  * @author Johannes Lichtenberger
  */
@@ -106,9 +101,8 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final JsonDBItem document = (JsonDBItem) args[0];
     final JsonResourceSession session = document.getTrx().getResourceSession();
     if (!session.getResourceConfig().withPathSummary) {
-      throw new QueryException(new QNm(
-          "jn:create-projection-index requires a resource created with a path summary "
-              + "(buildPathSummary=true) — the projection builder resolves its paths through it."));
+      throw new QueryException(new QNm("jn:create-projection-index requires a resource created with a path summary "
+          + "(buildPathSummary=true) — the projection builder resolves its paths through it."));
     }
 
     final String rootPathString = ((Str) args[1]).stringValue();
@@ -117,15 +111,19 @@ public final class CreateProjectionIndex extends AbstractFunction {
     final List<String> fieldNames = new ArrayList<>();
     final Set<String> seenNames = new HashSet<>();
     forEachString(args[2], value -> {
-      final String name = lastStep(Path.parse(value, PathParser.Type.JSON).toString());
+      // A path ending in an ARRAY step declares the field's ELEMENTS — a set column. Its column
+      // name is the field step before the array layer, so `/[]/genres/[]` is the column `genres`
+      // and collides with a scalar `/[]/genres` exactly as it should.
+      final String canonical = Path.parse(value, PathParser.Type.JSON).toString();
+      final String name = columnNameOf(canonical);
       if (name.isEmpty() || "[]".equals(name)) {
-        throw new QueryException(new QNm(
-            "Projected field path '" + value + "' must end in an object-key step."));
+        throw new QueryException(
+            new QNm("Projected field path '" + value + "' must end in an object-key step, or in an array "
+                + "step naming the elements of an array-valued field (for example " + "'/[]/genres/[]')."));
       }
       if (!seenNames.add(name)) {
-        throw new QueryException(new QNm(
-            "Duplicate projected field name '" + name + "' — column lookup is by trailing "
-                + "field name, which must be unique."));
+        throw new QueryException(new QNm("Duplicate projected field name '" + name + "' — column lookup is by trailing "
+            + "field name, which must be unique."));
       }
       fieldPaths.add(Path.parse(value, PathParser.Type.JSON));
       fieldNames.add(name);
@@ -137,12 +135,20 @@ public final class CreateProjectionIndex extends AbstractFunction {
     if (args.length == 4 && args[3] != null) {
       forEachString(args[3], value -> fieldTypes.add(mapType(value)));
       if (fieldTypes.size() != fieldPaths.size()) {
-        throw new QueryException(new QNm("Field/type count mismatch: " + fieldPaths.size()
-            + " fields vs " + fieldTypes.size() + " types."));
+        throw new QueryException(
+            new QNm("Field/type count mismatch: " + fieldPaths.size() + " fields vs " + fieldTypes.size() + " types."));
       }
     } else {
-      for (int i = 0; i < fieldPaths.size(); i++) {
-        fieldTypes.add(Type.STR);
+      // INFER from the path summary rather than defaulting to string. Defaulting made every
+      // numeric column a string column, whereupon the extractor recorded each value as
+      // present-but-UNREPRESENTABLE and the sparse-clean gate — correctly, fail-closed — refused to
+      // serve it. The index then built, committed, reported success, and was never used by any
+      // numeric predicate, with nothing said unless the query ran with -Dsirix.projDiag=true.
+      // The summary already knows what these fields hold; asking it costs one open.
+      try (final PathSummaryReader summary = session.openPathSummary(document.getTrx().getRevisionNumber())) {
+        for (final Path<QNm> fieldPath : fieldPaths) {
+          fieldTypes.add(inferFieldType(summary, fieldPath));
+        }
       }
     }
 
@@ -171,45 +177,40 @@ public final class CreateProjectionIndex extends AbstractFunction {
       // Stale (invalidated by updates), never committed, or unreadable —
       // rebuild under the same definition. Self-healing by design: leftover
       // sub-tree payloads from dropped/older definitions are overwritten.
-      buildViaController(session, document, existingDef, rootPath, fieldPaths, fieldTypes,
-          fieldNames);
+      buildViaController(session, document, existingDef, rootPath, fieldPaths, fieldTypes, fieldNames);
       return existingDef.materialize();
     }
 
     // New projection — catalogued, built and persisted through the index
     // controller, like the other index families.
-    final IndexDef def = buildViaController(session, document, null, rootPath, fieldPaths,
-        fieldTypes, fieldNames);
+    final IndexDef def = buildViaController(session, document, null, rootPath, fieldPaths, fieldTypes, fieldNames);
     return def.materialize();
   }
 
   /**
-   * Build, catalogue and persist the projection through the
-   * {@code IndexController} — the same lifecycle entry point the sibling
-   * index-creation functions use. Mirrors {@code jn:create-path-index}
-   * exactly: the session's write transaction is reused when open (beginning
-   * a second would throw), begun otherwise; a document bound to an OLDER
-   * revision reverts the transaction to that revision first; and nothing is
-   * committed here — the caller's {@code sdb:commit($doc)} persists
-   * catalogue and payloads atomically. Query-side visibility comes from the
-   * revision-scoped catalog after commit, so uncommitted or rolled-back
-   * builds are never observable elsewhere.
+   * Build, catalogue and persist the projection through the {@code IndexController} — the same
+   * lifecycle entry point the sibling index-creation functions use. Mirrors
+   * {@code jn:create-path-index} exactly: the session's write transaction is reused when open
+   * (beginning a second would throw), begun otherwise; a document bound to an OLDER revision reverts
+   * the transaction to that revision first; and nothing is committed here — the caller's
+   * {@code sdb:commit($doc)} persists catalogue and payloads atomically. Query-side visibility comes
+   * from the revision-scoped catalog after commit, so uncommitted or rolled-back builds are never
+   * observable elsewhere.
    *
-   * @param defOrNull an already-catalogued definition to rebuild, or
-   *                  {@code null} to create a new one under the next free id
+   * @param defOrNull an already-catalogued definition to rebuild, or {@code null} to create a new one
+   *        under the next free id
    * @return the definition that was built
    */
-  private static IndexDef buildViaController(final JsonResourceSession session,
-      final JsonDBItem document, final IndexDef defOrNull, final Path<QNm> rootPath,
-      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes, final List<String> fieldNames) {
+  private static IndexDef buildViaController(final JsonResourceSession session, final JsonDBItem document,
+      final IndexDef defOrNull, final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final List<String> fieldNames) {
     // Validate BEFORE touching any write transaction: a rejected creation
     // must neither leak a freshly-begun wtx (single-writer permit!) nor
     // have already discarded a reused transaction's uncommitted changes via
     // revertTo. The document's revision is exactly the state the build will
     // run over after the revert, so the committed path summary of that
     // revision is the right validation view.
-    try (PathSummaryReader pathSummary =
-        session.openPathSummary(document.getTrx().getRevisionNumber())) {
+    try (PathSummaryReader pathSummary = session.openPathSummary(document.getTrx().getRevisionNumber())) {
       assertUnambiguousFieldNames(pathSummary, rootPath, fieldPaths, fieldNames);
     }
     final Optional<JsonNodeTrx> existingWtx = session.getNodeTrx();
@@ -229,12 +230,13 @@ public final class CreateProjectionIndex extends AbstractFunction {
       // Resolve the definition against the wtx controller's catalogue —
       // IndexDef has identity semantics, so re-adding a same-shaped def from
       // another controller would duplicate the entry.
-      IndexDef def = defOrNull == null ? null
+      IndexDef def = defOrNull == null
+          ? null
           : wtxController.getIndexes().getIndexDef(defOrNull.getID(), IndexType.PROJECTION);
       if (def == null) {
-        def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes,
-            defOrNull != null ? defOrNull.getID() : nextProjectionIndexNumber(wtxController),
-            IndexDef.DbType.JSON);
+        def = IndexDefs.createProjectionIdxDef(rootPath, fieldPaths, fieldTypes, defOrNull != null
+            ? defOrNull.getID()
+            : nextProjectionIndexNumber(wtxController), IndexDef.DbType.JSON);
       }
       wtxController.createIndexes(Set.of(def), wtx);
       // The built columns are uncommitted and the caller commits them, so from here a wtx we opened
@@ -261,25 +263,34 @@ public final class CreateProjectionIndex extends AbstractFunction {
   }
 
   /**
-   * Column lookup in the executor is by trailing field name. If a projected
-   * name also exists at a DIFFERENT path under the record set (e.g. both
-   * {@code /[]/age} and {@code /[]/address/age}), queries touching the other
-   * occurrence would silently read the projected column — reject the
+   * Column lookup in the executor is by trailing field name. If a projected name also exists at a
+   * DIFFERENT path under the record set (e.g. both {@code /[]/age} and {@code /[]/address/age}),
+   * queries touching the other occurrence would silently read the projected column — reject the
    * creation as ambiguous instead.
    */
-  private static void assertUnambiguousFieldNames(final PathSummaryReader pathSummary,
-      final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths, final List<String> fieldNames) {
+  private static void assertUnambiguousFieldNames(final PathSummaryReader pathSummary, final Path<QNm> rootPath,
+      final List<Path<QNm>> fieldPaths, final List<String> fieldNames) {
     final LongSet rootPcrs = pathSummary.getPCRsForPaths(Set.of(rootPath));
     for (int i = 0; i < fieldPaths.size(); i++) {
       final String name = fieldNames.get(i);
-      final LongSet ownPcrs = pathSummary.getPCRsForPaths(Set.of(fieldPaths.get(i)));
+      // A set column is declared at the ARRAY LAYER (`/[]/genres/[]`) while the name resolves to
+      // the FIELD node (`/[]/genres`) — different path-summary nodes for one column. Both are
+      // "own", or declaring the elements of an array would always report itself as a second
+      // occurrence of its own field.
+      final Set<Path<QNm>> ownPaths = new HashSet<>();
+      ownPaths.add(fieldPaths.get(i));
+      final Path<QNm> fieldOfSet = withoutTrailingArraySteps(fieldPaths.get(i));
+      if (fieldOfSet != null) {
+        ownPaths.add(fieldOfSet);
+      }
+      final LongSet ownPcrs = pathSummary.getPCRsForPaths(ownPaths);
       final Path<QNm> anyWithName = new Path<QNm>().descendantObjectField(new QNm(name));
       final LongIterator byName = pathSummary.getPCRsForPaths(Set.of(anyWithName)).iterator();
       while (byName.hasNext()) {
         final long pcr = byName.nextLong();
         if (!ownPcrs.contains(pcr) && isUnderAny(pathSummary, pcr, rootPcrs)) {
-          throw new QueryException(new QNm(
-              "Projected field name '" + name + "' is ambiguous: it also occurs at a different "
+          throw new QueryException(
+              new QNm("Projected field name '" + name + "' is ambiguous: it also occurs at a different "
                   + "path under the record set. Column lookup is by trailing field name, so the "
                   + "projection cannot distinguish the two occurrences."));
         }
@@ -287,9 +298,26 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
   }
 
+  /**
+   * The declared path with its trailing array step(s) removed, or {@code null} when it had none.
+   *
+   * <p>
+   * {@code /[]/genres/[]} → {@code /[]/genres}: the field whose elements the column holds.
+   */
+  private static Path<QNm> withoutTrailingArraySteps(final Path<QNm> path) {
+    String text = path.toString();
+    boolean trimmed = false;
+    while (text.endsWith("/[]")) {
+      text = text.substring(0, text.length() - 3);
+      trimmed = true;
+    }
+    return trimmed && !text.isEmpty()
+        ? Path.parse(text, PathParser.Type.JSON)
+        : null;
+  }
+
   /** Whether the path-summary node {@code pcr} has an ancestor in {@code rootPcrs}. */
-  private static boolean isUnderAny(final PathSummaryReader pathSummary, final long pcr,
-      final LongSet rootPcrs) {
+  private static boolean isUnderAny(final PathSummaryReader pathSummary, final long pcr, final LongSet rootPcrs) {
     final long saved = pathSummary.getNodeKey();
     try {
       if (!pathSummary.moveTo(pcr)) {
@@ -315,10 +343,73 @@ public final class CreateProjectionIndex extends AbstractFunction {
     }
   }
 
+  /**
+   * Column name = the last OBJECT-KEY step, skipping any trailing array layers.
+   *
+   * <p>
+   * {@code /[]/genres} and {@code /[]/genres/[]} both name the column {@code genres}: the first
+   * declares the field, the second its elements. They are the same column from a query's point of
+   * view, and naming them alike is what makes the duplicate check catch declaring both.
+   */
+  private static String columnNameOf(final String fieldPath) {
+    String path = fieldPath;
+    while (path.endsWith("/[]")) {
+      path = path.substring(0, path.length() - 3);
+    }
+    return lastStep(path);
+  }
+
   /** Column name = the final object-key step of the (canonical) field path. */
   private static String lastStep(final String fieldPath) {
     final int slash = fieldPath.lastIndexOf('/');
-    return slash < 0 ? fieldPath : fieldPath.substring(slash + 1);
+    return slash < 0
+        ? fieldPath
+        : fieldPath.substring(slash + 1);
+  }
+
+  /**
+   * The type a field's OBSERVED values imply, from the path summary's statistics.
+   *
+   * <p>
+   * Evidence, in the order it is decisive:
+   * <ul>
+   * <li>{@code minBytes} set — string values were recorded at this path.</li>
+   * <li>{@code doubleTyped} — a floating-point value was seen, so a long column would truncate.</li>
+   * <li>a numeric range was recorded ({@code min <= max}) — integral values only.</li>
+   * </ul>
+   *
+   * <p>
+   * Falls back to string when the path carries no statistics at all, which is the previous behaviour
+   * and the safe direction: a string column holds anything, it just cannot be compared numerically.
+   */
+  private static Type inferFieldType(final PathSummaryReader summary, final Path<QNm> fieldPath) {
+    try {
+      final LongIterator pcrs = summary.getPCRsForPaths(Set.of(fieldPath)).iterator();
+      while (pcrs.hasNext()) {
+        if (!summary.moveTo(pcrs.nextLong())) {
+          continue;
+        }
+        final PathNode node = summary.getPathNode();
+        final PathStats stats = node == null
+            ? null
+            : node.getStats();
+        if (stats == null) {
+          continue;
+        }
+        if (stats.minBytes != null) {
+          return Type.STR;
+        }
+        if (stats.doubleTyped) {
+          return Type.DBL;
+        }
+        if (stats.min <= stats.max) {
+          return Type.LON;
+        }
+      }
+    } catch (final RuntimeException statsUnavailable) {
+      // A resource without path statistics answers nothing here; string is the safe default.
+    }
+    return Type.STR;
   }
 
   private static Type mapType(final String type) {
@@ -328,8 +419,8 @@ public final class CreateProjectionIndex extends AbstractFunction {
       case "decimal", "dec" -> Type.DEC;
       case "boolean", "bool" -> Type.BOOL;
       case "string", "str" -> Type.STR;
-      default -> throw new QueryException(new QNm(
-          "Unsupported projection column type '" + type + "' — use long (integer/int), double "
+      default -> throw new QueryException(
+          new QNm("Unsupported projection column type '" + type + "' — use long (integer/int), double "
               + "(float), decimal (dec), boolean (bool), or string (str). Double/decimal columns "
               + "store exact doubles in an order-preserving encoding; decimals that are not "
               + "exactly representable as doubles mark the column not-value-exact and value-exact "

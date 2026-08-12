@@ -22,13 +22,11 @@ import java.io.IOException;
 import java.io.PrintWriter;
 
 /**
- * End-to-end coverage of the EXECUTOR-SIDE catalog serving path: the plain
- * function tests run the generic pipeline (no vectorized executor is wired
- * through {@code AbstractJsonTest}), so this test wires a
- * {@link SirixVectorizedExecutor} explicitly and asserts — via
- * {@link ProjectionIndexCatalog#servedCount()} — that a query is actually
- * SERVED from the catalogued projection after re-open, not merely answered
- * correctly by the fallback pipeline.
+ * End-to-end coverage of the EXECUTOR-SIDE catalog serving path: the plain function tests run the
+ * generic pipeline (no vectorized executor is wired through {@code AbstractJsonTest}), so this test
+ * wires a {@link SirixVectorizedExecutor} explicitly and asserts — via
+ * {@link ProjectionIndexCatalog#servedCount()} — that a query is actually SERVED from the
+ * catalogued projection after re-open, not merely answered correctly by the fallback pipeline.
  */
 public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
@@ -71,17 +69,16 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
 
     try (final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final int revision = session.getMostRecentRevisionNumber();
 
       final long servedBefore = ProjectionIndexCatalog.servedCount();
-      final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
-          session, resourceKey, revision, new String[] { "[]" });
-      Assertions.assertEquals(5L, fromDescriptors,
-          "descriptor row counts must sum to the record count");
+      final long fromDescriptors =
+          ProjectionIndexCatalog.countRowsFromDescriptors(session, resourceKey, revision, new String[] {"[]"});
+      Assertions.assertEquals(5L, fromDescriptors, "descriptor row counts must sum to the record count");
       Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
           "the descriptor-tier count must count as catalog serving");
       Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
@@ -89,15 +86,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
       // Sanity that the accessor observes hydrates at all: a full handle load DOES fill
       // the DATA cache — and its hydrated count agrees with the descriptor tier.
-      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
-          session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
+          revision, new String[] {"[]"}, new String[] {"age"});
       Assertions.assertNotNull(handle, "the projection must be loadable");
       Assertions.assertTrue(ProjectionIndexCatalog.dataCacheSize() > 0,
           "the handle load must hydrate — proving the accessor distinguishes the tiers");
       Assertions.assertEquals(fromDescriptors,
           ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(
-              ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
-                  handle.rowGroupCount()))),
+              ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(), handle.rowGroupCount()))),
           "descriptor-tier and hydrate-tier counts must agree");
     }
   }
@@ -127,7 +123,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
 
     try (final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = session.getResourceConfig().getResource().toString();
@@ -138,10 +134,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
       }
       final long servedBefore = ProjectionIndexCatalog.servedCount();
-      final long fromDescriptors = ProjectionIndexCatalog.countRowsFromDescriptors(
-          session, resourceKey, revision, new String[] { "[]" });
-      Assertions.assertEquals(5L, fromDescriptors,
-          "segment-slot descriptor row counts must sum to the record count");
+      final long fromDescriptors =
+          ProjectionIndexCatalog.countRowsFromDescriptors(session, resourceKey, revision, new String[] {"[]"});
+      Assertions.assertEquals(5L, fromDescriptors, "segment-slot descriptor row counts must sum to the record count");
       Assertions.assertTrue(ProjectionIndexCatalog.servedCount() > servedBefore,
           "the segment-slot descriptor-tier count must count as catalog serving");
       Assertions.assertEquals(0L, ProjectionIndexCatalog.dataCacheSize(),
@@ -151,7 +146,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
   @Test
   public void segmentSlotLayoutServesColumnPrunedAndWholeLeafShapes() throws IOException {
-    // A segment-slot store builds a COLUMN-PRUNED handle (readAllRowGroupDirectoriesFromColumnSegmentSlots):
+    // A segment-slot store builds a COLUMN-PRUNED handle
+    // (readAllRowGroupDirectoriesFromColumnSegmentSlots):
     // numeric/boolean aggregates serve from column slices — reading only the queried column's
     // segments across row groups — while string/whole-row shapes materialize whole leaves through
     // the layout-dispatched materializer. This proves the FULL serving contract (numeric aggregate,
@@ -175,10 +171,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = session.getResourceConfig().getResource().toString();
@@ -195,7 +192,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // Numeric aggregate: served from the age column's slices only (column-pruned).
         final long servedBeforeSum = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -208,7 +205,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
         // Filtered count over numeric + boolean columns reassembled from their slots.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return count(for $r in $doc[] where $r.age gt 40 and $r.active return $r)
@@ -219,7 +216,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
         // String group-by needs the dept dictionary + row segments reassembled per leaf.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 for $r in $doc[]
@@ -229,21 +226,20 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
                 return { "dept": $d, "n": count($r) }
               """).serialize(ctx, printWriter);
           printWriter.flush();
-          Assertions.assertEquals(
-              "{\"dept\":\"Eng\",\"n\":3} {\"dept\":\"HR\",\"n\":1} {\"dept\":\"Sales\",\"n\":1}",
+          Assertions.assertEquals("{\"dept\":\"Eng\",\"n\":3} {\"dept\":\"HR\",\"n\":1} {\"dept\":\"Sales\",\"n\":1}",
               out.toString());
         }
 
         // The catalog now BUILDS a column-pruned handle for a segment-slot store, and whole-leaf
         // materialization through the layout-dispatched materializer still recovers every row.
-        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
-            session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
+            revision, new String[] {"[]"}, new String[] {"age"});
         Assertions.assertNotNull(handle, "the segment-slot projection must be loadable");
         Assertions.assertNotNull(handle.columnStoreOrNull(),
             "segment-slot stores now build a column-pruned handle (reads only the queried column)");
-        Assertions.assertEquals(5L, ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(
-                ProjectionIndexCatalog.rowGroupMaterializer(session, revision, handle.defId(),
-                    handle.rowGroupCount()))),
+        Assertions.assertEquals(5L,
+            ProjectionIndexByteScan.countRows(handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+                session, revision, handle.defId(), handle.rowGroupCount()))),
             "whole-leaf reassembly from the segment slots must still recover every row");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -253,8 +249,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void segmentSlotProjectionStaysSegmentSlotAndServesAfterUpdateInsertDelete()
-      throws IOException {
+  public void segmentSlotProjectionStaysSegmentSlotAndServesAfterUpdateInsertDelete() throws IOException {
     // P1 production slice, maintenance half: the change listener cannot patch a segment-slot
     // store in place (its descriptors live at composite slotKind-0 keys), so it forces a full
     // rebuild — and buildAndPersist derives the layout from the store's own metadata, so the
@@ -293,10 +288,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final int revision = session.getMostRecentRevisionNumber();
@@ -311,7 +307,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -332,16 +328,22 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   @Test
   public void segmentSlotLayoutServesAcrossMultipleLeaves() throws IOException {
     // Multi-leaf keying proof: single-record fixtures only exercise rowGroupId=1, so the
-    // (rowGroupId<<8)|(columnSegmentId+1) composite key and the readAllRowGroupsFromColumnSegmentSlots enumeration
+    // (rowGroupId<<8)|(columnSegmentId+1) composite key and the readAllRowGroupsFromColumnSegmentSlots
+    // enumeration
     // loop are never stressed across leaves. 3000 rows spill into several row-group leaves;
     // serving a sum and a group-by must match the generic pipeline byte-for-byte, proving every
     // leaf's per-column segment slots reassemble under the right composite keys.
     final StringBuilder json = new StringBuilder(200_000).append('[');
     for (int i = 0; i < 3000; i++) {
-      if (i > 0) json.append(',');
-      json.append("{\"age\":").append(i % 90)
-          .append(",\"active\":").append((i & 1) == 0)
-          .append(",\"dept\":\"D").append(i % 4).append("\"}");
+      if (i > 0)
+        json.append(',');
+      json.append("{\"age\":")
+          .append(i % 90)
+          .append(",\"active\":")
+          .append((i & 1) == 0)
+          .append(",\"dept\":\"D")
+          .append(i % 4)
+          .append("\"}");
     }
     json.append(']');
     query("jn:store('json-path1','segmulti.jn','" + json + "')");
@@ -364,10 +366,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           order by $d
           return {"dept": $d, "n": count($r), "s": sum($r.age)}
         """;
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("segmulti.jn");
       final int revision = session.getMostRecentRevisionNumber();
@@ -376,8 +379,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try (final io.sirix.api.json.JsonNodeReadOnlyTrx pinRtx = session.beginNodeReadOnlyTrx(revision)) {
         final io.sirix.index.projection.ProjectionIndexMetadata meta =
             io.sirix.index.projection.ProjectionIndexMetadata.parse(
-                io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(
-                    pinRtx.getStorageEngineReader(), 0, 0L));
+                io.sirix.index.projection.ProjectionIndexHOTStorage.readBlob(pinRtx.getStorageEngineReader(), 0, 0L));
         Assertions.assertTrue(meta.rowGroupCount() > 1,
             "the fixture must span multiple leaves to stress cross-leaf keying, was " + meta.rowGroupCount());
       }
@@ -427,10 +429,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = session.getResourceConfig().getResource().toString();
@@ -439,7 +442,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -447,15 +450,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           printWriter.flush();
           Assertions.assertEquals("211", out.toString());
         }
-        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
-            session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
+            revision, new String[] {"[]"}, new String[] {"age"});
         Assertions.assertNotNull(handle);
         Assertions.assertNotNull(handle.columnStoreOrNull(), "the catalog must build a lazy handle");
         Assertions.assertFalse(handle.rawRowGroupsMaterialized(),
             "sum over a numeric column must be served from column slices, not whole leaves");
         // Filtered count over numeric+boolean columns stays slice-served too.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return count(for $r in $doc[] where $r.age gt 40 and $r.active return $r)
@@ -467,7 +470,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             "numeric/boolean filtered counts must stay slice-served");
         // A string group-by needs dictionaries — the SAME handle materializes and answers.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 for $r in $doc[]
@@ -514,15 +517,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
 
     try (final BasicJsonDBStore store =
-            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
+        BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build()) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
 
       // Session A builds and caches the lazy handle WITHOUT filling any column, then closes.
       final JsonResourceSession sessionA = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = sessionA.getResourceConfig().getResource().toString();
       final int revision = sessionA.getMostRecentRevisionNumber();
-      final ProjectionIndexRegistry.Handle built = ProjectionIndexCatalog.lookupCovering(
-          sessionA, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle built = ProjectionIndexCatalog.lookupCovering(sessionA, resourceKey,
+          revision, new String[] {"[]"}, new String[] {"age"});
       Assertions.assertNotNull(built, "the projection must be loadable");
       Assertions.assertNotNull(built.columnStoreOrNull(), "the catalog must build a lazy handle");
       Assertions.assertFalse(built.rawRowGroupsMaterialized(),
@@ -531,8 +534,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
 
       // Session B hits the SAME cached handle; the lookup re-binds the lazy sources.
       final JsonResourceSession sessionB = collection.getDatabase().beginResourceSession("sales.jn");
-      final ProjectionIndexRegistry.Handle cached = ProjectionIndexCatalog.lookupCovering(
-          sessionB, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+      final ProjectionIndexRegistry.Handle cached = ProjectionIndexCatalog.lookupCovering(sessionB, resourceKey,
+          revision, new String[] {"[]"}, new String[] {"age"});
       Assertions.assertSame(built, cached, "the decode cache must return the same handle");
       final int ageCol = cached.columnOf("age");
       // Session B threads ITS OWN live fetcher/materializer into the shared cached handle's
@@ -579,10 +582,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final String resourceKey = session.getResourceConfig().getResource().toString();
@@ -592,7 +596,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         // OR count: age>50 → {52, 61}; active → {30, 52, 23}; union = 4 rows.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return count(for $r in $doc[] where $r.age gt 50 or $r.active return $r)
@@ -602,7 +606,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         // OR aggregate: age<25 → {23}; active → {30, 52, 23}; union sums to 105.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] where $r.age lt 25 or $r.active return $r.age)
@@ -610,14 +614,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           printWriter.flush();
           Assertions.assertEquals("105", out.toString());
         }
-        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(
-            session, resourceKey, revision, new String[] { "[]" }, new String[] { "age" });
+        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session, resourceKey,
+            revision, new String[] {"[]"}, new String[] {"age"});
         Assertions.assertNotNull(handle);
         Assertions.assertFalse(handle.rawRowGroupsMaterialized(),
             "tree serving must stay on the fold kernels — no whole-leaf materialization");
         // NOT is excluded from the mask algebra — the generic pipeline answers, correctly.
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return count(for $r in $doc[] where not($r.active) return $r)
@@ -629,7 +633,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // run ONE kernel scan — the stats cache serves the second and third functions.
         final long scansBefore = SirixVectorizedExecutor.predicatedAggScanCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return {"min": min(for $r in $doc[] where $r.active return $r.age),
@@ -689,10 +693,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           return {"dept": $d, "n": count($r), "total": sum($r.age), "top": max($r.age)}
         """;
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("groupagg.jn");
       // Generic (no executor): the parity oracle.
@@ -713,11 +718,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             "both group-aggregate queries must be SERVED from the projection");
         // Sanity on the actual values (doc first-appearance order; record without dept
         // forms the null-key group; missing-age semantics never arise here).
-        Assertions.assertEquals(
-            "{\"dept\":\"Eng\",\"n\":3,\"total\":126,\"top\":52}"
-                + " {\"dept\":\"Sales\",\"n\":1,\"total\":45,\"top\":45}"
-                + " {\"dept\":\"HR\",\"n\":1,\"total\":23,\"top\":23}"
-                + " {\"dept\":null,\"n\":1,\"total\":99,\"top\":99}",
+        Assertions.assertEquals("{\"dept\":\"Eng\",\"n\":3,\"total\":126,\"top\":52}"
+            + " {\"dept\":\"Sales\",\"n\":1,\"total\":45,\"top\":45}"
+            + " {\"dept\":\"HR\",\"n\":1,\"total\":23,\"top\":23}" + " {\"dept\":null,\"n\":1,\"total\":99,\"top\":99}",
             servedFull);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -751,10 +754,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           group by $d
           return {"dept": $d, "n": count($r), "total": sum($r.age), "m": min($r.age)}
         """;
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("groupagg2.jn");
       final String generic = evaluateQuery(chain, ctx, edgeQuery);
@@ -801,16 +805,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        """
+    final String[] queries = {"""
           let $doc := jn:doc('json-path1','mkgroup.jn')
           for $r in $doc[]
           let $d := $r.dept
           let $c := $r.city
           group by $d, $c
           return {"dept": $d, "city": $c, "n": count($r), "total": sum($r.age)}
-        """,
-        """
+        """, """
           let $doc := jn:doc('json-path1','mkgroup.jn')
           for $r in $doc[]
           where $r.age gt 25
@@ -821,28 +823,28 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """,
         // Key entries in the record REVERSED relative to the group-spec order.
         """
-          let $doc := jn:doc('json-path1','mkgroup.jn')
-          for $r in $doc[]
-          let $d := $r.dept
-          let $c := $r.city
-          group by $d, $c
-          return {"city": $c, "dept": $d, "n": count($r), "top": max($r.age)}
-        """,
+              let $doc := jn:doc('json-path1','mkgroup.jn')
+              for $r in $doc[]
+              let $d := $r.dept
+              let $c := $r.city
+              group by $d, $c
+              return {"city": $c, "dept": $d, "n": count($r), "top": max($r.age)}
+            """,
         // Three keys.
         """
-          let $doc := jn:doc('json-path1','mkgroup.jn')
-          for $r in $doc[]
-          let $d := $r.dept
-          let $c := $r.city
-          let $g := $r.grade
-          group by $d, $c, $g
-          return {"dept": $d, "city": $c, "grade": $g, "n": count($r), "m": min($r.age)}
-        """
-    };
-    try (final BasicJsonDBStore store =
+              let $doc := jn:doc('json-path1','mkgroup.jn')
+              for $r in $doc[]
+              let $d := $r.dept
+              let $c := $r.city
+              let $g := $r.grade
+              group by $d, $c, $g
+              return {"dept": $d, "city": $c, "grade": $g, "n": count($r), "m": min($r.age)}
+            """};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("mkgroup.jn");
       final String[] generic = new String[queries.length];
@@ -857,8 +859,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "multi-key group-aggregate parity, query " + i);
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
               "multi-key group-aggregate query " + i + " must be SERVED from the projection");
         }
       } finally {
@@ -910,10 +911,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           group by $b
           return {"a": $a, "b": $b, "s": sum($r.age)}
         """;
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("shadow.jn");
       String genericShadowed;
@@ -941,8 +943,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(genericShadowed, servedShadowed,
             "shadowed let bindings must reproduce the interpreter outcome (last binding wins)");
-        Assertions.assertEquals(1L,
-            SirixVectorizedExecutor.groupAggServedCount() - servedBeforeShadowed,
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - servedBeforeShadowed,
             "renamed shadowed-let shape resolves to the LAST binding and must be SERVED");
         final long servedBeforeRegroup = SirixVectorizedExecutor.groupAggServedCount();
         String servedRegroup;
@@ -953,8 +954,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(genericRegroup, servedRegroup,
             "double group-by must reproduce the interpreter outcome, error included");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.groupAggServedCount() - servedBeforeRegroup,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggServedCount() - servedBeforeRegroup,
             "double-group-by must DECLINE serving");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -984,27 +984,25 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        """
+    final String[] queries = {"""
           let $doc := jn:doc('json-path1','ovf.jn')
           for $r in $doc[]
           let $d := $r.d
           group by $d
           return {"d": $d, "total": sum($r.v)}
-        """,
-        """
+        """, """
           let $doc := jn:doc('json-path1','ovf.jn')
           for $r in $doc[]
           let $d := $r.d
           let $c := $r.c
           group by $d, $c
           return {"d": $d, "c": $c, "total": sum($r.v)}
-        """
-    };
-    try (final BasicJsonDBStore store =
+        """};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("ovf.jn");
       final String[] generic = new String[queries.length];
@@ -1055,22 +1053,18 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return sum(for $r in $doc[] return $r.a * $r.b)",
-        "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return avg(for $r in $doc[] return $r.a + $r.b - 1)",
-        "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return max(for $r in $doc[] where $r.f gt 1 return $r.a * 2)",
-        "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return count(for $r in $doc[] return $r.a * $r.b)",
-        "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return min(for $r in $doc[] return $r.b - $r.a)"
-    };
-    try (final BasicJsonDBStore store =
+    final String[] queries =
+        {"let $doc := jn:doc('json-path1','computed.jn')\n" + "return sum(for $r in $doc[] return $r.a * $r.b)",
+            "let $doc := jn:doc('json-path1','computed.jn')\n" + "return avg(for $r in $doc[] return $r.a + $r.b - 1)",
+            "let $doc := jn:doc('json-path1','computed.jn')\n"
+                + "return max(for $r in $doc[] where $r.f gt 1 return $r.a * 2)",
+            "let $doc := jn:doc('json-path1','computed.jn')\n" + "return count(for $r in $doc[] return $r.a * $r.b)",
+            "let $doc := jn:doc('json-path1','computed.jn')\n" + "return min(for $r in $doc[] return $r.b - $r.a)"};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("computed.jn");
       final String[] generic = new String[queries.length];
@@ -1082,11 +1076,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         for (int i = 0; i < queries.length; i++) {
-          final long servedBefore = SirixVectorizedExecutor.computedAggServedCount();
+          // A pure two-field product/sum is deliberately served by the binary SLICE FOLD (body
+          // chains + presence intersection) instead of the whole-leaf computed route — both are
+          // projection-served, so either counter satisfies the assertion.
+          final long servedBefore =
+              SirixVectorizedExecutor.computedAggServedCount() + SirixVectorizedExecutor.binaryAggregatesServed();
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "computed-aggregate parity, query " + i);
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.computedAggServedCount() - servedBefore,
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.computedAggServedCount()
+              + SirixVectorizedExecutor.binaryAggregatesServed() - servedBefore,
               "computed-aggregate query " + i + " must be SERVED from the projection");
         }
         // Sanity on real values: products over fully-present rows only (12 + 20).
@@ -1094,8 +1092,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         Assertions.assertEquals("2", evaluateQuery(chain, ctx, queries[3]));
         // ALL-CONSTANT computed return: no covered column — must DECLINE cleanly at
         // detection (no serve, no failure-counter pollution), interpreter answers.
-        final String allConst = "let $doc := jn:doc('json-path1','computed.jn')\n"
-            + "return sum(for $r in $doc[] return 2 * 3)";
+        final String allConst =
+            "let $doc := jn:doc('json-path1','computed.jn')\n" + "return sum(for $r in $doc[] return 2 * 3)";
         final long constServedBefore = SirixVectorizedExecutor.computedAggServedCount();
         final long constFailedBefore = SirixVectorizedExecutor.computedAggFailedCount();
         final String constGeneric;
@@ -1107,11 +1105,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(constGeneric, evaluateQuery(chain, ctx, allConst),
             "all-constant computed aggregate must match the interpreter");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggServedCount() - constServedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggServedCount() - constServedBefore,
             "all-constant computed aggregate must not be served");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggFailedCount() - constFailedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggFailedCount() - constFailedBefore,
             "all-constant decline must not pollute the failure counter");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1137,12 +1133,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String overflowQuery = "let $doc := jn:doc('json-path1','computed2.jn')\n"
-        + "return sum(for $r in $doc[] return $r.a * $r.b)";
-    try (final BasicJsonDBStore store =
+    final String overflowQuery =
+        "let $doc := jn:doc('json-path1','computed2.jn')\n" + "return sum(for $r in $doc[] return $r.a * $r.b)";
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("computed2.jn");
       final String generic = evaluateQuery(chain, ctx, overflowQuery);
@@ -1154,11 +1151,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final long failedBefore = SirixVectorizedExecutor.computedAggFailedCount();
         Assertions.assertEquals(generic, evaluateQuery(chain, ctx, overflowQuery),
             "overflow must fall back to the interpreter's decimal-promoting arithmetic");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggServedCount() - servedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggServedCount() - servedBefore,
             "overflowing computed aggregate must DECLINE, not serve a wrapped value");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggFailedCount() - failedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggFailedCount() - failedBefore,
             "overflow is an expected decline, not a serving failure");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1177,14 +1172,19 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // generic pipeline.
     final StringBuilder json = new StringBuilder(3_000_000).append('[');
     for (int i = 0; i < 70_000; i++) {
-      if (i > 0) json.append(',');
+      if (i > 0)
+        json.append(',');
       json.append("{\"active\":").append((i & 1) == 0);
       if (i % 11 != 3) {
         json.append(",\"age\":").append(i % 97);
       }
       final int deptSel = i % 7;
       if (deptSel != 6) {
-        json.append(",\"dept\":\"").append(deptSel == 5 ? "" : "D" + deptSel).append('"');
+        json.append(",\"dept\":\"")
+            .append(deptSel == 5
+                ? ""
+                : "D" + deptSel)
+            .append('"');
       }
       json.append('}');
     }
@@ -1199,16 +1199,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        """
+    final String[] queries = {"""
           let $doc := jn:doc('json-path1','groupagg3.jn')
           for $r in $doc[]
           let $d := $r.dept
           group by $d
           return {"dept": $d, "n": count($r), "s": sum($r.age), "a": avg($r.age),
                   "lo": min($r.age), "hi": max($r.age), "s2": sum($r.age)}
-        """,
-        """
+        """, """
           let $doc := jn:doc('json-path1','groupagg3.jn')
           for $r in $doc[]
           where $r.age gt 90
@@ -1220,18 +1218,18 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // count shape and route through the PRE-EXISTING count path (the overlap rule) —
         // the sum entry keeps this filter-all query on the stage-7a path under test.
         """
-          let $doc := jn:doc('json-path1','groupagg3.jn')
-          for $r in $doc[]
-          where $r.age gt 200
-          let $d := $r.dept
-          group by $d
-          return {"dept": $d, "n": count($r), "s": sum($r.age)}
-        """
-    };
-    try (final BasicJsonDBStore store =
+              let $doc := jn:doc('json-path1','groupagg3.jn')
+              for $r in $doc[]
+              where $r.age gt 200
+              let $d := $r.dept
+              group by $d
+              return {"dept": $d, "n": count($r), "s": sum($r.age)}
+            """};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("groupagg3.jn");
       final String[] generic = new String[queries.length];
@@ -1248,8 +1246,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "multi-leaf group-aggregate parity, query " + i);
         }
-        Assertions.assertEquals(queries.length,
-            SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
+        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.groupAggServedCount() - servedBefore,
             "every multi-leaf group-aggregate query must be SERVED");
         Assertions.assertEquals(0L, SirixVectorizedExecutor.groupAggFailedCount() - failedBefore,
             "no serving attempt may fail with an exception");
@@ -1285,21 +1282,18 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     final String[] queries = {
-        "let $doc := jn:doc('json-path1','sorted.jn')\n"
-            + "for $r in $doc[] order by $r.age return $r",
-        "let $doc := jn:doc('json-path1','sorted.jn')\n"
-            + "for $r in $doc[] order by $r.age descending return $r",
-        "let $doc := jn:doc('json-path1','sorted.jn')\n"
-            + "for $r in $doc[] where $r.active order by $r.age return $r",
+        "let $doc := jn:doc('json-path1','sorted.jn')\n" + "for $r in $doc[] order by $r.age return $r",
+        "let $doc := jn:doc('json-path1','sorted.jn')\n" + "for $r in $doc[] order by $r.age descending return $r",
+        "let $doc := jn:doc('json-path1','sorted.jn')\n" + "for $r in $doc[] where $r.active order by $r.age return $r",
         "subsequence(let $doc := jn:doc('json-path1','sorted.jn')\n"
             + "for $r in $doc[] order by $r.age descending return $r, 1, 3)",
         "let $doc := jn:doc('json-path1','sorted.jn')\n"
-            + "for $r in $doc[] where $r.age gt 8 order by $r.age descending return $r"
-    };
-    try (final BasicJsonDBStore store =
+            + "for $r in $doc[] where $r.age gt 8 order by $r.age descending return $r"};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sorted.jn");
       final String[] generic = new String[queries.length];
@@ -1312,11 +1306,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
         for (int i = 0; i < queries.length; i++) {
-          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
-              "sorted-scan parity, query " + i);
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]), "sorted-scan parity, query " + i);
         }
-        Assertions.assertEquals(queries.length,
-            SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
             "every sorted-scan query must be SERVED from the projection");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1347,10 +1339,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // through the revision-scoped catalog + pages.
     ProjectionIndexRegistry.clear();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final SirixVectorizedExecutor executor =
@@ -1359,7 +1352,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -1414,10 +1407,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final SirixVectorizedExecutor executor =
@@ -1426,7 +1420,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -1475,10 +1469,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("two.jn");
       final SirixVectorizedExecutor executor =
@@ -1487,7 +1482,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','two.jn')
                 return sum(for $r in $doc.a[] return $r.age)
@@ -1533,10 +1528,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
 
-    try (final BasicJsonDBStore jsonStore =
+    try (
+        final BasicJsonDBStore jsonStore =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final BasicXmlDBStore xmlStore = BasicXmlDBStore.newBuilder().build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(jsonStore)) {
+        final BasicXmlDBStore xmlStore = BasicXmlDBStore.newBuilder().build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(jsonStore)) {
       final JsonDBCollection collection = (JsonDBCollection) jsonStore.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sales.jn");
       final int mostRecent = session.getMostRecentRevisionNumber();
@@ -1547,10 +1543,10 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           () -> SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, null, mostRecent));
 
       try (final SirixCompileChain chain =
-              SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, session, mostRecent)) {
+          SirixCompileChain.createWithNodeAndJsonStore(xmlStore, jsonStore, session, mostRecent)) {
         final long servedBefore = ProjectionIndexCatalog.servedCount();
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','sales.jn')
                 return sum(for $r in $doc[] return $r.age)
@@ -1584,10 +1580,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
 
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("two.jn");
       final SirixVectorizedExecutor executor =
@@ -1595,7 +1592,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-             final PrintWriter printWriter = new PrintWriter(out)) {
+            final PrintWriter printWriter = new PrintWriter(out)) {
           new Query(chain, """
                 let $doc := jn:doc('json-path1','two.jn')
                 return {"a": sum(for $r in $doc.a[] return $r.age),
@@ -1618,9 +1615,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // cross-leaf document-order stability differentially proven, parallel collect engaged.
     final StringBuilder big = new StringBuilder(200_000).append('[');
     for (int i = 0; i < 3000; i++) {
-      if (i > 0) big.append(',');
-      big.append("{\"age\":").append(i % 7).append(",\"active\":").append((i & 1) == 0)
-          .append(",\"dept\":\"D").append(i % 3).append("\"}");
+      if (i > 0)
+        big.append(',');
+      big.append("{\"age\":")
+         .append(i % 7)
+         .append(",\"active\":")
+         .append((i & 1) == 0)
+         .append(",\"dept\":\"D")
+         .append(i % 3)
+         .append("\"}");
     }
     big.append(']');
     query("jn:store('json-path1','sorted2.jn','" + big + "')");
@@ -1635,10 +1638,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexCatalog.clearCache();
     final String bigQuery = "let $doc := jn:doc('json-path1','sorted2.jn')\n"
         + "for $r in $doc[] where $r.active order by $r.age return $r";
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sorted2.jn");
       final String generic = evaluateQuery(chain, ctx, bigQuery);
@@ -1682,24 +1686,23 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        "let $doc := jn:doc('json-path1','mksort.jn')\n"
-            + "for $r in $doc[] order by $r.age, $r.bonus return $r",
-        "let $doc := jn:doc('json-path1','mksort.jn')\n"
-            + "for $r in $doc[] order by $r.age descending, $r.bonus return $r",
-        "let $doc := jn:doc('json-path1','mksort.jn')\n"
-            + "for $r in $doc[] order by $r.age, $r.bonus descending return $r",
-        "let $doc := jn:doc('json-path1','mksort.jn')\n"
-            + "for $r in $doc[] where $r.age lt 40 order by $r.age descending, $r.bonus descending return $r",
-        // An intermediate let (not shadowing $r) must NOT lose serving — the specs and
-        // return only touch the loop var (review finding: the pre-1b path served this).
-        "let $doc := jn:doc('json-path1','mksort.jn')\n"
-            + "for $r in $doc[] where $r.age gt 20 let $x := $r.bonus order by $r.age return $r"
-    };
-    try (final BasicJsonDBStore store =
+    final String[] queries =
+        {"let $doc := jn:doc('json-path1','mksort.jn')\n" + "for $r in $doc[] order by $r.age, $r.bonus return $r",
+            "let $doc := jn:doc('json-path1','mksort.jn')\n"
+                + "for $r in $doc[] order by $r.age descending, $r.bonus return $r",
+            "let $doc := jn:doc('json-path1','mksort.jn')\n"
+                + "for $r in $doc[] order by $r.age, $r.bonus descending return $r",
+            "let $doc := jn:doc('json-path1','mksort.jn')\n"
+                + "for $r in $doc[] where $r.age lt 40 order by $r.age descending, $r.bonus descending return $r",
+            // An intermediate let (not shadowing $r) must NOT lose serving — the specs and
+            // return only touch the loop var (review finding: the pre-1b path served this).
+            "let $doc := jn:doc('json-path1','mksort.jn')\n"
+                + "for $r in $doc[] where $r.age gt 20 let $x := $r.bonus order by $r.age return $r"};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("mksort.jn");
       final String[] generic = new String[queries.length];
@@ -1714,8 +1717,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "multi-key sorted-scan parity, query " + i);
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
               "multi-key sorted-scan query " + i + " must be SERVED from the projection");
         }
         // Review finding: a let whose bound expression can RAISE must decline — the
@@ -1741,8 +1743,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(genericErrLet, servedErrLet,
             "an erroring let must reproduce the interpreter outcome, error included");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.sortedScanServedCount() - servedBeforeErrLet,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanServedCount() - servedBeforeErrLet,
             "a non-deref let must DECLINE sorted serving");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1773,16 +1774,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        "let $doc := jn:doc('json-path1','lossy.jn')\n"
-            + "return min(for $r in $doc[] return $r.a + 0)",
-        "let $doc := jn:doc('json-path1','lossy.jn')\n"
-            + "for $r in $doc[] order by $r.a return $r"
-    };
-    try (final BasicJsonDBStore store =
+    final String[] queries =
+        {"let $doc := jn:doc('json-path1','lossy.jn')\n" + "return min(for $r in $doc[] return $r.a + 0)",
+            "let $doc := jn:doc('json-path1','lossy.jn')\n" + "for $r in $doc[] order by $r.a return $r"};
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("lossy.jn");
       final String[] generic = new String[queries.length];
@@ -1799,11 +1798,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "lossy long column parity, query " + i);
         }
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggServedCount() - computedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggServedCount() - computedBefore,
             "computed aggregate over a wrapped 2^63 column must DECLINE");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.sortedScanServedCount() - sortedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanServedCount() - sortedBefore,
             "sorted scan over a wrapped 2^63 column must DECLINE");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1827,12 +1824,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String dblQuery = "let $doc := jn:doc('json-path1','dblsrc.jn')\n"
-        + "return sum(for $r in $doc[] return $r.a * 1)";
-    try (final BasicJsonDBStore store =
+    final String dblQuery =
+        "let $doc := jn:doc('json-path1','dblsrc.jn')\n" + "return sum(for $r in $doc[] return $r.a * 1)";
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("dblsrc.jn");
       final String generic = evaluateQuery(chain, ctx, dblQuery);
@@ -1843,8 +1841,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final long computedBefore = SirixVectorizedExecutor.computedAggServedCount();
         Assertions.assertEquals(generic, evaluateQuery(chain, ctx, dblQuery),
             "double-typed integral cells must fold in the interpreter's double space");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.computedAggServedCount() - computedBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.computedAggServedCount() - computedBefore,
             "computed aggregate over a double-sourced long column must DECLINE");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1861,9 +1858,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // equals the full stable sort's prefix (ties resolved by document order).
     final StringBuilder big = new StringBuilder(120_000).append('[');
     for (int i = 0; i < 2000; i++) {
-      if (i > 0) big.append(',');
-      big.append("{\"age\":").append(i % 7).append(",\"bonus\":").append(i % 5)
-          .append(",\"active\":").append((i & 1) == 0).append('}');
+      if (i > 0)
+        big.append(',');
+      big.append("{\"age\":")
+         .append(i % 7)
+         .append(",\"bonus\":")
+         .append(i % 5)
+         .append(",\"active\":")
+         .append((i & 1) == 0)
+         .append('}');
     }
     big.append(']');
     query("jn:store('json-path1','topk.jn','" + big + "')");
@@ -1881,15 +1884,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             + "return subsequence(for $r in $doc[] where $r.active order by $r.age return $r, 1, 5)",
         // start > 1 and a secondary key: limit = 3+4-1 = 6 kept rows, emit rows 3..6.
         "let $doc := jn:doc('json-path1','topk.jn')\n"
-            + "return subsequence(for $r in $doc[] order by $r.age descending, $r.bonus return $r, 3, 4)"
-    };
+            + "return subsequence(for $r in $doc[] order by $r.age descending, $r.bonus return $r, 3, 4)"};
     // 2-arg subsequence needs the unbounded tail — served, but NO top-K cap may apply.
     final String uncappedQuery = "let $doc := jn:doc('json-path1','topk.jn')\n"
         + "return count(subsequence(for $r in $doc[] where $r.active order by $r.age return $r, 1990))";
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("topk.jn");
       final String[] generic = new String[cappedQueries.length];
@@ -1904,24 +1907,18 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         for (int i = 0; i < cappedQueries.length; i++) {
           final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
           final long topKBefore = SirixVectorizedExecutor.sortedTopKAppliedCount();
-          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, cappedQueries[i]),
-              "top-K parity, query " + i);
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, cappedQueries[i]), "top-K parity, query " + i);
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
               "top-K query " + i + " must be SERVED");
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.sortedTopKAppliedCount() - topKBefore,
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedTopKAppliedCount() - topKBefore,
               "top-K query " + i + " must use BOUNDED selection, not the full sort");
         }
         final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
         final long topKBefore = SirixVectorizedExecutor.sortedTopKAppliedCount();
-        Assertions.assertEquals(genericUncapped, evaluateQuery(chain, ctx, uncappedQuery),
-            "2-arg subsequence parity");
-        Assertions.assertEquals(1L,
-            SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+        Assertions.assertEquals(genericUncapped, evaluateQuery(chain, ctx, uncappedQuery), "2-arg subsequence parity");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
             "2-arg subsequence sorted scan must still be SERVED (full sort)");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.sortedTopKAppliedCount() - topKBefore,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedTopKAppliedCount() - topKBefore,
             "2-arg subsequence must NOT be capped — it needs the unbounded tail");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -1951,12 +1948,13 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String sparseQuery = "let $doc := jn:doc('json-path1','sorted3.jn')\n"
-        + "for $r in $doc[] order by $r.age return $r";
-    try (final BasicJsonDBStore store =
+    final String sparseQuery =
+        "let $doc := jn:doc('json-path1','sorted3.jn')\n" + "for $r in $doc[] order by $r.age return $r";
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("sorted3.jn");
       String generic;
@@ -2019,11 +2017,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','rows.jn')\n"
             + "for $r in $doc[] where $r.age gt 25 return {\"a\": $r.age, \"d\": $r.dept}",
         // Same source field twice under distinct output names — column reuse in one record.
-        "let $doc := jn:doc('json-path1','rows.jn')\n"
-            + "for $r in $doc[] return {\"a\": $r.age, \"b\": $r.age}",
+        "let $doc := jn:doc('json-path1','rows.jn')\n" + "for $r in $doc[] return {\"a\": $r.age, \"b\": $r.age}",
         // Double column (pure-double-source gate) alongside a long column.
-        "let $doc := jn:doc('json-path1','rows.jn')\n"
-            + "for $r in $doc[] return {\"s\": $r.score, \"a\": $r.age}",
+        "let $doc := jn:doc('json-path1','rows.jn')\n" + "for $r in $doc[] return {\"s\": $r.score, \"a\": $r.age}",
         // COMPOSITION over the served records: a missing field must be the EMPTY sequence
         // inside the record (count skips it), not a JSON null item (count would include
         // it). 5 rows, one missing age -> 4. Catches Null.INSTANCE-vs-empty divergence
@@ -2034,24 +2030,23 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // only because SirixDerefExpr fixed Brackit's DerefExpr, which derefed any
         // FlatteningSequence base (what parens evaluate to) to empty without evaluating
         // the pipe at all — this query used to be 0 = 0 vacuously.
-        "let $doc := jn:doc('json-path1','rows.jn')\n"
-            + "return count((for $r in $doc[] return {\"a\": $r.age}).a)",
+        "let $doc := jn:doc('json-path1','rows.jn')\n" + "return count((for $r in $doc[] return {\"a\": $r.age}).a)",
         // COMPUTED record entries (gap 2): +/-/* trees alongside direct fields. Rows
         // missing an operand store the EMPTY sequence (JSON null when serialized).
         "let $doc := jn:doc('json-path1','rows.jn')\n"
             + "for $r in $doc[] return {\"twice\": $r.age * 2, \"d\": $r.dept}",
         // Computed-entry composition: missing-operand rows contribute NO item to .t.
         "let $doc := jn:doc('json-path1','rows.jn')\n"
-            + "return count((for $r in $doc[] return {\"t\": $r.age + $r.age - 1}).t)"
-    };
+            + "return count((for $r in $doc[] return {\"t\": $r.age + $r.age - 1}).t)"};
     // OR predicates have no conjunctive extraction — the executor must DECLINE and the
     // generic pipeline must answer (served counter unchanged, result identical).
     final String orQuery = "let $doc := jn:doc('json-path1','rows.jn')\n"
         + "for $r in $doc[] where $r.age gt 55 or $r.age lt 25 return {\"a\": $r.age, \"d\": $r.dept}";
-    try (final BasicJsonDBStore store =
+    try (
+        final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("rows.jn");
       final String[] generic = new String[queries.length];
@@ -2065,17 +2060,14 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       try {
         for (int i = 0; i < queries.length; i++) {
           final long servedBefore = SirixVectorizedExecutor.rowMaterializeServedCount();
-          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
-              "covered-row parity, query " + i);
-          Assertions.assertEquals(1L,
-              SirixVectorizedExecutor.rowMaterializeServedCount() - servedBefore,
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]), "covered-row parity, query " + i);
+          Assertions.assertEquals(1L, SirixVectorizedExecutor.rowMaterializeServedCount() - servedBefore,
               "covered-row query " + i + " must be SERVED from the projection");
         }
         final long servedBeforeOr = SirixVectorizedExecutor.rowMaterializeServedCount();
         Assertions.assertEquals(genericOr, evaluateQuery(chain, ctx, orQuery),
             "OR-predicate covered-row query must still answer correctly (generic fallback)");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.rowMaterializeServedCount() - servedBeforeOr,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.rowMaterializeServedCount() - servedBeforeOr,
             "OR predicates must DECLINE covered-row serving, not serve");
         // Review finding (kind-blind predicates): a type-mismatched literal — string-EQ
         // over the NUMERIC age column — must DECLINE; the interpreter type-errors and
@@ -2100,8 +2092,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(genericMismatch, servedMismatch,
             "type-mismatched predicate must reproduce the interpreter outcome exactly");
-        Assertions.assertEquals(0L,
-            SirixVectorizedExecutor.rowMaterializeServedCount() - servedBeforeMismatch,
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.rowMaterializeServedCount() - servedBeforeMismatch,
             "string-EQ over a numeric column must DECLINE, never run a kind-blind scan");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
@@ -2110,10 +2101,10 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     }
   }
 
-  private static String evaluateQuery(final SirixCompileChain chain, final SirixQueryContext ctx,
-      final String queryStr) throws IOException {
+  private static String evaluateQuery(final SirixCompileChain chain, final SirixQueryContext ctx, final String queryStr)
+      throws IOException {
     try (final ByteArrayOutputStream out = new ByteArrayOutputStream();
-         final PrintWriter printWriter = new PrintWriter(out)) {
+        final PrintWriter printWriter = new PrintWriter(out)) {
       new Query(chain, queryStr).serialize(ctx, printWriter);
       printWriter.flush();
       return out.toString();

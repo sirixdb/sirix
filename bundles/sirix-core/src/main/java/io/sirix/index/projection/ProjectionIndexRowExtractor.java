@@ -20,35 +20,29 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Extracts one projection row — the declared fields of a single record —
- * from the document via rtx navigation. This is the SINGLE source of truth
- * for extraction semantics, shared by the bulk {@link ProjectionIndexBuilder}
- * (initial build) and the incremental maintenance path in
- * {@link ProjectionIndexChangeListener} (per-record re-extraction at
- * pre-commit), so a row produced by maintenance is byte-for-byte what a full
- * rebuild would produce for the same record state.
+ * Extracts one projection row — the declared fields of a single record — from the document via rtx
+ * navigation. This is the SINGLE source of truth for extraction semantics, shared by the bulk
+ * {@link ProjectionIndexBuilder} (initial build) and the incremental maintenance path in
+ * {@link ProjectionIndexChangeListener} (per-record re-extraction at pre-commit), so a row produced
+ * by maintenance is byte-for-byte what a full rebuild would produce for the same record state.
  *
- * <h2>HFT-grade hot path</h2>
- * Per-record work allocates nothing — the extractor owns reusable per-row
- * arrays ({@code long[]} / {@code boolean[]} / {@code String[]}) sized to the
- * declared field count and a reusable DFS work-list, and populates them in
- * place via rtx navigation + primitive-typed getters. The field
- * (pathNodeKey → column) mapping is kept as two parallel flat arrays — at
- * typical projection width the linear scan fits a cache line and
- * JIT-inlines cleanly.
+ * <h2>HFT-grade hot path</h2> Per-record work allocates nothing — the extractor owns reusable
+ * per-row arrays ({@code long[]} / {@code boolean[]} / {@code String[]}) sized to the declared
+ * field count and a reusable DFS work-list, and populates them in place via rtx navigation +
+ * primitive-typed getters. The field (pathNodeKey → column) mapping is kept as two parallel flat
+ * arrays — at typical projection width the linear scan fits a cache line and JIT-inlines cleanly.
  *
- * <p>The PCR mapping is resolved from the path summary at CONSTRUCTION time;
- * maintenance constructs a fresh extractor per commit so field paths created
- * by the running transaction are picked up.
+ * <p>
+ * The PCR mapping is resolved from the path summary at CONSTRUCTION time; maintenance constructs a
+ * fresh extractor per commit so field paths created by the running transaction are picked up.
  */
 public final class ProjectionIndexRowExtractor {
 
   /**
-   * Flattened (pathNodeKey → column) pairs for the declared fields. A field
-   * path resolving to MULTIPLE pathNodeKeys (same shape under different
-   * roots) contributes one pair per PCR — {@link #findField} matches any of
-   * them. A field whose path resolves to nothing contributes no pair: such
-   * records carry only {@code present == false} for that column.
+   * Flattened (pathNodeKey → column) pairs for the declared fields. A field path resolving to
+   * MULTIPLE pathNodeKeys (same shape under different roots) contributes one pair per PCR —
+   * {@link #findField} matches any of them. A field whose path resolves to nothing contributes no
+   * pair: such records carry only {@code present == false} for that column.
    */
   private final long[] fieldPcrKeys;
   private final int[] fieldPcrColumns;
@@ -60,34 +54,44 @@ public final class ProjectionIndexRowExtractor {
   private final long[] rowLongs;
   private final boolean[] rowBools;
   private final String[] rowStrings;
+
+  /**
+   * Per-column set elements for {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET}. Reused
+   * across rows and refilled in place — a projection build walks millions of records, so a fresh list
+   * per row would be the dominant allocation of the build.
+   */
+  private final String[][] rowStringSets;
+
+  /** Live element count per set column for the row being built. */
+  private final int[] rowStringSetLen;
   /** Per-row presence: the field EXISTS on the record (even when unrepresentable). */
   private final boolean[] rowPresent;
-  /** Per-row poison: present field whose value the column kind cannot hold (null / object / array / mismatch). */
+  /**
+   * Per-row poison: present field whose value the column kind cannot hold (null / object / array /
+   * mismatch).
+   */
   private final boolean[] rowUnrepresentable;
   /** Per-row provenance: NUMERIC_LONG cell truncated from a non-integral number. */
   private final boolean[] rowNonIntegral;
   /**
-   * Per-row provenance: NUMERIC_DOUBLE cell converted from a source other than
-   * {@code Double} — clears the leaf's
-   * {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion even when the
-   * conversion was exact (the interpreted fallback's result TYPE depends on source typing:
-   * Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
+   * Per-row provenance: NUMERIC_DOUBLE cell converted from a source other than {@code Double} —
+   * clears the leaf's {@link ProjectionIndexRowGroupPage#COLUMN_FLAG_PURE_DOUBLE_SOURCE} assertion
+   * even when the conversion was exact (the interpreted fallback's result TYPE depends on source
+   * typing: Integer/Big* rows aggregate decimal-exactly as {@code Dec}, Float rows in float
    * arithmetic as {@code Flt} — neither matches a served {@code Dbl}).
    */
   private final boolean[] rowNonDoubleSource;
 
   /**
-   * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number
-   * (double/decimal with a fraction) and was therefore TRUNCATED by
-   * {@code Number#longValue()}. Consumers must not serve value-exact
-   * answers (aggregates, comparisons) from such a column.
+   * Per-column flag: a NUMERIC_LONG cell was fed from a non-integral number (double/decimal with a
+   * fraction) and was therefore TRUNCATED by {@code Number#longValue()}. Consumers must not serve
+   * value-exact answers (aggregates, comparisons) from such a column.
    */
   private final boolean[] numericColumnSawNonIntegral;
 
   /**
-   * Reusable DFS work-list (pre-sized) — holds nodeKeys of unprocessed
-   * subtree roots. Generic for any nested record shape; grown once when deep
-   * records are seen, never per row.
+   * Reusable DFS work-list (pre-sized) — holds nodeKeys of unprocessed subtree roots. Generic for any
+   * nested record shape; grown once when deep records are seen, never per row.
    */
   private long[] workList = new long[64];
   private int workListSize;
@@ -95,8 +99,7 @@ public final class ProjectionIndexRowExtractor {
   public ProjectionIndexRowExtractor(final IndexDef indexDef, final PathSummaryReader pathSummary) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
-          "ProjectionIndexRowExtractor requires an IndexType.PROJECTION IndexDef; got "
-              + indexDef.getType());
+          "ProjectionIndexRowExtractor requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
@@ -108,17 +111,19 @@ public final class ProjectionIndexRowExtractor {
       // Primitive iteration — getPCRsForPath returns a fastutil LongSet;
       // the LongIterator avoids boxing a Long per PCR.
       final LongSet fieldPcrs = pathSummary.getPCRsForPath(fieldPaths.get(i));
-      for (final LongIterator it = fieldPcrs.iterator(); it.hasNext(); ) {
+      for (final LongIterator it = fieldPcrs.iterator(); it.hasNext();) {
         pcrKeys.add(it.nextLong());
         pcrCols.add(i);
       }
-      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i));
+      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i));
     }
     this.fieldPcrKeys = pcrKeys.toLongArray();
     this.fieldPcrColumns = pcrCols.toIntArray();
     this.rowLongs = new long[fieldPaths.size()];
     this.rowBools = new boolean[fieldPaths.size()];
     this.rowStrings = new String[fieldPaths.size()];
+    this.rowStringSets = new String[fieldPaths.size()][];
+    this.rowStringSetLen = new int[fieldPaths.size()];
     this.rowPresent = new boolean[fieldPaths.size()];
     this.rowUnrepresentable = new boolean[fieldPaths.size()];
     this.rowNonIntegral = new boolean[fieldPaths.size()];
@@ -141,11 +146,11 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
-   * Navigate to {@code recordKey} and fill the row buffers from its current
-   * state. The cursor is left positioned at {@code recordKey}.
+   * Navigate to {@code recordKey} and fill the row buffers from its current state. The cursor is left
+   * positioned at {@code recordKey}.
    *
-   * @return {@code false} when the record no longer exists (deleted in the
-   *         running transaction) — the caller drops the row
+   * @return {@code false} when the record no longer exists (deleted in the running transaction) — the
+   *         caller drops the row
    */
   public boolean extractInto(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
     if (!rtx.moveTo(recordKey)) {
@@ -156,25 +161,91 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
-   * Append the buffers filled by the last {@link #extractInto}/{@link #extractAt}
-   * call as one row of {@code leaf}.
+   * Read an array node's STRING elements into the row's set buffer for {@code col}.
    *
-   * @return {@code false} when {@code leaf} is at capacity (caller opens a
-   *         fresh leaf and retries)
+   * <p>
+   * Only a set of STRINGS is representable. A non-string element makes the whole cell unrepresentable
+   * rather than silently dropping it: a membership predicate that saw a partial set would answer "no"
+   * for a record whose array does hold the value, which is a wrong answer, not a slower one.
+   *
+   * @return {@code false} if any element is not a string
+   */
+  private boolean collectStringSet(final JsonNodeReadOnlyTrx rtx, final long arrayKey, final int col) {
+    int n = 0;
+    boolean allStrings = true;
+    if (rtx.hasFirstChild()) {
+      rtx.moveToFirstChild();
+      do {
+        if (rtx.getKind() == NodeKind.STRING_VALUE) {
+          String[] buf = rowStringSets[col];
+          if (buf == null) {
+            buf = new String[8];
+            rowStringSets[col] = buf;
+          } else if (n == buf.length) {
+            final String[] grown = new String[n << 1];
+            System.arraycopy(buf, 0, grown, 0, n);
+            rowStringSets[col] = grown;
+            buf = grown;
+          }
+          buf[n++] = rtx.getValue();
+        } else {
+          allStrings = false;
+        }
+      } while (rtx.moveToRightSibling());
+    }
+    rowStringSetLen[col] = n;
+    rtx.moveTo(arrayKey);
+    return allStrings;
+  }
+
+  /**
+   * The row's set elements per column, trimmed to their live length, or {@code null} when no set
+   * column is declared. Allocates only when a set column exists, and only the outer array.
+   */
+  private String[][] stringSetsForAppend() {
+    String[][] out = null;
+    for (int c = 0; c < columnKinds.length; c++) {
+      if (columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        continue;
+      }
+      if (out == null) {
+        out = new String[columnKinds.length][];
+      }
+      final int n = rowStringSetLen[c];
+      if (n == 0) {
+        out[c] = EMPTY_SET;
+      } else {
+        final String[] trimmed = new String[n];
+        System.arraycopy(rowStringSets[c], 0, trimmed, 0, n);
+        out[c] = trimmed;
+      }
+    }
+    return out;
+  }
+
+  private static final String[] EMPTY_SET = new String[0];
+
+  /**
+   * Append the buffers filled by the last {@link #extractInto}/{@link #extractAt} call as one row of
+   * {@code leaf}.
+   *
+   * @return {@code false} when {@code leaf} is at capacity (caller opens a fresh leaf and retries)
    */
   public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey) {
-    return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, rowPresent,
+    return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, stringSetsForAppend(), rowPresent,
         rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
   }
 
   /**
-   * Fill the row buffers for the record at {@code recordKey}; the cursor is
-   * assumed to be able to reach it (bulk-build path positions it during
-   * traversal). Ends with the cursor back at {@code recordKey}.
+   * Fill the row buffers for the record at {@code recordKey}; the cursor is assumed to be able to
+   * reach it (bulk-build path positions it during traversal). Ends with the cursor back at
+   * {@code recordKey}.
    */
-  void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    // Reset per-row slots — fields we fail to resolve stay "missing"
-    // (presence bit clear) and serialise as defaults on the leaf page.
+  /**
+   * Clear every per-row slot. A field this row fails to resolve stays "missing" — presence bit clear
+   * — and serialises as the column's default on the leaf page.
+   */
+  private void resetRow() {
     for (int i = 0; i < columnKinds.length; i++) {
       rowLongs[i] = 0L;
       rowBools[i] = false;
@@ -183,13 +254,18 @@ public final class ProjectionIndexRowExtractor {
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
       rowNonDoubleSource[i] = false;
+      rowStringSetLen[i] = 0;
     }
+  }
+
+  void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    resetRow();
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
-    //   - a fused OBJECT_NAMED_* record matching a declared field reads its
-    //     inline value straight into the row
-    //   - structured kinds (OBJECT / ARRAY / fused containers) descend so
-    //     declared NESTED fields below them are found.
+    // - a fused OBJECT_NAMED_* record matching a declared field reads its
+    // inline value straight into the row
+    // - structured kinds (OBJECT / ARRAY / fused containers) descend so
+    // declared NESTED fields below them are found.
     workListSize = 0;
     pushFirstChild(rtx, recordKey);
     while (workListSize > 0) {
@@ -199,39 +275,53 @@ public final class ProjectionIndexRowExtractor {
       long cur = top;
       do {
         final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            // Object/array-valued field declared as a primitive column: present
-            // but UNREPRESENTABLE.
-            rowPresent[col] = true;
-            rowUnrepresentable[col] = true;
-          }
-          // Descend regardless — declared NESTED fields live below this node.
-          pushFirstChild(rtx, cur);
-        } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN
-            || kind == NodeKind.OBJECT_NAMED_NUMBER
-            || kind == NodeKind.OBJECT_NAMED_STRING
-            || kind == NodeKind.OBJECT_NAMED_NULL) {
+        if (isFusedScalarKind(kind)) {
           // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
-          // direct extraction, no synthetic-child navigation.
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
+          // direct extraction, no synthetic-child navigation. Fused nodes have no children,
+          // so there is nothing to descend into.
+          final int col = findField(rtx.getPathNodeKey());
           if (col >= 0) {
             readFusedValueIntoRow(rtx, kind, col);
           }
-          // Fused nodes have no children. No descent.
+        } else if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+          final long pk = rtx.getPathNodeKey();
+          final int col = findField(pk);
+          if (col >= 0) {
+            if (kind == NodeKind.OBJECT_NAMED_ARRAY
+                && columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+              // An array-valued field declared as a SET column: its string elements ARE the value.
+              // Every other declared column kind is scalar, which is why this used to be recorded
+              // as present-but-unrepresentable and the index could say nothing about it.
+              rowPresent[col] = true;
+              if (!collectStringSet(rtx, cur, col)) {
+                rowUnrepresentable[col] = true; // a non-string element: not a set of strings
+              }
+            } else {
+              // Object/array-valued field declared as a primitive column: present
+              // but UNREPRESENTABLE.
+              rowPresent[col] = true;
+              rowUnrepresentable[col] = true;
+            }
+          }
+          // Descend regardless — declared NESTED fields live below this node.
+          pushFirstChild(rtx, cur);
         } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
           // Structured — descend.
           pushFirstChild(rtx, cur);
         }
         // Primitives have no children; skip.
-        if (!rtx.moveToRightSibling()) break;
+        if (!rtx.moveToRightSibling())
+          break;
         cur = rtx.getNodeKey();
       } while (true);
     }
     rtx.moveTo(recordKey);
+  }
+
+  /** The fused kinds whose value sits inline on the record itself, rather than on a child node. */
+  private static boolean isFusedScalarKind(final NodeKind kind) {
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL;
   }
 
   private void pushFirstChild(final JsonNodeReadOnlyTrx rtx, final long parentKey) {
@@ -251,16 +341,17 @@ public final class ProjectionIndexRowExtractor {
     // a HashMap lookup at typical projection width (~5 fields, one or a few
     // PCRs each) — fits in a cache line and JIT-inlines cleanly.
     for (int i = 0; i < fieldPcrKeys.length; i++) {
-      if (fieldPcrKeys[i] == pathNodeKey) return fieldPcrColumns[i];
+      if (fieldPcrKeys[i] == pathNodeKey)
+        return fieldPcrColumns[i];
     }
     return -1;
   }
 
   /**
-   * {@code true} when converting {@code n} to {@code d = n.doubleValue()} lost information —
-   * the NUMERIC_DOUBLE value-exactness probe. Double/Float/Integer convert exactly (float and
-   * int widen losslessly); Long round-trips iff |value| ≤ 2^53-ish (checked by round-trip);
-   * Big* fall back to an exact BigDecimal compare (allocates, but only on the rare Big* path).
+   * {@code true} when converting {@code n} to {@code d = n.doubleValue()} lost information — the
+   * NUMERIC_DOUBLE value-exactness probe. Double/Float/Integer convert exactly (float and int widen
+   * losslessly); Long round-trips iff |value| ≤ 2^53-ish (checked by round-trip); Big* fall back to
+   * an exact BigDecimal compare (allocates, but only on the rare Big* path).
    */
   private static boolean isLossyDoubleConversion(final Number n, final double d) {
     return switch (n) {
@@ -292,19 +383,18 @@ public final class ProjectionIndexRowExtractor {
   private static final BigDecimal LONG_MAX_DEC = BigDecimal.valueOf(Long.MAX_VALUE);
 
   /**
-   * {@code true} when storing {@code n} as a long does NOT reproduce the
-   * interpreter-visible value/type exactly — the NUMERIC_LONG value-exactness probe
-   * (the twin of {@link #isLossyDoubleConversion}):
+   * {@code true} when storing {@code n} as a long does NOT reproduce the interpreter-visible
+   * value/type exactly — the NUMERIC_LONG value-exactness probe (the twin of
+   * {@link #isLossyDoubleConversion}):
    * <ul>
-   *   <li>out-of-long-range integers ({@code BigInteger}, big integral {@code BigDecimal})
-   *       WRAP through {@code longValue()} — silently wrong values;</li>
-   *   <li>{@code Double}/{@code Float} sources type the interpreter's arithmetic in
-   *       double/float space even when the VALUE is integral ({@code Dbl} serialization
-   *       switches to scientific notation at 1e6+, and the fold's result type differs
-   *       under composition).</li>
+   * <li>out-of-long-range integers ({@code BigInteger}, big integral {@code BigDecimal}) WRAP through
+   * {@code longValue()} — silently wrong values;</li>
+   * <li>{@code Double}/{@code Float} sources type the interpreter's arithmetic in double/float space
+   * even when the VALUE is integral ({@code Dbl} serialization switches to scientific notation at
+   * 1e6+, and the fold's result type differs under composition).</li>
    * </ul>
-   * Flagged cells raise the value-exactness bit so value-exact consumers decline to the
-   * typed re-walk / generic pipeline; counts stay servable.
+   * Flagged cells raise the value-exactness bit so value-exact consumers decline to the typed re-walk
+   * / generic pipeline; counts stay servable.
    */
   private static boolean isLossyLongConversion(final Number n) {
     return switch (n) {
@@ -321,14 +411,12 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
-   * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into
-   * the current row. The rtx's value predicates already return true on a fused
-   * record; dispatch is by record kind: fused-number → numeric column, fused-boolean
-   * → boolean column, fused-string → string column, fused-null → present but
-   * unrepresentable (no column kind can hold it).
+   * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into the current row.
+   * The rtx's value predicates already return true on a fused record; dispatch is by record kind:
+   * fused-number → numeric column, fused-boolean → boolean column, fused-string → string column,
+   * fused-null → present but unrepresentable (no column kind can hold it).
    */
-  private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind,
-      final int col) {
+  private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind, final int col) {
     rowPresent[col] = true;
     final byte columnKind = columnKinds[col];
     switch (fusedKind) {
@@ -381,7 +469,9 @@ public final class ProjectionIndexRowExtractor {
         }
       }
       case OBJECT_NAMED_STRING -> {
-        final String v = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ? rtx.getValue() : null;
+        final String v = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            ? rtx.getValue()
+            : null;
         if (v != null) {
           rowStrings[col] = v;
         } else {

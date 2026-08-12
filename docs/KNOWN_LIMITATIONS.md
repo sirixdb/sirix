@@ -135,7 +135,11 @@ else falls back to the generic (always correct) pipeline.
   missing keys to the missing bucket (`'m'` segment / null group key),
   aggregates skip missing rows. Columns that ever saw null/object/array/
   kind-mismatched values are flagged and the projection paths decline them
-  (typed kernels / generic pipeline answer correctly instead).
+  (typed kernels / generic pipeline answer correctly instead). An
+  array-valued field is only unrepresentable when declared as a *scalar*
+  column — declared with a trailing array step (`'/[]/genres/[]'`) it
+  becomes a set column serving membership predicates (see
+  `PROJECTION_INDEXES.md`).
 - **Sparse group fields (scan path, single key).** The typed kernel
   synthesizes the missing-key group from `recordCount - visited` for
   top-level-array sources (this used to be a loud `QueryException`).

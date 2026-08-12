@@ -18,107 +18,94 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 /**
- * Umbra / LeanStore-style buffer allocator with fixed-position frame slots
- * and optimistic versioned reads.
+ * Umbra / LeanStore-style buffer allocator with fixed-position frame slots and optimistic versioned
+ * reads.
  *
  * <h2>Why this exists</h2>
  *
- * The prior {@link LinuxMemorySegmentAllocator} uses a pool of recyclable
- * segments: a fresh allocate() can hand back a segment whose virtual address
- * previously hosted different page content. Under high-concurrency parallel
- * scans (20 worker threads × 100 M records), this exposes a race where a
- * reader holds a {@link MemorySegment} into a just-released segment at the
- * moment the kernel {@code MADV_DONTNEED}s its physical pages, producing
- * {@code SIGSEGV_MAPERR} in otherwise-correct code.
+ * The prior {@link LinuxMemorySegmentAllocator} uses a pool of recyclable segments: a fresh
+ * allocate() can hand back a segment whose virtual address previously hosted different page
+ * content. Under high-concurrency parallel scans (20 worker threads × 100 M records), this exposes
+ * a race where a reader holds a {@link MemorySegment} into a just-released segment at the moment
+ * the kernel {@code MADV_DONTNEED}s its physical pages, producing {@code SIGSEGV_MAPERR} in
+ * otherwise-correct code.
  *
  * <h2>Umbra's solution, ported</h2>
  *
  * <ol>
- *   <li>One virtual-memory reservation at startup per size class ({@code mmap} on POSIX,
- *       {@code VirtualAlloc(MEM_RESERVE)} on Windows — see {@link VirtualMemory}), subdivided
- *       into fixed-position slots. A slot's virtual address is stable for the lifetime of the
- *       process.</li>
- *   <li>A {@code long} version counter per slot. Even = slot is quiescent
- *       (either free or stably owned by readers); odd = slot is being
- *       modified by a writer (allocate/release).</li>
- *   <li>Readers use optimistic versioning: snapshot {@code v1 = version},
- *       read the slot bytes, re-read {@code v2 = version}; if
- *       {@code v1 != v2} or the low bit is set, the read raced an eviction
- *       and must be retried by re-locating the page.</li>
- *   <li>Writers (evictors) bump the version before {@code MADV_DONTNEED}
- *       and again after it completes, so any read-pair that straddles a
- *       teardown always observes {@code v1 != v2}.</li>
+ * <li>One virtual-memory reservation at startup per size class ({@code mmap} on POSIX,
+ * {@code VirtualAlloc(MEM_RESERVE)} on Windows — see {@link VirtualMemory}), subdivided into
+ * fixed-position slots. A slot's virtual address is stable for the lifetime of the process.</li>
+ * <li>A {@code long} version counter per slot. Even = slot is quiescent (either free or stably
+ * owned by readers); odd = slot is being modified by a writer (allocate/release).</li>
+ * <li>Readers use optimistic versioning: snapshot {@code v1 = version}, read the slot bytes,
+ * re-read {@code v2 = version}; if {@code v1 != v2} or the low bit is set, the read raced an
+ * eviction and must be retried by re-locating the page.</li>
+ * <li>Writers (evictors) bump the version before {@code MADV_DONTNEED} and again after it
+ * completes, so any read-pair that straddles a teardown always observes {@code v1 != v2}.</li>
  * </ol>
  *
  * <h2>Size classes</h2>
  *
- * Seven power-of-two size classes match what {@code LinuxMemorySegmentAllocator}
- * exposes today: 4 KiB through 256 KiB. Each class has its own mmap'd virtual
- * region, version array, and free-slot stack; there is no cross-class
- * contention. Callers locate the right class via {@link #indexForSize(long)}.
+ * Seven power-of-two size classes match what {@code LinuxMemorySegmentAllocator} exposes today: 4
+ * KiB through 256 KiB. Each class has its own mmap'd virtual region, version array, and free-slot
+ * stack; there is no cross-class contention. Callers locate the right class via
+ * {@link #indexForSize(long)}.
  *
  * <h2>Sirix's persistent tree-of-tries, and why it fits this allocator</h2>
  *
- * Sirix is a copy-on-write store built as a functional tree of tries: each
- * commit produces a new {@code RevisionRootPage} that pointer-shares unchanged
- * subtrees with prior revisions. A single writer mutates any given resource at
- * a time; readers observe their own revision's root and walk down through
- * structurally-shared page fragments. Two consequences for this allocator:
+ * Sirix is a copy-on-write store built as a functional tree of tries: each commit produces a new
+ * {@code RevisionRootPage} that pointer-shares unchanged subtrees with prior revisions. A single
+ * writer mutates any given resource at a time; readers observe their own revision's root and walk
+ * down through structurally-shared page fragments. Two consequences for this allocator:
  *
  * <ul>
- *   <li><b>Cache entries are one-to-one with page fragments, not with
- *       revisions.</b> A subtree shared by revisions M and N resolves to the
- *       same {@code PageReference} (same on-disk key) and therefore occupies
- *       the same cache entry and the same slot. There is no "per-revision
- *       slot" concept — the slot version counter protects concurrent readers
- *       across revisions just as well as within one.</li>
- *   <li><b>Modifying a fragment in revision N+1 produces a new
- *       {@code PageReference} at a new file offset.</b> That new reference
- *       maps to a different cache entry, which lives in its own slot. The old
- *       revision's readers keep seeing the old slot unchanged; N+1 readers
- *       resolve to the new slot. The allocator sees this only as "two
- *       unrelated allocations."</li>
+ * <li><b>Cache entries are one-to-one with page fragments, not with revisions.</b> A subtree shared
+ * by revisions M and N resolves to the same {@code PageReference} (same on-disk key) and therefore
+ * occupies the same cache entry and the same slot. There is no "per-revision slot" concept — the
+ * slot version counter protects concurrent readers across revisions just as well as within
+ * one.</li>
+ * <li><b>Modifying a fragment in revision N+1 produces a new {@code PageReference} at a new file
+ * offset.</b> That new reference maps to a different cache entry, which lives in its own slot. The
+ * old revision's readers keep seeing the old slot unchanged; N+1 readers resolve to the new slot.
+ * The allocator sees this only as "two unrelated allocations."</li>
  * </ul>
  *
  * <h2>Single-writer-per-resource, many readers — no reader↔writer race</h2>
  *
- * Writes on a resource are serialized — exactly one writer thread at a time —
- * and the writer operates on its own transaction intent log, isolated from the
- * reader-visible cache until commit. Pages created by the writer <em>do</em>
- * use frames from this allocator, but the writer never publishes those frames
- * to readers before the commit fence; likewise readers never see in-flight
- * writer state. There is therefore <b>no reader↔writer race</b> this
- * allocator needs to protect against.
+ * Writes on a resource are serialized — exactly one writer thread at a time — and the writer
+ * operates on its own transaction intent log, isolated from the reader-visible cache until commit.
+ * Pages created by the writer <em>do</em> use frames from this allocator, but the writer never
+ * publishes those frames to readers before the commit fence; likewise readers never see in-flight
+ * writer state. There is therefore <b>no reader↔writer race</b> this allocator needs to protect
+ * against.
  *
- * <p>The only concurrency this allocator handles:
+ * <p>
+ * The only concurrency this allocator handles:
  *
  * <ul>
- *   <li><b>Reader ↔ reader.</b> Two readers simultaneously reading the same
- *       cached page's slot — trivially safe (no mutation).</li>
- *   <li><b>Reader ↔ evictor.</b> The ClockSweeper (or a reader triggering
- *       evict-on-over-budget) releases a slot whose {@link FrameSlot} handle
- *       another reader may still be dereferencing. The slot version counter
- *       closes this window: the evictor bumps version before
- *       {@code MADV_DONTNEED}; a reader that snapshotted the pre-eviction
- *       version observes a different post-eviction version and retries via
- *       the cache, which re-resolves the {@code PageReference} to a fresh
- *       slot. No SEGV.</li>
+ * <li><b>Reader ↔ reader.</b> Two readers simultaneously reading the same cached page's slot —
+ * trivially safe (no mutation).</li>
+ * <li><b>Reader ↔ evictor.</b> The ClockSweeper (or a reader triggering evict-on-over-budget)
+ * releases a slot whose {@link FrameSlot} handle another reader may still be dereferencing. The
+ * slot version counter closes this window: the evictor bumps version before {@code MADV_DONTNEED};
+ * a reader that snapshotted the pre-eviction version observes a different post-eviction version and
+ * retries via the cache, which re-resolves the {@code PageReference} to a fresh slot. No SEGV.</li>
  * </ul>
  *
- * In short: the allocator provides slot-level memory safety (version-checked
- * reads, stable virtual addresses) that is orthogonal to Sirix's revision
- * model. The cache's {@code PageReference → slot} mapping handles revision
- * semantics; the allocator handles recycling semantics.
+ * In short: the allocator provides slot-level memory safety (version-checked reads, stable virtual
+ * addresses) that is orthogonal to Sirix's revision model. The cache's {@code PageReference → slot}
+ * mapping handles revision semantics; the allocator handles recycling semantics.
  *
  * <h2>HFT-grade cost</h2>
  *
  * <ul>
- *   <li>Allocate: one free-stack pop + one {@code long} version bump; a fresh slot's
- *       one-time commit happens in the {@link VirtualMemory} backend (no-op on POSIX).</li>
- *   <li>Release: one version bump + one free-slot push. No unmapping, no decommit;
- *       the virtual address stays valid and committed for reuse.</li>
- *   <li>Read: two {@code getAcquire} loads of the version. Zero CAS,
- *       zero syscall in the common case.</li>
+ * <li>Allocate: one free-stack pop + one {@code long} version bump; a fresh slot's one-time commit
+ * happens in the {@link VirtualMemory} backend (no-op on POSIX).</li>
+ * <li>Release: one version bump + one free-slot push. No unmapping, no decommit; the virtual
+ * address stays valid and committed for reuse.</li>
+ * <li>Read: two {@code getAcquire} loads of the version. Zero CAS, zero syscall in the common
+ * case.</li>
  * </ul>
  */
 public final class FrameSlotAllocator implements MemorySegmentAllocator {
@@ -126,14 +113,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final Logger LOGGER = LoggerFactory.getLogger(FrameSlotAllocator.class);
 
   // ===== Size classes (must match LinuxMemorySegmentAllocator.SEGMENT_SIZES) =
-  public static final long[] SIZE_CLASSES = {
-      4L * 1024,           //  4 KiB
-      8L * 1024,           //  8 KiB
-      16L * 1024,          // 16 KiB
-      32L * 1024,          // 32 KiB
-      64L * 1024,          // 64 KiB
-      128L * 1024,         // 128 KiB
-      256L * 1024          // 256 KiB
+  public static final long[] SIZE_CLASSES = {4L * 1024, // 4 KiB
+      8L * 1024, // 8 KiB
+      16L * 1024, // 16 KiB
+      32L * 1024, // 32 KiB
+      64L * 1024, // 64 KiB
+      128L * 1024, // 128 KiB
+      256L * 1024 // 256 KiB
   };
 
   // ===== Virtual-memory plumbing =============================================
@@ -142,13 +128,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private static final VirtualMemory VM = VirtualMemory.forCurrentPlatform();
 
   /**
-   * Per-size-class state. One instance per entry in {@link #SIZE_CLASSES}.
-   * Each class is independently addressable — no cross-class contention.
+   * Per-size-class state. One instance per entry in {@link #SIZE_CLASSES}. Each class is
+   * independently addressable — no cross-class contention.
    *
-   * <p>Slot-index allocation strategy: fresh slots are handed out lazily via
-   * {@link #nextFreshIndex}; recycled slots land on {@link #freeSlots}. The
-   * allocator always tries the recycled stack first, so stable-address
-   * recycling dominates once the cache is warm. Lazy-fresh avoids a 512K+
+   * <p>
+   * Slot-index allocation strategy: fresh slots are handed out lazily via {@link #nextFreshIndex};
+   * recycled slots land on {@link #freeSlots}. The allocator always tries the recycled stack first,
+   * so stable-address recycling dominates once the cache is warm. Lazy-fresh avoids a 512K+
    * boxed-Integer startup cost.
    */
   private static final class SizeClass {
@@ -177,30 +163,28 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   private volatile long budgetBytes;
 
   /**
-   * Physical-memory bytes currently held across all size classes. Counted
-   * per-slot-size on allocate, released on close. Sized so that a workload
-   * dominated by a single size class (e.g., all 64 KiB leaf pages during a
-   * parallel scan) can use the full budget rather than being capped at
+   * Physical-memory bytes currently held across all size classes. Counted per-slot-size on allocate,
+   * released on close. Sized so that a workload dominated by a single size class (e.g., all 64 KiB
+   * leaf pages during a parallel scan) can use the full budget rather than being capped at
    * {@code budget / numClasses}.
    */
   private final AtomicLong physicalBytes = new AtomicLong();
 
   /**
-   * Virtual reservation per size class. Cheap because {@code MAP_NORESERVE}
-   * means only touched pages count against RAM. Sized at 32 GiB per class
-   * (× 7 = 224 GiB virtual) — plenty of slot indices for any realistic
-   * budget up to ~28 GiB physical.
+   * Virtual reservation per size class. Cheap because {@code MAP_NORESERVE} means only touched pages
+   * count against RAM. Sized at 32 GiB per class (× 7 = 224 GiB virtual) — plenty of slot indices for
+   * any realistic budget up to ~28 GiB physical.
    */
   private static final long VIRTUAL_PER_CLASS = 32L * 1024 * 1024 * 1024;
 
   /**
-   * Pressure listener — invoked on allocate-failure before the park-and-retry
-   * window. Production implementation: {@code BufferManagerImpl} registers
-   * {@code cache::evictUnderPressure} here so eviction fires directly rather
-   * than waiting for the background {@link ClockSweeper} to catch up.
+   * Pressure listener — invoked on allocate-failure before the park-and-retry window. Production
+   * implementation: {@code BufferManagerImpl} registers {@code cache::evictUnderPressure} here so
+   * eviction fires directly rather than waiting for the background {@link ClockSweeper} to catch up.
    *
-   * <p>Volatile write, atomic reference — zero-allocation on the hot path
-   * when no listener is registered.
+   * <p>
+   * Volatile write, atomic reference — zero-allocation on the hot path when no listener is
+   * registered.
    */
   public interface PressureListener {
     void onPressure();
@@ -213,13 +197,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Test-only diagnostic. When {@code true}, {@link #releaseSlot} zero-fills a slot's
-   * physical pages as it is freed. Production deliberately leaves a released slot's bytes
-   * intact (no {@code MADV_DONTNEED} — see {@link #releaseSlot}), so a use-after-close
-   * reads stale-but-valid data and only a real memory-pressure recycle ever clobbers it.
-   * Turning this on makes any use-after-free deterministic instead of pressure-gated: the
-   * freed slot reads back as zeros immediately. Off by default; one volatile read per
-   * release when off, no hot-path cost otherwise.
+   * Test-only diagnostic. When {@code true}, {@link #releaseSlot} zero-fills a slot's physical pages
+   * as it is freed. Production deliberately leaves a released slot's bytes intact (no
+   * {@code MADV_DONTNEED} — see {@link #releaseSlot}), so a use-after-close reads stale-but-valid
+   * data and only a real memory-pressure recycle ever clobbers it. Turning this on makes any
+   * use-after-free deterministic instead of pressure-gated: the freed slot reads back as zeros
+   * immediately. Off by default; one volatile read per release when off, no hot-path cost otherwise.
    */
   private static volatile boolean poisonOnRelease;
 
@@ -230,31 +213,37 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   /**
    * A slot issued through {@link #allocate(long)}, paired with the per-allocation scope that
-   * identifies THIS allocation era of the slot's address (#1073 Defect A). The free stack is
-   * LIFO, so a just-released slot is re-issued first — at the same stable address. An
-   * address-only release then lets a stale, dangling segment reference (a delayed
-   * double-release) look up and close the NEXT owner's live slot: silent use-after-free plus a
-   * double budget decrement. Each allocation is therefore issued under a fresh
-   * {@link Arena#ofShared()} whose scope acts as an unforgeable identity token: reinterpret/
-   * slice-derived segments inherit the issuing scope (so all legitimate release patterns still
-   * match), while a segment from a prior era carries the prior era's scope and is rejected.
+   * identifies THIS allocation era of the slot's address (#1073 Defect A). The free stack is LIFO, so
+   * a just-released slot is re-issued first — at the same stable address. An address-only release
+   * then lets a stale, dangling segment reference (a delayed double-release) look up and close the
+   * NEXT owner's live slot: silent use-after-free plus a double budget decrement. Each allocation is
+   * therefore issued under a fresh {@link Arena#ofShared()} whose scope acts as an unforgeable
+   * identity token: reinterpret/ slice-derived segments inherit the issuing scope (so all legitimate
+   * release patterns still match), while a segment from a prior era carries the prior era's scope and
+   * is rejected.
    */
   private record Issued(FrameSlot slot, MemorySegment.Scope scope) {
   }
 
   /**
-   * Address → live issued-slot map used by the {@link #release(MemorySegment)}
-   * implementation of the {@link MemorySegmentAllocator} interface. Callers
-   * using the native {@link FrameSlot} handle API don't hit this map.
+   * Address → live issued-slot map used by the {@link #release(MemorySegment)} implementation of the
+   * {@link MemorySegmentAllocator} interface. Callers using the native {@link FrameSlot} handle API
+   * don't hit this map.
    */
   private final ConcurrentHashMap<Long, Issued> liveByAddress = new ConcurrentHashMap<>();
 
   /**
    * Address → arena map for allocations LARGER than the largest size class (e.g. decompression
-   * buffers for {@code OverflowPage}s carrying large values, #1076). Frame slots cannot serve
-   * them, so each is backed by its own shared arena, closed on {@link #release(MemorySegment)}.
-   * Oversized allocations are rare by design — every slotted page fits a size class — so the
-   * extra map lookup on release is off the hot path.
+   * buffers for {@code OverflowPage}s carrying large values, #1076). Frame slots cannot serve them,
+   * so each is backed by its own CONFINED arena, closed deterministically on
+   * {@link #release(MemorySegment)} — closing a confined arena is not gated by GraalVM's
+   * {@code SharedArenaSupport} (only shared-arena close is, and that flag is mutually exclusive with
+   * the Vector API), so this keeps both deterministic reclaim and the SIMD kernels in the native
+   * image. Allocation, access, and release are confined to the allocating thread; a release (or
+   * access) from another thread fails loudly with {@link WrongThreadException}, which is the intended
+   * failure for a caller violating the scoped decompress path's same-thread contract. Oversized
+   * allocations are rare by design — every slotted page fits a size class — so the extra map lookup
+   * on release is off the hot path.
    */
   private final ConcurrentHashMap<Long, Arena> oversizedByAddress = new ConcurrentHashMap<>();
 
@@ -263,12 +252,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Internal no-arg constructor; production paths go through
-   * {@link #getInstance()} + {@link #init(long)}. Tests may construct an
-   * independent instance directly.
+   * Internal no-arg constructor; production paths go through {@link #getInstance()} +
+   * {@link #init(long)}. Tests may construct an independent instance directly.
    */
-  FrameSlotAllocator() {
-  }
+  FrameSlotAllocator() {}
 
   /** Test-only: construct and immediately initialize with the given budget. */
   public FrameSlotAllocator(final long budgetBytes) {
@@ -276,9 +263,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Initialize the allocator with a physical-memory budget. Idempotent; a
-   * second call with a larger budget is a no-op (we cannot cheaply grow an
-   * mmap'd region). Callers should call once at startup.
+   * Initialize the allocator with a physical-memory budget. Idempotent; a second call with a larger
+   * budget is a no-op (we cannot cheaply grow an mmap'd region). Callers should call once at startup.
    */
   @Override
   public void init(final long maxBufferSize) {
@@ -313,8 +299,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       final long regionBytes = (long) slotCount * slotSize;
       final MemorySegment region = mapRegion(regionBytes);
       cls[i] = new SizeClass(slotSize, slotCount, region);
-      LOGGER.info("FrameSlotAllocator class {}: {} slots × {} bytes = {} MiB virtual",
-          i, slotCount, slotSize, regionBytes / (1024 * 1024));
+      LOGGER.info("FrameSlotAllocator class {}: {} slots × {} bytes = {} MiB virtual", i, slotCount, slotSize,
+          regionBytes / (1024 * 1024));
     }
     this.classes = cls;
     this.initialized.set(true);
@@ -346,8 +332,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Resolve a requested byte size to the smallest size-class index that
-   * fits it. Returns {@code -1} if the request exceeds the largest class.
+   * Resolve a requested byte size to the smallest size-class index that fits it. Returns {@code -1}
+   * if the request exceeds the largest class.
    */
   public static int indexForSize(final long requestedBytes) {
     for (int i = 0; i < SIZE_CLASSES.length; i++) {
@@ -359,10 +345,9 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Allocate a slot and return the {@link FrameSlot} handle. Prefer this over
-   * the interface {@link #allocate(long)} when you want explicit slot
-   * metadata (class index, slot index, version) for optimistic reads.
-   * Returns {@code null} if the class has no free slots.
+   * Allocate a slot and return the {@link FrameSlot} handle. Prefer this over the interface
+   * {@link #allocate(long)} when you want explicit slot metadata (class index, slot index, version)
+   * for optimistic reads. Returns {@code null} if the class has no free slots.
    */
   public FrameSlot allocateSlot(final long requestedBytes) {
     // Defensive lazy-init: production code path always calls
@@ -420,25 +405,30 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * {@link MemorySegmentAllocator}-conforming allocate. Wraps
-   * {@link #allocateSlot(long)} and records the slot in an address-indexed
-   * map so {@link #release(MemorySegment)} can look it up.
+   * {@link MemorySegmentAllocator}-conforming allocate. Wraps {@link #allocateSlot(long)} and records
+   * the slot in an address-indexed map so {@link #release(MemorySegment)} can look it up.
    *
-   * <p>On class exhaustion, parks briefly and retries — the {@link ClockSweeper}
-   * runs on a daemon thread and continuously releases stale slots, so the
-   * typical exhaustion is a transient spike rather than a real limit. Mirrors
-   * {@code LinuxMemorySegmentAllocator}'s park-and-retry pattern (50 µs initial,
-   * exponential up to 5 ms, 10 s total ceiling). A mid-query OOM cascades into
-   * partial-page state and SIGSEGV downstream, so waiting is almost always the
-   * right call.
+   * <p>
+   * On class exhaustion, parks briefly and retries — the {@link ClockSweeper} runs on a daemon thread
+   * and continuously releases stale slots, so the typical exhaustion is a transient spike rather than
+   * a real limit. Mirrors {@code LinuxMemorySegmentAllocator}'s park-and-retry pattern (50 µs
+   * initial, exponential up to 5 ms, 10 s total ceiling). A mid-query OOM cascades into partial-page
+   * state and SIGSEGV downstream, so waiting is almost always the right call.
    */
   @Override
   public MemorySegment allocate(final long size) {
     if (size > SIZE_CLASSES[SIZE_CLASSES.length - 1]) {
       // Oversized request — larger than any frame-slot size class. These come from large-value
-      // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Serve
-      // them from a dedicated shared arena, tracked by address for release().
-      final Arena arena = Arena.ofShared();
+      // overflow storage (#1076): OverflowPage (de)compression buffers can exceed 256 KiB. Served
+      // from a per-allocation CONFINED arena, closed deterministically in release(). Two reasons
+      // over ofShared: (1) closing a shared arena is a thread-handshake — measurable on a path a
+      // large blob read hits once per query; (2) native-image forbids Arena.ofShared close unless
+      // -H:+SharedArenaSupport is on, and THAT flag is mutually exclusive with Vector API support
+      // in GraalVM 25 — this method was the image's only shared-arena close, and it silently cost
+      // the SIMD kernels. Confined-arena close carries neither cost, and the scoped decompress
+      // path allocates and releases on the same thread; a cross-thread caller fails loudly with
+      // WrongThreadException rather than leaking or deferring reclaim to GC.
+      final Arena arena = Arena.ofConfined();
       final MemorySegment segment = arena.allocate(size);
       oversizedByAddress.put(segment.address(), arena);
       return segment;
@@ -467,12 +457,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       }
       if (slot == null) {
         final int classIdx = indexForSize(size);
-        LOGGER.warn("FrameSlotAllocator class {} saturated for {} ms (size {}): sweeper unable to free slots",
-            classIdx, totalWaitedNanos / 1_000_000L, size);
+        LOGGER.warn("FrameSlotAllocator class {} saturated for {} ms (size {}): sweeper unable to free slots", classIdx,
+            totalWaitedNanos / 1_000_000L, size);
         dumpStateForOOM(classIdx, size, totalWaitedNanos);
-        throw new OutOfMemoryError("FrameSlotAllocator: size class "
-            + classIdx + " exhausted for " + size + " bytes after "
-            + (totalWaitedNanos / 1_000_000L) + " ms of retry");
+        throw new OutOfMemoryError("FrameSlotAllocator: size class " + classIdx + " exhausted for " + size
+            + " bytes after " + (totalWaitedNanos / 1_000_000L) + " ms of retry");
       }
     }
     // Issue the slot under a fresh shared arena: the arena's scope is this allocation era's
@@ -485,15 +474,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * {@link MemorySegmentAllocator}-conforming release. Maps
-   * {@code segment.address()} back to the live {@link FrameSlot} and closes
-   * it — which bumps the slot's version, {@code MADV_DONTNEED}s its pages,
-   * and returns the slot to the free stack at the same virtual address.
+   * {@link MemorySegmentAllocator}-conforming release. Maps {@code segment.address()} back to the
+   * live {@link FrameSlot} and closes it — which bumps the slot's version, {@code MADV_DONTNEED}s its
+   * pages, and returns the slot to the free stack at the same virtual address.
    *
-   * <p>Idempotent: a second release for the same address is a no-op. A release whose segment
-   * belongs to a PRIOR allocation era of the address (a stale, dangling reference arriving
-   * after the slot was recycled and re-issued) is detected via the per-allocation scope token
-   * and rejected — it must not close the current owner's live slot (#1073 Defect A).
+   * <p>
+   * Idempotent: a second release for the same address is a no-op. A release whose segment belongs to
+   * a PRIOR allocation era of the address (a stale, dangling reference arriving after the slot was
+   * recycled and re-issued) is detected via the per-allocation scope token and rejected — it must not
+   * close the current owner's live slot (#1073 Defect A).
    */
   @Override
   public void release(final MemorySegment segment) {
@@ -501,12 +490,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     final long address = segment.address();
-    // Oversized allocation (#1076): arena-backed, not slot-backed — close its arena and return.
-    // Checked first: oversized segments carry their own arena scope and can never match an
-    // Issued frame-slot era token below.
-    final Arena oversizedArena = oversizedByAddress.remove(address);
-    if (oversizedArena != null) {
-      oversizedArena.close();
+    // Oversized allocation (#1076): confined-arena-backed, not slot-backed — close the arena to
+    // reclaim the native memory deterministically. Confined close must run on the allocating
+    // thread; a cross-thread release throws WrongThreadException, surfacing the misuse loudly.
+    // Checked first: oversized segments can never match an Issued frame-slot era token below.
+    final Arena oversized = oversizedByAddress.remove(address);
+    if (oversized != null) {
+      oversized.close();
       return;
     }
     final Issued issued = liveByAddress.get(address);
@@ -526,9 +516,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Reset ({@code MADV_DONTNEED}) the physical pages backing {@code segment}
-   * without releasing the slot. Used by callers that want to reuse the slot
-   * with zero-filled content.
+   * Reset ({@code MADV_DONTNEED}) the physical pages backing {@code segment} without releasing the
+   * slot. Used by callers that want to reuse the slot with zero-filled content.
    */
   @Override
   public void resetSegment(final MemorySegment segment) {
@@ -539,32 +528,31 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Hand out a slot index. Recycled slots come off {@link SizeClass#freeSlots}
-   * first (stable-address reuse, which is the core of the Umbra design). If
-   * the recycle stack is empty, a fresh index is carved off the virtual
-   * region via {@link SizeClass#nextFreshIndex}. Returns {@code -1} when both
+   * Hand out a slot index. Recycled slots come off {@link SizeClass#freeSlots} first (stable-address
+   * reuse, which is the core of the Umbra design). If the recycle stack is empty, a fresh index is
+   * carved off the virtual region via {@link SizeClass#nextFreshIndex}. Returns {@code -1} when both
    * sources are exhausted.
    */
   /**
-   * Dumps per-class allocator state when an allocation saturates — live slot
-   * count, total lifetime allocates/releases, slots still in {@code liveByAddress},
-   * and physical-byte accounting. Emitted to stderr so it lands even when
-   * logback config swallows WARN. Diagnostic tool for cases where the pool
-   * appears exhausted but the cache should have evicted.
+   * Dumps per-class allocator state when an allocation saturates — live slot count, total lifetime
+   * allocates/releases, slots still in {@code liveByAddress}, and physical-byte accounting. Emitted
+   * to stderr so it lands even when logback config swallows WARN. Diagnostic tool for cases where the
+   * pool appears exhausted but the cache should have evicted.
    */
   private void dumpStateForOOM(final int failedClass, final long failedSize, final long waitedNanos) {
     final StringBuilder sb = new StringBuilder();
     sb.append("\n=== FrameSlotAllocator state at OOM ===\n");
-    sb.append(String.format("  failed: class=%d size=%d bytes after=%d ms%n",
-        failedClass, failedSize, waitedNanos / 1_000_000L));
-    sb.append(String.format("  physicalBytes=%d / budget=%d (%.1f%%)%n",
-        physicalBytes.get(), budgetBytes, 100.0 * physicalBytes.get() / budgetBytes));
+    sb.append(String.format("  failed: class=%d size=%d bytes after=%d ms%n", failedClass, failedSize,
+        waitedNanos / 1_000_000L));
+    sb.append(String.format("  physicalBytes=%d / budget=%d (%.1f%%)%n", physicalBytes.get(), budgetBytes,
+        100.0 * physicalBytes.get() / budgetBytes));
     sb.append(String.format("  liveByAddress entries=%d%n", liveByAddress.size()));
     for (int i = 0; i < classes.length; i++) {
       final SizeClass c = classes[i];
-      sb.append(String.format("  class[%d] slotSize=%d  slots=%d  live=%d  alloc=%d  release=%d  freeStack=%d  freshIdx=%d%n",
-          i, c.slotSize, c.slotCount, c.liveCount.get(), c.allocCount.get(),
-          c.releaseCount.get(), c.freeSlots.size(), c.nextFreshIndex.get()));
+      sb.append(
+          String.format("  class[%d] slotSize=%d  slots=%d  live=%d  alloc=%d  release=%d  freeStack=%d  freshIdx=%d%n",
+              i, c.slotSize, c.slotCount, c.liveCount.get(), c.allocCount.get(), c.releaseCount.get(),
+              c.freeSlots.size(), c.nextFreshIndex.get()));
     }
     sb.append("=== end FrameSlotAllocator state ===\n");
     System.err.print(sb);
@@ -615,8 +603,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // (two owners of one slot) and double-decrement the physical budget. The handle's own CAS
     // close-guard only protects against double-close of the SAME handle object.
     if (prior != versionAtAlloc) {
-      LOGGER.warn("Rejected stale slot release: class {} slot {} (handle era {}, current era {}).",
-          classIdx, slotIdx, versionAtAlloc, prior);
+      LOGGER.warn("Rejected stale slot release: class {} slot {} (handle era {}, current era {}).", classIdx, slotIdx,
+          versionAtAlloc, prior);
       return;
     }
 
@@ -656,8 +644,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   // ===== Reader-side optimistic validation ===================================
 
   /**
-   * Snapshot the current version of a specific {@code (classIdx, slotIdx)}
-   * pair. Callers about to read slot bytes use the pattern:
+   * Snapshot the current version of a specific {@code (classIdx, slotIdx)} pair. Callers about to
+   * read slot bytes use the pattern:
    *
    * <pre>{@code
    *   long v1 = allocator.acquireVersion(classIdx, slotIdx);
@@ -666,10 +654,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *   if (!allocator.validateVersion(classIdx, slotIdx, v1)) retry; // raced eviction
    * }</pre>
    *
-   * <p>A failed validation means the slot's content was evicted between the
-   * snapshot and the check; the caller must re-resolve the page via the cache
-   * (which may return a different slot or a cache miss that triggers a reload)
-   * and retry the read.
+   * <p>
+   * A failed validation means the slot's content was evicted between the snapshot and the check; the
+   * caller must re-resolve the page via the cache (which may return a different slot or a cache miss
+   * that triggers a reload) and retry the read.
    */
   public long acquireVersion(final int classIdx, final int slotIdx) {
     return classes[classIdx].slotVersion.getAcquire(slotIdx);
@@ -703,8 +691,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Tear down all mmap'd regions. Not called during normal operation; the
-   * allocator is expected to live for the JVM's lifetime.
+   * Tear down all mmap'd regions. Not called during normal operation; the allocator is expected to
+   * live for the JVM's lifetime.
    */
   public void shutdown() {
     for (final SizeClass c : classes) {
@@ -714,8 +702,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Live handle for a frame slot. Holding this guarantees the allocator will
-   * not release the slot. Close exactly once to return it to the free stack.
+   * Live handle for a frame slot. Holding this guarantees the allocator will not release the slot.
+   * Close exactly once to return it to the free stack.
    */
   public static final class FrameSlot implements AutoCloseable {
     private static final VarHandle CLOSED;
@@ -736,8 +724,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     @SuppressWarnings("unused") // accessed via the CLOSED VarHandle
     private volatile boolean closed;
 
-    FrameSlot(final FrameSlotAllocator owner, final int classIdx, final int slotIdx,
-        final long versionAtAlloc, final MemorySegment segment) {
+    FrameSlot(final FrameSlotAllocator owner, final int classIdx, final int slotIdx, final long versionAtAlloc,
+        final MemorySegment segment) {
       this.owner = owner;
       this.classIdx = classIdx;
       this.slotIdx = slotIdx;
