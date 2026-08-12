@@ -628,14 +628,7 @@ public final class ProjectionColumnStore {
         : null;
     final byte[][] inlineBytes = collectColumnOffsets(segId, offsets, optional, absent);
     if (keepWords != null) {
-      for (int i = 0; i < n; i++) {
-        if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
-          offsets[i] = Constants.NULL_ID_LONG;
-          if (inlineBytes != null) {
-            inlineBytes[i] = null;
-          }
-        }
-      }
+      dropPrunedLeaves(n, keepWords, offsets, inlineBytes);
     }
     final byte[][] segments;
     try {
@@ -659,16 +652,7 @@ public final class ProjectionColumnStore {
       }
     }
     try {
-      for (int i = 0; i < n; i++) {
-        if (absent != null && absent[i]) {
-          continue; // the descriptor genuinely lists no such segment for this leaf
-        }
-        if (keepWords != null && (keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
-          continue; // pruned — nothing was fetched, nothing to verify
-        }
-        ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i], segId,
-            segKind);
-      }
+      verifyFetchedSegments(n, segments, segId, segKind, absent, keepWords);
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind
       // mismatch) cannot heal for this build — memoize so later touches fail fast.
@@ -682,4 +666,37 @@ public final class ProjectionColumnStore {
     return segments;
   }
 
+  /**
+   * Blank out the leaves the keep-mask excludes, so the batch neither resolves their offsets nor
+   * carries their inline bytes — the whole point of pruning is that those pages are never read.
+   */
+  private static void dropPrunedLeaves(final int n, final long[] keepWords, final long[] offsets,
+      final byte[] @Nullable [] inlineBytes) {
+    for (int i = 0; i < n; i++) {
+      if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+        offsets[i] = Constants.NULL_ID_LONG;
+        if (inlineBytes != null) {
+          inlineBytes[i] = null;
+        }
+      }
+    }
+  }
+
+  /**
+   * Check each fetched segment against its descriptor, skipping the leaves that were never fetched:
+   * those the descriptor lists no such segment for, and those the keep-mask pruned.
+   */
+  private void verifyFetchedSegments(final int n, final byte[][] segments, final int segId, final byte segKind,
+      final boolean @Nullable [] absent, final long @Nullable [] keepWords) {
+    for (int i = 0; i < n; i++) {
+      if (absent != null && absent[i]) {
+        continue; // the descriptor genuinely lists no such segment for this leaf
+      }
+      if (keepWords != null && (keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+        continue; // pruned — nothing was fetched, nothing to verify
+      }
+      ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i], segId,
+          segKind);
+    }
+  }
 }

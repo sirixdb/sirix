@@ -501,19 +501,29 @@ public final class ProjectionIndexColumnSegmentCodec {
       }
     }
     while (true) {
-      int best = -1;
-      for (int i = 0; i < columnSegmentCount; i++) {
-        if (!inline[i] && byteLens[i] <= maxColumnSegment && byteLens[i] <= remaining
-            && (best < 0 || byteLens[i] < byteLens[best])) {
-          best = i;
-        }
-      }
+      final int best = smallestThatFits(byteLens, columnSegmentCount, inline, maxColumnSegment, remaining);
       if (best < 0) {
         return inline; // nothing more fits the budget → the rest spill to pages
       }
       inline[best] = true;
       remaining -= byteLens[best];
     }
+  }
+
+  /**
+   * The not-yet-inlined segment with the fewest bytes that still fits both caps, or {@code -1} when
+   * none does. Smallest-first is what maximizes the number of segments the budget can carry.
+   */
+  private static int smallestThatFits(final int[] byteLens, final int columnSegmentCount, final boolean[] inline,
+      final int maxColumnSegment, final int remaining) {
+    int best = -1;
+    for (int i = 0; i < columnSegmentCount; i++) {
+      if (!inline[i] && byteLens[i] <= maxColumnSegment && byteLens[i] <= remaining
+          && (best < 0 || byteLens[i] < byteLens[best])) {
+        best = i;
+      }
+    }
+    return best;
   }
 
   /** Filter-size clamp: [512, 16384] bits = [64 B, 2 KiB] of words. */

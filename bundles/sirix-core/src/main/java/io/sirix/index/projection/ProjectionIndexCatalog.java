@@ -579,22 +579,7 @@ public final class ProjectionIndexCatalog {
     // arrays (bit-packed segments decode to 8 bytes/value — up to ~8× their packed size).
     long projectedBytes = 0;
     for (final ProjectionIndexHOTStorage.RowGroupDirectory dir : live) {
-      final byte[] d = dir.descriptor();
-      final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(d);
-      for (int i = 0; i < columnSegmentCount; i++) {
-        projectedBytes += RowGroupDescriptor.entryByteLen(d, i);
-      }
-      final int rows = RowGroupDescriptor.rowCount(d);
-      final long presenceBytes = ((rows + 63L) >>> 6) << 3;
-      final int columnCount = RowGroupDescriptor.columnCount(d);
-      for (int c = 0; c < columnCount; c++) {
-        final byte kind = RowGroupDescriptor.kind(d, c);
-        if (ProjectionIndexRowGroupPage.isNumericKind(kind)) {
-          projectedBytes += ((long) rows << 3) + presenceBytes;
-        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
-          projectedBytes += presenceBytes << 1;
-        }
-      }
+      projectedBytes += residentWeightOf(dir.descriptor());
     }
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
@@ -603,21 +588,8 @@ public final class ProjectionIndexCatalog {
     // incremental maintenance tombstoned them): one sequential read here replaces a scattered
     // per-leaf chain fetch on every string-equality query. Absence is fine — the store falls
     // back to the chain, and past that to keeping every leaf.
-    final byte[] kindsForBlooms = metadata.columnKinds();
-    final byte[][] bloomBlocks = new byte[kindsForBlooms.length][];
-    boolean anyBloomBlock = false;
-    for (int c = 0; c < kindsForBlooms.length; c++) {
-      if (kindsForBlooms[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          || kindsForBlooms[c] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-        final byte[] block =
-            ProjectionIndexHOTStorage.readBlob(reader, def.getID(), ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
-        if (ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block) >= rowGroupCount) {
-          bloomBlocks[c] = block;
-          anyBloomBlock = true;
-        }
-      }
-    }
-    if (anyBloomBlock) {
+    final byte[][] bloomBlocks = readBloomBlocks(reader, def, metadata.columnKinds(), rowGroupCount);
+    if (bloomBlocks != null) {
       store.attachBloomBlocks(bloomBlocks);
     }
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(),
@@ -625,6 +597,55 @@ public final class ProjectionIndexCatalog {
     // The metadata blob has already been read to get here, so the summary rides along for free.
     handle.setSetValueRowCounts(metadata.setValueRowCounts());
     return handle;
+  }
+
+  /**
+   * Worst-case RESIDENT bytes for one row group — Caffeine fixes a weight at insert, so this counts
+   * the raw segments a whole-leaf consumer materializes PLUS what they decode to (a bit-packed
+   * segment becomes 8 bytes per value, up to ~8× its packed size).
+   */
+  private static long residentWeightOf(final byte[] descriptor) {
+    long bytes = 0;
+    final int columnSegmentCount = RowGroupDescriptor.columnSegmentCount(descriptor);
+    for (int i = 0; i < columnSegmentCount; i++) {
+      bytes += RowGroupDescriptor.entryByteLen(descriptor, i);
+    }
+    final int rows = RowGroupDescriptor.rowCount(descriptor);
+    final long presenceBytes = ((rows + 63L) >>> 6) << 3;
+    final int columnCount = RowGroupDescriptor.columnCount(descriptor);
+    for (int c = 0; c < columnCount; c++) {
+      final byte kind = RowGroupDescriptor.kind(descriptor, c);
+      if (ProjectionIndexRowGroupPage.isNumericKind(kind)) {
+        bytes += ((long) rows << 3) + presenceBytes;
+      } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+        bytes += presenceBytes << 1;
+      }
+    }
+    return bytes;
+  }
+
+  /**
+   * The per-string-column fingerprint blocks, or {@code null} when this store carries none worth
+   * attaching. A block covering fewer leaves than the store has is ignored rather than trusted: it
+   * predates leaves that were added since, and a filter that has not seen a value cannot exclude it.
+   */
+  private static byte[] @Nullable [] readBloomBlocks(final StorageEngineReader reader, final IndexDef def,
+      final byte[] columnKinds, final int rowGroupCount) {
+    final byte[][] bloomBlocks = new byte[columnKinds.length][];
+    boolean any = false;
+    for (int c = 0; c < columnKinds.length; c++) {
+      if (columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          && columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        continue;
+      }
+      final byte[] block =
+          ProjectionIndexHOTStorage.readBlob(reader, def.getID(), ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
+      if (ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block) >= rowGroupCount) {
+        bloomBlocks[c] = block;
+        any = true;
+      }
+    }
+    return any ? bloomBlocks : null;
   }
 
   /**

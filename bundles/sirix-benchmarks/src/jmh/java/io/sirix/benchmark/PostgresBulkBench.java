@@ -146,11 +146,7 @@ public final class PostgresBulkBench {
         for (int i = 0; i < n; i++) {
           final byte b = buf[i];
           if (inRecord) {
-            if (recLen == rec.length) {
-              final byte[] bigger = new byte[rec.length << 1];
-              System.arraycopy(rec, 0, bigger, 0, recLen);
-              rec = bigger;
-            }
+            rec = grown(rec, recLen);
             rec[recLen++] = b;
           }
           if (inString) {
@@ -808,6 +804,16 @@ public final class PostgresBulkBench {
       new Query(chain, q).prettyPrint().serialize(ctx, ps);
     }
     return sink.toString();
+  }
+
+  /** The record buffer, doubled if the next byte would not fit. Off the per-byte path in practice. */
+  private static byte[] grown(final byte[] rec, final int recLen) {
+    if (recLen < rec.length) {
+      return rec;
+    }
+    final byte[] bigger = new byte[rec.length << 1];
+    System.arraycopy(rec, 0, bigger, 0, recLen);
+    return bigger;
   }
 
   private static long dirBytes(final Path dir) {

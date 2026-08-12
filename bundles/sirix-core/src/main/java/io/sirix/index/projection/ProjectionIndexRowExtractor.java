@@ -241,9 +241,11 @@ public final class ProjectionIndexRowExtractor {
    * reach it (bulk-build path positions it during traversal). Ends with the cursor back at
    * {@code recordKey}.
    */
-  void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    // Reset per-row slots — fields we fail to resolve stay "missing"
-    // (presence bit clear) and serialise as defaults on the leaf page.
+  /**
+   * Clear every per-row slot. A field this row fails to resolve stays "missing" — presence bit
+   * clear — and serialises as the column's default on the leaf page.
+   */
+  private void resetRow() {
     for (int i = 0; i < columnKinds.length; i++) {
       rowLongs[i] = 0L;
       rowBools[i] = false;
@@ -254,6 +256,10 @@ public final class ProjectionIndexRowExtractor {
       rowNonDoubleSource[i] = false;
       rowStringSetLen[i] = 0;
     }
+  }
+
+  void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    resetRow();
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
     // - a fused OBJECT_NAMED_* record matching a declared field reads its
@@ -269,7 +275,15 @@ public final class ProjectionIndexRowExtractor {
       long cur = top;
       do {
         final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+        if (isFusedScalarKind(kind)) {
+          // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
+          // direct extraction, no synthetic-child navigation. Fused nodes have no children,
+          // so there is nothing to descend into.
+          final int col = findField(rtx.getPathNodeKey());
+          if (col >= 0) {
+            readFusedValueIntoRow(rtx, kind, col);
+          }
+        } else if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
           final long pk = rtx.getPathNodeKey();
           final int col = findField(pk);
           if (col >= 0) {
@@ -291,16 +305,6 @@ public final class ProjectionIndexRowExtractor {
           }
           // Descend regardless — declared NESTED fields live below this node.
           pushFirstChild(rtx, cur);
-        } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
-            || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL) {
-          // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
-          // direct extraction, no synthetic-child navigation.
-          final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
-            readFusedValueIntoRow(rtx, kind, col);
-          }
-          // Fused nodes have no children. No descent.
         } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
           // Structured — descend.
           pushFirstChild(rtx, cur);
@@ -312,6 +316,12 @@ public final class ProjectionIndexRowExtractor {
       } while (true);
     }
     rtx.moveTo(recordKey);
+  }
+
+  /** The fused kinds whose value sits inline on the record itself, rather than on a child node. */
+  private static boolean isFusedScalarKind(final NodeKind kind) {
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL;
   }
 
   private void pushFirstChild(final JsonNodeReadOnlyTrx rtx, final long parentKey) {

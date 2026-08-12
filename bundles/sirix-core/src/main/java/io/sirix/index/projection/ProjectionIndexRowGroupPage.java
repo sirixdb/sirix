@@ -901,81 +901,59 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
-          final ByteBuffer b = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
-          final long[] col = numericCols[c];
-          for (int i = 0; i < rowCount; i++)
-            b.putLong(col[i]);
-          baos.write(b.array(), 0, b.position());
-        }
-        case COLUMN_KIND_BOOLEAN -> {
-          final int wordCount = (rowCount + 63) >>> 6;
-          final ByteBuffer b = ByteBuffer.allocate(wordCount * 8).order(ByteOrder.LITTLE_ENDIAN);
-          final long[] bits = booleanCols[c];
-          for (int i = 0; i < wordCount; i++)
-            b.putLong(bits[i]);
-          baos.write(b.array(), 0, b.position());
-        }
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> writeLongs(baos, numericCols[c], rowCount);
+        case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {
-          final byte[][] dict = stringDicts[c];
-          int dictSize = 0;
-          while (dictSize < dict.length && dict[dictSize] != null)
-            dictSize++;
-          final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
-          baos.write(dh.array(), 0, dh.position());
-          final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
-          int totalBytes = 0;
-          for (int i = 0; i < dictSize; i++) {
-            dl.putInt(dict[i].length);
-            totalBytes += dict[i].length;
-          }
-          baos.write(dl.array(), 0, dl.position());
-          for (int i = 0; i < dictSize; i++) {
-            baos.write(dict[i], 0, dict[i].length);
-          }
+          writeDictionary(baos, stringDicts[c]);
           // dict-ids — packed 32-bit per entry for now; bit-packing is a later codec refinement.
-          final ByteBuffer idBuf = ByteBuffer.allocate(rowCount * 4).order(ByteOrder.LITTLE_ENDIAN);
-          final int[] ids = stringDictIdCols[c];
-          for (int i = 0; i < rowCount; i++)
-            idBuf.putInt(ids[i]);
-          baos.write(idBuf.array(), 0, idBuf.position());
+          writeInts(baos, stringDictIdCols[c], rowCount);
         }
         case COLUMN_KIND_STRING_SET -> {
-          final byte[][] dict = stringDicts[c];
-          int dictSize = 0;
-          while (dictSize < dict.length && dict[dictSize] != null)
-            dictSize++;
-          final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
-          baos.write(dh.array(), 0, dh.position());
-          final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
-          for (int i = 0; i < dictSize; i++) {
-            dl.putInt(dict[i].length);
-          }
-          baos.write(dl.array(), 0, dl.position());
-          for (int i = 0; i < dictSize; i++) {
-            baos.write(dict[i], 0, dict[i].length);
-          }
+          writeDictionary(baos, stringDicts[c]);
           // Per-row counts, then the flat element run. The counts come first so a reader can size
           // the run before reading it, and their sum IS the run length — no separate total.
-          final int[] counts = stringSetCountCols[c];
-          final ByteBuffer cb = ByteBuffer.allocate(rowCount * 4).order(ByteOrder.LITTLE_ENDIAN);
-          for (int i = 0; i < rowCount; i++) {
-            cb.putInt(counts[i]);
-          }
-          baos.write(cb.array(), 0, cb.position());
-          final int len = stringSetLen[c];
-          final ByteBuffer eb = ByteBuffer.allocate(len * 4).order(ByteOrder.LITTLE_ENDIAN);
-          final int[] elems = stringSetIdCols[c];
-          for (int i = 0; i < len; i++) {
-            eb.putInt(elems[i]);
-          }
-          baos.write(eb.array(), 0, eb.position());
+          writeInts(baos, stringSetCountCols[c], rowCount);
+          writeInts(baos, stringSetIdCols[c], stringSetLen[c]);
         }
         default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
       }
     }
     writePresenceTail(baos);
     return baos.toByteArray();
+  }
+
+  private static void writeLongs(final ByteArrayOutputStream baos, final long[] values, final int count) {
+    final ByteBuffer b = ByteBuffer.allocate(count * 8).order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < count; i++) {
+      b.putLong(values[i]);
+    }
+    baos.write(b.array(), 0, b.position());
+  }
+
+  private static void writeInts(final ByteArrayOutputStream baos, final int[] values, final int count) {
+    final ByteBuffer b = ByteBuffer.allocate(count * 4).order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < count; i++) {
+      b.putInt(values[i]);
+    }
+    baos.write(b.array(), 0, b.position());
+  }
+
+  /** Entry count, then each entry's length, then the entries — the layout both string kinds share. */
+  private static void writeDictionary(final ByteArrayOutputStream baos, final byte[][] dict) {
+    int dictSize = 0;
+    while (dictSize < dict.length && dict[dictSize] != null) {
+      dictSize++;
+    }
+    final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
+    baos.write(dh.array(), 0, dh.position());
+    final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < dictSize; i++) {
+      dl.putInt(dict[i].length);
+    }
+    baos.write(dl.array(), 0, dl.position());
+    for (int i = 0; i < dictSize; i++) {
+      baos.write(dict[i], 0, dict[i].length);
+    }
   }
 
   /** Append the presence tail. */

@@ -843,27 +843,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final long slot = e.getLongKey();
       if (slot != expected) {
         if (DIAG) {
-          final StringBuilder keys = new StringBuilder("[cat] descriptor key set: ");
-          long lo = -1, prev = -1;
-          for (final Long2ObjectMap.Entry<RawBlobSlot> k : descriptors.long2ObjectEntrySet()) {
-            final long v = k.getLongKey();
-            if (lo < 0) {
-              lo = v;
-            } else if (v != prev + 1) {
-              keys.append(lo).append("..").append(prev).append(' ');
-              lo = v;
-            }
-            prev = v;
-          }
-          keys.append(lo)
-              .append("..")
-              .append(prev)
-              .append("  (count=")
-              .append(descriptors.size())
-              .append(", metadata declares ")
-              .append(rowGroupCount)
-              .append(')');
-          System.err.println(keys);
+          System.err.println(describeDescriptorKeySet(descriptors, rowGroupCount));
         }
         throw new IllegalStateException("segment-slot leaves are not contiguous: expected leaf " + expected + ", found "
             + slot + " (indexNumber=" + indexNumber + ")");
@@ -872,6 +852,36 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       expected++;
     }
     return descArr;
+  }
+
+  /**
+   * The descriptor keys as contiguous ranges — what a contiguity break needs in order to be read as
+   * "leaves 340..400 are missing" rather than as one offending number.
+   */
+  private static String describeDescriptorKeySet(final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final int rowGroupCount) {
+    final StringBuilder keys = new StringBuilder("[cat] descriptor key set: ");
+    long lo = -1;
+    long prev = -1;
+    for (final Long2ObjectMap.Entry<RawBlobSlot> k : descriptors.long2ObjectEntrySet()) {
+      final long v = k.getLongKey();
+      if (lo < 0) {
+        lo = v;
+      } else if (v != prev + 1) {
+        keys.append(lo).append("..").append(prev).append(' ');
+        lo = v;
+      }
+      prev = v;
+    }
+    return keys.append(lo)
+               .append("..")
+               .append(prev)
+               .append("  (count=")
+               .append(descriptors.size())
+               .append(", metadata declares ")
+               .append(rowGroupCount)
+               .append(')')
+               .toString();
   }
 
   private static final RawBlobSlot[] NO_DESCRIPTOR_SLOTS = new RawBlobSlot[0];

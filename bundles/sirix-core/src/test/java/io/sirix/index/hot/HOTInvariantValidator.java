@@ -314,16 +314,7 @@ public final class HOTInvariantValidator {
       return null; // depth is reported separately by I9; do not recurse forever on a cyclic trie
     }
     if (page instanceof HOTLeafPage leaf) {
-      final int entryCount = leaf.getEntryCount();
-      if (entryCount == 0) {
-        return null;
-      }
-      // Leaf entries are lex-sorted (I2, checked separately), so the ends are the extremes.
-      final byte[] first = leaf.getKey(0);
-      final byte[] last = leaf.getKey(entryCount - 1);
-      return first == null || last == null
-          ? null
-          : new byte[][] {first, last};
+      return leafKeyRange(leaf);
     }
     if (!(page instanceof HOTIndirectPage indirect)) {
       return null;
@@ -331,15 +322,7 @@ public final class HOTInvariantValidator {
     byte[] min = null;
     byte[] max = null;
     for (int i = 0; i < indirect.getNumChildren(); i++) {
-      final PageReference childRef = indirect.getChildReference(i);
-      if (childRef == null) {
-        continue;
-      }
-      final Page child = loadPage(childRef);
-      if (child == null) {
-        continue;
-      }
-      final byte[][] childRange = subtreeKeyRange(child, depth + 1);
+      final byte[][] childRange = childKeyRange(indirect, i, depth);
       if (childRange == null) {
         continue;
       }
@@ -353,6 +336,29 @@ public final class HOTInvariantValidator {
     return min == null
         ? null
         : new byte[][] {min, max};
+  }
+
+  /** Leaf entries are lex-sorted (I2, checked separately), so the ends are the extremes. */
+  private static byte[] @Nullable [] leafKeyRange(final HOTLeafPage leaf) {
+    final int entryCount = leaf.getEntryCount();
+    if (entryCount == 0) {
+      return null;
+    }
+    final byte[] first = leaf.getKey(0);
+    final byte[] last = leaf.getKey(entryCount - 1);
+    return first == null || last == null
+        ? null
+        : new byte[][] {first, last};
+  }
+
+  /** The range of child {@code i}, or {@code null} when that child is absent or unreadable. */
+  private byte[] @Nullable [] childKeyRange(final HOTIndirectPage indirect, final int i, final int depth) {
+    final PageReference childRef = indirect.getChildReference(i);
+    if (childRef == null) {
+      return null;
+    }
+    final Page child = loadPage(childRef);
+    return child == null ? null : subtreeKeyRange(child, depth + 1);
   }
 
   private static String hex(final byte[] key) {

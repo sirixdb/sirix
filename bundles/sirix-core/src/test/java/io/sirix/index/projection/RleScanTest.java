@@ -51,23 +51,26 @@ final class RleScanTest {
   private static long[] positionalMask(final long[] values, final Op op, final long lit, final long high) {
     final long[] mask = new long[(ROWS + 63) >>> 6];
     for (int i = 0; i < ROWS; i++) {
-      final long v = values[i];
-      final boolean hit = switch (op) {
-        case GT -> v > lit;
-        case LT -> v < lit;
-        case GE -> v >= lit;
-        case LE -> v <= lit;
-        case EQ -> v == lit;
-        case BETWEEN_GT_LT -> v > lit && v < high;
-        case BETWEEN_GT_LE -> v > lit && v <= high;
-        case BETWEEN_GE_LT -> v >= lit && v < high;
-        case BETWEEN_GE_LE -> v >= lit && v <= high;
-      };
-      if (hit) {
+      if (satisfies(values[i], op, lit, high)) {
         mask[i >>> 6] |= 1L << (i & 63);
       }
     }
     return mask;
+  }
+
+  /** One row against one operator — the definition the run-aware kernel has to agree with. */
+  private static boolean satisfies(final long v, final Op op, final long lit, final long high) {
+    return switch (op) {
+      case GT -> v > lit;
+      case LT -> v < lit;
+      case GE -> v >= lit;
+      case LE -> v <= lit;
+      case EQ -> v == lit;
+      case BETWEEN_GT_LT -> v > lit && v < high;
+      case BETWEEN_GT_LE -> v > lit && v <= high;
+      case BETWEEN_GE_LT -> v >= lit && v < high;
+      case BETWEEN_GE_LE -> v >= lit && v <= high;
+    };
   }
 
   private static long[] allTrue() {

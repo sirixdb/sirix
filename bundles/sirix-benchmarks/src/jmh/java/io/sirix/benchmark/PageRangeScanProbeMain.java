@@ -183,9 +183,7 @@ public final class PageRangeScanProbeMain {
                 // for arrays of any element type, so the question is which kinds a parent-key test
                 // alone admits.
                 final int kindId = PageLayout.getDirNodeKindId(page, slot);
-                final long nodeKey = pageBaseNodeKey | slot;
-                final long parentKey = kv.getSlotParentKey(slot);
-                if (parentKey != arrayKey) {
+                if (kv.getSlotParentKey(slot) != arrayKey) {
                   continue;
                 }
                 kindTally[kindId & 0xFF]++;
@@ -193,19 +191,7 @@ public final class PageRangeScanProbeMain {
                   continue;
                 }
                 localElements++;
-                // Same per-element work as the sibling-walk arm, so the two differ only in how the
-                // element was found.
-                if (rtx.moveTo(nodeKey) && rtx.moveToFirstChild()) {
-                  do {
-                    if (rtx.getNameKey() == yearNameKey) {
-                      final Number value = rtx.getNumberValue();
-                      if (value != null) {
-                        localYears += value.longValue();
-                      }
-                      break;
-                    }
-                  } while (rtx.moveToRightSibling());
-                }
+                localYears += yearOf(rtx, pageBaseNodeKey | slot, yearNameKey);
               }
             }
           }
@@ -227,5 +213,22 @@ public final class PageRangeScanProbeMain {
       t.join();
     }
     return new long[] {elements.get(), yearSum.get()};
+  }
+
+  /**
+   * The element's year field, or 0 when it has none. Exactly the per-element work the sibling-walk
+   * arm does, so the two arms differ only in how the element was found.
+   */
+  private static long yearOf(final JsonNodeReadOnlyTrx rtx, final long nodeKey, final int yearNameKey) {
+    if (!rtx.moveTo(nodeKey) || !rtx.moveToFirstChild()) {
+      return 0;
+    }
+    do {
+      if (rtx.getNameKey() == yearNameKey) {
+        final Number value = rtx.getNumberValue();
+        return value == null ? 0 : value.longValue();
+      }
+    } while (rtx.moveToRightSibling());
+    return 0;
   }
 }
