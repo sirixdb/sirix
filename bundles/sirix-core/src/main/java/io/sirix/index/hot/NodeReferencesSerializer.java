@@ -280,6 +280,89 @@ public final class NodeReferencesSerializer {
   }
 
   /**
+   * Identity sentinel returned by {@link #mergePackedSingleBitFromSlot} when the new bit is already
+   * present in the slot's packed set — the caller skips the slot rewrite entirely. (The array-based
+   * {@link #mergePackedSingleBit} signals the same case by returning its {@code existing} argument;
+   * with the payload still in slot memory there is no such array to return.)
+   */
+  public static final byte[] MERGE_UNCHANGED = new byte[0];
+
+  /**
+   * {@link #mergePackedSingleBit} against a payload still resident in its leaf slot: binary-search
+   * and splice directly off slot memory via the leaf's value-ref accessors. This is the insert-time
+   * hot path — every listener-driven index insert merges a single-bit payload into its chunk bucket,
+   * and the copying variant first materialized the whole existing bucket (up to {@code 2 + 64*8}
+   * bytes) just to read it.
+   *
+   * @param leaf the leaf holding the existing payload
+   * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
+   * @param newValue buffer holding the new single-entry packed payload
+   * @param newOffset offset of the payload in {@code newValue}
+   * @param newLen length of the payload
+   * @return {@link #MERGE_UNCHANGED} when the bit is already present; a freshly built merged payload
+   *         otherwise; {@code null} when the shapes don't qualify (caller falls back to the copying
+   *         slow path)
+   */
+  public static byte @Nullable [] mergePackedSingleBitFromSlot(final HOTLeafPage leaf, final long ref,
+      final byte[] newValue, final int newOffset, final int newLen) {
+    // New value must be a single-entry packed payload: [PACKED][count=1][key:8] == 10 bytes.
+    if (newLen != 2 + 8 || newValue[newOffset] != PACKED_FORMAT || newValue[newOffset + 1] != 1) {
+      return null;
+    }
+    final int existingLen = HOTLeafPage.refLength(ref);
+    if (existingLen < 2 || leaf.refByteAt(ref, 0) != PACKED_FORMAT) {
+      return null;
+    }
+    final int count = leaf.refByteAt(ref, 1) & 0xFF;
+    // A full-or-overflowing bucket would switch representation; leave that to the slow path.
+    if (count >= PACKED_THRESHOLD || existingLen != 2 + count * 8) {
+      return null;
+    }
+
+    final long newKey = readKeyBE(newValue, newOffset + 2);
+
+    // Binary search the sorted-ascending packed keys for newKey (stored BE; refLongAt reads LE).
+    int lo = 0;
+    int hi = count; // exclusive
+    while (lo < hi) {
+      final int mid = (lo + hi) >>> 1;
+      final int cmp = Long.compareUnsigned(Long.reverseBytes(leaf.refLongAt(ref, 2 + mid * 8)), newKey);
+      if (cmp < 0) {
+        lo = mid + 1;
+      } else if (cmp > 0) {
+        hi = mid;
+      } else {
+        return MERGE_UNCHANGED; // already present — merged set unchanged
+      }
+    }
+
+    // Insert newKey at position lo, preserving ascending order — one allocation, two slot copies.
+    final byte[] merged = new byte[2 + (count + 1) * 8];
+    merged[0] = PACKED_FORMAT;
+    merged[1] = (byte) (count + 1);
+    final int insAt = 2 + lo * 8;
+    if (lo > 0) {
+      leaf.copyRefInto(ref, 2, merged, 2, lo * 8);
+    }
+    writeKeyBE(merged, insAt, newKey);
+    if (lo < count) {
+      leaf.copyRefInto(ref, insAt, merged, insAt + 8, (count - lo) * 8);
+    }
+    return merged;
+  }
+
+  /**
+   * {@link #isTombstone(byte[], int, int)} against a payload still resident in its leaf slot.
+   *
+   * @param leaf the leaf holding the payload
+   * @param ref the slot's packed value handle from {@link HOTLeafPage#valueRef(int)}
+   * @return {@code true} iff the payload is the single-byte tombstone marker
+   */
+  public static boolean isTombstone(final HOTLeafPage leaf, final long ref) {
+    return HOTLeafPage.refLength(ref) == 1 && leaf.refByteAt(ref, 0) == TOMBSTONE_FORMAT;
+  }
+
+  /**
    * Merge one serialized chunk bitmap — still resident in its leaf's off-heap slot memory — into
    * {@code target}, expanding each stored bit16 to {@code high | bit16}. The read path's chunk
    * reassembly ran {@code getValue → deserialize → NodeReferences → Roaring64Bitmap → iterate} per

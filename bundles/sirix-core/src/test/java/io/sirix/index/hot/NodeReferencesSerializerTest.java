@@ -5,9 +5,14 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.cache.Allocators;
+import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.utils.OS;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -262,8 +267,7 @@ class NodeReferencesSerializerTest {
     final byte[] twoKeys = packedOf(5L, 6L);
     assertNull(NodeReferencesSerializer.mergePackedSingleBit(existing, twoKeys, 0, twoKeys.length));
     final byte[] tombstone = NodeReferencesSerializer.serialize(new NodeReferences());
-    assertNull(
-        NodeReferencesSerializer.mergePackedSingleBit(existing, tombstone, 0, tombstone.length));
+    assertNull(NodeReferencesSerializer.mergePackedSingleBit(existing, tombstone, 0, tombstone.length));
   }
 
   @Test
@@ -298,6 +302,71 @@ class NodeReferencesSerializerTest {
         assertArrayEquals(slow, fast, "absent key must match slow path at trial " + trial);
       }
     }
+  }
+
+  // ==================== mergePackedSingleBitFromSlot (slot-memory twin) ====================
+
+  /** A leaf holding {@code payload} under a single key; caller closes. */
+  private static HOTLeafPage leafWithValue(byte[] payload) {
+    if (!OS.isWindows()) {
+      Allocators.getInstance().init(64L * 1024 * 1024);
+    }
+    final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+    assertTrue(leaf.put("k".getBytes(StandardCharsets.UTF_8), payload));
+    return leaf;
+  }
+
+  @Test
+  void mergePackedSingleBitFromSlot_matchesArrayVariant_differentialRandom() {
+    final Random rnd = new Random(0x5107);
+    for (int trial = 0; trial < 500; trial++) {
+      final int n = 1 + rnd.nextInt(63);
+      final java.util.TreeSet<Long> set = new java.util.TreeSet<>();
+      while (set.size() < n) {
+        set.add((long) rnd.nextInt(1 << 16));
+      }
+      final byte[] existing = packedOf(set.stream().mapToLong(Long::longValue).toArray());
+      final long newKey = rnd.nextInt(1 << 16);
+      final byte[] nv = singleBit(newKey);
+      final HOTLeafPage leaf = leafWithValue(existing);
+      final byte[] fromSlot =
+          NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0), nv, 0, nv.length);
+      if (set.contains(newKey)) {
+        assertSame(NodeReferencesSerializer.MERGE_UNCHANGED, fromSlot,
+            "present key must return the no-op sentinel at trial " + trial);
+      } else {
+        assertArrayEquals(slowMerge(existing, nv, 0, nv.length), fromSlot,
+            "absent key must match the slow path at trial " + trial);
+      }
+      leaf.close();
+    }
+  }
+
+  @Test
+  void mergePackedSingleBitFromSlot_rejectsNonQualifyingShapes() {
+    // Roaring-format existing payload: > PACKED_THRESHOLD entries.
+    final NodeReferences big = new NodeReferences();
+    for (int i = 0; i < 100; i++) {
+      big.addNodeKey(i);
+    }
+    final byte[] nv = singleBit(7L);
+    final HOTLeafPage roaringLeaf = leafWithValue(NodeReferencesSerializer.serialize(big));
+    assertNull(
+        NodeReferencesSerializer.mergePackedSingleBitFromSlot(roaringLeaf, roaringLeaf.valueRef(0), nv, 0, nv.length));
+    roaringLeaf.close();
+
+    // Multi-entry new payload does not qualify as a single-bit merge.
+    final byte[] twoKeys = packedOf(1L, 2L);
+    final HOTLeafPage packedLeaf = leafWithValue(packedOf(10L, 30L));
+    assertNull(NodeReferencesSerializer.mergePackedSingleBitFromSlot(packedLeaf, packedLeaf.valueRef(0), twoKeys, 0,
+        twoKeys.length));
+    packedLeaf.close();
+
+    // Tombstone payloads: rejected by the merge, recognized by the slot-side tombstone probe.
+    final HOTLeafPage tombLeaf = leafWithValue(NodeReferencesSerializer.serialize(new NodeReferences()));
+    assertNull(NodeReferencesSerializer.mergePackedSingleBitFromSlot(tombLeaf, tombLeaf.valueRef(0), nv, 0, nv.length));
+    assertTrue(NodeReferencesSerializer.isTombstone(tombLeaf, tombLeaf.valueRef(0)));
+    tombLeaf.close();
   }
 }
 

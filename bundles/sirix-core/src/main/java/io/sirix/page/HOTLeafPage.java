@@ -2345,7 +2345,28 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     int index = findEntry(keySlice);
 
     if (index >= 0) {
-      // Key exists - merge NodeReferences
+      // Key exists - merge NodeReferences.
+      // HFT fast path: a single-bit packed merge into a packed bucket (the dominant churn case)
+      // runs straight off slot memory — no existing-value copy, no bitmap round-trip. Byte-
+      // identical to the slow path below.
+      final long existingRef = valueRef(index);
+      if (existingRef != NO_VALUE_REF) {
+        if (NodeReferencesSerializer.isTombstone(this, existingRef)) {
+          final byte[] valueSlice = valueLen == value.length
+              ? value
+              : Arrays.copyOf(value, valueLen);
+          return updateValue(index, valueSlice);
+        }
+        final byte[] fastMerged =
+            NodeReferencesSerializer.mergePackedSingleBitFromSlot(this, existingRef, value, 0, valueLen);
+        if (fastMerged == NodeReferencesSerializer.MERGE_UNCHANGED) {
+          return true; // new key already present — merged set unchanged, slot rewrite unnecessary
+        }
+        if (fastMerged != null) {
+          return updateValue(index, fastMerged);
+        }
+      }
+
       final byte[] existingValue = getValue(index);
 
       if (NodeReferencesSerializer.isTombstone(existingValue, 0, existingValue.length)) {
@@ -2353,16 +2374,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
             ? value
             : Arrays.copyOf(value, valueLen);
         return updateValue(index, valueSlice);
-      }
-
-      // HFT fast path: a single-bit packed merge into a packed bucket (the dominant churn case)
-      // avoids 2 Roaring64Bitmap + 2 NodeReferences allocations. byte-identical to the slow path.
-      final byte[] fastMerged = NodeReferencesSerializer.mergePackedSingleBit(existingValue, value, 0, valueLen);
-      if (fastMerged == existingValue) {
-        return true; // new key already present — merged set unchanged, slot rewrite unnecessary
-      }
-      if (fastMerged != null) {
-        return updateValue(index, fastMerged);
       }
 
       // Deserialize both and merge
