@@ -596,18 +596,45 @@ public final class HOTTrieReader implements AutoCloseable {
       }
       if (!(page instanceof HOTIndirectPage indirect))
         return LowerBoundResult.EXHAUSTED;
-      // Find the LAST child whose firstKey is ≤ searchKey.
+      // Find the LAST child whose firstKey is ≤ searchKey. Children are I8-sorted by subtree
+      // first-key, so binary search over them: ~5 first-key probes per 32-way node instead of a
+      // linear sweep, and each probe compares the candidate leaf's first key IN PLACE
+      // (compareKeyWithBound) instead of materializing it. This descent runs on every miss and
+      // on every PEXT-landing the verify rejects, so it dominates absent-key lookup latency —
+      // the linear materializing sweep measured ~16 µs per miss, ~20× the hit cost.
       final int n = indirect.getNumChildren();
       int chosenIdx = -1;
-      for (int i = 0; i < n; i++) {
-        final byte[] fk = getFirstKeyOfChild(indirect, i);
-        if (fk == null || fk.length == 0)
-          continue;
-        final int cmp = Arrays.compareUnsigned(fk, searchKey);
-        if (cmp <= 0) {
-          chosenIdx = i;
-        } else {
+      int lo = 0;
+      int hi = n - 1;
+      boolean binarySearchValid = true;
+      while (lo <= hi) {
+        final int mid = (lo + hi) >>> 1;
+        final int cmp = compareFirstKeyOfChildWithBound(indirect, mid, searchKey);
+        if (cmp == UNRESOLVABLE_SUBTREE) {
+          binarySearchValid = false;
           break;
+        }
+        if (cmp <= 0) {
+          chosenIdx = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      if (!binarySearchValid) {
+        // A child's subtree could not be resolved — its first key is unknown, so ordered probing
+        // is off the table. Recover with the original linear sweep, which skips such children.
+        chosenIdx = -1;
+        for (int i = 0; i < n; i++) {
+          final byte[] fk = getFirstKeyOfChild(indirect, i);
+          if (fk == null || fk.length == 0)
+            continue;
+          final int cmp = Arrays.compareUnsigned(fk, searchKey);
+          if (cmp <= 0) {
+            chosenIdx = i;
+          } else {
+            break;
+          }
         }
       }
       if (chosenIdx < 0) {
@@ -665,6 +692,43 @@ public final class HOTTrieReader implements AutoCloseable {
       ref = indirect.getChildReference(0);
     }
     return new byte[0];
+  }
+
+  /**
+   * Sentinel for {@link #compareFirstKeyOfChildWithBound}: the child's subtree bottomed out on an
+   * unresolvable or empty page, so its first key is unknown. Outside the value range of
+   * {@link HOTLeafPage#compareKeyWithBound} (byte diffs are ±255, length diffs bounded by key
+   * lengths).
+   */
+  private static final int UNRESOLVABLE_SUBTREE = Integer.MIN_VALUE;
+
+  /**
+   * Compare the subtree first-key of {@code parent}'s child {@code childIdx} against {@code bound}
+   * without materializing it: descend leftmost to the child's first leaf and run
+   * {@link HOTLeafPage#compareKeyWithBound} on entry 0 — the zero-copy twin of
+   * {@link #getFirstKeyOfChild} + {@code Arrays.compareUnsigned}.
+   *
+   * @return the comparison result, or {@link #UNRESOLVABLE_SUBTREE} when the descent dead-ends
+   */
+  private int compareFirstKeyOfChildWithBound(HOTIndirectPage parent, int childIdx, byte[] bound) {
+    PageReference ref = parent.getChildReference(childIdx);
+    int depth = 0;
+    while (ref != null && depth++ < MAX_TREE_HEIGHT) {
+      final Page page = loadPage(ref);
+      if (page == null) {
+        return UNRESOLVABLE_SUBTREE;
+      }
+      if (page instanceof HOTLeafPage leaf) {
+        return leaf.getEntryCount() == 0
+            ? UNRESOLVABLE_SUBTREE
+            : leaf.compareKeyWithBound(0, bound);
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) {
+        return UNRESOLVABLE_SUBTREE;
+      }
+      ref = indirect.getChildReference(0);
+    }
+    return UNRESOLVABLE_SUBTREE;
   }
 
   /**

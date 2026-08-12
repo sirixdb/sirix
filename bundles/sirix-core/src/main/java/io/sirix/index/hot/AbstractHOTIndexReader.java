@@ -268,6 +268,66 @@ public abstract class AbstractHOTIndexReader<K> {
   protected abstract @Nullable K deserializeKey(byte[] buffer, int offset, int length);
 
   /**
+   * {@link Map.Entry} whose key deserializes on first {@link #getKey()} — the chunk-aggregating
+   * iterators emit these so value-only consumers never pay key materialization at all. The unfiltered
+   * CAS {@code openIndex} path, for one, iterates the whole index and reads ONLY {@code getValue()}:
+   * with eager keys that was one decoded atomic + key object per logical entry, all garbage.
+   * Immutable ({@link #setValue} throws), {@code equals}/{@code hashCode} follow the
+   * {@link Map.Entry} contract (and therefore force the key).
+   */
+  protected final class LazyKeyEntry implements Map.Entry<K, NodeReferences> {
+    private final byte[] keyBytes;
+    private final int keyLen;
+    private final NodeReferences refs;
+    private @Nullable K key;
+    private boolean keyDeserialized;
+
+    protected LazyKeyEntry(final byte[] keyBytes, final int keyLen, final NodeReferences refs) {
+      this.keyBytes = keyBytes;
+      this.keyLen = keyLen;
+      this.refs = refs;
+    }
+
+    @Override
+    public @Nullable K getKey() {
+      if (!keyDeserialized) {
+        key = deserializeKey(keyBytes, 0, keyLen);
+        keyDeserialized = true;
+      }
+      return key;
+    }
+
+    @Override
+    public NodeReferences getValue() {
+      return refs;
+    }
+
+    @Override
+    public NodeReferences setValue(final NodeReferences value) {
+      throw new UnsupportedOperationException("immutable index entry");
+    }
+
+    @Override
+    public boolean equals(final Object o) {
+      if (!(o instanceof Map.Entry<?, ?> other)) {
+        return false;
+      }
+      final K k = getKey();
+      return (k == null
+          ? other.getKey() == null
+          : k.equals(other.getKey())) && refs.equals(other.getValue());
+    }
+
+    @Override
+    public int hashCode() {
+      final K k = getKey();
+      return (k == null
+          ? 0
+          : k.hashCode()) ^ refs.hashCode();
+    }
+  }
+
+  /**
    * Compare two serialized keys.
    *
    * @param key1 first key bytes

@@ -39,7 +39,6 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
@@ -406,8 +405,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         }
 
         if (merged != null && !merged.isEmpty()) {
-          final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
-          nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, NodeReferences.owning(merged));
+          nextEntry = new LazyKeyEntry(groupComposite, prefixLen, NodeReferences.owning(merged));
           return;
         }
       }

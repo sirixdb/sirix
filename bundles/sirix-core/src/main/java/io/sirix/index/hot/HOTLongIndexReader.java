@@ -38,7 +38,6 @@ import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.util.AbstractMap;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
@@ -267,8 +266,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
         advance();
         return;
       }
-      final Long logicalKey = keySerializer.deserialize(groupComposite, 0, prefixLen);
-      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, NodeReferences.owning(merged));
+      nextEntry = new LazyKeyEntry(groupComposite, prefixLen, NodeReferences.owning(merged));
     }
   }
 
