@@ -27,6 +27,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -38,8 +39,10 @@ import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.ValidTimeIndexPage;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -59,7 +62,7 @@ import static java.util.Objects.requireNonNull;
  * <ul>
  * <li>Thread-local byte buffers for key serialization</li>
  * <li>No Optional - uses @Nullable returns</li>
- * <li>Lock-free reads with guard management</li>
+ * <li>Lock-free reads via optimistic stamp validation — leaves stay evictable, no pins</li>
  * <li>Pre-allocated traversal arrays via {@link HOTTrieReader}</li>
  * </ul>
  *
@@ -75,7 +78,7 @@ public abstract class AbstractHOTIndexReader<K> {
   /**
    * Pooled trie reader for point-lookup chunk walks: constructing a {@link HOTTrieReader} allocates
    * its path-stack arrays, which on the lookup path was per-call garbage. One instance is parked here
-   * between calls ({@link HOTTrieReader#close()} releases the leaf guard and clears the path but
+   * between calls ({@link HOTTrieReader#close()} drops the leaf snapshot and clears the path but
    * keeps the object reusable). Handed out via {@link AtomicReference#getAndSet} so concurrent
    * lookups through the same reader instance stay correct — a loser simply constructs a fresh one.
    */
@@ -110,8 +113,8 @@ public abstract class AbstractHOTIndexReader<K> {
    * Zero-copy by construction: slot filtering reads off the leaf via
    * {@link HOTLeafPage#compareKeyPrefix} / {@link HOTLeafPage#getKeyLength}, the chunkIdx via
    * {@link HOTLeafPage#readKeyIntBE}, and the chunk payload merges straight from slot memory via
-   * {@link NodeReferencesSerializer#mergeChunkInto} — no key or value is ever materialized. The trie
-   * reader is pooled across calls.
+   * {@link NodeReferencesSerializer.ChunkAccumulator#addChunk} — no key or value is ever
+   * materialized. The trie reader is pooled across calls.
    *
    * @param prefixBuf buffer holding the serialized logical key
    * @param prefixLen serialized length of the logical key
@@ -124,6 +127,14 @@ public abstract class AbstractHOTIndexReader<K> {
       return null;
     }
     final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
+    // The seek key must be an EXACTLY-sized array, so it is built fresh rather than appended to the
+    // caller's oversized buffer in place. Not an oversight: the whole descent takes the search key's
+    // length from the array itself — HOTLeafPage.compareKeyWithBound reads bound.length and
+    // DiscriminativeBitComputer.computeDifferingBit reads both operands' lengths — so handing it a
+    // 512-byte thread-local buffer means "a 512-byte key padded with zeros", which routes and
+    // verifies against the wrong key and silently misses stored entries (measured: 13% of point
+    // lookups). Removing this allocation needs a length-parameterized HOTTrieReader.lowerBound, not
+    // a buffer trick.
     final byte[] fromBytes = new byte[compositeLen];
     System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
     HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
@@ -137,33 +148,74 @@ public abstract class AbstractHOTIndexReader<K> {
       accumulator = new NodeReferencesSerializer.ChunkAccumulator();
     }
     try {
-      final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
-      HOTLeafPage leaf = lowerBound.leaf;
-      int idx = lowerBound.indexInLeaf;
-      walk: while (leaf != null) {
-        final int entryCount = leaf.getEntryCount();
-        while (idx < entryCount) {
-          final int cmp = leaf.compareKeyPrefix(idx, prefixBuf, prefixLen);
-          if (cmp > 0) {
-            break walk;
+      // The whole walk runs against UNPINNED leaves under optimistic stamps: each leaf's read
+      // batch — the per-slot prefix compares, the chunkIdx reads, the payload merges — is
+      // validated once before its outcome (stop, or advance to the next leaf) takes effect. A
+      // torn batch poisons the accumulator, so recovery is wholesale: reset and re-walk from a
+      // fresh lower-bound descent. Content per PageReference is immutable, so every retry
+      // re-derives the identical result.
+      for (int walkAttempt = 0; walkAttempt < MAX_TORN_WALK_RETRIES; walkAttempt++) {
+        accumulator.reset();
+        final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
+        HOTLeafPage leaf = lowerBound.leaf;
+        int idx = lowerBound.indexInLeaf;
+        boolean torn = false;
+        while (leaf != null) {
+          boolean stop = false;
+          try {
+            final int entryCount = leaf.getEntryCount();
+            while (idx < entryCount) {
+              final int cmp = leaf.compareKeyPrefix(idx, prefixBuf, prefixLen);
+              if (cmp > 0) {
+                stop = true;
+                break;
+              }
+              if (cmp == 0 && leaf.getKeyLength(idx) == compositeLen) {
+                final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
+                if (!accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16, trie)) {
+                  torn = true;
+                  break;
+                }
+              }
+              idx++;
+            }
+          } catch (RuntimeException e) {
+            if (trie.validateCurrentLeaf()) {
+              throw e; // stable bytes — genuine corruption, not a torn read
+            }
+            torn = true;
           }
-          if (cmp == 0 && leaf.getKeyLength(idx) == compositeLen) {
-            final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-            accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16);
+          if (torn || !trie.validateCurrentLeaf()) {
+            torn = true;
+            break;
           }
-          idx++;
+          if (stop) {
+            break;
+          }
+          leaf = trie.advanceToNextLeaf();
+          idx = 0;
         }
-        leaf = trie.advanceToNextLeaf();
-        idx = 0;
+        if (torn) {
+          continue;
+        }
+        return accumulator.toNodeReferencesAndReset();
       }
-      return accumulator.toNodeReferencesAndReset();
+      throw new IllegalStateException("HOT: chunk walk failed stamp validation on every one of " + MAX_TORN_WALK_RETRIES
+          + " attempts — sustained allocator thrashing");
     } finally {
       accumulator.reset(); // no-op on the success path; drops partial state if the walk threw
-      trie.close(); // releases the leaf guard + clears the path; the object stays reusable
+      trie.close(); // clears the reader's leaf snapshot + path; the object stays reusable
       pooledTrieReader.compareAndSet(null, trie);
       pooledAccumulator.compareAndSet(null, accumulator);
     }
   }
+
+  /**
+   * Bound on whole-walk retries after a torn read poisoned an aggregate. Each retry races eviction
+   * independently on freshly reloaded copies, so consecutive failures imply allocator thrashing, not
+   * a logic error.
+   */
+  private static final int MAX_TORN_WALK_RETRIES = 64;
 
   /**
    * Get the storage engine reader.
@@ -204,7 +256,7 @@ public abstract class AbstractHOTIndexReader<K> {
    * resolves fresh per call — an in-flight commit can replace the index page and its child
    * references.
    */
-  private @Nullable PageReference cachedRootReference;
+  private volatile @Nullable PageReference cachedRootReference;
 
   protected @Nullable PageReference getRootReference() {
     PageReference root = cachedRootReference;
@@ -243,7 +295,7 @@ public abstract class AbstractHOTIndexReader<K> {
         yield namePage.getOrCreateReference(indexNumber);
       }
       case VALIDTIME -> {
-        final io.sirix.page.ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
+        final ValidTimeIndexPage vtPage = storageEngineReader.getValidTimeIndexPage(rootPage);
         if (vtPage == null || indexNumber >= vtPage.getReferencesCount()) {
           yield null;
         }
@@ -253,19 +305,9 @@ public abstract class AbstractHOTIndexReader<K> {
     };
   }
 
-  /**
-   * Navigate to the leaf page containing the key. Uses {@link HOTTrieReader} for proper tree
-   * traversal.
-   *
-   * @param rootRef the root reference
-   * @param key the search key bytes
-   * @return the leaf page, or null if not found
-   */
-  protected @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
-    try (var trieReader = new HOTTrieReader(storageEngineReader)) {
-      return trieReader.navigateToLeaf(rootRef, key);
-    }
-  }
+  // navigateToLeaf(rootRef, key) was removed: no caller anywhere, and under optimistic stamps a
+  // bare unpinned leaf with no validation contract attached is exactly the API shape that invites
+  // silent torn reads. Leaf access goes through the validated walk/iterator primitives above.
 
   /**
    * Serialize a key to bytes.
@@ -297,6 +339,19 @@ public abstract class AbstractHOTIndexReader<K> {
   protected abstract @Nullable K deserializeKey(byte[] buffer, int offset, int length);
 
   /**
+   * A {@link Map.Entry} that can hand out the entry's serialized key without materializing it, so a
+   * per-entry filter that only needs a fixed-offset field (the CAS path class record, say) can read
+   * it in place instead of paying a full key deserialization per entry.
+   */
+  public interface RawKeyBytes {
+    /** Buffer holding the serialized logical key; valid for {@code [0, rawKeyLength())}. */
+    byte[] rawKeyBytes();
+
+    /** Length of the serialized logical key inside {@link #rawKeyBytes()}. */
+    int rawKeyLength();
+  }
+
+  /**
    * {@link Map.Entry} whose key deserializes on first {@link #getKey()} — the chunk-aggregating
    * iterators emit these so value-only consumers never pay key materialization at all. The unfiltered
    * CAS {@code openIndex} path, for one, iterates the whole index and reads ONLY {@code getValue()}:
@@ -304,7 +359,7 @@ public abstract class AbstractHOTIndexReader<K> {
    * Immutable ({@link #setValue} throws), {@code equals}/{@code hashCode} follow the
    * {@link Map.Entry} contract (and therefore force the key).
    */
-  protected final class LazyKeyEntry implements Map.Entry<K, NodeReferences> {
+  protected final class LazyKeyEntry implements Map.Entry<K, NodeReferences>, RawKeyBytes {
     private final byte[] keyBytes;
     private final int keyLen;
     private final NodeReferences refs;
@@ -315,6 +370,16 @@ public abstract class AbstractHOTIndexReader<K> {
       this.keyBytes = keyBytes;
       this.keyLen = keyLen;
       this.refs = refs;
+    }
+
+    @Override
+    public byte[] rawKeyBytes() {
+      return keyBytes;
+    }
+
+    @Override
+    public int rawKeyLength() {
+      return keyLen;
     }
 
     @Override
@@ -357,19 +422,6 @@ public abstract class AbstractHOTIndexReader<K> {
   }
 
   /**
-   * Compare two serialized keys.
-   *
-   * @param key1 first key bytes
-   * @param offset1 offset in first key
-   * @param length1 length of first key
-   * @param key2 second key bytes
-   * @param offset2 offset in second key
-   * @param length2 length of second key
-   * @return negative if key1 < key2, zero if equal, positive if key1 > key2
-   */
-  protected abstract int compareKeys(byte[] key1, int offset1, int length1, byte[] key2, int offset2, int length2);
-
-  /**
    * Get the thread-local key buffer.
    *
    * @return the key buffer
@@ -384,37 +436,135 @@ public abstract class AbstractHOTIndexReader<K> {
   protected abstract void setKeyBuffer(byte[] newBuffer);
 
   /**
-   * Create an iterator over all entries in the HOT index.
+   * Iterate every logical entry in the index.
+   *
+   * <p>
+   * Abstract because "all entries" is a per-reader notion: with chunked-bitmap storage one logical
+   * entry spans several slots, so every concrete reader answers with a
+   * {@link ChunkAggregatingIterator} over an unbounded range rather than a per-slot walk.
    *
    * @return iterator over all key-value pairs
    */
-  public Iterator<Map.Entry<K, NodeReferences>> iterator() {
-    return new HOTLeafIterator();
+  public abstract Iterator<Map.Entry<K, NodeReferences>> iterator();
+
+  /**
+   * Serialize {@code key} into a right-sized array, growing the shared buffer first when the key
+   * needs more room than it has. Sizing BEFORE the write is the point: checking the returned length
+   * afterwards is too late, the overrun has already happened. Range constructors need the bytes to
+   * outlive the shared buffer (two bounds are live at once), hence the copy — once per cursor, never
+   * per entry.
+   *
+   * @param key the key to serialize
+   * @return the serialized bytes, exactly {@code serializeKey}'s length
+   */
+  protected final byte[] serializeKeyToArray(final K key) {
+    requireNonNull(key, "key");
+    byte[] buffer = getKeyBuffer();
+    final int required = maxSerializedKeyLength(key);
+    if (required > buffer.length) {
+      buffer = new byte[required];
+      setKeyBuffer(buffer);
+    }
+    final int length = serializeKey(key, buffer, 0);
+    return Arrays.copyOf(buffer, length);
+  }
+
+  /** {@code prefix ‖ chunkIdx_be4} — a composite bound for the range cursor. */
+  private static byte[] compositeBound(final byte[] prefix, final int chunkIdx) {
+    requireNonNull(prefix, "prefix");
+    final byte[] composite = new byte[prefix.length + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(prefix, 0, composite, 0, prefix.length);
+    HOTKeySerializer.writeChunkIdxBE(composite, prefix.length, chunkIdx);
+    return composite;
   }
 
   /**
-   * Iterator over all entries in a HOT index, handling tree navigation.
+   * Iterator over logical entries in a bounded composite-key range, grouping the chunk slots of one
+   * logical key into a single {@link Map.Entry}. Shared by every HOT reader — the object-key
+   * (CAS/NAME) and primitive-long (PATH) readers differ only in {@link #deserializeKey}, which
+   * {@link LazyKeyEntry} already routes through.
+   *
+   * <h2>Why bounds are checked here and not by the caller</h2>
+   * <p>
+   * The cursor's composite bounds are a coarse <em>byte</em> window, not the logical key range: index
+   * keys are not prefix-free (a CAS string value is raw UTF-8 with no terminator), so the upper
+   * composite {@code serialize(max) ‖ 0xFFFFFFFF} also covers every key that byte-extends {@code max}
+   * — "carpet" sorts below the ceiling built for "car". Callers that trimmed bounds positionally
+   * afterwards (skip the first group if it equals min, the last if it equals max) were wrong twice
+   * over: they let prefix-extensions through, and the equal group need not be first or last. The
+   * exact bound test therefore lives here, comparing each group's LOGICAL key bytes (composite minus
+   * the chunk trailer) against the serialized bound — at most two {@link Arrays#compareUnsigned} per
+   * emitted group, and no key deserialization, so {@link LazyKeyEntry}'s laziness survives.
+   *
+   * <p>
+   * Out-of-range groups are skipped rather than terminating the sweep, because the path-stack forward
+   * walk is not strictly lex-monotonic across sibling subtrees (see {@link #lowerBoundKey}); the
+   * composite ceiling still bounds the scan.
    */
-  protected class HOTLeafIterator implements Iterator<Map.Entry<K, NodeReferences>> {
-    private @Nullable HOTLeafPage currentLeaf;
-    private int currentIndex;
-    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+  protected final class ChunkAggregatingIterator implements Iterator<Map.Entry<K, NodeReferences>>, AutoCloseable {
     private final @Nullable HOTTrieReader trieReader;
-    private final @Nullable PageReference rootRef;
+    private final @Nullable HOTRangeCursor cursor;
+    /**
+     * Serialized logical lower bound, or {@code null} for unbounded. Doubles as the cheap per-slot
+     * pre-filter that suppresses the lex-residue the PEXT-routed seek can leave at the head of the
+     * sweep: HOT sibling subtrees can have overlapping lex ranges (a bit that varies at the parent
+     * level and inside a sibling's subtree cannot be a parent disc bit, so it lives deeper), which
+     * makes the forward walk non-monotonic in the small.
+     */
+    private final byte @Nullable [] lowerBoundKey;
+    private final boolean lowerInclusive;
+    /** Serialized logical upper bound, or {@code null} for unbounded. */
+    private final byte @Nullable [] upperBoundKey;
+    private final boolean upperInclusive;
+    /** Per-iterator chunk accumulator, reset per logical group. */
+    private final NodeReferencesSerializer.ChunkAccumulator accumulator =
+        new NodeReferencesSerializer.ChunkAccumulator();
+    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
+    private boolean closed;
 
-    protected HOTLeafIterator() {
-      this.rootRef = getRootReference();
-      if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(storageEngineReader);
-        // Navigate to leftmost leaf
-        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
-      } else {
+    /**
+     * @param lowerBoundKey serialized logical lower bound, or {@code null} for unbounded
+     * @param lowerInclusive whether {@code lowerBoundKey} itself is in range
+     * @param upperBoundKey serialized logical upper bound, or {@code null} for unbounded
+     * @param upperInclusive whether {@code upperBoundKey} itself is in range
+     */
+    ChunkAggregatingIterator(final byte @Nullable [] lowerBoundKey, final boolean lowerInclusive,
+        final byte @Nullable [] upperBoundKey, final boolean upperInclusive) {
+      this.lowerBoundKey = lowerBoundKey;
+      this.lowerInclusive = lowerInclusive;
+      this.upperBoundKey = upperBoundKey;
+      this.upperInclusive = upperInclusive;
+      final PageReference rootRef = getRootReference();
+      if (rootRef == null) {
+        // Empty trie — no entries.
         this.trieReader = null;
-        // Fallback to simple case
-        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
+        this.cursor = null;
+        this.nextEntry = null;
+        return;
       }
-      this.currentIndex = 0;
-      advance();
+      // The cursor's byte window is DERIVED here rather than passed in, so it can never disagree
+      // with the logical bounds — the invariant `fromComposite == lowerBoundKey ‖ chunk0` is what
+      // lets slotWithinBounds skip the inclusive lower-bound compare. An unbounded lower end is
+      // null, not an empty array: HOTRangeCursor only takes its deterministic navigateToLeftmostLeaf
+      // branch on null, and an empty array instead routes through a PEXT descent on an all-zero
+      // partial key plus a never-firing bound compare per entry for the whole sweep.
+      final byte[] fromComposite = lowerBoundKey == null
+          ? null
+          : compositeBound(lowerBoundKey, 0);
+      final byte[] toComposite = upperBoundKey == null
+          ? null
+          : compositeBound(upperBoundKey, 0xFFFFFFFF);
+      this.trieReader = new HOTTrieReader(storageEngineReader);
+      // range() is INSIDE the try: its constructor descends, so an exception thrown there would
+      // otherwise strand a half-built iterator nothing can reach — this catch routes it through
+      // closeQuietly so the reader and cursor are torn down.
+      try {
+        this.cursor = trieReader.range(rootRef, fromComposite, toComposite);
+        advance();
+      } catch (RuntimeException | Error e) {
+        closeQuietly();
+        throw e;
+      }
     }
 
     @Override
@@ -427,154 +577,209 @@ public abstract class AbstractHOTIndexReader<K> {
       if (nextEntry == null) {
         throw new NoSuchElementException();
       }
-      Map.Entry<K, NodeReferences> result = nextEntry;
-      advance();
+      final Map.Entry<K, NodeReferences> result = nextEntry;
+      try {
+        advance();
+      } catch (RuntimeException | Error e) {
+        closeQuietly();
+        throw e;
+      }
       return result;
     }
 
-    private void advance() {
-      nextEntry = null;
-      while (currentLeaf != null) {
-        if (currentIndex < currentLeaf.getEntryCount()) {
-          byte[] keyBytes = currentLeaf.getKey(currentIndex);
-          byte[] valueBytes = currentLeaf.getValue(currentIndex);
-          currentIndex++;
+    /**
+     * Tear down the cursor and the trie reader. Idempotent, and safe to call at any point: an abandoned
+     * scan MUST route here, because nothing else will — exhaustion and a throw close themselves, but a
+     * consumer that simply stops pulling (a limit, a short-circuiting predicate) would otherwise keep
+     * the leaf object and path stack reachable for the iterator's lifetime.
+     */
+    @Override
+    public void close() {
+      closeQuietly();
+    }
 
-          if (!NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
-            K key = deserializeKey(keyBytes, 0, keyBytes.length);
-            NodeReferences refs = NodeReferencesSerializer.deserialize(valueBytes);
-            if (key != null && refs != null) {
-              nextEntry = Map.entry(key, refs);
-              return;
-            }
-          }
-        } else {
-          // No more entries in current leaf - try to advance to next leaf
-          currentIndex = 0;
-          if (trieReader != null) {
-            currentLeaf = trieReader.advanceToNextLeaf();
-          } else {
-            currentLeaf = null;
-          }
-        }
+    /** Idempotent: exhaustion, abandonment and a throw all route here. */
+    private void closeQuietly() {
+      if (closed) {
+        return;
       }
-
-      // Clean up trie reader when done
-      if (trieReader != null && currentLeaf == null) {
+      closed = true;
+      // Drop the pending entry too: hasNext() is `nextEntry != null`, so leaving it set after a
+      // throw would let a caller that catches and keeps draining receive the same group twice and
+      // then re-enter the cursor after it was closed.
+      nextEntry = null;
+      if (cursor != null) {
+        cursor.close();
+      }
+      if (trieReader != null) {
         trieReader.close();
       }
     }
-  }
 
-  /**
-   * Range iterator over HOT entries.
-   *
-   * <p>
-   * <strong>Implementation note (lower-bound primitive missing in Sirix's HOT).</strong> A
-   * navigate-to-fromKey range scan via {@link HOTRangeCursor} returns wrong results for non-existent
-   * fromKeys on this Sirix HOT implementation: {@code HOTTrieReader.navigateToLeaf} does PEXT-based
-   * exact-or-best-guess routing and does NOT implement a true lower-bound primitive over the lex
-   * order. For an existing key it lands correctly; for a non-existent key (the common range-scan
-   * case, e.g. {@code GREATER_OR_EQUAL 2500}) it may land in a leaf whose entries are NOT lex-greater
-   * than fromKey, and walking forward from there visits keys in HOT-trie-order rather than lex order
-   * — verified empirically by
-   * {@code HOTMultiLayerIndirectPageTest.testCrossTransactionWriteAfterSplitPreservesEntries} (range
-   * &ge; 2500 returned 4489 instead of 2501).
-   *
-   * <p>
-   * The HOT paper / Binna 2018 reference implementation in C++ does provide a proper lower_bound
-   * iterator; Sirix's HOT does not yet expose one. Until that primitive lands, the correct fallback
-   * is leftmost-and-filter — start at {@code navigateToLeftmostLeaf}, walk every leaf via the parent
-   * stack, skip entries before {@code fromBytes}. {@code O(total
-   * trie entries)} per query, but correct on every key shape (chunked PROJECTION-style keys,
-   * composite CAS path-value pairs, etc.).
-   *
-   * <p>
-   * If/when {@code HOTTrieReader} gains a true lower-bound navigation, this iterator can be rewritten
-   * to use it; the current implementation pins the correct semantics.
-   */
-  protected class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
-    private final byte[] fromBytes;
-    private final byte @Nullable [] toBytes; // null means no upper bound
-    private @Nullable HOTLeafPage currentLeaf;
-    private int currentIndex;
-    private Map.@Nullable Entry<K, NodeReferences> nextEntry;
-    private final @Nullable HOTTrieReader trieReader;
-
-    protected RangeIterator(byte[] fromBytes, byte @Nullable [] toBytes) {
-      this.fromBytes = fromBytes;
-      this.toBytes = toBytes;
-
-      PageReference rootRef = getRootReference();
-      if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(storageEngineReader);
-        this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
-      } else {
-        this.trieReader = null;
-        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
+    /**
+     * Whether the slot's logical key (composite minus the chunk trailer) lies inside both bounds, read
+     * straight off the leaf. Zero-copy on purpose: the composite ceiling is wider than the logical
+     * range (index keys are not prefix-free), so a bounded scan visits groups it must reject, and
+     * rejecting them here means {@link HOTLeafPage#getKey} is only ever paid for a group that is
+     * actually emitted.
+     */
+    private boolean slotWithinBounds(final HOTLeafPage leaf, final int idx) {
+      final byte[] lower = lowerBoundKey;
+      // Only the EXCLUSIVE case needs a logical compare. The cursor's seek bound is
+      // `lower ‖ chunk0` (derived in the constructor, so they cannot drift apart) and
+      // HOTRangeCursor#isOutOfRange rejects every slot below it on every step — and
+      // `composite >= lower ‖ 0` is exactly `logical >= lower`, since the composite is the logical
+      // key followed by the chunk trailer. So for an inclusive lower bound this compare could only
+      // ever repeat the cursor's answer, once per slot, over the whole sweep.
+      if (lower != null && !lowerInclusive) {
+        if (leaf.compareKeyPrefixPart(idx, HOTKeySerializer.CHUNK_IDX_BYTES, lower, lower.length) <= 0) {
+          return false;
+        }
       }
-
-      this.currentIndex = 0;
-      advance();
-    }
-
-    @Override
-    public boolean hasNext() {
-      return nextEntry != null;
-    }
-
-    @Override
-    public Map.Entry<K, NodeReferences> next() {
-      if (nextEntry == null) {
-        throw new NoSuchElementException();
+      final byte[] upper = upperBoundKey;
+      if (upper != null) {
+        final int cmp = leaf.compareKeyPrefixPart(idx, HOTKeySerializer.CHUNK_IDX_BYTES, upper, upper.length);
+        return cmp < 0 || (cmp == 0 && upperInclusive);
       }
-      Map.Entry<K, NodeReferences> result = nextEntry;
-      advance();
-      return result;
+      return true;
     }
 
     private void advance() {
+      // Cleared up front, not just on the exits: a throw out of the loop below (corrupt slot
+      // payload) must not leave a stale entry behind for hasNext() to report.
       nextEntry = null;
-      while (currentLeaf != null) {
-        if (currentIndex < currentLeaf.getEntryCount()) {
-          byte[] key = currentLeaf.getKey(currentIndex);
-
-          if (toBytes != null && compareKeys(key, 0, key.length, toBytes, 0, toBytes.length) >= 0) {
-            currentLeaf = null;
-            break;
-          }
-
-          if (compareKeys(key, 0, key.length, fromBytes, 0, fromBytes.length) < 0) {
-            currentIndex++;
+      if (cursor == null) {
+        return;
+      }
+      while (true) {
+        // Head skip: move past slots that cannot start a group. Every skip/stop decision reads
+        // the UNPINNED leaf and is validated before it takes effect; a torn read re-evaluates
+        // the SAME slot on a refreshed copy — cursor position is derived only from validated
+        // decisions, so it survives the reload.
+        int tornRounds = 0;
+        while (cursor.hasNext()) {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int idx = cursor.currentEntryIndex();
+          final boolean skip;
+          try {
+            // <=, not <: a composite of exactly CHUNK_IDX_BYTES carries a ZERO-length logical key, which
+            // would emit an entry whose deserializeKey reads past the buffer. Such a slot is not a
+            // well-formed chunk composite either way.
+            skip = leaf.getKeyLength(idx) <= HOTKeySerializer.CHUNK_IDX_BYTES || !slotWithinBounds(leaf, idx);
+          } catch (RuntimeException e) {
+            if (cursor.validateLeaf()) {
+              throw e; // stable bytes — genuine corruption, not a torn read
+            }
+            recoverTorn(++tornRounds);
             continue;
           }
+          if (!cursor.validateLeaf()) {
+            recoverTorn(++tornRounds);
+            continue;
+          }
+          tornRounds = 0;
+          if (!skip) {
+            break;
+          }
+          cursor.advance();
+        }
+        if (!cursor.hasNext()) {
+          closeQuietly(); // an empty or fully-rejected sweep must release its resources too
+          return;
+        }
 
-          byte[] value = currentLeaf.getValue(currentIndex);
-          currentIndex++;
-
-          if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
-            K deserializedKey = deserializeKey(key, 0, key.length);
-            NodeReferences refs = NodeReferencesSerializer.deserialize(value);
-            if (deserializedKey != null && refs != null) {
-              nextEntry = Map.entry(deserializedKey, refs);
-              return;
+        // Materialize the group's composite key ONCE — it doubles as the logical-key bytes for
+        // deserializeKey at emit. Only in-bounds groups ever get here. The copy is validated
+        // before anything derives from it: it names the group for the merge compares below, for
+        // the emitted entry, and for the re-seek target when a torn read voids the merge.
+        byte[] groupComposite = null;
+        while (groupComposite == null) {
+          final byte[] candidate;
+          try {
+            candidate = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+          } catch (RuntimeException e) {
+            if (cursor.validateLeaf()) {
+              throw e;
             }
+            recoverTorn(++tornRounds);
+            continue;
           }
-        } else {
-          currentIndex = 0;
-          if (trieReader != null) {
-            currentLeaf = trieReader.advanceToNextLeaf();
-          } else {
-            currentLeaf = null;
+          if (!cursor.validateLeaf()) {
+            recoverTorn(++tornRounds);
+            continue;
           }
+          if (candidate == null) {
+            // getKey() returns null for a slot the slot table does not address — and the stamp
+            // just validated, so this is storage corruption, reported rather than dereferenced
+            // into an opaque NullPointerException.
+            throw new IllegalStateException(
+                "HOT leaf slot " + cursor.currentEntryIndex() + " does not address a readable key");
+          }
+          groupComposite = candidate;
+        }
+        final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+        final int compositeLen = groupComposite.length;
+
+        // Merge the group's chunk slots. A torn read voids the WHOLE aggregate (the merge writes
+        // into the accumulator as it goes), so recovery is wholesale: reset the accumulator,
+        // re-seek the group's first slot by its validated composite, and re-merge from scratch.
+        group: for (int groupAttempt = 0;; groupAttempt++) {
+          checkTornBound(groupAttempt);
+          while (cursor.hasNext()) {
+            final HOTLeafPage leaf = cursor.currentLeafPage();
+            final int idx = cursor.currentEntryIndex();
+            final boolean groupEnd;
+            try {
+              groupEnd =
+                  leaf.getKeyLength(idx) != compositeLen || leaf.compareKeyPrefix(idx, groupComposite, prefixLen) != 0;
+              if (!groupEnd) {
+                final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
+                if (!accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16, trieReader)) {
+                  accumulator.reset();
+                  cursor.restartAtComposite(groupComposite);
+                  continue group;
+                }
+              }
+            } catch (RuntimeException e) {
+              if (cursor.validateLeaf()) {
+                throw e;
+              }
+              accumulator.reset();
+              cursor.restartAtComposite(groupComposite);
+              continue group;
+            }
+            if (!cursor.validateLeaf()) {
+              accumulator.reset();
+              cursor.restartAtComposite(groupComposite);
+              continue group;
+            }
+            if (groupEnd) {
+              break;
+            }
+            cursor.advance();
+          }
+          break;
+        }
+
+        final NodeReferences groupRefs = accumulator.toNodeReferencesAndReset();
+        if (groupRefs != null) {
+          nextEntry = new LazyKeyEntry(groupComposite, prefixLen, groupRefs);
+          return;
         }
       }
+    }
 
-      if (trieReader != null && currentLeaf == null) {
-        trieReader.close();
+    /** Bounded torn-recovery: refresh the cursor's leaf and let the caller re-evaluate in place. */
+    private void recoverTorn(final int round) {
+      checkTornBound(round);
+      cursor.refreshLeaf();
+    }
+
+    private void checkTornBound(final int round) {
+      if (round > MAX_TORN_WALK_RETRIES) {
+        throw new IllegalStateException("HOT: chunk aggregation failed stamp validation on " + MAX_TORN_WALK_RETRIES
+            + " consecutive rounds — sustained allocator thrashing");
       }
     }
   }
-
 }
-

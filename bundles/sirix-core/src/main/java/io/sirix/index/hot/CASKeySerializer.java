@@ -30,9 +30,11 @@ package io.sirix.index.hot;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.jdm.Type;
+import io.sirix.index.InstantKeyCodec;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 import static java.util.Objects.requireNonNull;
 
@@ -81,7 +83,45 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   private static final short TYPE_FLOAT = 4;
   private static final short TYPE_INTEGER = 5;
   private static final short TYPE_DECIMAL = 7;
+
+  /**
+   * The instant family. These carry real ids so the content type ROUND-TRIPS — {@code CASValue} then
+   * reports {@code xs:dateTime} rather than {@code xs:string} on the way back out, which is what lets
+   * the typed {@code CASFilterRange#inRange} comparison order them chronologically.
+   *
+   * <p>
+   * The stored VALUE is the raw lexical form (the string branch of
+   * {@link #encodeAtomicOrderPreserving}), and {@link #isByteOrderPreserving} deliberately reports
+   * {@code false} for them, so every range query is decided by that typed comparison and never by a
+   * byte-bounded cursor. An id is emphatically NOT a claim of byte-orderability — see the predicate's
+   * javadoc.
+   * </p>
+   */
+  private static final short TYPE_DATETIME = 8;
+  private static final short TYPE_DATE = 9;
+  private static final short TYPE_TIME = 10;
+
+  // These were briefly stored through a BINARY instant codec on this branch. That was wrong and is
+  // reverted to the lexical form. Measured against brackit's own comparison semantics:
+  // * xs:date — canonicalizing to UTC moves the offset into a time-of-day that xs:date cannot
+  // hold (brackit's Date.getHours() is always 0), so the residue is dropped and
+  // xs:date("2020-01-01+02:00") encoded to the SAME 10 bytes as xs:date("2019-12-31Z"),
+  // which compareTo reports as different values.
+  // * xs:time — the reference-date comparison (1972-12-31) carries a ±1-day rollover that
+  // xs:time cannot hold (Time.getDay() is always 0), so byte order came out INVERTED against
+  // compareTo for any non-UTC offset.
+  // * mixed timezoned/untimezoned values collided, and brackit orders that pair inconsistently
+  // (it reports "less" in BOTH directions), so no byte encoding can agree with it.
+  // Colliding keys are the fatal part: two distinct values sharing one CAS key merge their posting
+  // lists, which corrupts equality lookups and deletes, not just ranges. The lexical form is
+  // injective, so it is what gets stored; chronological ORDER comes from the typed
+  // CASFilterRange#inRange comparison, which isByteOrderPreserving=false routes every instant range
+  // query through. That gate is the actual fix for the original defect — a byte-bounded cursor
+  // deciding instant ranges on lexical bytes and silently dropping records.
+
   private static final short TYPE_OTHER = 0;
+
+
 
   /**
    * Singleton instance (stateless, thread-safe).
@@ -120,13 +160,15 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       offset += encodeAtomicOrderPreserving(atomicValue, type, dest, offset);
     }
 
-    int bytesWritten = offset - start;
-    if (bytesWritten == 10) {
-      // Only header, no value - shouldn't happen for valid CASValue
+    if (atomicValue == null) {
       throw new IllegalArgumentException("CASValue has no atomic value");
     }
 
-    return bytesWritten;
+    // NOT an error when the value region is empty: the empty string encodes to zero bytes, and a
+    // bare 10-byte header is its correct key — it sorts below every non-empty value of the same
+    // type, which is exactly right. Rejecting a zero-length region instead made `$x >= ""` throw
+    // out of the reader and would have made indexing a `""` value throw out of the writer.
+    return offset - start;
   }
 
   /**
@@ -138,6 +180,27 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   @Override
   public int maxSerializedLength(final CASValue key) {
     return HEADER_BYTES + MAX_STRING_VALUE_BYTES;
+  }
+
+  /**
+   * The path class record of a serialized CAS key, read in place. The pathNodeKey is the first eight
+   * bytes, big-endian and sign-flipped, so this is one unaligned-style read plus an XOR — no
+   * {@link CASValue}, no atomic, no UTF-8 decode. Exists because the per-entry PCR filter used to go
+   * through {@link #deserialize}, which materializes the whole key just to look at its first eight
+   * bytes.
+   *
+   * @param bytes buffer holding a serialized CAS key
+   * @param offset offset of the key within {@code bytes}
+   * @return the key's pathNodeKey
+   */
+  public static long pathNodeKeyAt(final byte[] bytes, final int offset) {
+    requireNonNull(bytes, "bytes");
+    Objects.checkFromIndexSize(offset, Long.BYTES, bytes.length);
+    final long signFlipped = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
+        | ((long) (bytes[offset + 2] & 0xFF) << 40) | ((long) (bytes[offset + 3] & 0xFF) << 32)
+        | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
+        | ((long) (bytes[offset + 6] & 0xFF) << 8) | (bytes[offset + 7] & 0xFF);
+    return signFlipped ^ SIGN_FLIP;
   }
 
   @Override
@@ -191,6 +254,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
           ? (byte) 1
           : (byte) 0;
       return 1;
+    } else if (InstantKeyCodec.isInstantType(type)) {
+      // The absolute instant, so byte order is chronological order — see InstantKeyCodec.
+      return InstantKeyCodec.encode(value, type, dest, offset);
     } else {
       // String: UTF-8 is already lexicographically ordered
       final String str = value.stringValue();
@@ -309,10 +375,52 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
+   * Whether the serialized key's unsigned BYTE order is the type's own value order — i.e. whether a
+   * bounded byte-range cursor may decide a range query for this content type at all.
+   *
+   * <p>
+   * True for the families {@link #encodeAtomicOrderPreserving} encodes deliberately: the integer
+   * family, the floating-point family, {@code xs:decimal}, {@code xs:boolean} and {@code xs:string}.
+   * FALSE for everything else, which falls through to that method's string branch and is stored as
+   * its raw lexical form: {@code xs:dateTime}, {@code xs:date}, {@code xs:time} and
+   * {@code xs:duration} all order textually there, which is not chronological order. Text order puts
+   * {@code "…T12:00:00.5Z"} below {@code "…T12:00:00Z"} ({@code '.'} &lt; {@code 'Z'}) and mixes
+   * timezone spellings arbitrarily ({@code '+'}, {@code '-'} &lt; {@code 'Z'}), so a byte-bounded
+   * scan silently drops matching records. Callers must fall back to a typed
+   * {@link io.sirix.index.cas.CASFilterRange#inRange} comparison for those — which is exactly what a
+   * {@code false} answer here makes {@code CASIndex} do.
+   *
+   * <p>
+   * <b>This predicate is deliberately NOT "does the type have an id".</b> Those are different
+   * questions, and fusing them is how the instant family briefly ended up on the byte-bounded fast
+   * path with an encoding that was not order-preserving (see the burned-id note at the top of this
+   * class). A type gets {@code true} here only when its encoder is known to preserve order.
+   *
+   * @param type the index's content type
+   * @return {@code true} iff byte order over the encoded value equals value order
+   */
+  public static boolean isByteOrderPreserving(final Type type) {
+    if (type == null) {
+      return false;
+    }
+    final short id = getTypeId(type);
+    return id == TYPE_STRING || id == TYPE_BOOLEAN || id == TYPE_DOUBLE || id == TYPE_FLOAT || id == TYPE_INTEGER
+        || id == TYPE_DECIMAL || id == TYPE_DATETIME || id == TYPE_DATE || id == TYPE_TIME;
+  }
+
+  /**
    * Gets a stable type ID for serialization.
    */
   private static short getTypeId(Type type) {
-    if (type.instanceOf(Type.STR)) {
+    // The instant family first: none of these is a subtype of the families below, but checking them
+    // up front keeps the mapping obvious.
+    if (type.instanceOf(Type.DATI)) {
+      return TYPE_DATETIME;
+    } else if (type.instanceOf(Type.DATE)) {
+      return TYPE_DATE;
+    } else if (type.instanceOf(Type.TIME)) {
+      return TYPE_TIME;
+    } else if (type.instanceOf(Type.STR)) {
       return TYPE_STRING;
     } else if (type.instanceOf(Type.BOOL)) {
       return TYPE_BOOLEAN;
@@ -342,6 +450,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       case TYPE_FLOAT -> Type.FLO;
       case TYPE_INTEGER -> Type.LON;
       case TYPE_DECIMAL -> Type.DEC;
+      case TYPE_DATETIME -> Type.DATI;
+      case TYPE_DATE -> Type.DATE;
+      case TYPE_TIME -> Type.TIME;
       default -> Type.STR; // Fallback
     };
   }
@@ -350,6 +461,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Decodes an atomic value from bytes.
    */
   private static Atomic decodeAtomic(byte[] bytes, int offset, int length, Type type) {
+    if (InstantKeyCodec.isInstantType(type)) {
+      return InstantKeyCodec.decode(bytes, offset, length, type);
+    }
     if (type.instanceOf(Type.INR)) {
       // Integer family: reverse the lossless 64-bit sign-flipped encoding.
       long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)

@@ -101,11 +101,11 @@ public final class IndexExpr implements Expr {
 
         switch (indexType) {
           case PATH -> {
-            final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getStorageEngineReader(),
-                entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
+            final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(
+                rtx.getStorageEngineReader(), entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
 
-            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
-                false);
+            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
+                nodeKeys, false);
           }
           case CAS -> {
             final var atomic = (Atomic) properties.get("atomic");
@@ -129,8 +129,8 @@ public final class IndexExpr implements Expr {
               final Iterator<NodeReferences> nodeReferencesIterator =
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
-              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
-                  false);
+              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
+                  nodeKeys, false);
 
             } else {
 
@@ -140,8 +140,8 @@ public final class IndexExpr implements Expr {
               final Iterator<NodeReferences> nodeReferencesIterator =
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
-              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
-                  false);
+              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
+                  nodeKeys, false);
 
             }
             indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
@@ -152,8 +152,8 @@ public final class IndexExpr implements Expr {
                 indexController.openNameIndex(rtx.getStorageEngineReader(), entrySet.getKey(),
                     new NameFilter(Set.of(entrySet.getValue().get(entrySet.getValue().size() - 1).tail()), Set.of()));
 
-            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
-                true);
+            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator,
+                nodeKeys, true);
 
           }
           default -> throw new IllegalStateException("Index type " + indexType + " not known");
@@ -199,8 +199,8 @@ public final class IndexExpr implements Expr {
             for (; k <= index; k++) {
               if (!rtx.moveToRightSibling()) {
                 throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
-                    new QNm("Index expression: moveToRightSibling failed at position " + k
-                        + " of " + index + " for nodeKey " + nodeKey));
+                    new QNm("Index expression: moveToRightSibling failed at position " + k + " of " + index
+                        + " for nodeKey " + nodeKey));
               }
             }
             sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
@@ -239,8 +239,7 @@ public final class IndexExpr implements Expr {
               // hop becomes a no-op when the predicate target is itself a fused
               // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
               // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
-              if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT
-                  && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
+              if (rtx.getKind() != NodeKind.OBJECT_NAMED_OBJECT && rtx.getKind() != NodeKind.OBJECT_NAMED_ARRAY) {
                 rtx.moveToParent();
               }
             }
@@ -257,8 +256,16 @@ public final class IndexExpr implements Expr {
       return new ItemSequence(sequence.toArray(new Item[0]));
     } catch (final Exception e) {
       // Close resources with proper exception suppression to avoid masking the original error
-      try { rtx.close(); } catch (final Exception s) { e.addSuppressed(s); }
-      try { resourceSession.close(); } catch (final Exception s) { e.addSuppressed(s); }
+      try {
+        rtx.close();
+      } catch (final Exception s) {
+        e.addSuppressed(s);
+      }
+      try {
+        resourceSession.close();
+      } catch (final Exception s) {
+        e.addSuppressed(s);
+      }
       throw e;
     }
   }
@@ -327,8 +334,7 @@ public final class IndexExpr implements Expr {
             // matches the FIELD step before that trailing {@code []}. Skip the trailing
             // {@code []} when walking back so the segment pointers line up.
             int startIdx = steps.size() - 1;
-            if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY
-                && startIdx >= 1
+            if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY && startIdx >= 1
                 && steps.get(startIdx).getAxis() == Path.Axis.CHILD_ARRAY) {
               startIdx--;
             }
@@ -419,8 +425,8 @@ public final class IndexExpr implements Expr {
                 // moveToParent here would skip over the OBJECT_KEY layer too — but under
                 // fusion that layer is already part of the same record. Skip ONLY for
                 // the CHILD_ARRAY follow-up, not for FIELD steps.
-                final boolean fusedSkip = step.getAxis() == Path.Axis.CHILD_ARRAY
-                    && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
+                final boolean fusedSkip =
+                    step.getAxis() == Path.Axis.CHILD_ARRAY && rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
                 if (!fusedSkip) {
                   rtx.moveToParent();
                 }
@@ -431,8 +437,7 @@ public final class IndexExpr implements Expr {
               // record collapses both layers — the parent moveToParent already lands on the
               // GRANDPARENT object, so the extra hop would over-shoot. Restrict the extra hop
               // to bare OBJECT records only.
-              if (rtx.getKind() == NodeKind.OBJECT
-                  && i - 1 > 0
+              if (rtx.getKind() == NodeKind.OBJECT && i - 1 > 0
                   && steps.get(i - 1).getAxis() == Path.Axis.CHILD_OBJECT_FIELD) {
                 rtx.moveToParent();
               }

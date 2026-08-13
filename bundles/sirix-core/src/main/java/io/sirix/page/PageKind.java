@@ -4303,12 +4303,19 @@ public enum PageKind {
       final Runnable releaser;
 
       final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
+      // Base of the allocation backing slotMemory, when slotMemory is only a slice of it. The
+      // allocator's live-slot map is keyed by the address it handed out, so the page has to be
+      // told the base or its optimistic read stamps silently bind to "not slot-backed" and stop
+      // validating anything. Null on the copying path, where slotMemory IS the allocation.
+      final MemorySegment stampBase;
       if (canZeroCopy) {
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
         slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
+        stampBase = sourceSegment;
         source.skip(usedSlotMemorySize);
         releaser = decompressionResult.transferOwnership();
       } else {
+        stampBase = null;
         slotMemory = allocator.allocate(HOTLeafPage.DEFAULT_SIZE);
         if (source instanceof MemorySegmentBytesIn msSource) {
           MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
@@ -4324,6 +4331,10 @@ public enum PageKind {
 
       final HOTLeafPage page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets,
           entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
+      // Before the page is published: without this the zero-copy leaf's stamp binds to the slice's
+      // address, which is not an allocator key, and every validateStamp degrades to a closed-flag
+      // check for the page's whole lifetime.
+      page.setStampBaseSegment(stampBase);
       page.setCompleteDump(completeDump);
       if ((envelopeFlags & HOTLeafPage.FLAG_OVERFLOW_PAGE_REFS) != 0) {
         deserializeSegmentRefs(source, page);

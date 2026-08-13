@@ -37,7 +37,7 @@ class NodeReferencesCompactModeTest {
   }
 
   private static NodeReferences compact(final long... keys) {
-    return NodeReferences.ofSortedArray(keys.clone(), keys.length);
+    return NodeReferences.ofSortedArray(keys.clone());
   }
 
   @Test
@@ -101,7 +101,7 @@ class NodeReferencesCompactModeTest {
 
   @Test
   void emptyCompactBehavesLikeTombstone() {
-    final NodeReferences empty = NodeReferences.ofSortedArray(new long[0], 0);
+    final NodeReferences empty = NodeReferences.ofSortedArray(new long[0]);
     assertFalse(empty.hasNodeKeys());
     assertEquals(0, empty.cardinality());
     assertFalse(empty.nodeKeyIterator().hasNext());

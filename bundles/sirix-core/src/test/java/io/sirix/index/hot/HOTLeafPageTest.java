@@ -345,7 +345,7 @@ class HOTLeafPageTest {
   }
 
   @Test
-  void testMergeChunkIntoPackedTombstoneAndRoaring() {
+  void testChunkAccumulatorPackedTombstoneAndRoaring() {
     final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
 
     // Packed chunk (2 bit16 values), a tombstone, and a Roaring chunk (>64 values).
@@ -361,11 +361,12 @@ class HOTLeafPageTest {
     assertTrue(page.put(composite("k", 4), NodeReferencesSerializer.serialize(tombstone)));
     assertTrue(page.put(composite("k", 5), NodeReferencesSerializer.serialize(roaring)));
 
-    Roaring64Bitmap merged = null;
+    final NodeReferencesSerializer.ChunkAccumulator accumulator = new NodeReferencesSerializer.ChunkAccumulator();
     for (int i = 0; i < page.getEntryCount(); i++) {
       final long chunkIdx = page.readKeyIntBE(i, page.getKeyLength(i) - 4) & 0xFFFFFFFFL;
-      merged = NodeReferencesSerializer.mergeChunkInto(page, page.valueRef(i), chunkIdx << 16, merged);
+      accumulator.addChunk(page, page.valueRef(i), chunkIdx << 16);
     }
+    final NodeReferences merged = accumulator.toNodeReferencesAndReset();
 
     final Roaring64Bitmap expected = new Roaring64Bitmap();
     expected.add((3L << 16) | 0x0001);
@@ -373,7 +374,7 @@ class HOTLeafPageTest {
     for (int v = 0; v < 100; v++) {
       expected.add((5L << 16) | (v * 3));
     }
-    assertEquals(expected, merged);
+    assertEquals(NodeReferences.owning(expected), merged);
     page.close();
   }
 }

@@ -1,15 +1,16 @@
 package io.sirix.index.redblacktree.keyvalue;
 
-import io.sirix.utils.ToStringHelper;
-import java.util.Arrays;
-import java.util.Objects;
-import java.util.function.LongConsumer;
 import io.sirix.index.redblacktree.interfaces.References;
+import io.sirix.utils.ToStringHelper;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.util.Set;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.Arrays;
+import java.util.Objects;
+import java.util.function.LongConsumer;
 
 /**
  * Text node-ID references.
@@ -33,23 +34,34 @@ import java.util.Set;
  * @author Johannes Lichtenberger
  */
 public final class NodeReferences implements References {
-  /** Node keys as a bitmap; {@code null} while the compact representation is authoritative. */
-  private @Nullable Roaring64Bitmap nodeKeys;
+  /**
+   * The one authoritative representation: a {@link Roaring64Bitmap} or an exactly-sized
+   * {@code long[]} sorted strictly ascending. A SINGLE field, and {@code volatile}, so the two
+   * representations can never be observed half-swapped: materializing the bitmap publishes it with a
+   * release, and every accessor reads the field once into a local. (Two fields plus a plain write
+   * would let another thread see the compact array already cleared while the bitmap write is still
+   * invisible.) Reads stay a plain load on x86/ARM; materialization is once per instance at most.
+   */
+  private volatile Object refs;
 
   /**
-   * Compact representation: {@code compactKeys[0..compactCount)} sorted strictly ascending.
-   * {@code null} when {@link #nodeKeys} is authoritative. Never exposed; adopted from
-   * {@link #ofSortedArray(long[], int)} callers who hand over ownership.
+   * Handle on {@link #refs}, for the lock-free compact-to-bitmap promotion in {@link #getNodeKeys()}.
    */
-  private long @Nullable [] compactKeys;
+  private static final VarHandle REFS;
 
-  private int compactCount;
+  static {
+    try {
+      REFS = MethodHandles.lookup().findVarHandle(NodeReferences.class, "refs", Object.class);
+    } catch (ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
 
   /**
    * Default constructor.
    */
   public NodeReferences() {
-    nodeKeys = new Roaring64Bitmap();
+    refs = new Roaring64Bitmap();
   }
 
   /**
@@ -98,27 +110,39 @@ public final class NodeReferences implements References {
    * bitmap view is created lazily only if some consumer insists on {@link #getNodeKeys()} or mutates
    * the set.
    *
-   * @param keys the backing array, adopted; sorted strictly ascending in {@code [0, count)}
-   * @param count number of live keys
+   * <p>
+   * The array must be EXACTLY sized: its length is the cardinality, so there is no separate count to
+   * publish and no branch that silently copies instead of adopting — the contract is unconditional,
+   * which is what a caller handing over a buffer needs it to be.
+   *
+   * @param keys the backing array, adopted; sorted strictly ascending over its whole length
    * @return references over the run
    */
-  public static NodeReferences ofSortedArray(final long[] keys, final int count) {
+  public static NodeReferences ofSortedArray(final long[] keys) {
     Objects.requireNonNull(keys, "keys");
-    Objects.checkFromIndexSize(0, count, keys.length);
-    final NodeReferences refs = new NodeReferences((Roaring64Bitmap) null, false);
-    refs.compactKeys = keys;
-    refs.compactCount = count;
-    return refs;
+    // The precondition is what containsSorted's binary search rests on, and this factory is public
+    // and ADOPTS the caller's array — so violating it yields a posting list that silently reports
+    // present keys as absent, with no exception anywhere. Note the order is UNSIGNED: a caller who
+    // sorted with Arrays.sort (signed) and holds any high-bit-set key would otherwise be accepted
+    // and then misbehave only for those keys.
+    for (int i = 1; i < keys.length; i++) {
+      if (Long.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
+        throw new IllegalArgumentException("keys must be sorted strictly ascending by unsigned order; index " + (i - 1)
+            + " (" + Long.toUnsignedString(keys[i - 1]) + ") is not below index " + i + " ("
+            + Long.toUnsignedString(keys[i]) + ")");
+      }
+    }
+    return new NodeReferences(keys);
   }
 
-  private NodeReferences(final @Nullable Roaring64Bitmap nodeKeys, final boolean copy) {
-    if (nodeKeys == null) {
-      this.nodeKeys = null; // compact caller fills the array fields
-    } else {
-      this.nodeKeys = copy
-          ? nodeKeys.clone()
-          : nodeKeys;
-    }
+  private NodeReferences(final long[] compactKeys) {
+    this.refs = compactKeys;
+  }
+
+  private NodeReferences(final Roaring64Bitmap nodeKeys, final boolean copy) {
+    this.refs = copy
+        ? nodeKeys.clone()
+        : nodeKeys;
   }
 
   /**
@@ -128,18 +152,23 @@ public final class NodeReferences implements References {
    */
   @Override
   public Roaring64Bitmap getNodeKeys() {
-    Roaring64Bitmap bitmap = nodeKeys;
-    if (bitmap == null) {
-      bitmap = new Roaring64Bitmap();
-      final long[] keys = compactKeys;
-      for (int i = 0; i < compactCount; i++) {
-        bitmap.add(keys[i]);
-      }
-      nodeKeys = bitmap;
-      compactKeys = null;
-      compactCount = 0;
+    final Object current = refs;
+    if (current instanceof Roaring64Bitmap bitmap) {
+      return bitmap;
     }
-    return bitmap;
+    final Roaring64Bitmap materialized = new Roaring64Bitmap();
+    for (final long key : (long[]) current) {
+      materialized.add(key);
+    }
+    // Publish lock-free rather than under a monitor: the promotion happens at most once per
+    // instance, so a monitor here is pure inflation risk on a read path. The loser of a race
+    // discards its own copy and returns the winner's, which is what actually matters — every
+    // caller must end up mutating THE bitmap, never an orphan. The only transition this field
+    // ever makes is long[] -> Roaring64Bitmap, so a non-matching witness is always the bitmap.
+    final Object witness = REFS.compareAndExchange(this, current, (Object) materialized);
+    return witness == current
+        ? materialized
+        : (Roaring64Bitmap) witness;
   }
 
   @Override
@@ -163,11 +192,10 @@ public final class NodeReferences implements References {
 
   /** Number of referenced node keys, without materializing a bitmap. */
   public long cardinality() {
-    final long[] keys = compactKeys;
-    if (keys != null) {
-      return compactCount;
-    }
-    return nodeKeys.getLongCardinality();
+    final Object current = refs;
+    return current instanceof long[] keys
+        ? keys.length
+        : ((Roaring64Bitmap) current).getLongCardinality();
   }
 
   /**
@@ -175,11 +203,11 @@ public final class NodeReferences implements References {
    * instances. The representation-independent twin of {@code getNodeKeys().getLongIterator()}.
    */
   public LongIterator nodeKeyIterator() {
-    final long[] keys = compactKeys;
-    if (keys == null) {
-      return nodeKeys.getLongIterator();
+    final Object current = refs;
+    if (!(current instanceof long[] keys)) {
+      return ((Roaring64Bitmap) current).getLongIterator();
     }
-    final int count = compactCount;
+    final int count = keys.length;
     return new LongIterator() {
       private int position;
 
@@ -206,15 +234,14 @@ public final class NodeReferences implements References {
 
   /** Visit every referenced node key in ascending order, without materializing a bitmap. */
   public void forEachNodeKey(final LongConsumer consumer) {
-    final long[] keys = compactKeys;
-    if (keys != null) {
-      final int count = compactCount;
-      for (int i = 0; i < count; i++) {
-        consumer.accept(keys[i]);
+    final Object current = refs;
+    if (current instanceof long[] keys) {
+      for (final long key : keys) {
+        consumer.accept(key);
       }
       return;
     }
-    final LongIterator iterator = nodeKeys.getLongIterator();
+    final LongIterator iterator = ((Roaring64Bitmap) current).getLongIterator();
     while (iterator.hasNext()) {
       consumer.accept(iterator.next());
     }
@@ -234,15 +261,17 @@ public final class NodeReferences implements References {
 
   @Override
   public boolean equals(final @Nullable Object obj) {
-    if (!(obj instanceof final NodeReferences refs)) {
+    // Named `other`, not `refs`: a pattern variable called `refs` would shadow the instance field of
+    // that name, so a later edit meaning "my own representation" would silently read the argument's.
+    if (!(obj instanceof final NodeReferences other)) {
       return false;
     }
-    if (cardinality() != refs.cardinality()) {
+    if (cardinality() != other.cardinality()) {
       return false;
     }
     // Both iterate ascending, so paired iteration decides set equality without materializing.
     final LongIterator a = nodeKeyIterator();
-    final LongIterator b = refs.nodeKeyIterator();
+    final LongIterator b = other.nodeKeyIterator();
     while (a.hasNext()) {
       if (a.next() != b.next()) {
         return false;
@@ -264,19 +293,42 @@ public final class NodeReferences implements References {
 
   @Override
   public boolean hasNodeKeys() {
-    final long[] keys = compactKeys;
-    if (keys != null) {
-      return compactCount > 0;
-    }
-    return !nodeKeys.isEmpty();
+    final Object current = refs;
+    return current instanceof long[] keys
+        ? keys.length > 0
+        : !((Roaring64Bitmap) current).isEmpty();
   }
 
   @Override
   public boolean contains(long nodeKey) {
-    final long[] keys = compactKeys;
-    if (keys != null) {
-      return Arrays.binarySearch(keys, 0, compactCount, nodeKey) >= 0;
+    final Object current = refs;
+    return current instanceof long[] keys
+        ? containsSorted(keys, nodeKey)
+        : ((Roaring64Bitmap) current).contains(nodeKey);
+  }
+
+  /**
+   * Binary search over the compact run, UNSIGNED. The array is strictly ascending by construction —
+   * {@code ChunkAccumulator} spills to a bitmap the moment an append would break that — but its
+   * ordering guard is {@link Long#compareUnsigned}, so the search has to agree with it. Matching
+   * {@link Arrays#binarySearch}'s signed order instead would silently mislocate any key with the high
+   * bit set; today's chunk expansion tops out at 48 bits, but that is the caller's arithmetic, not an
+   * invariant this class can hold, and {@link #ofSortedArray} is public.
+   */
+  private static boolean containsSorted(final long[] keys, final long nodeKey) {
+    int low = 0;
+    int high = keys.length - 1;
+    while (low <= high) {
+      final int mid = (low + high) >>> 1;
+      final int cmp = Long.compareUnsigned(keys[mid], nodeKey);
+      if (cmp < 0) {
+        low = mid + 1;
+      } else if (cmp > 0) {
+        high = mid - 1;
+      } else {
+        return true;
+      }
     }
-    return nodeKeys.contains(nodeKey);
+    return false;
   }
 }

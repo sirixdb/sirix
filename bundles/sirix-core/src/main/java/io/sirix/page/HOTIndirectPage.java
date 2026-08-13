@@ -36,7 +36,10 @@ import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 import org.jspecify.annotations.Nullable;
 
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.settings.Constants;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -699,7 +702,7 @@ public final class HOTIndirectPage implements Page {
         System.arraycopy(key, gatherLoadOffset, padded, 0, available);
       }
       if (available < vectorLen) {
-        java.util.Arrays.fill(padded, available, vectorLen, (byte) 0);
+        Arrays.fill(padded, available, vectorLen, (byte) 0);
       }
       keyVec = ByteVector.fromArray(BYTE_SPECIES, padded, 0);
     }
@@ -843,7 +846,14 @@ public final class HOTIndirectPage implements Page {
   public void setChildReference(int index, PageReference ref) {
     Objects.checkIndex(index, numChildren);
     childReferences[index] = ref;
-    childFirstKeyCache = null; // subtree behind the slot changed — drop memoized first keys
+    // UNCONDITIONAL volatile store, deliberately not guarded by a `!= null` pre-check. The guard
+    // would be a check-then-act on a field a concurrent reader publishes: a reader inside
+    // cacheChildFirstKey can observe null, this writer can then observe null and skip the clear,
+    // and the reader's subsequent store installs a memo holding the PRE-rewrite first key that
+    // nothing will ever invalidate — after which the lex descent routes on it and can skip a
+    // subtree that holds in-range keys. The store also supplies the release edge that publishes
+    // the plain childReferences[] write above.
+    childFirstKeyCache = null;
   }
 
   /**
@@ -1416,6 +1426,7 @@ public final class HOTIndirectPage implements Page {
     }
     if (childReferences[offset] == null) {
       childReferences[offset] = new PageReference();
+      childFirstKeyCache = null; // a slot gained a subtree — drop memoized first keys
     }
     return childReferences[offset];
   }
@@ -1426,14 +1437,22 @@ public final class HOTIndirectPage implements Page {
       return true; // Page full
     }
     childReferences[offset] = pageReference;
+    // UNCONDITIONAL volatile store, deliberately not guarded by a `!= null` pre-check. The guard
+    // would be a check-then-act on a field a concurrent reader publishes: a reader inside
+    // cacheChildFirstKey can observe null, this writer can then observe null and skip the clear,
+    // and the reader's subsequent store installs a memo holding the PRE-rewrite first key that
+    // nothing will ever invalidate — after which the lex descent routes on it and can skip a
+    // subtree that holds in-range keys. The store also supplies the release edge that publishes
+    // the plain childReferences[] write above.
+    childFirstKeyCache = null;
     return false;
   }
 
   @Override
-  public void commit(io.sirix.api.StorageEngineWriter storageEngineWriter) {
+  public void commit(StorageEngineWriter storageEngineWriter) {
     for (int i = 0; i < numChildren; i++) {
       PageReference ref = childReferences[i];
-      if (ref != null && ref.getLogKey() != io.sirix.settings.Constants.NULL_ID_INT) {
+      if (ref != null && ref.getLogKey() != Constants.NULL_ID_INT) {
         storageEngineWriter.commit(ref);
       }
     }

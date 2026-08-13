@@ -46,15 +46,17 @@ import java.util.concurrent.Semaphore;
  * HOT trie reader for HOT (Height Optimized Trie) navigation.
  * 
  * <p>
- * This class provides read-only access to HOT indexes with proper guard management to prevent page
- * eviction during active use.
+ * This class provides read-only access to HOT indexes with OPTIMISTIC stamp validation instead of
+ * page pinning: leaves stay evictable at all times, every batch of leaf-content reads is confirmed
+ * against the FrameSlotAllocator's per-slot seqlock version before its result escapes, and a failed
+ * validation retries on a freshly reloaded copy of the same immutable content.
  * </p>
- * 
+ *
  * <p>
  * <b>Key Features:</b>
  * </p>
  * <ul>
- * <li>Guard acquisition for page lifetime management</li>
+ * <li>Optimistic stamp validation for page lifetime safety — no pins, no guard churn</li>
  * <li>Zero-copy value access via MemorySegment slices</li>
  * <li>SIMD-optimized child lookup via HOTIndirectPage</li>
  * <li>Pre-allocated traversal arrays for zero allocations</li>
@@ -181,6 +183,18 @@ public final class HOTTrieReader implements AutoCloseable {
     return new Semaphore(Math.max(0, configured));
   }
 
+  /**
+   * Phase-7u strategy flags, resolved ONCE at class load. They are JVM-lifetime debug switches, but
+   * they were being read per seek through {@link Boolean#getBoolean}, i.e. a lookup in the JDK's
+   * synchronized system-Properties table on the microsecond-scale absent-key path — a process-wide
+   * lock acquisition per seek under concurrent readers. Worse, since they select between different
+   * bound algorithms, a property changed mid-run used to change lower-bound semantics between calls.
+   * As constants the JIT folds the branches away entirely.
+   */
+  private static final boolean LEX_PRIMARY = Boolean.getBoolean("hot.strict.phase7u.lexprimary");
+
+  private static final boolean LEX_FALLBACK_DISABLED = Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable");
+
   /** The storage engine reader. */
   private final StorageEngineReader storageEngineReader;
 
@@ -197,19 +211,29 @@ public final class HOTTrieReader implements AutoCloseable {
   private final short[] pathMsbAtDepth = new short[MAX_TREE_HEIGHT];
   private int pathDepth = 0;
 
-  // ===== Currently guarded leaf page =====
-  // This reader holds at most one leaf guard at a time: the most-recently-resolved leaf,
-  // managed entirely by loadPage. A guarded leaf cannot be evicted, so every read of leaf
-  // content by this reader (point lookup, range cursor, lower-bound walk) is safe for as
-  // long as that leaf remains the current one.
-  private HOTLeafPage guardedLeaf = null;
+  // ===== Current leaf, protected by OPTIMISTIC STAMPS — never pinned =====
+  // The reader holds no guard: leaves stay evictable at all times, and safety comes from the
+  // FrameSlotAllocator's per-slot seqlock versions instead. loadPage snapshots the resolved
+  // leaf's stamp; every read of leaf content is trusted only after validateCurrentLeaf()
+  // confirms the stamp, and one validation covers every read since the snapshot. On a failed
+  // validation the leaf is re-resolved through its PageReference — content per reference is
+  // immutable, so every slot index computed before the failure stays valid after the reload.
+  private HOTLeafPage currentLeaf = null;
+  private PageReference currentLeafRef = null;
+  private long currentLeafStamp = HOTLeafPage.STAMP_INVALID;
 
   /**
-   * Bound on how many times {@link #loadPage} reloads a leaf after losing the resolve-then- guard
-   * race to a concurrent eviction. Each retry reads a fresh copy from storage, so the race is
+   * Bound on how many times {@link #loadPage} reloads a leaf that keeps getting evicted between
+   * resolve and stamp snapshot. Each retry reads a fresh copy from storage, so the race is
    * independent per attempt; exhausting this many implies pathological thrashing.
    */
-  private static final int MAX_GUARD_ACQUIRE_RETRIES = 256;
+  private static final int MAX_LOAD_RETRIES = 256;
+
+  /**
+   * Bound on validate-and-retry rounds for a single positioning decision. A retry re-reads a freshly
+   * reloaded copy of the same immutable content, so each round races eviction independently.
+   */
+  private static final int MAX_STAMP_RETRIES = 64;
 
   /**
    * Create a new HOTTrieReader.
@@ -232,6 +256,13 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Find value for exact key match. Returns null if not found - no Optional allocation!
    *
+   * <p>
+   * The returned slice views UNPINNED slot memory: the found/not-found decision is stamp-validated
+   * before this method returns, but a caller that reads the slice afterwards must confirm those reads
+   * via {@link #validateCurrentLeaf()} (retrying through {@link #refreshCurrentLeaf()} on failure) —
+   * or copy the bytes and validate the copy.
+   * </p>
+   *
    * @param rootRef the root page reference
    * @param key the search key
    * @return the value as a MemorySegment slice, or null if not found
@@ -250,17 +281,34 @@ public final class HOTTrieReader implements AutoCloseable {
     // that land at the leaf; for now we always re-navigate, which is
     // still cheap for log_32-shallow HOT trees.
 
-    // navigateToLeaf resolves the leaf through loadPage, which holds the leaf's guard as
-    // this reader's single guarded leaf — it cannot be evicted until the next navigation.
-    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return null;
+    // navigateToLeaf resolves the leaf through loadPage, which snapshots its optimistic stamp
+    // as this reader's current leaf. The leaf stays evictable the whole time: findEntry and the
+    // slice computation may read torn bytes if the slot is reclaimed mid-read, so the batch is
+    // validated once before the result escapes — and retried on a fresh copy if it fails.
+    // Content per PageReference is immutable, so a retry re-derives the identical answer.
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+      if (leaf == null) {
+        return null;
+      }
+      final MemorySegment value;
+      try {
+        final int index = leaf.findEntry(key);
+        value = index >= 0
+            ? leaf.getValueSlice(index)
+            : null;
+      } catch (RuntimeException e) {
+        if (validateCurrentLeaf()) {
+          throw e; // stable bytes — genuine corruption, not a torn read
+        }
+        continue;
+      }
+      if (!validateCurrentLeaf()) {
+        continue;
+      }
+      return value;
     }
-    final int index = leaf.findEntry(key);
-    if (index < 0) {
-      return null;
-    }
-    return leaf.getValueSlice(index);
+    throw stampRetriesExhausted("get");
   }
 
   /**
@@ -274,21 +322,42 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // navigateToLeaf resolves the leaf through loadPage, which guards it as this reader's
-    // single guarded leaf for the duration of the lookup — see get().
-    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    return leaf != null && leaf.findEntry(key) >= 0;
+    // Same optimistic discipline as get(): compute on the evictable leaf, validate the stamp
+    // before the boolean escapes, retry on a reloaded copy if the bytes were torn.
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+      if (leaf == null) {
+        return false;
+      }
+      final boolean found;
+      try {
+        found = leaf.findEntry(key) >= 0;
+      } catch (RuntimeException e) {
+        if (validateCurrentLeaf()) {
+          throw e;
+        }
+        continue;
+      }
+      if (!validateCurrentLeaf()) {
+        continue;
+      }
+      return found;
+    }
+    throw stampRetriesExhausted("containsKey");
   }
 
   /**
    * Create a range cursor for iterating over a key range.
    *
    * @param rootRef the root page reference
-   * @param fromKey the start key (inclusive)
-   * @param toKey the end key (inclusive)
+   * @param fromKey the start key (inclusive), or {@code null} to start at the leftmost leaf — which
+   *        is NOT the same as an empty array: {@code null} takes the deterministic
+   *        {@code navigateToLeftmostLeaf} descent, an empty array a PEXT-routed
+   *        {@link #lowerBound(PageReference, byte[])} on an all-zero partial key
+   * @param toKey the end key (inclusive), or {@code null} for an unbounded upper end
    * @return the range cursor
    */
-  public HOTRangeCursor range(PageReference rootRef, byte[] fromKey, byte[] toKey) {
+  public HOTRangeCursor range(PageReference rootRef, byte @Nullable [] fromKey, byte @Nullable [] toKey) {
     return new HOTRangeCursor(this, rootRef, fromKey, toKey);
   }
 
@@ -312,6 +381,13 @@ public final class HOTTrieReader implements AutoCloseable {
 
     /** Sentinel for "seek past end of trie". */
     private static final LowerBoundResult EXHAUSTED = new LowerBoundResult(null, -1);
+
+    /**
+     * Sentinel for "a stamp validation failed mid-seek" — the leaf whose content fed a positioning
+     * decision was reclaimed while being read. Never escapes to callers: the public entry points
+     * ({@code lowerBound}/{@code upperBound}) re-run the whole seek on freshly reloaded copies.
+     */
+    private static final LowerBoundResult RETRY = new LowerBoundResult(null, -2);
   }
 
   /**
@@ -361,31 +437,53 @@ public final class HOTTrieReader implements AutoCloseable {
     // firstKey), and unaffected by I5/I6 violations from byte-10 encoder discontinuity.
     // Cost: one extra firstKey-load per indirect-child during descent; works on any
     // I8-conformant trie.
-    if (Boolean.getBoolean("hot.strict.phase7u.lexprimary")) {
-      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    if (LEX_PRIMARY) {
+      return retryingLexDescent(rootRef, searchKey, true);
     }
-    final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, true);
-    // Phase 7u — verify-and-fall-back. The normal PEXT descent + walk-up returns a result,
-    // but for trees with I5/I6 violations from byte-10 encoder discontinuity, the returned
-    // leaf may not contain searchKey even though it IS stored. Opt-out via
-    // -Dhot.strict.phase7u.lexfallback.disable=true.
-    if (Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable"))
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, true);
+      if (result == LowerBoundResult.RETRY) {
+        continue; // a leaf feeding a positioning decision was reclaimed mid-read — redo the seek
+      }
+      // Phase 7u — verify-and-fall-back. The normal PEXT descent + walk-up returns a result,
+      // but for trees with I5/I6 violations from byte-10 encoder discontinuity, the returned
+      // leaf may not contain searchKey even though it IS stored. Opt-out via
+      // -Dhot.strict.phase7u.lexfallback.disable=true.
+      if (LEX_FALLBACK_DISABLED)
+        return result;
+      if (result == LowerBoundResult.EXHAUSTED) {
+        return retryingLexDescent(rootRef, searchKey, true);
+      }
+      // Check whether returned leaf actually contains searchKey or has it as next-key.
+      // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored key
+      // ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
+      // Zero-alloc: compareKeyWithBound reads commonPrefix + slot suffix directly off the leaf's
+      // off-heap segment, skipping the byte[] reconstruction that getKey + Arrays.compareUnsigned
+      // would force on every fallback check. The compare reads the (unpinned) leaf's slot bytes,
+      // so the misrouted/not-misrouted verdict is trusted only after a stamp validation — every
+      // result path in lowerOrUpperBound leaves its leaf as the reader's current leaf.
+      final HOTLeafPage leaf = result.leaf;
+      final int idx = result.indexInLeaf;
+      if (leaf != null) {
+        final boolean misrouted;
+        try {
+          misrouted = idx < leaf.getEntryCount() && leaf.compareKeyWithBound(idx, searchKey) < 0;
+        } catch (RuntimeException e) {
+          if (validateCurrentLeaf()) {
+            throw e;
+          }
+          continue;
+        }
+        if (!validateCurrentLeaf()) {
+          continue;
+        }
+        if (misrouted) {
+          return retryingLexDescent(rootRef, searchKey, true);
+        }
+      }
       return result;
-    if (result == LowerBoundResult.EXHAUSTED) {
-      return phase7uLexDescentFallback(rootRef, searchKey, true);
     }
-    // Check whether returned leaf actually contains searchKey or has it as next-key.
-    // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored key
-    // ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
-    // Zero-alloc: compareKeyWithBound reads commonPrefix + slot suffix directly off the leaf's
-    // off-heap segment, skipping the byte[] reconstruction that getKey + Arrays.compareUnsigned
-    // would force on every fallback check.
-    final HOTLeafPage leaf = result.leaf;
-    final int idx = result.indexInLeaf;
-    if (leaf != null && idx < leaf.getEntryCount() && leaf.compareKeyWithBound(idx, searchKey) < 0) {
-      return phase7uLexDescentFallback(rootRef, searchKey, true);
-    }
-    return result;
+    throw stampRetriesExhausted("lowerBound");
   }
 
   /**
@@ -393,7 +491,30 @@ public final class HOTTrieReader implements AutoCloseable {
    * {@link #lowerBound(PageReference, byte[])} for algorithm details.
    */
   public LowerBoundResult upperBound(PageReference rootRef, byte[] searchKey) {
-    return lowerOrUpperBound(rootRef, searchKey, false);
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, false);
+      if (result != LowerBoundResult.RETRY) {
+        return result;
+      }
+    }
+    throw stampRetriesExhausted("upperBound");
+  }
+
+  /** Bounded-retry wrapper for the lex descent, absorbing {@link LowerBoundResult#RETRY}. */
+  private LowerBoundResult retryingLexDescent(PageReference rootRef, byte[] searchKey, boolean isLowerBound) {
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      final LowerBoundResult result = phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
+      if (result != LowerBoundResult.RETRY) {
+        return result;
+      }
+    }
+    throw stampRetriesExhausted("lexDescent");
+  }
+
+  /** A seek that could not observe stable leaf bytes in {@link #MAX_STAMP_RETRIES} rounds. */
+  private static IllegalStateException stampRetriesExhausted(final String operation) {
+    return new IllegalStateException("HOT: " + operation + " failed stamp validation on every one of "
+        + MAX_STAMP_RETRIES + " attempts — sustained allocator thrashing");
   }
 
   private LowerBoundResult lowerOrUpperBound(PageReference rootRef, byte[] searchKey, boolean isLowerBound) {
@@ -405,15 +526,31 @@ public final class HOTTrieReader implements AutoCloseable {
     if (candidateLeaf == null) {
       // Phase 7u — lex-descent fallback. PEXT navigation returned null (= structural
       // failure). Try a pure-lex descent that ignores PEXT/partial-key routing.
-      if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+      if (!LEX_FALLBACK_DISABLED) {
         return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
       }
       return LowerBoundResult.EXHAUSTED;
     }
 
     // Phase 2: try exact match in candidate leaf first (cheap fast path; matches the
-    // C++ reference where exact match through PEXT is the common case).
-    final int exact = candidateLeaf.findEntry(searchKey);
+    // C++ reference where exact match through PEXT is the common case). findEntry and the
+    // entry count are one read batch against the unpinned leaf — validated ONCE below, before
+    // any decision derived from them escapes. This must happen before the phase-2c successor
+    // peek replaces the reader's current-leaf stamp.
+    final int exact;
+    final int candidateEntryCount;
+    try {
+      exact = candidateLeaf.findEntry(searchKey);
+      candidateEntryCount = candidateLeaf.getEntryCount();
+    } catch (RuntimeException e) {
+      if (validateCurrentLeaf()) {
+        throw e; // stable bytes — genuine corruption, not a torn read
+      }
+      return LowerBoundResult.RETRY;
+    }
+    if (!validateCurrentLeaf()) {
+      return LowerBoundResult.RETRY;
+    }
     if (exact >= 0) {
       if (isLowerBound) {
         return new LowerBoundResult(candidateLeaf, exact);
@@ -435,7 +572,6 @@ public final class HOTTrieReader implements AutoCloseable {
     // leaves the walk-up phase below becomes incorrect for queries whose insertion point is
     // strictly inside the candidate (e.g., chunked-bitmap range scans for prefixes whose
     // chunkIdx_be4 trailer differs from any stored composite).
-    final int candidateEntryCount = candidateLeaf.getEntryCount();
     if (candidateEntryCount == 0) {
       // Shouldn't happen — empty leaves aren't part of a populated trie.
       return LowerBoundResult.EXHAUSTED;
@@ -460,16 +596,35 @@ public final class HOTTrieReader implements AutoCloseable {
     // for a present key on the 33K-key movies index. With the lex fallback explicitly
     // disabled (hot.strict.phase7u.lexfallback.disable) the peek is skipped and the original
     // phases 3-5 walk-up below runs on the untouched path stack, exactly as before.
-    if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+    if (!LEX_FALLBACK_DISABLED) {
       final HOTLeafPage successor = advanceToNextLeaf();
-      if (successor != null && successor.getEntryCount() > 0) {
-        final int cmp = successor.compareKeyWithBound(0, searchKey);
-        if (cmp > 0 || (cmp == 0 && isLowerBound)) {
-          return new LowerBoundResult(successor, 0);
+      if (successor != null) {
+        // The peek made successor the reader's current leaf; batch its reads and validate once
+        // before the cmp verdict routes the seek.
+        final int successorCount;
+        final int cmp;
+        try {
+          successorCount = successor.getEntryCount();
+          cmp = successorCount > 0
+              ? successor.compareKeyWithBound(0, searchKey)
+              : 0;
+        } catch (RuntimeException e) {
+          if (validateCurrentLeaf()) {
+            throw e;
+          }
+          return LowerBoundResult.RETRY;
         }
-        if (cmp == 0) {
-          // upper_bound and the successor's first entry EQUALS searchKey: step past it.
-          return advanceOneFrom(successor, 0);
+        if (!validateCurrentLeaf()) {
+          return LowerBoundResult.RETRY;
+        }
+        if (successorCount > 0) {
+          if (cmp > 0 || (cmp == 0 && isLowerBound)) {
+            return new LowerBoundResult(successor, 0);
+          }
+          if (cmp == 0) {
+            // upper_bound and the successor's first entry EQUALS searchKey: step past it.
+            return advanceOneFrom(successor, 0);
+          }
         }
       }
       // successor == null: searchKey is past every key reachable from the landing. An empty
@@ -479,7 +634,18 @@ public final class HOTTrieReader implements AutoCloseable {
       return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
     }
 
-    final byte[] candidateKey = candidateLeaf.getFirstKey();
+    final byte[] candidateKey;
+    try {
+      candidateKey = candidateLeaf.getFirstKey();
+    } catch (RuntimeException e) {
+      if (validateCurrentLeaf()) {
+        throw e;
+      }
+      return LowerBoundResult.RETRY;
+    }
+    if (!validateCurrentLeaf()) {
+      return LowerBoundResult.RETRY;
+    }
     final int discBit = DiscriminativeBitComputer.computeDifferingBit(candidateKey, searchKey);
     if (discBit < 0) {
       // Candidate first-key equals searchKey but findEntry didn't match: defensive path.
@@ -621,14 +787,29 @@ public final class HOTTrieReader implements AutoCloseable {
       if (page == null)
         return LowerBoundResult.EXHAUSTED;
       if (page instanceof HOTLeafPage leaf) {
-        final int exact = leaf.findEntry(searchKey);
+        // Batch the leaf-content reads and validate once before any positioning decision
+        // escapes; on a torn read the public wrappers redo the whole descent.
+        final int exact;
+        final int entryCount;
+        try {
+          exact = leaf.findEntry(searchKey);
+          entryCount = leaf.getEntryCount();
+        } catch (RuntimeException e) {
+          if (validateCurrentLeaf()) {
+            throw e;
+          }
+          return LowerBoundResult.RETRY;
+        }
+        if (!validateCurrentLeaf()) {
+          return LowerBoundResult.RETRY;
+        }
         if (exact >= 0) {
           if (isLowerBound)
             return new LowerBoundResult(leaf, exact);
           return advanceOneFrom(leaf, exact);
         }
         final int insertionPoint = -(exact + 1);
-        if (insertionPoint < leaf.getEntryCount()) {
+        if (insertionPoint < entryCount) {
           return new LowerBoundResult(leaf, insertionPoint);
         }
         // searchKey is past this leaf's last entry — advance via path stack to next leaf.
@@ -698,7 +879,21 @@ public final class HOTTrieReader implements AutoCloseable {
    * the leaf is exhausted. Used for upper_bound stepping past an exact match.
    */
   private LowerBoundResult advanceOneFrom(HOTLeafPage leaf, int idx) {
-    if (idx + 1 < leaf.getEntryCount()) {
+    // The entry count is a leaf-content read on an unpinned page; validate before the
+    // stay-or-advance decision escapes. leaf is the reader's current leaf on every call path.
+    final int count;
+    try {
+      count = leaf.getEntryCount();
+    } catch (RuntimeException e) {
+      if (validateCurrentLeaf()) {
+        throw e;
+      }
+      return LowerBoundResult.RETRY;
+    }
+    if (!validateCurrentLeaf()) {
+      return LowerBoundResult.RETRY;
+    }
+    if (idx + 1 < count) {
       return new LowerBoundResult(leaf, idx + 1);
     }
     final HOTLeafPage next = advanceToNextLeaf();
@@ -726,25 +921,47 @@ public final class HOTTrieReader implements AutoCloseable {
         return cached;
       }
     }
-    PageReference ref = parent.getChildReference(childIdx);
-    while (ref != null) {
-      final Page page = loadPage(ref);
-      if (page == null) {
-        return new byte[0];
-      }
-      if (page instanceof HOTLeafPage leaf) {
-        final byte[] firstKey = leaf.getFirstKey();
-        if (firstKeyCacheEnabled && firstKey != null && firstKey.length > 0) {
-          parent.cacheChildFirstKey(childIdx, firstKey);
+    // The materialized first key is read off an unpinned leaf and — worse — memoized into the
+    // parent, where a torn copy would poison every later probe. Validate the stamp BEFORE
+    // caching or returning; a failed validation restarts the (cheap, leftmost) descent.
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      PageReference ref = parent.getChildReference(childIdx);
+      boolean torn = false;
+      while (ref != null) {
+        final Page page = loadPage(ref);
+        if (page == null) {
+          return new byte[0];
         }
-        return firstKey;
+        if (page instanceof HOTLeafPage leaf) {
+          final byte[] firstKey;
+          try {
+            firstKey = leaf.getFirstKey();
+          } catch (RuntimeException e) {
+            if (validateCurrentLeaf()) {
+              throw e;
+            }
+            torn = true;
+            break;
+          }
+          if (!validateCurrentLeaf()) {
+            torn = true;
+            break;
+          }
+          if (firstKeyCacheEnabled && firstKey != null && firstKey.length > 0) {
+            parent.cacheChildFirstKey(childIdx, firstKey);
+          }
+          return firstKey;
+        }
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          return new byte[0];
+        }
+        ref = indirect.getChildReference(0);
       }
-      if (!(page instanceof HOTIndirectPage indirect)) {
+      if (!torn) {
         return new byte[0];
       }
-      ref = indirect.getChildReference(0);
     }
-    return new byte[0];
+    throw stampRetriesExhausted("getFirstKeyOfChild");
   }
 
   /**
@@ -770,34 +987,64 @@ public final class HOTTrieReader implements AutoCloseable {
         return Arrays.compareUnsigned(cached, bound);
       }
     }
-    PageReference ref = parent.getChildReference(childIdx);
-    int depth = 0;
-    while (ref != null && depth++ < MAX_TREE_HEIGHT) {
-      final Page page = loadPage(ref);
-      if (page == null) {
-        return UNRESOLVABLE_SUBTREE;
-      }
-      if (page instanceof HOTLeafPage leaf) {
-        if (leaf.getEntryCount() == 0) {
+    // Same discipline as getFirstKeyOfChild: the compare (and any key materialized for the
+    // memo cache) reads unpinned leaf bytes — validate before the verdict escapes or the key
+    // is cached, retry the leftmost descent on a torn read.
+    for (int attempt = 0; attempt < MAX_STAMP_RETRIES; attempt++) {
+      PageReference ref = parent.getChildReference(childIdx);
+      int depth = 0;
+      boolean torn = false;
+      while (ref != null && depth++ < MAX_TREE_HEIGHT) {
+        final Page page = loadPage(ref);
+        if (page == null) {
           return UNRESOLVABLE_SUBTREE;
         }
-        if (firstKeyCacheEnabled) {
-          // Materialize once so every later probe of this slot is a plain array compare with
-          // zero page loads and zero guard churn — the dominant cost of absent-key seeks.
-          final byte[] firstKey = leaf.getFirstKey();
+        if (page instanceof HOTLeafPage leaf) {
+          final int entryCount;
+          byte[] firstKey = null;
+          int inPlaceCmp = 0;
+          try {
+            entryCount = leaf.getEntryCount();
+            if (entryCount > 0) {
+              if (firstKeyCacheEnabled) {
+                // Materialize once so every later probe of this slot is a plain array compare
+                // with zero page loads — the dominant cost of absent-key seeks.
+                firstKey = leaf.getFirstKey();
+              }
+              if (firstKey == null || firstKey.length == 0) {
+                inPlaceCmp = leaf.compareKeyWithBound(0, bound);
+              }
+            }
+          } catch (RuntimeException e) {
+            if (validateCurrentLeaf()) {
+              throw e;
+            }
+            torn = true;
+            break;
+          }
+          if (!validateCurrentLeaf()) {
+            torn = true;
+            break;
+          }
+          if (entryCount == 0) {
+            return UNRESOLVABLE_SUBTREE;
+          }
           if (firstKey != null && firstKey.length > 0) {
             parent.cacheChildFirstKey(childIdx, firstKey);
             return Arrays.compareUnsigned(firstKey, bound);
           }
+          return inPlaceCmp;
         }
-        return leaf.compareKeyWithBound(0, bound);
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          return UNRESOLVABLE_SUBTREE;
+        }
+        ref = indirect.getChildReference(0);
       }
-      if (!(page instanceof HOTIndirectPage indirect)) {
+      if (!torn) {
         return UNRESOLVABLE_SUBTREE;
       }
-      ref = indirect.getChildReference(0);
     }
-    return UNRESOLVABLE_SUBTREE;
+    throw stampRetriesExhausted("compareFirstKeyOfChildWithBound");
   }
 
   /**
@@ -1091,11 +1338,11 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    */
   private @Nullable Page loadPage(PageReference ref) {
-    // Resolving a HOT leaf and guarding it are fused here so no caller can observe a leaf
-    // between the two steps: a concurrent eviction in that window would otherwise close the
-    // leaf and make a reader mistake an evicted page for a missing key. On a lost race the
-    // leaf is simply reloaded — eviction is transient, not absence.
-    for (int attempt = 0; attempt < MAX_GUARD_ACQUIRE_RETRIES; attempt++) {
+    // Resolving a HOT leaf and snapshotting its optimistic stamp are fused here so no caller can
+    // observe a leaf without a stamp to validate against: a concurrent eviction would otherwise
+    // let a reader mistake an evicted page for a missing key. On a lost race the leaf is simply
+    // reloaded — eviction is transient, not absence.
+    for (int attempt = 0; attempt < MAX_LOAD_RETRIES; attempt++) {
       // A swizzled page that is already closed means a concurrent eviction reclaimed its
       // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
       Page page = ref.getPage();
@@ -1118,22 +1365,64 @@ public final class HOTTrieReader implements AutoCloseable {
       if (!(page instanceof HOTLeafPage leaf)) {
         return page; // an indirect page — eviction only de-swizzles it, never closes it
       }
-      if (leaf == guardedLeaf) {
-        return leaf; // already this reader's guarded leaf
+      // NO PIN. Snapshot the leaf's optimistic stamp instead: an odd stamp means the leaf is
+      // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
+      // read of this leaf's content must later pass validateCurrentLeaf() before its result is
+      // trusted; the leaf stays evictable the entire time.
+      final long stamp = leaf.readStamp();
+      if ((stamp & 1L) != 0L) {
+        ref.setPage(null);
+        continue;
       }
-      // Hold exactly one leaf guard: the most-recently-resolved leaf. Acquire the new guard
-      // before releasing the old one so the new leaf is un-evictable across the swap.
-      if (leaf.acquireGuard()) {
-        releaseGuardedLeaf();
-        guardedLeaf = leaf;
-        return leaf;
-      }
-      // Lost the resolve-then-guard race — the leaf was evicted before its guard could be
-      // taken. Drop the closed swizzle and reload a fresh copy on the next attempt.
+      // Second-chance signal for the ClockSweeper: a leaf under active read survives one
+      // eviction cycle. Purely advisory — correctness never depends on it.
+      leaf.markAccessed();
+      currentLeaf = leaf;
+      currentLeafRef = ref;
+      currentLeafStamp = stamp;
+      return leaf;
+    }
+    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of " + MAX_LOAD_RETRIES
+        + " load attempts — sustained allocator thrashing");
+  }
+
+  /**
+   * Whether every read of {@link #currentLeaf}'s content since {@link #loadPage} resolved it saw
+   * stable bytes. One call covers the whole batch of reads since the snapshot.
+   */
+  public boolean validateCurrentLeaf() {
+    final HOTLeafPage leaf = currentLeaf;
+    return leaf == null || leaf.validateStamp(currentLeafStamp);
+  }
+
+  /** The stamp snapshotted when {@link #currentLeaf} was resolved. */
+  public long currentLeafStamp() {
+    return currentLeafStamp;
+  }
+
+  /** The most-recently-resolved leaf, or {@code null}. Reads of it require stamp validation. */
+  public @Nullable HOTLeafPage currentLeafPage() {
+    return currentLeaf;
+  }
+
+  /**
+   * Re-resolve {@link #currentLeaf} through its {@link PageReference} after a failed validation.
+   * Content per reference is immutable, so every entry index computed against the stale copy remains
+   * valid against the fresh one — callers keep their position and redo only the reads.
+   *
+   * @return {@code true} when the leaf was re-resolved (fields updated), {@code false} when it is no
+   *         longer resolvable
+   */
+  public boolean refreshCurrentLeaf() {
+    final PageReference ref = currentLeafRef;
+    if (ref == null) {
+      return false;
+    }
+    final Page swizzled = ref.getPage();
+    if (swizzled != null && swizzled.isClosed()) {
       ref.setPage(null);
     }
-    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of " + MAX_GUARD_ACQUIRE_RETRIES
-        + " load attempts — sustained allocator thrashing");
+    return loadPage(ref) instanceof HOTLeafPage;
   }
 
   /**
@@ -1222,11 +1511,12 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Release the currently guarded leaf page.
    */
-  private void releaseGuardedLeaf() {
-    if (guardedLeaf != null) {
-      guardedLeaf.releaseGuard();
-      guardedLeaf = null;
-    }
+  private void clearCurrentLeaf() {
+    // Nothing to release: the reader holds no guard. Clearing only drops the references so an
+    // idle reader does not keep a leaf object (and its stamp) reachable.
+    currentLeaf = null;
+    currentLeafRef = null;
+    currentLeafStamp = HOTLeafPage.STAMP_INVALID;
   }
 
   /**
@@ -1238,7 +1528,7 @@ public final class HOTTrieReader implements AutoCloseable {
 
   @Override
   public void close() {
-    releaseGuardedLeaf();
+    clearCurrentLeaf();
     clearPath();
   }
 }

@@ -4,6 +4,7 @@
 package io.sirix.index.hot;
 
 import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
@@ -24,6 +25,9 @@ import java.util.Collections;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.IntUnaryOperator;
+
+import static io.brackit.query.util.path.Path.parse;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -84,8 +88,7 @@ final class HOTRebuildPropagationStressTest {
       try (JsonResourceSession session = database.beginResourceSession("res");
           JsonNodeTrx wtx = session.beginNodeTrx()) {
         final var ic = session.getWtxIndexController(wtx.getRevisionNumber());
-        final var pathToValue =
-            io.brackit.query.util.path.Path.parse("/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        final var pathToValue = parse("/k/[]/v", PathParser.Type.JSON);
         final IndexDef def =
             IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
         ic.createIndexes(Set.of(def), wtx);
@@ -143,7 +146,7 @@ final class HOTRebuildPropagationStressTest {
     return anchor + rng.nextInt(8_192);
   }
 
-  private static String buildArray(int n, java.util.function.IntUnaryOperator gen) {
+  private static String buildArray(int n, IntUnaryOperator gen) {
     final StringBuilder sb = new StringBuilder(n * 16);
     sb.append("{\"k\":[");
     for (int i = 0; i < n; i++) {

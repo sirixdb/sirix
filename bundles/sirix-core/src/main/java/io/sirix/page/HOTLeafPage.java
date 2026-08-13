@@ -28,6 +28,8 @@
 
 package io.sirix.page;
 
+import io.sirix.cache.CacheablePage;
+import io.sirix.settings.VersioningType;
 import io.sirix.node.LE;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -36,6 +38,7 @@ import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
@@ -98,7 +101,7 @@ import java.util.function.IntConsumer;
  * @see KeyValuePage
  * @see HOTIndirectPage
  */
-public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
+public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePage {
 
   /** Sentinel value for "not found" in binary search. */
   public static final int NOT_FOUND = -1;
@@ -965,16 +968,42 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     return slotMemory.get(ValueLayout.JAVA_BYTE, (ref >>> 32) + offsetInValue);
   }
 
-  /** A little-endian, unaligned {@code int} of the value {@code ref} resolves. */
-  public int refIntAt(long ref, int offsetInValue) {
+  /**
+   * A LITTLE-ENDIAN, unaligned {@code int} of the value {@code ref} resolves — the layout the
+   * projection-index blob marker stores its magic and length field in.
+   *
+   * <p>
+   * Spelled out in the layout rather than left to {@link ValueLayout#JAVA_INT_UNALIGNED}, which is
+   * NATIVE order and therefore only coincides with the stored format on a little-endian host. On one
+   * the JIT emits the identical single load.
+   */
+  public int refIntLEAt(long ref, int offsetInValue) {
     checkRefRange(ref, offsetInValue, Integer.BYTES);
-    return slotMemory.get(ValueLayout.JAVA_INT_UNALIGNED, (ref >>> 32) + offsetInValue);
+    return slotMemory.get(LE.INT, (ref >>> 32) + offsetInValue);
   }
 
-  /** A little-endian, unaligned {@code long} of the value {@code ref} resolves. */
-  public long refLongAt(long ref, int offsetInValue) {
+  /**
+   * A LITTLE-ENDIAN, unaligned {@code long} of the value {@code ref} resolves — the layout the
+   * projection-index blob marker stores its content hash in. Same reasoning as {@link #refIntLEAt}.
+   */
+  public long refLongLEAt(long ref, int offsetInValue) {
     checkRefRange(ref, offsetInValue, Long.BYTES);
-    return slotMemory.get(ValueLayout.JAVA_LONG_UNALIGNED, (ref >>> 32) + offsetInValue);
+    return slotMemory.get(LE.LONG, (ref >>> 32) + offsetInValue);
+  }
+
+  /**
+   * A BIG-ENDIAN, unaligned {@code long} of the value {@code ref} resolves — the layout the packed
+   * posting-list format stores node keys in.
+   *
+   * <p>
+   * Not {@code Long.reverseBytes(refLongAt(...))}: {@link ValueLayout#JAVA_LONG_UNALIGNED} is NATIVE
+   * order, so that composition silently means "swap on every host" and decodes garbage wherever the
+   * host is already big-endian. Naming the endianness in the layout costs nothing — on a
+   * little-endian host the JIT emits the same single load plus {@code bswap}.
+   */
+  public long refLongBEAt(long ref, int offsetInValue) {
+    checkRefRange(ref, offsetInValue, Long.BYTES);
+    return slotMemory.get(JAVA_LONG_BE_UNALIGNED, (ref >>> 32) + offsetInValue);
   }
 
   /** Bulk-copy {@code len} bytes of the value {@code ref} resolves into {@code dst}. */
@@ -1058,42 +1087,50 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   public int compareKeyWithBound(final int index, final byte[] bound) {
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(bound, "bound");
-    final int offset = slotOffsets[index];
-    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
-    final int keyLen = commonPrefixLen + suffixLen;
-    final int minLen = Math.min(keyLen, bound.length);
+    final int keyLen = commonPrefixLen + Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, slotOffsets[index]));
+    final int cmp = compareKeyBytes(index, bound, Math.min(keyLen, bound.length));
+    // Length tie-breaker: longer wins (unsigned lex).
+    return cmp != 0
+        ? cmp
+        : keyLen - bound.length;
+  }
 
-    // Phase 1: commonPrefix (on-heap byte[]) vs bound[0..commonPrefixLen)
+  /**
+   * Unsigned-lex compare of the first {@code cmpLen} bytes of the key at {@code index} against
+   * {@code probe[0..cmpLen)}, spanning the on-heap {@code commonPrefix} and the off-heap suffix.
+   * Returns {@code 0} when those bytes are equal — the caller applies its own length tie-break.
+   *
+   * <p>
+   * The single home for this leaf's key-byte addressing (the {@code u16} suffix-length header, the
+   * {@code offset + 2} suffix start): {@link #compareKeyWithBound}, {@link #compareKeyPrefix} and
+   * {@link #compareKeyPrefixPart} differ only in how far they compare and how they break a tie, so
+   * having them share this loop keeps the slot layout described once. Small enough to inline, which
+   * matters because all three sit on read hot paths.
+   */
+  private int compareKeyBytes(final int index, final byte[] probe, final int cmpLen) {
+    final int offset = slotOffsets[index];
+    final long suffixStart = offset + 2;
     int p = 0;
-    final int commonMin = Math.min(commonPrefixLen, bound.length);
+    final int commonMin = Math.min(commonPrefixLen, cmpLen);
     while (p < commonMin) {
       final int a = commonPrefix[p] & 0xFF;
-      final int b = bound[p] & 0xFF;
-      if (a != b)
+      final int b = probe[p] & 0xFF;
+      if (a != b) {
         return a - b;
+      }
       p++;
     }
-    // If bound ended within the commonPrefix, the key (which extends via
-    // its suffix) is strictly longer → key > bound.
-    if (bound.length == commonPrefixLen && suffixLen > 0)
-      return 1;
-    if (p == keyLen) {
-      // key fully consumed; equal up to keyLen → key < bound if bound longer
-      return keyLen - bound.length;
-    }
-
-    // Phase 2: suffix (off-heap) vs bound[commonPrefixLen..minLen)
-    final int suffixStart = offset + 2;
-    while (p < minLen) {
+    while (p < cmpLen) {
       final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (p - commonPrefixLen)) & 0xFF;
-      final int b = bound[p] & 0xFF;
-      if (a != b)
+      final int b = probe[p] & 0xFF;
+      if (a != b) {
         return a - b;
+      }
       p++;
     }
-    // Length tie-breaker: longer wins (unsigned lex).
-    return keyLen - bound.length;
+    return 0;
   }
+
 
   /**
    * Total key length (commonPrefix + suffix) of the entry at {@code index}, without materializing the
@@ -1125,29 +1162,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    */
   public int compareKeyPrefix(final int index, final byte[] prefix, final int prefixLen) {
     Objects.checkIndex(index, entryCount);
-    final int offset = slotOffsets[index];
-    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
-    final int keyLen = commonPrefixLen + suffixLen;
-    final int cmpLen = Math.min(keyLen, prefixLen);
-    int p = 0;
-    final int commonMin = Math.min(commonPrefixLen, cmpLen);
-    while (p < commonMin) {
-      final int a = commonPrefix[p] & 0xFF;
-      final int b = prefix[p] & 0xFF;
-      if (a != b) {
-        return a - b;
-      }
-      p++;
+    final int keyLen = commonPrefixLen + Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, slotOffsets[index]));
+    final int cmp = compareKeyBytes(index, prefix, Math.min(keyLen, prefixLen));
+    if (cmp != 0) {
+      return cmp;
     }
-    final long suffixStart = offset + 2;
-    while (p < cmpLen) {
-      final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (p - commonPrefixLen)) & 0xFF;
-      final int b = prefix[p] & 0xFF;
-      if (a != b) {
-        return a - b;
-      }
-      p++;
-    }
+    // Equal through the compared span: a key shorter than the probe is less, otherwise it starts
+    // with the probe and counts as a match.
     return keyLen < prefixLen
         ? -1
         : 0;
@@ -1167,30 +1188,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    */
   public int compareKeyPrefixPart(final int index, final int trailerBytes, final byte[] other, final int otherLen) {
     Objects.checkIndex(index, entryCount);
-    final int offset = slotOffsets[index];
-    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
-    final int partLen = Math.max(0, commonPrefixLen + suffixLen - Math.max(0, trailerBytes));
-    final int cmpLen = Math.min(partLen, otherLen);
-    int p = 0;
-    final int commonMin = Math.min(commonPrefixLen, cmpLen);
-    while (p < commonMin) {
-      final int a = commonPrefix[p] & 0xFF;
-      final int b = other[p] & 0xFF;
-      if (a != b) {
-        return a - b;
-      }
-      p++;
-    }
-    final long suffixStart = offset + 2;
-    while (p < cmpLen) {
-      final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (p - commonPrefixLen)) & 0xFF;
-      final int b = other[p] & 0xFF;
-      if (a != b) {
-        return a - b;
-      }
-      p++;
-    }
-    return partLen - otherLen;
+    final int keyLen = commonPrefixLen + Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, slotOffsets[index]));
+    final int partLen = Math.max(0, keyLen - Math.max(0, trailerBytes));
+    final int cmp = compareKeyBytes(index, other, Math.min(partLen, otherLen));
+    return cmp != 0
+        ? cmp
+        : partLen - otherLen;
   }
 
   /**
@@ -1901,7 +1904,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
     // Capture old releaser BEFORE reassigning — release old memory AFTER assigning new
     // to prevent use-after-free if allocator.allocate() succeeds but subsequent ops fail
     final Runnable oldReleaser = releaser;
+    // ORDER: invalidate the stamp binding BEFORE the segment swap, never after. A reader that
+    // observes the OLD binding must not be able to observe the NEW segment: with the reset last,
+    // its validateStamp would consult the old slot's version — which is only bumped by the release
+    // below, i.e. after the swap — and certify reads taken from a different segment. Clearing
+    // first means any reader crossing the swap either validates against the old slot before it
+    // moves (correct) or sees UNBOUND and fails validation (correct, it retries). The new segment
+    // IS the allocation, so the zero-copy base override no longer applies.
+    stampCoordinates = STAMP_COORDINATES_UNBOUND;
+    stampBaseSegment = null;
     slotMemory = newMemory;
+    stampCoordinates = STAMP_COORDINATES_UNBOUND;
     final MemorySegment segmentToRelease = newMemory;
     releaser = () -> allocator.release(segmentToRelease);
     // Now safe to release old memory — slotMemory already points to new allocation
@@ -3596,9 +3609,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
    *
    * @param type the active versioning strategy
    */
-  public void materializeFromCompletePageRef(final io.sirix.settings.VersioningType type) {
+  public void materializeFromCompletePageRef(final VersioningType type) {
     Objects.requireNonNull(type);
-    if (type == io.sirix.settings.VersioningType.FULL) {
+    if (type == VersioningType.FULL) {
       markAllEntriesDirty();
     }
   }
@@ -3626,6 +3639,149 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       }
     }
     return true;
+  }
+
+  // ===== Optimistic read stamps (Umbra-style, backed by FrameSlotAllocator slot versions) =====
+
+  /**
+   * Packed {@code (classIdx << 32) | slotIdx} of the allocator slot backing {@link #slotMemory}, or
+   * {@link FrameSlotAllocator#NO_SLOT_COORDINATES} for a page whose memory is not a live frame slot
+   * (heap-backed test pages, pool-allocator rollback). Bound lazily on the first {@link #readStamp()}
+   * — one map probe per page lifetime — and re-bound after {@code growSlotMemory} swaps the segment.
+   * {@code volatile}: bound by the first reading thread, observed by all.
+   */
+  private volatile long stampCoordinates = STAMP_COORDINATES_UNBOUND;
+
+  private static final long STAMP_COORDINATES_UNBOUND = Long.MIN_VALUE;
+
+  /**
+   * Segment whose ADDRESS identifies the allocator slot backing this page, when that is not
+   * {@link #slotMemory} itself.
+   *
+   * <p>
+   * A zero-copy deserialized leaf takes {@code slotMemory} as a MID-BUFFER SLICE of the decompression
+   * buffer ({@code PageKind}: {@code sourceSegment.asSlice(source.position(), …)}), and the allocator
+   * keys its live-slot map by the ADDRESS IT HANDED OUT — the buffer's base. A slice's address is
+   * {@code base + offset}, so binding from it misses, yields
+   * {@link FrameSlotAllocator#NO_SLOT_COORDINATES}, and silently degrades {@link #validateStamp} to a
+   * bare closed-flag test for the whole page lifetime. That is the dominant read path, so the entire
+   * optimistic-stamp protocol would be inert exactly where it is needed. The deserializer therefore
+   * hands the base segment over via {@link #setStampBaseSegment}.
+   * </p>
+   */
+  private volatile MemorySegment stampBaseSegment;
+
+  /**
+   * Tell this page which segment's address identifies its allocator slot. Called by the page
+   * deserializer immediately after construction, before the page is published, whenever
+   * {@link #slotMemory} is a slice of a larger allocation rather than the allocation itself.
+   *
+   * @param base the segment as returned by the allocator; {@code null} clears the override
+   */
+  void setStampBaseSegment(final @Nullable MemorySegment base) {
+    this.stampBaseSegment = base;
+    this.stampCoordinates = STAMP_COORDINATES_UNBOUND;
+  }
+
+  /**
+   * Stamp for a page whose memory cannot be torn by slot reuse (not frame-slot-backed). Even, so it
+   * validates; distinct so the semantics are auditable.
+   */
+  private static final long STAMP_UNBACKED = 0L;
+
+  /** Stamp that never validates: returned while the page is closed or its slot is mid-teardown. */
+  public static final long STAMP_INVALID = 1L;
+
+  /**
+   * Snapshot this page's read stamp. Protocol (seqlock, reader side):
+   *
+   * <pre>{@code
+   * long stamp = leaf.readStamp();            // odd => closed/teardown in progress: re-resolve
+   * ... any number of reads of leaf content ...
+   * if (!leaf.validateStamp(stamp)) retry;    // the slot was reclaimed mid-read: re-resolve, redo
+   * }</pre>
+   *
+   * A validated stamp proves every read since the snapshot saw stable bytes — one validation covers
+   * an arbitrary batch of reads. Content per {@link PageReference} is immutable, so a retry may
+   * re-resolve the same reference and keep every slot index it had already computed.
+   */
+  public long readStamp() {
+    long coordinates = stampCoordinates;
+    if (coordinates == STAMP_COORDINATES_UNBOUND) {
+      // Safe to bind at any time: an address maps to exactly one physical slot, so the
+      // coordinates are a pure function of the segment — only the VERSION at them tells
+      // generations apart.
+      coordinates = bindStampCoordinates();
+    }
+    if (coordinates == FrameSlotAllocator.NO_SLOT_COORDINATES) {
+      // Not frame-slot-backed. A live page's memory cannot be torn by slot reuse; a closed one
+      // must still never validate.
+      return closed.get()
+          ? STAMP_INVALID
+          : STAMP_UNBACKED;
+    }
+    final long stamp = FrameSlotAllocator.getInstance().acquireVersion((int) (coordinates >>> 32), (int) coordinates);
+    // ORDER IS LOAD-BEARING: the closed check must come AFTER the version acquire, never before.
+    // Teardown publishes closed=true BEFORE releasing the slot (see close()/markOrphaned()), so
+    // observing closed==false HERE proves the slot had not been released when the version was
+    // acquired — any later release bumps it and validateStamp fails. With the check first there
+    // is an ABA window: a slot torn down AND re-issued between the check and the acquire hands
+    // back a fresh, stable, EVEN version over another page's bytes, and every read of this
+    // page's stale segment then "validates". That surfaced as silent key loss under eviction
+    // pressure in HOTLeafUseAfterCloseTest.
+    if (closed.get()) {
+      return STAMP_INVALID;
+    }
+    return stamp;
+  }
+
+  /**
+   * Whether every read since {@code stamp} was taken saw stable bytes. An {@link #STAMP_UNBACKED}
+   * stamp always validates (the memory cannot be reclaimed); an odd stamp never does.
+   *
+   * @param stamp a value previously returned by {@link #readStamp()}
+   * @return {@code true} iff reads under {@code stamp} are trustworthy
+   */
+  public boolean validateStamp(final long stamp) {
+    if (stamp == STAMP_UNBACKED) {
+      // Unbacked memory has no slot version to consult; detecting a close between snapshot and
+      // validation is the strongest check available (and all the non-frame allocators need —
+      // their release path is what recycles the memory).
+      return !closed.get();
+    }
+    if ((stamp & 1L) != 0L) {
+      return false;
+    }
+    final long coordinates = stampCoordinates;
+    if (coordinates == STAMP_COORDINATES_UNBOUND || coordinates == FrameSlotAllocator.NO_SLOT_COORDINATES) {
+      // A backed stamp was issued, so coordinates were bound when it was read; reaching here means
+      // the binding was reset by a concurrent segment swap — the old stamp is no longer provable.
+      return false;
+    }
+    return FrameSlotAllocator.getInstance().validateVersion((int) (coordinates >>> 32), (int) coordinates, stamp);
+  }
+
+  /**
+   * Capacity of the backing slot, the hard upper bound on any length field read from slot memory. A
+   * torn read can fabricate arbitrary lengths; clamping against this before allocating turns a
+   * potential multi-gigabyte allocation into a small failed read that stamp validation resolves.
+   */
+  public long slotCapacity() {
+    return slotMemory.byteSize();
+  }
+
+  private long bindStampCoordinates() {
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
+    // Resolve against the segment the ALLOCATOR handed out, which is the whole allocation — for a
+    // zero-copy leaf that is stampBaseSegment, not the slice in slotMemory. See the field javadoc.
+    final MemorySegment base = stampBaseSegment;
+    final long coordinates = allocator instanceof FrameSlotAllocator frameSlotAllocator
+        ? frameSlotAllocator.slotCoordinates(base != null
+            ? base
+            : slotMemory)
+        : FrameSlotAllocator.NO_SLOT_COORDINATES;
+    stampCoordinates = coordinates;
+    return coordinates;
   }
 
   // ===== Guard-based lifetime management =====

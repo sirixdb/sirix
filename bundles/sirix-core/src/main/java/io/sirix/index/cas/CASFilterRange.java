@@ -86,6 +86,16 @@ public final class CASFilterRange implements Filter {
     return pathFilter.getPCRs();
   }
 
+  /**
+   * Get the path class record collector backing this filter, so a caller can ask which PCRs the INDEX
+   * may hold (as opposed to {@link #getPCRs()}, which are the ones the query asked for).
+   *
+   * @return the path class record collector
+   */
+  public PCRCollector getPCRCollector() {
+    return pathFilter.getPCRCollector();
+  }
+
   @Override
   public <K extends Comparable<? super K>> boolean filter(final RBNodeKey<K> node) {
     final K key = node.getKey();

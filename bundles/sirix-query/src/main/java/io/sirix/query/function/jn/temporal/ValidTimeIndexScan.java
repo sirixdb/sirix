@@ -35,8 +35,8 @@ import java.util.Set;
  * <h2>Index shape</h2>
  * <p>
  * The scan requires the PAIR of {@link Type#DATI xs:dateTime} CAS indexes over the valid-time
- * fields — the kind the store layers auto-create for valid-time resources. Candidates are the
- * UNION of two exact one-sided temporal ranges: {@code validTo >= t} on the validTo index and
+ * fields — the kind the store layers auto-create for valid-time resources. Candidates are the UNION
+ * of two exact one-sided temporal ranges: {@code validTo >= t} on the validTo index and
  * {@code validFrom <= t} on the validFrom index.
  * </p>
  *
@@ -51,8 +51,8 @@ import java.util.Set;
  * containing OBJECT record</em>. The CAS index records that leaf's own node key. Hence
  * {@code moveTo(leafKey)} then {@code getParentKey()} reaches the record OBJECT.</li>
  * <li><b>Legacy</b> (non-fused): the indexed node is the {@code STRING_VALUE}, whose parent is the
- * {@code OBJECT_KEY}, whose parent is the record OBJECT. So we walk parents until {@link
- * JsonNodeReadOnlyTrx#isObject()} holds.</li>
+ * {@code OBJECT_KEY}, whose parent is the record OBJECT. So we walk parents until
+ * {@link JsonNodeReadOnlyTrx#isObject()} holds.</li>
  * </ul>
  * <p>
  * Both shapes are handled by {@link #moveToContainingObjectKey(JsonNodeReadOnlyTrx, long)} which
@@ -108,8 +108,7 @@ public final class ValidTimeIndexScan {
     }
   }
 
-  private ValidTimeIndexScan() {
-  }
+  private ValidTimeIndexScan() {}
 
   /**
    * Try to evaluate the valid-time point-in-time predicate via CAS index range scans.
@@ -160,8 +159,8 @@ public final class ValidTimeIndexScan {
    *
    * <p>
    * Matching on the path's {@link Path#tail() tail} (last step name) avoids reconstructing the full
-   * document-shape-dependent path string and works for any nesting where the valid-time field is
-   * the leaf of the indexed path.
+   * document-shape-dependent path string and works for any nesting where the valid-time field is the
+   * leaf of the indexed path.
    * </p>
    */
   private static IndexDef findCasIndexForField(final JsonIndexController controller, final String field) {
@@ -184,8 +183,8 @@ public final class ValidTimeIndexScan {
 
   /**
    * Run one CAS range scan and add every candidate record OBJECT key within the linear-scan domain
-   * (the document item itself or its direct array children) to {@code candidateObjectKeys}. The
-   * set de-dups records hit via multiple indexed values or via both indexes.
+   * (the document item itself or its direct array children) to {@code candidateObjectKeys}. The set
+   * de-dups records hit via multiple indexed values or via both indexes.
    */
   private static void collectCandidates(final JsonNodeReadOnlyTrx rtx, final JsonIndexController controller,
       final IndexDef indexDef, final Atomic min, final Atomic max, final long documentItemKey,
@@ -196,7 +195,8 @@ public final class ValidTimeIndexScan {
       paths.add(path.toString());
     }
 
-    final CASFilterRange filter = controller.createCASFilterRange(paths, min, max, true, true, new JsonPCRCollector(rtx));
+    final CASFilterRange filter =
+        controller.createCASFilterRange(paths, min, max, true, true, new JsonPCRCollector(rtx));
     final Iterator<NodeReferences> index = controller.openCASIndex(rtx.getStorageEngineReader(), indexDef, filter);
 
     while (index.hasNext()) {
@@ -218,8 +218,8 @@ public final class ValidTimeIndexScan {
   }
 
   /**
-   * Verify each candidate by reading BOTH fields and applying the exact instant predicate; build
-   * the matching items. Sorting by node key gives a deterministic order.
+   * Verify each candidate by reading BOTH fields and applying the exact instant predicate; build the
+   * matching items. Sorting by node key gives a deterministic order.
    */
   private static Result verifyCandidates(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
       final Set<Long> candidateObjectKeys, final Instant validTime, final String validFromField,
@@ -250,10 +250,10 @@ public final class ValidTimeIndexScan {
    * Walk up from an indexed valid-time node to the node key of its containing OBJECT record.
    *
    * <p>
-   * Under fusion the indexed {@code OBJECT_NAMED_STRING} leaf is already a direct child of the
-   * record OBJECT (one hop). In the legacy shape the indexed {@code STRING_VALUE} sits under an
-   * {@code OBJECT_KEY} under the record OBJECT (two hops). We therefore walk parents until {@link
-   * JsonNodeReadOnlyTrx#isObject()} holds, capping at a few hops as a guard.
+   * Under fusion the indexed {@code OBJECT_NAMED_STRING} leaf is already a direct child of the record
+   * OBJECT (one hop). In the legacy shape the indexed {@code STRING_VALUE} sits under an
+   * {@code OBJECT_KEY} under the record OBJECT (two hops). We therefore walk parents until
+   * {@link JsonNodeReadOnlyTrx#isObject()} holds, capping at a few hops as a guard.
    * </p>
    *
    * @return the containing object's node key, or {@link Long#MIN_VALUE} if none was found
@@ -300,8 +300,8 @@ public final class ValidTimeIndexScan {
    * registration: reads the configured valid-time fields off {@code obj} and tests
    * {@code validFrom <= validTime <= validTo}, where an <em>absent</em> (or unparseable) bound is
    * treated as unbounded on that side — a missing {@code validTo} is "valid from {@code validFrom}
-   * onward", a missing {@code validFrom} is "valid up to {@code validTo}". A record with neither bound
-   * carries no interval and never matches.
+   * onward", a missing {@code validFrom} is "valid up to {@code validTo}". A record with neither
+   * bound carries no interval and never matches.
    *
    * <p>
    * Data-shape problems (absent fields, non-string values, unparseable dates) are handled explicitly
@@ -319,8 +319,12 @@ public final class ValidTimeIndexScan {
     // Open-ended intervals: a null (absent/unparseable) bound is unbounded on that side. This mirrors
     // the interval index exactly — its writer maps a null bound to the domain min/max and registers
     // the record (ValidTimeIntervalIndexWriter.toInterval) — so all paths still return the same set.
-    final Instant validFrom = validFromSeq == null ? null : parseInstant(validFromSeq);
-    final Instant validTo = validToSeq == null ? null : parseInstant(validToSeq);
+    final Instant validFrom = validFromSeq == null
+        ? null
+        : parseInstant(validFromSeq);
+    final Instant validTo = validToSeq == null
+        ? null
+        : parseInstant(validToSeq);
 
     if (validFrom == null && validTo == null) {
       return false;

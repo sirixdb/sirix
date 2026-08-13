@@ -1166,6 +1166,37 @@ public abstract class AbstractHOTIndexWriter<K> {
         rebuildExistingSubtree(m.reference());
       }
     }
+    // Every round is spent, so the LAST round's rebuilds have not been re-checked yet. Verify them
+    // before declaring failure: reporting from inside the loop marked a run unresolved that the very
+    // rebuilds it was about to perform went on to fix.
+    if (HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal).isEmpty()) {
+      return;
+    }
+
+    // Still malformed after every round. The per-defect discharge is converging too slowly (or
+    // oscillating, if a child page resolves in one round and not the next), so escalate to the one
+    // operation that cannot itself be malformed: rebuild the WHOLE scope canonically.
+    LOG.warn("HOT self-heal did not converge in {} rounds; rebuilding the whole scope canonically.",
+        MAX_PATH_DEPTH + 1);
+    STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+    rebuildExistingSubtree(scope);
+
+    final var residual = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
+    if (residual.isEmpty()) {
+      return;
+    }
+
+    // A canonical rebuild left defects behind, so the trie cannot be repaired by this machinery at
+    // all. Committing anyway would persist an index whose bounded range scans truncate at the first
+    // out-of-order leaf and silently return partial answers — for good, since committed pages are
+    // never revisited. Fail the transaction instead; every caller runs inside doIndex, before commit.
+    SELFHEAL_UNRESOLVED.incrementAndGet();
+    final String detail = String.format(
+        "HOT self-heal could not repair the index: %d subtree(s) still malformed after %d rounds and a "
+            + "canonical scope rebuild (first: %s — %s).",
+        residual.size(), MAX_PATH_DEPTH + 1, residual.getFirst().invariant(), residual.getFirst().detail());
+    LOG.error(detail);
+    throw new IllegalStateException(detail);
   }
 
   /**
@@ -1412,9 +1443,14 @@ public abstract class AbstractHOTIndexWriter<K> {
         return true; // I12: the preceding sibling's range reaches into this child's
       }
       previousFirstKey = firstKey;
-      final byte[] lastKey = lastKeyOfSubtree(childRef);
-      if (lastKey != null) {
-        previousLastKey = lastKey;
+      if (i < n - 1) {
+        // Only a PRECEDING sibling's maximum is ever compared, so the last child's rightmost
+        // descent (O(height) page resolutions plus a key materialization) would be pure waste on
+        // a guard that runs at every combo/fold site and every level of the path probe.
+        final byte[] lastKey = lastKeyOfSubtree(childRef);
+        if (lastKey != null) {
+          previousLastKey = lastKey;
+        }
       }
     }
     return false;
@@ -1895,9 +1931,8 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Diagnostic helper — walk the subtree rooted at {@code page} and collect duplicate stored keys.
    */
-  private void collectKeysForI1(io.sirix.page.interfaces.Page page, HashSet<String> seen,
-      ArrayList<String> duplicates) {
-    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+  private void collectKeysForI1(Page page, HashSet<String> seen, ArrayList<String> duplicates) {
+    if (page instanceof HOTLeafPage leaf) {
       final int count = leaf.getEntryCount();
       for (int i = 0; i < count; i++) {
         final String h = HexFormat.of().formatHex(leaf.getKey(i));
@@ -1907,10 +1942,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     } else if (page instanceof HOTIndirectPage indirect) {
       for (int i = 0; i < indirect.getNumChildren(); i++) {
-        final io.sirix.page.PageReference ref = indirect.getChildReference(i);
+        final PageReference ref = indirect.getChildReference(i);
         if (ref == null)
           continue;
-        final io.sirix.page.interfaces.Page child = resolveHOTPageForTraversal(ref);
+        final Page child = resolveHOTPageForTraversal(ref);
         if (child != null) {
           collectKeysForI1(child, seen, duplicates);
         }
@@ -2717,6 +2752,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * guard) — this is the defense-in-depth backstop that covers the merge/integrate handlers too.
    */
   public static final AtomicLong STRUCTURAL_SELFHEAL_REBUILD = new AtomicLong();
+
+  /**
+   * Times {@link #detectAndHeal} exhausted its round budget with defects still standing. Must stay
+   * zero; a non-zero value means an index was committed that the detector still considers malformed,
+   * and the accompanying ERROR log names the first offender.
+   */
+  public static final AtomicLong SELFHEAL_UNRESOLVED = new AtomicLong();
 
   /**
    * Defense-in-depth backstop after a structural change: walk {@code keySlice}'s <em>current</em>
@@ -3558,9 +3600,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    * HFT-grade: at most O(pathDepth * pathMaskBits * leafEntries) per call. Single allocation per call
    * (the owned-bits and values arrays).
    */
-  protected void populateLeafOwnedBitsFromPath(io.sirix.page.HOTLeafPage leaf,
-      io.sirix.page.HOTIndirectPage[] pathNodes, int pathDepth) {
-    if (leaf == null || pathDepth <= 0) {
+  protected void populateLeafOwnedBitsFromPath(final HOTLeafPage leaf, final HOTIndirectPage[] pathNodes,
+      final int pathDepth) {
+    if (leaf == null) {
+      return; // nothing to populate — the guard used to dereference the very null it tested
+    }
+    if (pathDepth <= 0) {
       leaf.setAncestorOwnedBits(new int[0], new byte[0]);
       return;
     }

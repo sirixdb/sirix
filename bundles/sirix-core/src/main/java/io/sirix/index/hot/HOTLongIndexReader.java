@@ -27,20 +27,14 @@
  */
 package io.sirix.index.hot;
 
-import io.sirix.access.trx.page.HOTRangeCursor;
-import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import io.sirix.page.HOTLeafPage;
-import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.NoSuchElementException;
 
 /**
  * Primitive-specialized HOT index reader for long keys (PATH index).
@@ -122,150 +116,10 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
     return get(key, SearchMode.EQUAL) != null;
   }
 
-  /**
-   * Range iterator from {@code fromKey} (inclusive) with no upper bound. Used for PATH sub-tree scans
-   * (e.g., "all paths under prefix X" when path-keys are encoded so that sub-trees have contiguous
-   * long ranges).
-   */
-  public Iterator<Map.Entry<Long, NodeReferences>> iteratorFrom(long fromKey) {
-    final byte[] keyBuf = KEY_BUFFER.get();
-    final int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
-    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
-    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
-    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
-    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
-    return new ChunkAggregatingLongIterator(fromComposite, null, fromPrefix);
-  }
-
-  /**
-   * Range iterator over {@code [fromKey, toKey]} inclusive on the logical long-key axis.
-   */
-  public Iterator<Map.Entry<Long, NodeReferences>> range(long fromKey, long toKey) {
-    final byte[] keyBuf = KEY_BUFFER.get();
-    final int fromLen = keySerializer.serialize(fromKey, keyBuf, 0);
-    final byte[] fromPrefix = Arrays.copyOf(keyBuf, fromLen);
-    final byte[] fromComposite = new byte[fromLen + HOTKeySerializer.CHUNK_IDX_BYTES];
-    System.arraycopy(fromPrefix, 0, fromComposite, 0, fromLen);
-    HOTKeySerializer.writeChunkIdxBE(fromComposite, fromLen, 0);
-
-    final int toLen = keySerializer.serialize(toKey, keyBuf, 0);
-    final byte[] toComposite = new byte[toLen + HOTKeySerializer.CHUNK_IDX_BYTES];
-    System.arraycopy(keyBuf, 0, toComposite, 0, toLen);
-    HOTKeySerializer.writeChunkIdxBE(toComposite, toLen, 0xFFFFFFFF);
-
-    return new ChunkAggregatingLongIterator(fromComposite, toComposite, fromPrefix);
-  }
 
   @Override
   public Iterator<Map.Entry<Long, NodeReferences>> iterator() {
-    return new ChunkAggregatingLongIterator(new byte[0], null, null);
-  }
-
-  /**
-   * Iterator that walks chunked composite-key range and groups consecutive same-prefix slots into
-   * logical {@link Map.Entry}{@code <Long, NodeReferences>}. See
-   * {@code HOTIndexReader.ChunkAggregatingIterator} for the K=Object mirror.
-   */
-  private final class ChunkAggregatingLongIterator implements Iterator<Map.Entry<Long, NodeReferences>> {
-    private final @Nullable HOTTrieReader trieReader;
-    private final @Nullable HOTRangeCursor cursor;
-    /** See {@code HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter} for rationale. */
-    private final byte @Nullable [] fromPrefixFilter;
-    /** Per-iterator chunk accumulator, reset per logical group. */
-    private final NodeReferencesSerializer.ChunkAccumulator accumulator =
-        new NodeReferencesSerializer.ChunkAccumulator();
-    private Map.@Nullable Entry<Long, NodeReferences> nextEntry;
-
-    ChunkAggregatingLongIterator(byte[] fromComposite, byte @Nullable [] toComposite,
-        byte @Nullable [] fromPrefixFilter) {
-      this.fromPrefixFilter = fromPrefixFilter;
-      final PageReference rootRef = getRootReference();
-      if (rootRef == null) {
-        this.trieReader = null;
-        this.cursor = null;
-        this.nextEntry = null;
-        return;
-      }
-      this.trieReader = new HOTTrieReader(getStorageEngineReader());
-      this.cursor = trieReader.range(rootRef, fromComposite, toComposite);
-      advance();
-    }
-
-    @Override
-    public boolean hasNext() {
-      return nextEntry != null;
-    }
-
-    @Override
-    public Map.Entry<Long, NodeReferences> next() {
-      if (nextEntry == null) {
-        throw new NoSuchElementException();
-      }
-      final Map.Entry<Long, NodeReferences> result = nextEntry;
-      advance();
-      if (nextEntry == null) {
-        closeQuietly();
-      }
-      return result;
-    }
-
-    private void closeQuietly() {
-      if (cursor != null) {
-        cursor.close();
-      }
-      if (trieReader != null) {
-        trieReader.close();
-      }
-    }
-
-    private void advance() {
-      if (cursor == null) {
-        nextEntry = null;
-        return;
-      }
-      // Skip lex-pre-fromPrefix groups (HOT path-stack walk isn't lex-monotonic; see
-      // HOTIndexReader.ChunkAggregatingIterator.fromPrefixFilter for the full rationale).
-      // Zero-copy per slot: length + prefix filtering read straight off the leaf.
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        if (leaf.getKeyLength(idx) < HOTKeySerializer.CHUNK_IDX_BYTES) {
-          cursor.advance();
-          continue;
-        }
-        if (fromPrefixFilter != null && leaf.compareKeyPrefixPart(idx, HOTKeySerializer.CHUNK_IDX_BYTES,
-            fromPrefixFilter, fromPrefixFilter.length) < 0) {
-          cursor.advance();
-          continue;
-        }
-        break;
-      }
-      if (!cursor.hasNext()) {
-        nextEntry = null;
-        return;
-      }
-      // Materialize the group's composite key ONCE — it doubles as the logical-key bytes for
-      // deserialization at emit. Per-slot filtering below stays zero-copy against it.
-      final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-      final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-      final int compositeLen = groupComposite.length;
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        if (leaf.getKeyLength(idx) != compositeLen || leaf.compareKeyPrefix(idx, groupComposite, prefixLen) != 0) {
-          break;
-        }
-        final long chunkIdx = leaf.readKeyIntBE(idx, prefixLen) & 0xFFFFFFFFL;
-        accumulator.addChunk(leaf, leaf.valueRef(idx), chunkIdx << 16);
-        cursor.advance();
-      }
-      final NodeReferences groupRefs = accumulator.toNodeReferencesAndReset();
-      if (groupRefs == null) {
-        advance();
-        return;
-      }
-      nextEntry = new LazyKeyEntry(groupComposite, prefixLen, groupRefs);
-    }
+    return new ChunkAggregatingIterator(null, true, null, true);
   }
 
   @Override
@@ -282,11 +136,6 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   @Override
   protected @Nullable Long deserializeKey(byte[] buffer, int offset, int length) {
     return keySerializer.deserialize(buffer, offset, length);
-  }
-
-  @Override
-  protected int compareKeys(byte[] key1, int offset1, int length1, byte[] key2, int offset2, int length2) {
-    return keySerializer.compare(key1, offset1, length1, key2, offset2, length2);
   }
 
   @Override

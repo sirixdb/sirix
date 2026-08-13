@@ -11,6 +11,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexFilterAxis;
 import io.sirix.index.SearchMode;
+import io.sirix.index.hot.AbstractHOTIndexReader;
 import io.sirix.index.hot.CASKeySerializer;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.redblacktree.RBNodeKey;
@@ -31,6 +32,8 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+
+import static java.util.Objects.requireNonNull;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
   B createBuilder(R rtx, StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
@@ -126,58 +129,45 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     final HOTIndexReader<CASValue> reader =
         HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
-    // Bounded-cursor fast path: with exactly one PCR and both bounds present, the logical range
-    // is ONE contiguous composite-key range — CAS keys serialize PCR-major, so every composite
-    // between (min@pcr) and (max@pcr) carries that PCR and no per-entry PCR check is needed at
-    // all. The cursor seeks to the lower bound and stops at the upper bound, and thanks to the
-    // reader's lazy entry keys nothing in this loop deserializes a CASValue except the at-most-two
-    // boundary groups an exclusive bound must trim: the equal-to-min group can only be the FIRST
-    // emitted and the equal-to-max group only the LAST (logical keys are unique).
-    if (filter != null && filter.getPCRs().size() == 1 && filter.getMin() != null && filter.getMax() != null) {
-      final long pcr = filter.getPCRs().iterator().next();
-      final CASValue minValue = new CASValue(filter.getMin(), indexDef.getContentType(), pcr);
-      final CASValue maxValue = new CASValue(filter.getMax(), indexDef.getContentType(), pcr);
-      final boolean skipMin = !filter.isMinInclusive();
-      final boolean skipMax = !filter.isMaxInclusive();
-      final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIterator = reader.range(minValue, maxValue);
+    // Bounded-cursor fast path. Bound inclusivity is enforced INSIDE the cursor, on each group's
+    // logical key bytes: index keys are not prefix-free (a string value is raw UTF-8 with no
+    // terminator), so the composite byte window is wider than the logical range — "carpet" sorts
+    // below the ceiling built for "car" — and trimming positionally here would both admit those
+    // extensions and miss an equal group that is not first or last.
+    // Gated on the content type, not just on the bounds: the cursor decides a range by unsigned BYTE
+    // order over the serialized key, which is the value order only for the families
+    // CASKeySerializer encodes deliberately. The instant family (xs:dateTime/xs:date/xs:time) is
+    // stored as its raw lexical form, whose text order is NOT chronological order, so
+    // isByteOrderPreserving reports false for it and those queries fall through to the full scan
+    // below, which compares typed atomics via CASFilterRange#inRange.
+    if (filter != null && filter.getPCRs().size() == 1 && (filter.getMin() != null || filter.getMax() != null)
+        && CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
+      final Set<Long> pcrsRequested = filter.getPCRs();
+      final long pcr = pcrsRequested.iterator().next();
+      final Atomic min = filter.getMin();
+      final Atomic max = filter.getMax();
 
-      return new Iterator<>() {
-        private @Nullable NodeReferences next = null;
-        private boolean atFirst = true;
+      // Two-sided: the logical range is ONE contiguous composite range. CAS keys serialize
+      // PCR-major (the sign-flipped pathNodeKey is the first 8 bytes), so BOTH bounds pin the same
+      // PCR prefix and every key between them carries it — no per-entry PCR check is needed, and
+      // nothing in the scan deserializes a key at all.
+      if (min != null && max != null) {
+        return valuesOf(reader.range(new CASValue(min, indexDef.getContentType(), pcr),
+            new CASValue(max, indexDef.getContentType(), pcr), filter.isMinInclusive(), filter.isMaxInclusive()));
+      }
 
-        @Override
-        public boolean hasNext() {
-          if (next != null) {
-            return true;
-          }
-          while (rangeIterator.hasNext()) {
-            final Map.Entry<CASValue, NodeReferences> entry = rangeIterator.next();
-            final boolean atLast = !rangeIterator.hasNext();
-            if (atFirst) {
-              atFirst = false;
-              if (skipMin && entry.getKey().compareTo(minValue) == 0) {
-                continue;
-              }
-            }
-            if (skipMax && atLast && entry.getKey().compareTo(maxValue) == 0) {
-              continue;
-            }
-            next = entry.getValue();
-            return true;
-          }
-          return false;
-        }
-
-        @Override
-        public NodeReferences next() {
-          if (!hasNext()) {
-            throw new NoSuchElementException();
-          }
-          final NodeReferences result = next;
-          next = null;
-          return result;
-        }
-      };
+      // One-sided: only ONE end pins the PCR, so the open end runs straight off this PCR's key range
+      // into its neighbours' — a `>= min` cursor keeps going into every higher PCR, and a `<= max`
+      // cursor starts at the first key of the index, below every lower PCR. The check is therefore
+      // UNCONDITIONAL here. It is tempting to skip it when the path summary reports a single PCR,
+      // but the summary describes the paths at the QUERY revision while the index holds whatever
+      // every revision put there: a path node dropped and re-created takes a new pathNodeKey, and
+      // the stale postings under the old one live exactly at the open end. The check is cheap
+      // because it reads the PCR in place — it never materializes a key.
+      final Iterator<Map.Entry<CASValue, NodeReferences>> boundedIterator = min != null
+          ? reader.iteratorFrom(new CASValue(min, indexDef.getContentType(), pcr), filter.isMinInclusive())
+          : reader.iteratorTo(new CASValue(max, indexDef.getContentType(), pcr), filter.isMaxInclusive());
+      return valuesOfMatchingPCR(boundedIterator, pcrsRequested);
     }
 
     // Full scan with range filter applied
@@ -229,6 +219,119 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   }
 
   /**
+   * Project a bounded index cursor to its posting lists. The cursor already enforced every bound, so
+   * this never touches a key — {@code LazyKeyEntry} keys stay undeserialized.
+   */
+  private static Iterator<NodeReferences> valuesOf(final Iterator<Map.Entry<CASValue, NodeReferences>> entries) {
+    // CloseForwardingIterator, not a bare Iterator: the underlying ChunkAggregatingIterator is
+    // AutoCloseable and documents that an abandoned scan MUST route through close(), because
+    // nothing else will. Erasing that here is what made the contract unreachable for every
+    // short-circuiting consumer (a positional predicate, fn:head, an early-exit filter).
+    return new CloseForwardingIterator(entries) {
+      @Override
+      public NodeReferences next() {
+        return entries.next().getValue();
+      }
+    };
+  }
+
+  /**
+   * Projects an entry iterator to its values while forwarding {@link AutoCloseable#close()} to the
+   * source when the source has one. Subclasses supply {@link #next()}.
+   */
+  abstract class CloseForwardingIterator implements Iterator<NodeReferences>, AutoCloseable {
+    private final Iterator<Map.Entry<CASValue, NodeReferences>> source;
+
+    CloseForwardingIterator(final Iterator<Map.Entry<CASValue, NodeReferences>> source) {
+      this.source = requireNonNull(source);
+    }
+
+    @Override
+    public boolean hasNext() {
+      return source.hasNext();
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (source instanceof AutoCloseable closeable) {
+        closeable.close();
+      }
+    }
+  }
+
+  /**
+   * {@link #valuesOf} plus a per-entry path-class-record check, for the case where the requested PCRs
+   * could not be resolved up front and the index may hold several.
+   */
+  private static Iterator<NodeReferences> valuesOfMatchingPCR(
+      final Iterator<Map.Entry<CASValue, NodeReferences>> entries, final Set<Long> pcrs) {
+    // Unbox once, up front: the membership test runs per entry and Set<Long>#contains(long) boxes
+    // on every call. A PCR set holds one entry per indexed path, so a linear scan over a
+    // cache-resident long[] beats hashing it.
+    final long[] acceptedPCRs = new long[pcrs.size()];
+    int i = 0;
+    for (final Long pcr : pcrs) {
+      acceptedPCRs[i++] = pcr;
+    }
+    return new Iterator<>() {
+      private @Nullable NodeReferences next;
+
+      @Override
+      public boolean hasNext() {
+        if (next != null) {
+          return true;
+        }
+        while (entries.hasNext()) {
+          final Map.Entry<CASValue, NodeReferences> entry = entries.next();
+          if (containsPCR(acceptedPCRs, pathNodeKeyOf(entry))) {
+            next = entry.getValue();
+            return true;
+          }
+        }
+        return false;
+      }
+
+      @Override
+      public NodeReferences next() {
+        if (!hasNext()) {
+          throw new NoSuchElementException();
+        }
+        final NodeReferences result = next;
+        next = null;
+        return result;
+      }
+    };
+  }
+
+  /**
+   * The entry's path class record, without materializing its key where possible. The HOT readers emit
+   * {@link AbstractHOTIndexReader.RawKeyBytes} entries, whose serialized key already begins with the
+   * sign-flipped pathNodeKey — so this is an eight-byte read plus an XOR, against a full UTF-8 decode
+   * and four allocations per entry for {@code getKey()}. Any other entry shape falls back to the key
+   * itself.
+   */
+  private static long pathNodeKeyOf(final Map.Entry<CASValue, NodeReferences> entry) {
+    if (entry instanceof AbstractHOTIndexReader.RawKeyBytes raw && raw.rawKeyLength() >= Long.BYTES) {
+      return CASKeySerializer.pathNodeKeyAt(raw.rawKeyBytes(), 0);
+    }
+    final CASValue key = entry.getKey();
+    if (key == null) {
+      throw new IllegalStateException("index entry carries neither raw key bytes nor a decodable key");
+    }
+    return key.getPathNodeKey();
+  }
+
+  /** Primitive membership test over a tiny, unsorted PCR array — no boxing, no hashing. */
+  private static boolean containsPCR(final long[] acceptedPCRs, final long pcr) {
+    for (int i = 0, n = acceptedPCRs.length; i < n; i++) {
+      if (acceptedPCRs[i] == pcr) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Open HOT-based CAS index with filter.
    */
   private Iterator<NodeReferences> openHOTIndexWithFilter(StorageEngineReader storageEngineReader, IndexDef indexDef,
@@ -269,108 +372,42 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
         return Collections.emptyIterator();
       }
 
-      // With at most one PCR possible in the index and exactly that one requested, per-entry PCR
-      // checks are redundant — every entry carries it. If the single available PCR is NOT the
-      // requested one, no entry can match at all. Only an empty pcrsAvailable (PCR resolution
-      // came back empty) keeps the per-entry check. Skipping the check matters because the
-      // reader's entries deserialize their key lazily: a scan that never asks for the key never
-      // decodes a CASValue.
+      // If the single PCR the summary can resolve is NOT the requested one, no entry can match at
+      // all. Note this only ever SHORT-CIRCUITS a scan; it is never grounds for skipping the
+      // per-entry PCR check on a cursor that survives it, because the summary describes the query
+      // revision while the index holds every revision's postings (see the one-sided branch below).
       if (pcrsAvailable.size() == 1 && !pcrsRequested.containsAll(pcrsAvailable)) {
         return Collections.emptyIterator();
       }
-      final boolean pcrCheckPerEntry = pcrsAvailable.isEmpty();
 
-      // Range queries: use reader.iteratorFrom() for efficient starting position
-      if (mode == SearchMode.GREATER || mode == SearchMode.GREATER_OR_EQUAL) {
-        // Start from the key and iterate forward
-        Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = reader.iteratorFrom(value);
-
-        return new Iterator<>() {
-          private NodeReferences next = null;
-          private boolean skipFirst = (mode == SearchMode.GREATER); // Skip exact match for GREATER
-
-          @Override
-          public boolean hasNext() {
-            if (next != null) {
-              return true;
-            }
-            while (rangeIter.hasNext()) {
-              Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
-
-              // For GREATER mode, skip an exact match — only the FIRST emitted group can equal
-              // the probe (logical keys are unique and arrive in ascending order).
-              if (skipFirst) {
-                skipFirst = false;
-                if (entry.getKey().compareTo(value) == 0) {
-                  continue;
-                }
-              }
-
-              if (pcrCheckPerEntry && !pcrsRequested.contains(entry.getKey().getPathNodeKey())) {
-                continue;
-              }
-
-              next = entry.getValue();
-              return true;
-            }
-            return false;
-          }
-
-          @Override
-          public NodeReferences next() {
-            if (!hasNext()) {
-              throw new NoSuchElementException();
-            }
-            NodeReferences result = next;
-            next = null;
-            return result;
-          }
+      // Range queries: a bounded cursor seeks straight to the bound and stops at it. Inclusivity is
+      // the cursor's job (see the range-filter path above for why positional trimming is wrong), and
+      // with the PCR check hoisted out nothing in these scans deserializes a key at all. Same
+      // content-type gate as the range-filter path: byte order decides these bounds, so a type whose
+      // key bytes are its raw lexical form must use the typed comparison in the full scan instead.
+      if (CASKeySerializer.isByteOrderPreserving(indexDef.getContentType())) {
+        final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = switch (mode) {
+          case GREATER, GREATER_OR_EQUAL -> reader.iteratorFrom(value, mode == SearchMode.GREATER_OR_EQUAL);
+          case LOWER, LOWER_OR_EQUAL -> reader.iteratorTo(value, mode == SearchMode.LOWER_OR_EQUAL);
+          default -> null;
         };
+        if (rangeIter != null) {
+          // The PCR check is UNCONDITIONAL on these cursors, exactly as on the one-sided branch of
+          // openHOTIndexWithRangeFilter — see the reasoning there. Both of these are one-sided by
+          // construction, so only ONE end pins the PCR prefix and the open end runs straight into a
+          // neighbouring pathNodeKey's key range: `iteratorFrom` keeps going into every higher PCR,
+          // and `iteratorTo` starts at the first key of the index, below every lower one. Skipping
+          // the check when the path summary reports a single PCR (the old `pcrCheckPerEntry`
+          // shortcut) is unsound for the same reason it is unsound there: the summary describes the
+          // paths at the QUERY revision, while the index holds whatever every revision put there,
+          // so a path node dropped and re-created leaves stale postings under its old pathNodeKey —
+          // living precisely at the open end. The check reads the PCR in place and never
+          // materializes a key, so it is cheap.
+          return valuesOfMatchingPCR(rangeIter, pcrsRequested);
+        }
       }
-
-      if (mode == SearchMode.LOWER || mode == SearchMode.LOWER_OR_EQUAL) {
-        // Bounded cursor: stops AT the probe's composite ceiling instead of scanning the whole
-        // index and filtering. Every emitted key is <= value by construction; only LOWER (strict)
-        // must reject the equal group, and only the LAST emitted group can be it.
-        final Iterator<Map.Entry<CASValue, NodeReferences>> rangeIter = reader.iteratorTo(value);
-        final boolean strict = mode == SearchMode.LOWER;
-
-        return new Iterator<>() {
-          private NodeReferences next = null;
-
-          @Override
-          public boolean hasNext() {
-            if (next != null) {
-              return true;
-            }
-            while (rangeIter.hasNext()) {
-              Map.Entry<CASValue, NodeReferences> entry = rangeIter.next();
-
-              if (strict && !rangeIter.hasNext() && entry.getKey().compareTo(value) == 0) {
-                continue;
-              }
-
-              if (pcrCheckPerEntry && !pcrsRequested.contains(entry.getKey().getPathNodeKey())) {
-                continue;
-              }
-
-              next = entry.getValue();
-              return true;
-            }
-            return false;
-          }
-
-          @Override
-          public NodeReferences next() {
-            if (!hasNext()) {
-              throw new NoSuchElementException();
-            }
-            NodeReferences result = next;
-            next = null;
-            return result;
-          }
-        };
-      }
+      // Not byte-order-preserving (or an EQUAL probe): fall through to the full scan below, which
+      // compares typed atomics via CASFilterRange#inRange.
     }
 
     // Fall back to full scan with filter (when no specific PCR or no atomic key)

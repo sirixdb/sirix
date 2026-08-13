@@ -284,40 +284,11 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     if (chunkReader == null) {
       chunkReader = new HOTTrieReader(storageEngineWriter);
     }
-    Roaring64Bitmap merged = null;
+    // The sweep reads UNPINNED leaves under optimistic stamps — the shared helper validates each
+    // slot's copies against the cursor's leaf stamp before anything reaches the deserializer.
+    final Roaring64Bitmap merged;
     try (HOTRangeCursor cursor = chunkReader.range(rootRef, fromBytes, toBytes)) {
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, prefixBuf, 0, prefixLen) != 0) {
-          // Defensive — toKey already bounds the cursor to the prefix range.
-          cursor.advance();
-          continue;
-        }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          cursor.advance();
-          continue;
-        }
-        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-        if (chunkBitmap.isEmpty()) {
-          cursor.advance();
-          continue;
-        }
-        if (merged == null) {
-          merged = new Roaring64Bitmap();
-        }
-        final long high = ((long) chunkIdx) << 16;
-        final LongIterator bIt = chunkBitmap.getLongIterator();
-        while (bIt.hasNext()) {
-          merged.add(high | (bIt.next() & 0xFFFFL));
-        }
-        cursor.advance();
-      }
+      merged = NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen);
     }
     if (merged == null || merged.isEmpty()) {
       return null;
