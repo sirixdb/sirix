@@ -591,47 +591,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] keyBuf = KEY_BUFFER.get();
-      // Same optimistic-stamp discipline as readBlob: validate the found/absent decision and the
-      // value copy before the discriminator dispatch runs on them.
-      for (int attempt = 0; attempt <= MAX_TORN_SLOT_ROUNDS; attempt++) {
-        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-        if (leaf == null) {
-          return null;
-        }
-        final byte[] value;
-        try {
-          final int idx = leaf.findEntry(keyBuf);
-          value = idx < 0
-              ? null
-              : leaf.getValue(idx);
-        } catch (RuntimeException e) {
-          if (trieReader.validateCurrentLeaf()) {
-            throw e; // stable bytes — genuine corruption, not a torn read
-          }
-          continue;
-        }
-        if (!trieReader.validateCurrentLeaf()) {
-          continue;
-        }
-        if (value == null || value.length == 0) {
-          return null;
-        }
-        final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
-        if (inline != null) {
-          return inline;
-        }
-        final PageReference ref = leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-        if (ref == null) {
-          return null;
-        }
-        final OverflowPage page = reader.readSideOverflowPage(ref);
-        return page == null
-            ? null
-            : page.getDataBytes();
+      final HOTLeafPage[] leafOut = new HOTLeafPage[1];
+      final byte[] value =
+          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), leafOut, "readColumnSegmentSlot");
+      if (value == null) {
+        return null;
       }
-      throw new IllegalStateException("readColumnSegmentSlot(slot " + slotKey + ") failed stamp validation on "
-          + MAX_TORN_SLOT_ROUNDS + " consecutive attempts — sustained allocator thrashing");
+      final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
+      if (inline != null) {
+        return inline;
+      }
+      final PageReference ref = leafOut[0].getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      if (ref == null) {
+        return null;
+      }
+      final OverflowPage page = reader.readSideOverflowPage(ref);
+      return page == null
+          ? null
+          : page.getDataBytes();
     }
   }
 
@@ -854,11 +831,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           if (cursor.validateLeaf()) {
             throw e; // stable bytes — genuine corruption, not a torn read
           }
-          recoverTornSlot(cursor, ++tornRounds);
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
         if (!cursor.validateLeaf()) {
-          recoverTornSlot(cursor, ++tornRounds);
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
         tornRounds = 0;
@@ -1641,11 +1618,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           if (cursor.validateLeaf()) {
             throw e; // stable bytes — genuine corruption, not a torn read
           }
-          recoverTornSlot(cursor, ++tornRounds);
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
         if (!cursor.validateLeaf()) {
-          recoverTornSlot(cursor, ++tornRounds);
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
         tornRounds = 0;
@@ -1907,48 +1884,22 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] keyBuf = KEY_BUFFER.get();
-      // The leaf is UNPINNED: the found/absent decision and the value copy must validate against
-      // the leaf's stamp before anything is derived from them — a torn read could otherwise
-      // surface as a silent "absent" or as a spurious hash-verification failure. Retries
-      // re-descend on freshly reloaded copies of the same immutable content.
-      for (int attempt = 0; attempt <= MAX_TORN_SLOT_ROUNDS; attempt++) {
-        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-        if (leaf == null) {
-          return null;
-        }
-        final byte[] value;
-        try {
-          final int idx = leaf.findEntry(keyBuf);
-          value = idx < 0
-              ? null
-              : leaf.getValue(idx);
-        } catch (RuntimeException e) {
-          if (trieReader.validateCurrentLeaf()) {
-            throw e; // stable bytes — genuine corruption, not a torn read
-          }
-          continue;
-        }
-        if (!trieReader.validateCurrentLeaf()) {
-          continue;
-        }
-        if (value == null || value.length == 0) {
-          return null;
-        }
-        if (isInlineBlob(value)) {
-          return verifyInlineBlob(value, slotKey);
-        }
-        final PageReference ref = leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-        if (ref == null) {
-          return verifyBlob(value, null, slotKey);
-        }
-        final OverflowPage page = reader.readSideOverflowPage(ref);
-        return verifyBlob(value, page == null
-            ? null
-            : page.getDataBytes(), slotKey);
+      final HOTLeafPage[] leafOut = new HOTLeafPage[1];
+      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), leafOut, "readBlob");
+      if (value == null) {
+        return null;
       }
-      throw new IllegalStateException("readBlob(slot " + slotKey + ") failed stamp validation on "
-          + MAX_TORN_SLOT_ROUNDS + " consecutive attempts — sustained allocator thrashing");
+      if (isInlineBlob(value)) {
+        return verifyInlineBlob(value, slotKey);
+      }
+      final PageReference ref = leafOut[0].getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      if (ref == null) {
+        return verifyBlob(value, null, slotKey);
+      }
+      final OverflowPage page = reader.readSideOverflowPage(ref);
+      return verifyBlob(value, page == null
+          ? null
+          : page.getDataBytes(), slotKey);
     }
   }
 
@@ -2023,6 +1974,46 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * such leaf. The caller owns the {@code trieReader} lifetime (segment resolution reads through the
    * returned leaf's side map while the reader is open).
    */
+  /**
+   * Navigate to {@code slotKey}'s leaf and read its raw value under the optimistic-stamp protocol:
+   * the found/absent decision and the value copy are both validated before anything is derived from
+   * them, and a torn batch re-descends on freshly reloaded copies. Shared by the two reader-side slot
+   * reads, which differ only in how they interpret the bytes — restating this scaffolding per caller
+   * meant a fix to the validation discipline had to be applied twice, 1300 lines apart.
+   *
+   * @param out receives the leaf the value came from, so the caller can resolve its side-map refs
+   * @return the validated value bytes, or {@code null} when the slot is absent or tombstoned
+   */
+  private static byte @Nullable [] readValidatedSlotValue(final HOTTrieReader trieReader, final PageReference rootRef,
+      final long slotKey, final byte[] keyBuf, final HOTLeafPage[] out, final String operation) {
+    for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+      if (leaf == null) {
+        return null;
+      }
+      final byte[] value;
+      try {
+        final int idx = leaf.findEntry(keyBuf);
+        value = idx < 0
+            ? null
+            : leaf.getValue(idx);
+      } catch (RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e; // stable bytes — genuine corruption, not a torn read
+        }
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        continue;
+      }
+      out[0] = leaf;
+      return value == null || value.length == 0
+          ? null
+          : value;
+    }
+    throw HOTTrieReader.stampRetriesExhausted(operation + "(slot " + slotKey + ")");
+  }
+
   private static @Nullable HOTLeafPage navigateToSlotLeaf(final HOTTrieReader trieReader, final PageReference rootRef,
       final long slotKey, final byte[] keyBuf) {
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);

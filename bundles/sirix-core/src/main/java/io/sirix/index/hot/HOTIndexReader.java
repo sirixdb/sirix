@@ -27,6 +27,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
@@ -178,96 +179,20 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
 
   /**
    * Phase 7v fallback: walk every leaf in the trie (left-to-right traversal order, NOT lex order —
-   * robust against I8 violations), filter each entry by exact prefix match. Used only when the
-   * primary PEXT-routed cursor returns 0 chunks for a key that is in fact stored. O(total trie
-   * entries) per call; only triggered on miss.
+   * robust against I8 violations) and merge every chunk whose composite carries the prefix. Used only
+   * when the primary PEXT-routed lookup returns 0 chunks for a key that IS stored. O(total trie
+   * entries) per call; only triggered on a miss, and only when explicitly enabled.
+   *
+   * <p>
+   * An unbounded cursor visits exactly the same slots in the same order, so this shares the one
+   * chunk-merge implementation rather than restating it — including its torn-read discipline, which a
+   * second copy would have to keep in lockstep by hand.
    */
   private @Nullable Roaring64Bitmap collectViaLeafWalk(PageReference rootRef, byte[] prefixBuf, int prefixLen) {
-    final int compositeLen = prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES;
-    Roaring64Bitmap merged = null;
-    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader())) {
-      HOTLeafPage leaf = reader.navigateToLeftmostLeaf(rootRef);
-      int tornRounds = 0;
-      while (leaf != null) {
-        int idx = 0;
-        while (true) {
-          // One entry's read batch (or the end-of-leaf decision) against the UNPINNED leaf,
-          // validated before any effect: the chunk copy reaches the deserializer and the merge
-          // only after its bytes are proven stable, so `merged` never absorbs torn state and
-          // recovery is a same-position re-read on a refreshed copy.
-          boolean leafDone = false;
-          byte[] composite = null;
-          byte[] chunkBytes = null;
-          try {
-            if (idx >= leaf.getEntryCount()) {
-              leafDone = true;
-            } else {
-              final byte[] candidate = leaf.getKey(idx);
-              if (candidate != null && candidate.length == compositeLen
-                  && Arrays.compareUnsigned(candidate, 0, prefixLen, prefixBuf, 0, prefixLen) == 0) {
-                composite = candidate;
-                chunkBytes = leaf.getValue(idx);
-              }
-            }
-          } catch (RuntimeException e) {
-            if (reader.validateCurrentLeaf()) {
-              throw e; // stable bytes — genuine corruption, not a torn read
-            }
-            leaf = refreshTornLeaf(reader, ++tornRounds);
-            continue;
-          }
-          if (!reader.validateCurrentLeaf()) {
-            leaf = refreshTornLeaf(reader, ++tornRounds);
-            continue;
-          }
-          tornRounds = 0;
-          if (leafDone) {
-            break;
-          }
-          if (chunkBytes != null) {
-            merged = mergeChunk(merged, composite, chunkBytes);
-          }
-          idx++;
-        }
-        leaf = reader.advanceToNextLeaf();
-      }
+    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
+        HOTRangeCursor cursor = reader.range(rootRef, null, null)) {
+      return NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, prefixBuf, prefixLen);
     }
-    return merged;
-  }
-
-  /** Bounded torn-read recovery: reload the current leaf in place and re-adopt the fresh copy. */
-  private static HOTLeafPage refreshTornLeaf(final HOTTrieReader reader, final int round) {
-    if (round > 64) {
-      throw new IllegalStateException(
-          "HOT leaf walk failed stamp validation on 64 consecutive rounds — sustained allocator thrashing");
-    }
-    if (!reader.refreshCurrentLeaf()) {
-      throw new IllegalStateException("HOT leaf walk: evicted leaf could not be reloaded through its PageReference");
-    }
-    return reader.currentLeafPage();
-  }
-
-  /** Merge one VALIDATED chunk payload copy into the accumulator bitmap. */
-  private @Nullable Roaring64Bitmap mergeChunk(@Nullable Roaring64Bitmap merged, byte[] composite, byte[] chunkBytes) {
-    // Unsigned, as everywhere else the chunk trailer is expanded.
-    final long chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length) & 0xFFFFFFFFL;
-    if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-      return merged;
-    }
-    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-    final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-    if (chunkBitmap.isEmpty()) {
-      return merged;
-    }
-    if (merged == null) {
-      merged = new Roaring64Bitmap();
-    }
-    final long high = chunkIdx << 16;
-    final LongIterator bIt = chunkBitmap.getLongIterator();
-    while (bIt.hasNext()) {
-      merged.add(high | (bIt.next() & 0xFFFFL));
-    }
-    return merged;
   }
 
   /**

@@ -105,16 +105,27 @@ subprojects {
         toolVersion = '0.8.13'
     }
 
+    // Instrument ONLY when coverage is asked for (-Pcoverage). The agent rewrites every loaded class
+    // and adds a probe write per branch; leaving it on by default taxed every `gradlew test` and,
+    // because this block covers all subprojects, ran the JMH benchmarks instrumented — which makes
+    // the very measurements this repo's performance rules depend on meaningless.
+    tasks.withType(Test).configureEach {
+        jacoco.enabled = project.hasProperty('coverage')
+    }
+
     tasks.named('jacocoTestReport') {
         dependsOn tasks.named('test')
         reports {
             xml.required = true
             html.required = true
         }
-        // The generated/vendored trees say nothing about this project's own coverage.
-        classDirectories.setFrom(files(classDirectories.files.collect {
-            fileTree(dir: it, exclude: ['**/generated/**'])
-        }))
+        // The generated/vendored trees say nothing about this project's own coverage. Filtered
+        // lazily: resolving classDirectories.files here would flatten a live FileCollection into a
+        // plain file list, dropping its builtBy wiring to `classes` (and breaking the configuration
+        // cache) — which is what made the explicit dependsOn above necessary in the first place.
+        classDirectories.setFrom(classDirectories.asFileTree.matching {
+            exclude '**/generated/**'
+        })
     }
 
     tasks.withType(KotlinJvmCompile).configureEach {

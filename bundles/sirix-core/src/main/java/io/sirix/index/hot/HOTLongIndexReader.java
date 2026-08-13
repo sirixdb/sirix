@@ -101,19 +101,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   public @Nullable NodeReferences get(long key, SearchMode mode) {
     final byte[] keyBuf = KEY_BUFFER.get();
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    return reassembleChunksForLongPrefix(keyBuf, prefixLen);
-  }
-
-  private @Nullable NodeReferences reassembleChunksForLongPrefix(byte[] prefixBuf, int prefixLen) {
-    return collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
-  }
-
-  /**
-   * Check if any chunk exists for {@code key}. Cheaper than {@link #get} because we only need to find
-   * the first non-tombstone chunk slot, not reassemble the full bitmap.
-   */
-  public boolean containsKey(long key) {
-    return get(key, SearchMode.EQUAL) != null;
+    return collectChunksViaLowerBoundWalk(keyBuf, prefixLen);
   }
 
 

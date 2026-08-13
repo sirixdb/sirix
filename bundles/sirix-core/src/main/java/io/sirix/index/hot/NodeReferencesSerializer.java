@@ -311,11 +311,11 @@ public final class NodeReferencesSerializer {
         if (cursor.validateLeaf()) {
           throw e; // stable bytes — genuine corruption, not a torn read
         }
-        recoverTornCursorSlot(cursor, ++tornRounds);
+        cursor.recoverTorn(++tornRounds);
         continue;
       }
       if (!cursor.validateLeaf()) {
-        recoverTornCursorSlot(cursor, ++tornRounds);
+        cursor.recoverTorn(++tornRounds);
         continue;
       }
       tornRounds = 0;
@@ -339,17 +339,6 @@ public final class NodeReferencesSerializer {
       cursor.advance();
     }
     return merged;
-  }
-
-  /** Bound on consecutive torn-read recovery rounds per slot for the cursor merge above. */
-  private static final int MAX_TORN_SLOT_ROUNDS = 64;
-
-  private static void recoverTornCursorSlot(final HOTRangeCursor cursor, final int round) {
-    if (round > MAX_TORN_SLOT_ROUNDS) {
-      throw new IllegalStateException("HOT: chunk merge failed stamp validation on " + MAX_TORN_SLOT_ROUNDS
-          + " consecutive rounds — sustained allocator thrashing");
-    }
-    cursor.refreshLeaf();
   }
 
   /**

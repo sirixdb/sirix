@@ -230,10 +230,18 @@ public final class HOTTrieReader implements AutoCloseable {
   private static final int MAX_LOAD_RETRIES = 256;
 
   /**
-   * Bound on validate-and-retry rounds for a single positioning decision. A retry re-reads a freshly
-   * reloaded copy of the same immutable content, so each round races eviction independently.
+   * Bound on validate-and-retry rounds for a single positioning decision, shared by every consumer of
+   * the optimistic-stamp protocol. A retry re-reads a freshly reloaded copy of the same immutable
+   * content, so each round races eviction independently; exhausting this many implies pathological
+   * allocator thrashing, not a logic error.
+   *
+   * <p>
+   * ONE declaration on purpose: this budget was previously restated under five different names across
+   * five classes (plus a bare literal), so tuning it meant finding all six and missing one left a
+   * single scan path on the old value.
+   * </p>
    */
-  private static final int MAX_STAMP_RETRIES = 64;
+  public static final int MAX_STAMP_RETRIES = 64;
 
   /**
    * Create a new HOTTrieReader.
@@ -511,8 +519,25 @@ public final class HOTTrieReader implements AutoCloseable {
     throw stampRetriesExhausted("lexDescent");
   }
 
+  /**
+   * Bounded torn-read recovery: reload the current leaf through its {@link PageReference} so the
+   * caller can re-read the SAME position on a fresh copy. Content per reference is immutable, so
+   * every index the caller already computed stays valid.
+   *
+   * @param round how many consecutive torn rounds this is, including the current one
+   * @param operation names the caller, for the exhaustion diagnostic
+   */
+  public void recoverTorn(final int round, final String operation) {
+    if (round > MAX_STAMP_RETRIES) {
+      throw stampRetriesExhausted(operation);
+    }
+    if (!refreshCurrentLeaf()) {
+      throw new IllegalStateException(operation + ": evicted leaf could not be reloaded through its PageReference");
+    }
+  }
+
   /** A seek that could not observe stable leaf bytes in {@link #MAX_STAMP_RETRIES} rounds. */
-  private static IllegalStateException stampRetriesExhausted(final String operation) {
+  public static IllegalStateException stampRetriesExhausted(final String operation) {
     return new IllegalStateException("HOT: " + operation + " failed stamp validation on every one of "
         + MAX_STAMP_RETRIES + " attempts — sustained allocator thrashing");
   }
@@ -1375,8 +1400,13 @@ public final class HOTTrieReader implements AutoCloseable {
         continue;
       }
       // Second-chance signal for the ClockSweeper: a leaf under active read survives one
-      // eviction cycle. Purely advisory — correctness never depends on it.
-      leaf.markAccessed();
+      // eviction cycle. Purely advisory — correctness never depends on it. Guarded because
+      // markAccessed is a volatile store and a seek re-resolves the same leaf many times (every
+      // first-key probe descends to one), so the unguarded form paid a store fence per probe on a
+      // flag that is already set after the first.
+      if (!leaf.isHot()) {
+        leaf.markAccessed();
+      }
       currentLeaf = leaf;
       currentLeafRef = ref;
       currentLeafStamp = stamp;
@@ -1393,11 +1423,6 @@ public final class HOTTrieReader implements AutoCloseable {
   public boolean validateCurrentLeaf() {
     final HOTLeafPage leaf = currentLeaf;
     return leaf == null || leaf.validateStamp(currentLeafStamp);
-  }
-
-  /** The stamp snapshotted when {@link #currentLeaf} was resolved. */
-  public long currentLeafStamp() {
-    return currentLeafStamp;
   }
 
   /** The most-recently-resolved leaf, or {@code null}. Reads of it require stamp validation. */

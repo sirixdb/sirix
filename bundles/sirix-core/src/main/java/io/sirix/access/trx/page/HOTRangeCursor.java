@@ -111,8 +111,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   private int currentIndex;
   private boolean exhausted = false;
 
-  // Pre-computed next entry (for hasNext/next pattern)
-  private Entry nextEntry = null;
 
   /**
    * iter#08 — when {@code true}, the cursor stays positioned on the current valid entry without
@@ -137,13 +135,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * whole trie.
    */
   private static final boolean EARLY_EXIT_PAST_UPPER_BOUND = !Boolean.getBoolean("sirix.hot.range.scanToEnd");
-
-  /**
-   * Bound on consecutive torn-read recovery rounds. Each round re-reads a freshly reloaded copy of
-   * the same immutable content, so every round races eviction independently — exhausting this many
-   * implies pathological allocator thrashing, not a logic error.
-   */
-  private static final int MAX_TORN_ROUNDS = 64;
 
   // Verdicts computed by one batch of unpinned-leaf reads in advanceToValid(), applied only after
   // the batch passes stamp validation.
@@ -209,9 +200,8 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    *
    * <p>
    * iter#08 — the positional state ({@link #positionedValid}, {@link #currentLeaf},
-   * {@link #currentIndex}) is authoritative. The legacy {@link #nextEntry} field is only populated on
-   * demand by {@link #next()} to preserve the {@link Iterator} API; the fast-path accessors read
-   * directly from the positional state.
+   * {@link #currentIndex}) is authoritative. The fast-path accessors read directly from that
+   * positional state.
    */
   private void advanceToValid() {
     int tornRounds = 0;
@@ -223,6 +213,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
       // across a leaf reload (content per PageReference is immutable).
       final int verdict;
       int entryCount = 0;
+      int rangeVerdict = 0;
       try {
         entryCount = currentLeaf.getEntryCount();
         if (currentIndex >= entryCount) {
@@ -239,16 +230,18 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
           verdict = EARLY_EXIT_PAST_UPPER_BOUND && toKey != null && currentLeaf.compareKeyWithBound(0, toKey) > 0
               ? VERDICT_EXIT_SCAN
               : VERDICT_SKIP_LEAF;
-        } else if (isOutOfRange(currentIndex)) {
+        } else if ((rangeVerdict = classifyAgainstBounds(currentIndex)) != 0) {
           // Per-entry range check — zero-alloc comparison against the pre-supplied bounds,
           // reading the key bytes straight from the HOT leaf's on/off-heap storage. Same
           // early-exit-vs-skip split as the whole-leaf case above: the first key past
           // {@code toKey} ends the scan on lex-monotonic tries, and merely skips under
           // -Dsirix.hot.range.scanToEnd=true.
-          verdict =
-              EARLY_EXIT_PAST_UPPER_BOUND && toKey != null && currentLeaf.compareKeyWithBound(currentIndex, toKey) > 0
-                  ? VERDICT_EXIT_SCAN
-                  : VERDICT_SKIP_ENTRY;
+          // rangeVerdict > 0 means "past toKey", which the compare above already established — no
+          // second full-key comparison per rejected entry (these run byte-at-a-time over keys up to
+          // 256 bytes, so the duplicate doubled the cost of every out-of-range tail).
+          verdict = EARLY_EXIT_PAST_UPPER_BOUND && rangeVerdict > 0
+              ? VERDICT_EXIT_SCAN
+              : VERDICT_SKIP_ENTRY;
         } else {
           verdict = VERDICT_EMIT;
         }
@@ -269,14 +262,12 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
           if (!advanceToNextLeaf()) {
             exhausted = true;
             positionedValid = false;
-            nextEntry = null;
             return;
           }
         }
         case VERDICT_EXIT_SCAN -> {
           exhausted = true;
           positionedValid = false;
-          nextEntry = null;
           return;
         }
         case VERDICT_SKIP_LEAF -> currentIndex = entryCount;
@@ -284,7 +275,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
         default -> {
           // Valid entry found — expose via positional accessors.
           positionedValid = true;
-          nextEntry = null;
           return;
         }
       }
@@ -299,21 +289,30 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @param round the number of consecutive torn rounds including this one, for the retry bound
    */
   private void recoverTornLeaf(final int round) {
-    if (round > MAX_TORN_ROUNDS) {
-      throw new IllegalStateException("HOT range cursor: leaf failed stamp validation on " + MAX_TORN_ROUNDS
-          + " consecutive rounds — sustained allocator thrashing");
-    }
-    if (!reader.refreshCurrentLeaf()) {
-      // A leaf that was resolvable once must stay resolvable — committed content is always
-      // reloadable and log-backed content lives for the transaction. Failing loudly beats
-      // silently truncating the scan.
-      throw new IllegalStateException("HOT range cursor: evicted leaf could not be reloaded through its PageReference");
-    }
+    recoverTorn(round);
+  }
+
+  /**
+   * Bounded torn-read recovery for consumers driving this cursor: reload the current leaf and
+   * re-adopt the fresh copy at the SAME position. Content per {@link PageReference} is immutable, so
+   * {@link #currentEntryIndex()} stays correct across the reload — callers re-read, they do not
+   * rewind.
+   *
+   * @param round how many consecutive torn rounds this is, including the current one
+   */
+  public void recoverTorn(final int round) {
+    reader.recoverTorn(round, "HOT range cursor");
     currentLeaf = reader.currentLeafPage();
   }
 
   /**
-   * Is the entry at {@code index} outside {@code [fromKey, toKey]}?
+   * Where the entry at {@code index} sits relative to {@code [fromKey, toKey]}: {@code -1} below
+   * {@code fromKey}, {@code 0} in range, {@code 1} past {@code toKey}.
+   *
+   * <p>
+   * Three-way rather than boolean so the caller can tell "past the upper bound" (which ends the scan
+   * on a lex-monotonic trie) from "below the lower bound" without repeating the comparison — these
+   * run byte-at-a-time over the full key.
    *
    * <p>
    * Both ends are checked. Checking only the upper bound was safe while the cursor could assume it
@@ -321,12 +320,15 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * can present keys BELOW {@code fromKey} after the scan has begun, and those were being returned to
    * the caller as if they were in range.
    */
-  private boolean isOutOfRange(final int index) {
+  private int classifyAgainstBounds(final int index) {
     if (fromKey != null && currentLeaf.compareKeyWithBound(index, fromKey) < 0) {
-      return true;
+      return -1;
     }
     // Upper bound stays INCLUSIVE, as it was when this comparison ended the scan.
-    return toKey != null && currentLeaf.compareKeyWithBound(index, toKey) > 0;
+    if (toKey != null && currentLeaf.compareKeyWithBound(index, toKey) > 0) {
+      return 1;
+    }
+    return 0;
   }
 
   /**
@@ -464,10 +466,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * {@link #currentLeafPage()} — the reload creates a NEW page object.
    */
   public void refreshLeaf() {
-    if (!reader.refreshCurrentLeaf()) {
-      throw new IllegalStateException("HOT range cursor: evicted leaf could not be reloaded through its PageReference");
-    }
-    currentLeaf = reader.currentLeafPage();
+    recoverTorn(1);
   }
 
   /**
@@ -483,7 +482,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     Objects.requireNonNull(compositeKey);
     exhausted = false;
     positionedValid = false;
-    nextEntry = null;
     final HOTTrieReader.LowerBoundResult lb = reader.lowerBound(rootRef, compositeKey);
     if (lb == null || lb.leaf == null) {
       exhausted = true;
@@ -567,7 +565,6 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
     // Nothing to release: neither the cursor nor the reader pins leaves. Clearing just drops the
     // references so an abandoned cursor does not keep a leaf object reachable.
     currentLeaf = null;
-    nextEntry = null;
     positionedValid = false;
     exhausted = true;
     reader.clearPath();

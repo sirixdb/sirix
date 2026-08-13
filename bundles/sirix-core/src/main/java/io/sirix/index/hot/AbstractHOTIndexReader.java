@@ -154,7 +154,7 @@ public abstract class AbstractHOTIndexReader<K> {
       // torn batch poisons the accumulator, so recovery is wholesale: reset and re-walk from a
       // fresh lower-bound descent. Content per PageReference is immutable, so every retry
       // re-derives the identical result.
-      for (int walkAttempt = 0; walkAttempt < MAX_TORN_WALK_RETRIES; walkAttempt++) {
+      for (int walkAttempt = 0; walkAttempt < HOTTrieReader.MAX_STAMP_RETRIES; walkAttempt++) {
         accumulator.reset();
         final HOTTrieReader.LowerBoundResult lowerBound = trie.lowerBound(rootRef, fromBytes);
         HOTLeafPage leaf = lowerBound.leaf;
@@ -771,14 +771,12 @@ public abstract class AbstractHOTIndexReader<K> {
 
     /** Bounded torn-recovery: refresh the cursor's leaf and let the caller re-evaluate in place. */
     private void recoverTorn(final int round) {
-      checkTornBound(round);
-      cursor.refreshLeaf();
+      cursor.recoverTorn(round);
     }
 
     private void checkTornBound(final int round) {
-      if (round > MAX_TORN_WALK_RETRIES) {
-        throw new IllegalStateException("HOT: chunk aggregation failed stamp validation on " + MAX_TORN_WALK_RETRIES
-            + " consecutive rounds — sustained allocator thrashing");
+      if (round > HOTTrieReader.MAX_STAMP_RETRIES) {
+        throw HOTTrieReader.stampRetriesExhausted("HOT chunk aggregation");
       }
     }
   }

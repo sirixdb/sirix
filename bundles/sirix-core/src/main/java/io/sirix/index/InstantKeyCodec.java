@@ -18,9 +18,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Storage helper for the XQuery instant family — {@code xs:dateTime}, {@code xs:date} and
- * {@code xs:time}: it stores their LEXICAL form and recovers the TYPED atomic on the way back out,
- * so both index backends agree on representation and range predicates are evaluated by the typed
- * comparison rather than by text.
+ * {@code xs:time}: it reduces a value to the absolute instant it denotes, so both index backends
+ * agree on representation and a byte-ordered scan orders them chronologically.
  *
  * <h2>Encode the ABSOLUTE INSTANT, never the calendar components</h2>
  * <p>
@@ -48,11 +47,6 @@ import static java.util.Objects.requireNonNull;
  * opposite — it is the required behaviour, and it is why {@code "12:00:00Z"} and
  * {@code "14:00:00+02:00"} match one another.
  *
- * <p>
- * Colliding keys are the fatal part rather than merely wrong ordering: a CAS key is the index
- * entry's identity, so two distinct values sharing one key merge their posting lists, corrupting
- * equality lookups and deletes as well as ranges. The lexical form is injective, so it is what gets
- * stored.
  *
  * <h2>Untimezoned values</h2>
  * <p>
