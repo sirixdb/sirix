@@ -591,9 +591,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final HOTLeafPage[] leafOut = new HOTLeafPage[1];
       final byte[] value =
-          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), leafOut, "readColumnSegmentSlot");
+          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readColumnSegmentSlot");
       if (value == null) {
         return null;
       }
@@ -601,7 +600,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (inline != null) {
         return inline;
       }
-      final PageReference ref = leafOut[0].getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      final PageReference ref =
+          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
         return null;
       }
@@ -1644,23 +1644,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return true;
   }
 
-  /**
-   * Bounded torn-read recovery shared by the projection walks: refresh the cursor's leaf and let the
-   * caller re-evaluate the same slot on the fresh copy.
-   */
-  private static void recoverTornSlot(final HOTRangeCursor cursor, final int round) {
-    if (round > MAX_TORN_SLOT_ROUNDS) {
-      throw new IllegalStateException("segment-slot walk failed stamp validation on " + MAX_TORN_SLOT_ROUNDS
-          + " consecutive rounds — sustained allocator thrashing");
-    }
-    cursor.refreshLeaf();
-  }
 
-  /**
-   * Bound on consecutive torn-read recovery rounds per slot; each round races eviction independently
-   * on a freshly reloaded copy of the same immutable content.
-   */
-  private static final int MAX_TORN_SLOT_ROUNDS = 64;
 
   /**
    * A descriptor slot's bytes during the directory walk. Unlike a segment, the descriptor IS read
@@ -1884,15 +1868,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final HOTLeafPage[] leafOut = new HOTLeafPage[1];
-      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), leafOut, "readBlob");
+      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readBlob");
       if (value == null) {
         return null;
       }
       if (isInlineBlob(value)) {
         return verifyInlineBlob(value, slotKey);
       }
-      final PageReference ref = leafOut[0].getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      final PageReference ref =
+          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
         return verifyBlob(value, null, slotKey);
       }
@@ -1969,23 +1953,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   // ==================== descriptor-layout internals ====================
 
   /**
-   * Shared navigation preamble of the reader-side descriptor-layout statics: serialize the slot key
-   * into {@code keyBuf} and navigate to the HOT leaf covering it. {@code null} when the trie has no
-   * such leaf. The caller owns the {@code trieReader} lifetime (segment resolution reads through the
-   * returned leaf's side map while the reader is open).
-   */
-  /**
    * Navigate to {@code slotKey}'s leaf and read its raw value under the optimistic-stamp protocol:
    * the found/absent decision and the value copy are both validated before anything is derived from
    * them, and a torn batch re-descends on freshly reloaded copies. Shared by the two reader-side slot
    * reads, which differ only in how they interpret the bytes — restating this scaffolding per caller
    * meant a fix to the validation discipline had to be applied twice, 1300 lines apart.
    *
-   * @param out receives the leaf the value came from, so the caller can resolve its side-map refs
+   * <p>
+   * The leaf the value came from is NOT returned: {@code loadPage} installs every leaf it resolves as
+   * the reader's current leaf, so the caller reads it back with {@code trieReader.currentLeafPage()}
+   * and no per-read holder has to be allocated.
+   *
    * @return the validated value bytes, or {@code null} when the slot is absent or tombstoned
    */
   private static byte @Nullable [] readValidatedSlotValue(final HOTTrieReader trieReader, final PageReference rootRef,
-      final long slotKey, final byte[] keyBuf, final HOTLeafPage[] out, final String operation) {
+      final long slotKey, final byte[] keyBuf, final String operation) {
     for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
       final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
       if (leaf == null) {
@@ -2006,7 +1988,6 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       if (!trieReader.validateCurrentLeaf()) {
         continue;
       }
-      out[0] = leaf;
       return value == null || value.length == 0
           ? null
           : value;
@@ -2014,6 +1995,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     throw HOTTrieReader.stampRetriesExhausted(operation + "(slot " + slotKey + ")");
   }
 
+  /**
+   * Shared navigation preamble of the reader-side descriptor-layout statics: serialize the slot key
+   * into {@code keyBuf} and navigate to the HOT leaf covering it. {@code null} when the trie has no
+   * such leaf. The caller owns the {@code trieReader} lifetime (segment resolution reads through the
+   * returned leaf's side map while the reader is open).
+   */
   private static @Nullable HOTLeafPage navigateToSlotLeaf(final HOTTrieReader trieReader, final PageReference rootRef,
       final long slotKey, final byte[] keyBuf) {
     PathKeySerializer.INSTANCE.serialize(slotKey, keyBuf, 0);

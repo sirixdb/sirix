@@ -301,7 +301,18 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @param round how many consecutive torn rounds this is, including the current one
    */
   public void recoverTorn(final int round) {
-    reader.recoverTorn(round, "HOT range cursor");
+    recoverTorn(round, "HOT range cursor");
+  }
+
+  /**
+   * As {@link #recoverTorn(int)}, but naming the caller so an exhaustion diagnostic identifies which
+   * scan path was thrashing rather than reporting every consumer as "HOT range cursor".
+   *
+   * @param round how many consecutive torn rounds this is, including the current one
+   * @param operation the caller's name, for the exhaustion diagnostic
+   */
+  public void recoverTorn(final int round, final String operation) {
+    reader.recoverTorn(round, operation);
     currentLeaf = reader.currentLeafPage();
   }
 
@@ -465,6 +476,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * against the stale copy stays valid against the fresh one. Callers re-read from
    * {@link #currentLeafPage()} — the reload creates a NEW page object.
    */
+  @Deprecated
   public void refreshLeaf() {
     recoverTorn(1);
   }

@@ -200,8 +200,8 @@ public abstract class AbstractHOTIndexReader<K> {
         }
         return accumulator.toNodeReferencesAndReset();
       }
-      throw new IllegalStateException("HOT: chunk walk failed stamp validation on every one of " + MAX_TORN_WALK_RETRIES
-          + " attempts — sustained allocator thrashing");
+      throw new IllegalStateException("HOT: chunk walk failed stamp validation on every one of "
+          + HOTTrieReader.MAX_STAMP_RETRIES + " attempts — sustained allocator thrashing");
     } finally {
       accumulator.reset(); // no-op on the success path; drops partial state if the walk threw
       trie.close(); // clears the reader's leaf snapshot + path; the object stays reusable
@@ -210,12 +210,6 @@ public abstract class AbstractHOTIndexReader<K> {
     }
   }
 
-  /**
-   * Bound on whole-walk retries after a torn read poisoned an aggregate. Each retry races eviction
-   * independently on freshly reloaded copies, so consecutive failures imply allocator thrashing, not
-   * a logic error.
-   */
-  private static final int MAX_TORN_WALK_RETRIES = 64;
 
   /**
    * Get the storage engine reader.
@@ -258,7 +252,7 @@ public abstract class AbstractHOTIndexReader<K> {
    */
   private volatile @Nullable PageReference cachedRootReference;
 
-  protected @Nullable PageReference getRootReference() {
+  public @Nullable PageReference getRootReference() {
     PageReference root = cachedRootReference;
     if (root != null) {
       return root;
@@ -771,7 +765,7 @@ public abstract class AbstractHOTIndexReader<K> {
 
     /** Bounded torn-recovery: refresh the cursor's leaf and let the caller re-evaluate in place. */
     private void recoverTorn(final int round) {
-      cursor.recoverTorn(round);
+      cursor.recoverTorn(round, "HOT chunk aggregation");
     }
 
     private void checkTornBound(final int round) {
