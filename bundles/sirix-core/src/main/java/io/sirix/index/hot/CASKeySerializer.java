@@ -157,7 +157,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // 3. Value (order-preserving encoding)
     Atomic atomicValue = key.getAtomicValue();
     if (atomicValue != null) {
-      offset += encodeAtomicOrderPreserving(atomicValue, type, dest, offset);
+      offset += encodeAtomicOrderPreserving(atomicValue, type, typeId, dest, offset);
     }
 
     if (atomicValue == null) {
@@ -242,38 +242,49 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * @param offset offset to write at
    * @return number of bytes written
    */
-  private int encodeAtomicOrderPreserving(Atomic value, Type type, byte[] dest, int offset) {
-    if (type.instanceOf(Type.INR)) {
-      // Integer family (xs:integer and subtypes): lossless 64-bit encoding, not double.
-      return encodeIntegerOrderPreserving(value, dest, offset);
-    } else if (type.isNumeric()) {
-      return encodeNumericOrderPreserving(value, dest, offset);
-    } else if (type.instanceOf(Type.BOOL)) {
-      // Boolean: 0 for false, 1 for true (already ordered)
-      dest[offset] = value.booleanValue()
-          ? (byte) 1
-          : (byte) 0;
-      return 1;
-    } else if (InstantKeyCodec.isInstantType(type)) {
-      // The absolute instant, so byte order is chronological order — see InstantKeyCodec.
-      return InstantKeyCodec.encode(value, type, dest, offset);
-    } else {
-      // String: UTF-8 is already lexicographically ordered
-      final String str = value.stringValue();
-      // Truncate to fit buffer (preserves lexicographic ordering for prefixes)
-      final int cap = Math.min(dest.length - offset, MAX_STRING_VALUE_BYTES);
+  private int encodeAtomicOrderPreserving(Atomic value, Type type, short typeId, byte[] dest, int offset) {
+    // Dispatch on the id the caller already computed, NOT by re-walking the type hierarchy.
+    // Type.instanceOf is a parent-pointer chase, and this method used to redo the whole ladder that
+    // getTypeId had just walked -- so every key paid the dispatch twice. A switch over the id is a
+    // tableswitch: no chain walks at all. Measured on the string CAS path, where serializing a key
+    // cost MORE than the entire PEXT descent it feeds (134 ns against 79 ns).
+    switch (typeId) {
+      case TYPE_INTEGER:
+        // Integer family (xs:integer and subtypes): lossless 64-bit encoding, not double.
+        return encodeIntegerOrderPreserving(value, dest, offset);
+      case TYPE_DOUBLE:
+      case TYPE_FLOAT:
+      case TYPE_DECIMAL:
+        return encodeNumericOrderPreserving(value, dest, offset);
+      case TYPE_BOOLEAN:
+        // Boolean: 0 for false, 1 for true (already ordered)
+        dest[offset] = value.booleanValue()
+            ? (byte) 1
+            : (byte) 0;
+        return 1;
+      case TYPE_DATETIME:
+      case TYPE_DATE:
+      case TYPE_TIME:
+        // The absolute instant, so byte order is chronological order — see InstantKeyCodec.
+        return InstantKeyCodec.encode(value, type, dest, offset);
+      default: {
+        // String: UTF-8 is already lexicographically ordered
+        final String str = value.stringValue();
+        // Truncate to fit buffer (preserves lexicographic ordering for prefixes)
+        final int cap = Math.min(dest.length - offset, MAX_STRING_VALUE_BYTES);
       // A value is serialized once per indexed node, so the ASCII case — which is very nearly all
       // of them — writes straight into dest instead of through a throwaway byte[]. One ASCII char
       // is one UTF-8 byte, so the bytes and the truncation point are identical either way; only
       // the leading `cap` chars have to be ASCII, since anything beyond them is truncated away.
-      final int asciiLen = Math.min(str.length(), cap);
-      if (AsciiKeyBytes.isAsciiPrefix(str, asciiLen)) {
-        return AsciiKeyBytes.writeAsciiPrefix(str, asciiLen, dest, offset);
+        final int asciiLen = Math.min(str.length(), cap);
+        if (AsciiKeyBytes.isAsciiPrefix(str, asciiLen)) {
+          return AsciiKeyBytes.writeAsciiPrefix(str, asciiLen, dest, offset);
+        }
+        final byte[] utf8 = str.getBytes(StandardCharsets.UTF_8);
+        final int maxLen = Math.min(utf8.length, cap);
+        System.arraycopy(utf8, 0, dest, offset, maxLen);
+        return maxLen;
       }
-      final byte[] utf8 = str.getBytes(StandardCharsets.UTF_8);
-      final int maxLen = Math.min(utf8.length, cap);
-      System.arraycopy(utf8, 0, dest, offset, maxLen);
-      return maxLen;
     }
   }
 
@@ -412,15 +423,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * Gets a stable type ID for serialization.
    */
   private static short getTypeId(Type type) {
-    // The instant family first: none of these is a subtype of the families below, but checking them
-    // up front keeps the mapping obvious.
-    if (type.instanceOf(Type.DATI)) {
-      return TYPE_DATETIME;
-    } else if (type.instanceOf(Type.DATE)) {
-      return TYPE_DATE;
-    } else if (type.instanceOf(Type.TIME)) {
-      return TYPE_TIME;
-    } else if (type.instanceOf(Type.STR)) {
+    // Ordered by FREQUENCY, not taxonomy. Type.instanceOf walks the parent chain, so every test that
+    // fails before the right one costs a pointer chase -- and this runs once per key serialized, on
+    // the insert path and on every lookup's probe. Putting the instant family first (which reads
+    // more tidily) made every string key pay three failing walks before reaching its own branch.
+    // The one ordering constraint that is NOT about frequency: xs:integer must be tested before
+    // xs:decimal, since integers are decimals but need the lossless 64-bit encoding.
+    if (type.instanceOf(Type.STR)) {
       return TYPE_STRING;
     } else if (type.instanceOf(Type.BOOL)) {
       return TYPE_BOOLEAN;
@@ -433,6 +442,12 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // Checked before xs:decimal because xs:integer instanceOf xs:decimal is true,
       // yet integers use the lossless 64-bit encoding, not the IEEE-754 double encoding.
       return TYPE_INTEGER;
+    } else if (type.instanceOf(Type.DATI)) {
+      return TYPE_DATETIME;
+    } else if (type.instanceOf(Type.DATE)) {
+      return TYPE_DATE;
+    } else if (type.instanceOf(Type.TIME)) {
+      return TYPE_TIME;
     } else if (type.instanceOf(Type.DEC)) {
       return TYPE_DECIMAL;
     }

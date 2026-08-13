@@ -1,0 +1,19 @@
+Benchmark                                                   Mode  Cnt    Score     Error   Units
+HotInMemoryReadBenchmark.descendToLeaf                      avgt    4   78.713 ±  32.607   ns/op
+HotInMemoryReadBenchmark.descendToLeaf:gc.alloc.rate        avgt    4    0.009 ±   0.048  MB/sec
+HotInMemoryReadBenchmark.descendToLeaf:gc.alloc.rate.norm   avgt    4    0.001 ±   0.004    B/op
+HotInMemoryReadBenchmark.descendToLeaf:gc.count             avgt    4      ≈ 0            counts
+HotInMemoryReadBenchmark.lowerBoundSeek                     avgt    4  385.790 ±  92.848   ns/op
+HotInMemoryReadBenchmark.lowerBoundSeek:gc.alloc.rate       avgt    4   69.752 ±  16.280  MB/sec
+HotInMemoryReadBenchmark.lowerBoundSeek:gc.alloc.rate.norm  avgt    4   28.200 ±   0.021    B/op
+HotInMemoryReadBenchmark.lowerBoundSeek:gc.count            avgt    4    3.000            counts
+HotInMemoryReadBenchmark.lowerBoundSeek:gc.time             avgt    4   16.000                ms
+HotInMemoryReadBenchmark.pointGet                           avgt    4  562.906 ± 313.739   ns/op
+HotInMemoryReadBenchmark.pointGet:gc.alloc.rate             avgt    4  162.088 ±  98.398  MB/sec
+HotInMemoryReadBenchmark.pointGet:gc.alloc.rate.norm        avgt    4   95.125 ±   0.024    B/op
+HotInMemoryReadBenchmark.pointGet:gc.count                  avgt    4    5.000            counts
+HotInMemoryReadBenchmark.pointGet:gc.time                   avgt    4   25.000                ms
+HotInMemoryReadBenchmark.serializeKey                       avgt    4  134.249 ±   4.537   ns/op
+HotInMemoryReadBenchmark.serializeKey:gc.alloc.rate         avgt    4    2.150 ±   0.038  MB/sec
+HotInMemoryReadBenchmark.serializeKey:gc.alloc.rate.norm    avgt    4    0.303 ±   0.007    B/op
+HotInMemoryReadBenchmark.serializeKey:gc.count              avgt    4      ≈ 0            counts
