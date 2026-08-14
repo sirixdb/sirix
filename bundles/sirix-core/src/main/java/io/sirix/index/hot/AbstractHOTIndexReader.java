@@ -76,16 +76,26 @@ public abstract class AbstractHOTIndexReader<K> {
   protected final int indexNumber;
 
   /**
-   * Pooled trie reader for point-lookup chunk walks: constructing a {@link HOTTrieReader} allocates
-   * its path-stack arrays, which on the lookup path was per-call garbage. One instance is parked here
-   * between calls ({@link HOTTrieReader#close()} drops the leaf snapshot and clears the path but
-   * keeps the object reusable). Handed out via {@link AtomicReference#getAndSet} so concurrent
-   * lookups through the same reader instance stay correct — a loser simply constructs a fresh one.
+   * The mutable state one point-lookup chunk walk needs: a trie reader (whose construction allocates
+   * path-stack arrays) and a chunk accumulator (whose construction allocates a key array). They are
+   * pooled as ONE object rather than two because the pool handoff is atomic and the atomics are not
+   * free — the profile put the pair of {@code getAndSet}/{@code compareAndSet} at 4.6% of a point
+   * lookup, and a walk never wants one without the other.
+   *
+   * @param trie the reader for the descent and the leaf-to-leaf walk
+   * @param accumulator the merge target for the walk's chunk payloads
    */
-  private final AtomicReference<HOTTrieReader> pooledTrieReader = new AtomicReference<>();
+  private record ChunkWalkState(HOTTrieReader trie, NodeReferencesSerializer.ChunkAccumulator accumulator) {
+  }
 
-  /** Pooled chunk accumulator for the lookup walk — same handoff discipline as the trie reader. */
-  private final AtomicReference<NodeReferencesSerializer.ChunkAccumulator> pooledAccumulator = new AtomicReference<>();
+  /**
+   * Pooled per-walk state: constructing it is per-call garbage on the lookup path, so one instance is
+   * parked here between calls ({@link HOTTrieReader#close()} drops the leaf snapshot and clears the
+   * path but keeps the object reusable). Handed out via {@link AtomicReference#getAndSet} so
+   * concurrent lookups through the same reader instance stay correct — a loser simply constructs a
+   * fresh one, and only one walk can ever hold a given instance.
+   */
+  private final AtomicReference<ChunkWalkState> pooledWalkState = new AtomicReference<>();
 
   /**
    * Protected constructor.
@@ -139,14 +149,13 @@ public abstract class AbstractHOTIndexReader<K> {
     System.arraycopy(prefixBuf, 0, fromBytes, 0, prefixLen);
     HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
 
-    HOTTrieReader trie = pooledTrieReader.getAndSet(null);
-    if (trie == null) {
-      trie = new HOTTrieReader(storageEngineReader);
-    }
-    NodeReferencesSerializer.ChunkAccumulator accumulator = pooledAccumulator.getAndSet(null);
-    if (accumulator == null) {
-      accumulator = new NodeReferencesSerializer.ChunkAccumulator();
-    }
+    final ChunkWalkState pooled = pooledWalkState.getAndSet(null);
+    final ChunkWalkState state = pooled != null
+        ? pooled
+        : new ChunkWalkState(new HOTTrieReader(storageEngineReader),
+            new NodeReferencesSerializer.ChunkAccumulator());
+    final HOTTrieReader trie = state.trie();
+    final NodeReferencesSerializer.ChunkAccumulator accumulator = state.accumulator();
     try {
       // The whole walk runs against UNPINNED leaves under optimistic stamps: each leaf's read
       // batch — the per-slot prefix compares, the chunkIdx reads, the payload merges — is
@@ -249,8 +258,7 @@ public abstract class AbstractHOTIndexReader<K> {
     } finally {
       accumulator.reset(); // no-op on the success path; drops partial state if the walk threw
       trie.close(); // clears the reader's leaf snapshot + path; the object stays reusable
-      pooledTrieReader.compareAndSet(null, trie);
-      pooledAccumulator.compareAndSet(null, accumulator);
+      pooledWalkState.compareAndSet(null, state);
     }
   }
 

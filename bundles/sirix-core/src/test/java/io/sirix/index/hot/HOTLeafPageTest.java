@@ -15,6 +15,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -376,6 +379,190 @@ class HOTLeafPageTest {
     }
     assertEquals(NodeReferences.owning(expected), merged);
     page.close();
+  }
+
+  // ===== Differential coverage for the zero-alloc key comparators =====
+  //
+  // These read the suffix EIGHT BYTES AT A TIME and finish with a byte tail, so their failure modes
+  // are alignment-specific: a key whose suffix is 7, 8 or 9 bytes long exercises three different
+  // code paths, and an off-by-one in the tail is invisible to any fixed set of hand-picked keys.
+  // Everything below therefore cross-checks against Arrays.compareUnsigned over the materialized
+  // key, across a key set that lands the compare at every offset in the eight-byte stride and a
+  // probe set that perturbs every byte position.
+
+  /** Shared head of every {@link #alignmentLeaf} key — becomes the leaf's commonPrefix. */
+  private static final byte[] ALIGNMENT_HEAD = { 'P', 'R', 'E' };
+
+  /** Shortest and longest key in {@link #alignmentLeaf}; the span covers 0..37-byte suffixes. */
+  private static final int ALIGNMENT_MIN_LEN = ALIGNMENT_HEAD.length;
+  private static final int ALIGNMENT_MAX_LEN = 40;
+
+  /**
+   * A key of exactly {@code len} bytes: the shared head, then bytes derived from {@code len} so that
+   * no two keys collide and every key carries bytes above {@code 0x7F} — the comparators treat bytes
+   * as unsigned, which a purely ASCII corpus would never catch.
+   */
+  private static byte[] alignmentKey(final int len) {
+    final byte[] key = new byte[len];
+    System.arraycopy(ALIGNMENT_HEAD, 0, key, 0, Math.min(len, ALIGNMENT_HEAD.length));
+    for (int i = ALIGNMENT_HEAD.length; i < len; i++) {
+      key[i] = (byte) ((len * 31 + i * 17) & 0xFF);
+    }
+    return key;
+  }
+
+  /** Keys of every length in {@code [ALIGNMENT_MIN_LEN, ALIGNMENT_MAX_LEN]}, in insertion order. */
+  private static List<byte[]> alignmentKeys() {
+    final List<byte[]> keys = new ArrayList<>(ALIGNMENT_MAX_LEN - ALIGNMENT_MIN_LEN + 1);
+    for (int len = ALIGNMENT_MIN_LEN; len <= ALIGNMENT_MAX_LEN; len++) {
+      keys.add(alignmentKey(len));
+    }
+    return keys;
+  }
+
+  private static HOTLeafPage alignmentLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] value = { 1 };
+    for (final byte[] key : alignmentKeys()) {
+      assertTrue(page.put(key, value), "put failed for key of length " + key.length);
+    }
+    return page;
+  }
+
+  /**
+   * Probes derived from the stored keys: each key itself, each key with one byte bumped up and down
+   * at every position, and each key truncated and extended by up to three bytes. The truncations and
+   * extensions are what move a divergence across the eight-byte stride boundary.
+   */
+  private static List<byte[]> alignmentProbes() {
+    final List<byte[]> probes = new ArrayList<>();
+    probes.add(new byte[0]);
+    probes.add(new byte[] { 'P' });
+    probes.add(new byte[] { 'P', 'R' });
+    probes.add(new byte[] { 'P', 'S' });
+    for (final byte[] key : alignmentKeys()) {
+      probes.add(key);
+      for (int p = 0; p < key.length; p++) {
+        final byte[] lower = key.clone();
+        lower[p] = (byte) ((lower[p] & 0xFF) - 1);
+        probes.add(lower);
+        final byte[] higher = key.clone();
+        higher[p] = (byte) ((higher[p] & 0xFF) + 1);
+        probes.add(higher);
+      }
+      for (int drop = 1; drop <= 3 && key.length - drop >= 0; drop++) {
+        probes.add(Arrays.copyOf(key, key.length - drop));
+      }
+      for (int add = 1; add <= 3; add++) {
+        probes.add(Arrays.copyOf(key, key.length + add));
+      }
+    }
+    return probes;
+  }
+
+  /** Unsigned-lex comparison of the first {@code n} bytes of each side. */
+  private static int compareFirstBytes(final byte[] a, final byte[] b, final int n) {
+    for (int i = 0; i < n; i++) {
+      final int diff = (a[i] & 0xFF) - (b[i] & 0xFF);
+      if (diff != 0) {
+        return diff;
+      }
+    }
+    return 0;
+  }
+
+  @Test
+  void compareKeyWithBoundMatchesArraysCompareAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int i = 0; i < page.getEntryCount(); i++) {
+        final byte[] stored = page.getKey(i);
+        for (final byte[] probe : alignmentProbes()) {
+          assertEquals(Integer.signum(Arrays.compareUnsigned(stored, probe)),
+              Integer.signum(page.compareKeyWithBound(i, probe)),
+              "entry " + i + " (len " + stored.length + ") vs probe of length " + probe.length);
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void compareKeyPrefixMatchesReferenceAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int i = 0; i < page.getEntryCount(); i++) {
+        final byte[] stored = page.getKey(i);
+        for (final byte[] probe : alignmentProbes()) {
+          final int compared = Math.min(stored.length, probe.length);
+          final int head = compareFirstBytes(stored, probe, compared);
+          final int expected = head != 0
+              ? Integer.signum(head)
+              : (stored.length < probe.length
+                  ? -1
+                  : 0);
+          assertEquals(expected, Integer.signum(page.compareKeyPrefix(i, probe, probe.length)),
+              "entry " + i + " (len " + stored.length + ") vs prefix of length " + probe.length);
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void compareKeyPrefixPartMatchesReferenceAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int trailer = 0; trailer <= 5; trailer++) {
+        for (int i = 0; i < page.getEntryCount(); i++) {
+          final byte[] stored = page.getKey(i);
+          final int partLen = Math.max(0, stored.length - trailer);
+          for (final byte[] probe : alignmentProbes()) {
+            final int compared = Math.min(partLen, probe.length);
+            final int head = compareFirstBytes(stored, probe, compared);
+            final int expected = head != 0
+                ? Integer.signum(head)
+                : Integer.signum(partLen - probe.length);
+            assertEquals(expected, Integer.signum(page.compareKeyPrefixPart(i, trailer, probe, probe.length)),
+                "entry " + i + " (len " + stored.length + ") trailer " + trailer + " vs probe of length "
+                    + probe.length);
+          }
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void findEntryMatchesLinearSearchAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      final int entryCount = page.getEntryCount();
+      final byte[][] sorted = new byte[entryCount][];
+      for (int i = 0; i < entryCount; i++) {
+        sorted[i] = page.getKey(i);
+      }
+      for (final byte[] probe : alignmentProbes()) {
+        int expected = -(entryCount + 1);
+        for (int i = 0; i < entryCount; i++) {
+          final int cmp = Arrays.compareUnsigned(sorted[i], probe);
+          if (cmp == 0) {
+            expected = i;
+            break;
+          }
+          if (cmp > 0) {
+            expected = -(i + 1);
+            break;
+          }
+        }
+        assertEquals(expected, page.findEntry(probe), "probe of length " + probe.length);
+      }
+    } finally {
+      page.close();
+    }
   }
 }
 

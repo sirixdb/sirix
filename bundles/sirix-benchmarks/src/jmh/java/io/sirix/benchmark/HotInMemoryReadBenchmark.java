@@ -31,6 +31,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.Database;
@@ -40,6 +41,7 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.hot.CASKeySerializer;
 import io.sirix.index.hot.HOTIndexReader;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -93,11 +95,21 @@ import static io.brackit.query.util.path.Path.parse;
  * successor peek, lex re-descent on a miss).</li>
  * <li>{@link #pointGet} — the whole public lookup, including chunk reassembly into
  * {@code NodeReferences}, which a single-value trie lookup does not have to do.</li>
+ * <li>{@link #findEntryInLeaf} — the in-leaf binary search alone, on one fixed leaf, with no
+ * descent, no key encoding and no chunk assembly in the frame.</li>
  * </ul>
  *
  * <p>
  * Everything is resident: the index is built in {@code @Setup} and every stage is driven over the
  * same shuffled key set, so no stage pays I/O.
+ * </p>
+ *
+ * <p>
+ * <b>Reading the numbers.</b> The composite stages are only trustworthy as a cross-run comparison
+ * when {@link #serializeKey} — which no leaf-side change can touch — reproduces. It has been
+ * observed to compile two different ways across forks (79 ns vs 190 ns for identical bytecode), and
+ * a fork that lands in the slow mode drags {@link #pointGet} with it. Treat it as this harness's
+ * control: if it moved, the run is not comparable and the narrow stages are the only evidence.
  * </p>
  */
 @BenchmarkMode(Mode.AverageTime)
@@ -111,7 +123,7 @@ public class HotInMemoryReadBenchmark {
   private Path dbPath;
   private Database<JsonResourceSession> database;
   private JsonResourceSession session;
-  private io.sirix.api.json.JsonNodeReadOnlyTrx rtx;
+  private JsonNodeReadOnlyTrx rtx;
   private HOTIndexReader<CASValue> reader;
   private HOTTrieReader trieReader;
   private PageReference rootRef;
@@ -120,6 +132,11 @@ public class HotInMemoryReadBenchmark {
   private byte[][] seekKeys;
   private final byte[] scratch = new byte[512];
   private int cursor;
+
+  /** One resident leaf, and composite keys that all land in it — see {@link #findEntryInLeaf}. */
+  private HOTLeafPage leaf;
+  private byte[][] leafKeys;
+  private int leafCursor;
 
   @Setup(Level.Trial)
   public void setUp() throws Exception {
@@ -172,6 +189,28 @@ public class HotInMemoryReadBenchmark {
         throw new IllegalStateException("probe set does not round-trip: " + p);
       }
     }
+
+    // Sample the leaf the median probe routes to, and take its probe keys from the leaf's own
+    // entries: every one is guaranteed resident and a guaranteed hit, so findEntryInLeaf measures
+    // the full search depth rather than a mix of hits and early-outs.
+    leaf = trieReader.navigateToLeaf(rootRef, seekKeys[seekKeys.length / 2]);
+    if (leaf == null) {
+      throw new IllegalStateException("median probe does not route to a leaf");
+    }
+    final int leafEntries = leaf.getEntryCount();
+    final List<byte[]> resident = new ArrayList<>(leafEntries);
+    for (int i = 0; i < leafEntries; i++) {
+      final byte[] entryKey = leaf.getKey(i);
+      if (entryKey != null) {
+        resident.add(entryKey);
+      }
+    }
+    if (resident.isEmpty()) {
+      throw new IllegalStateException("sampled leaf exposes no keys");
+    }
+    Collections.shuffle(resident, new Random(0x5EED));
+    leafKeys = resident.toArray(new byte[0][]);
+    System.out.println("[setup] sampled leaf: entryCount=" + leafEntries + " probes=" + leafKeys.length);
   }
 
   @SuppressWarnings("unchecked")
@@ -221,5 +260,20 @@ public class HotInMemoryReadBenchmark {
   @Benchmark
   public void pointGet(final Blackhole bh) {
     bh.consume(reader.get(probes[next()], SearchMode.EQUAL));
+  }
+
+  /**
+   * The in-leaf search in isolation: one already-resolved leaf, keys that all belong to it, no
+   * descent and no key encoding in the frame. This is the stage that can attribute a change to
+   * {@code HOTLeafPage}'s comparators, which the composite stages cannot — their variance is larger
+   * than the effect being measured.
+   */
+  @Benchmark
+  public void findEntryInLeaf(final Blackhole bh) {
+    final int i = leafCursor;
+    leafCursor = i + 1 == leafKeys.length
+        ? 0
+        : i + 1;
+    bh.consume(leaf.findEntry(leafKeys[i]));
   }
 }

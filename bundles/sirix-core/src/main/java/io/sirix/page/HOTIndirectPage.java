@@ -38,6 +38,9 @@ import org.jspecify.annotations.Nullable;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.settings.Constants;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -241,6 +244,15 @@ public final class HOTIndirectPage implements Page {
   // ===== SIMD gather for MultiMask (vpshufb optimization) =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
+
+  /**
+   * Reads eight key bytes as one big-endian {@code long}, for {@link #getKeyWordAt}. Big-endian is
+   * the layout the PEXT routing needs: after {@code Long.compress} the partial key's MSB holds the
+   * most significant discriminative bit, which is what makes sibling partial keys compare in lex
+   * order. Compiles to a single unaligned load plus a byte swap.
+   */
+  private static final VarHandle BYTE_ARRAY_LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   /**
    * Per-thread scratch byte[] sized to {@link #BYTE_SPECIES}.length() for the SIMD partial-key load
@@ -569,7 +581,14 @@ public final class HOTIndirectPage implements Page {
       if (matchMask == 0)
         return NOT_FOUND;
       final int subsetPick = 31 - Integer.numberOfLeadingZeros(matchMask);
-      for (int i = 0; i < numChildren; i++) {
+      // HFT: the exact-match probe walks the SET BITS of matchMask, not all numChildren slots.
+      // Equality implies subset — a child whose partial key EQUALS densePartialKey trivially
+      // satisfies (densePartialKey & partial) == partial — so every candidate the old linear scan
+      // could return is already a match bit, and clearing the lowest set bit each round visits them
+      // in ascending index order, returning the same child the scan did. On a full node that is a
+      // handful of candidates instead of 32 branches, once per descent level per lookup.
+      for (int remaining = matchMask; remaining != 0; remaining &= remaining - 1) {
+        final int i = Integer.numberOfTrailingZeros(remaining);
         if (partialKeys[i] == densePartialKey)
           return i;
       }
@@ -818,6 +837,12 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private static long getKeyWordAt(byte[] key, int pos) {
+    // HFT: the whole-window case — every descent level of a key long enough to reach it — is one
+    // unaligned load plus a byte swap. The per-byte assembly below is only for the tail, where the
+    // window runs past the end of the key and the missing bytes must read as 0x00.
+    if (pos >= 0 && pos + Long.BYTES <= key.length) {
+      return (long) BYTE_ARRAY_LONG_BE.get(key, pos);
+    }
     long result = 0;
     int end = Math.min(pos + 8, key.length);
     for (int i = pos; i < end; i++) {

@@ -32,6 +32,7 @@ import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
 
 /**
@@ -139,8 +140,8 @@ public final class SparsePartialKeys<T extends Number> {
     this.partialKeyType = partialKeyType;
     this.numEntries = numEntries;
 
-    // Allocate storage with padding for SIMD alignment
-    int alignedSize = alignToNext8(numEntries);
+    // Storage is always the full MAX_ENTRIES so a whole SIMD block can be loaded past the live
+    // entries without an out-of-bounds read; searchInts/searchShorts skip the blocks that hold none.
     if (partialKeyType == Byte.class) {
       this.byteEntries = new byte[MAX_ENTRIES]; // Always 32 for AVX2 alignment
     } else if (partialKeyType == Short.class) {
@@ -193,7 +194,7 @@ public final class SparsePartialKeys<T extends Number> {
 
       // Compute: (search & haystack) == haystack
       ByteVector andResult = searchReg.and(haystack);
-      VectorMask<Byte> matches = andResult.compare(jdk.incubator.vector.VectorOperators.EQ, haystack);
+      VectorMask<Byte> matches = andResult.compare(VectorOperators.EQ, haystack);
 
       // Use long shift to avoid overflow when numEntries=32
       long mask = numEntries == 32
@@ -221,6 +222,11 @@ public final class SparsePartialKeys<T extends Number> {
 
   /**
    * SIMD search for 16-bit partial keys.
+   *
+   * <p>
+   * HFT: the second 16-lane block is compared only when the node actually has entries in it. The
+   * trailing lanes are masked out of the result either way, so skipping the block is exactly
+   * equivalent — see {@link #searchInts} for why that matters on the descent hot path.
    */
   private int searchShorts(short densePartialKey) {
     if (SHORT_SPECIES.length() >= 16) {
@@ -229,13 +235,15 @@ public final class SparsePartialKeys<T extends Number> {
 
       // First 16 entries
       ShortVector haystack1 = ShortVector.fromArray(SHORT_SPECIES, shortEntries, 0);
-      VectorMask<Short> matches1 = searchReg.and(haystack1).compare(jdk.incubator.vector.VectorOperators.EQ, haystack1);
+      VectorMask<Short> matches1 = searchReg.and(haystack1).compare(VectorOperators.EQ, haystack1);
 
-      // Second 16 entries
-      ShortVector haystack2 = ShortVector.fromArray(SHORT_SPECIES, shortEntries, 16);
-      VectorMask<Short> matches2 = searchReg.and(haystack2).compare(jdk.incubator.vector.VectorOperators.EQ, haystack2);
-
-      int result = (int) matches1.toLong() | ((int) matches2.toLong() << 16);
+      int result = (int) matches1.toLong();
+      if (numEntries > 16) {
+        // Second 16 entries
+        ShortVector haystack2 = ShortVector.fromArray(SHORT_SPECIES, shortEntries, 16);
+        VectorMask<Short> matches2 = searchReg.and(haystack2).compare(VectorOperators.EQ, haystack2);
+        result |= (int) matches2.toLong() << 16;
+      }
       long mask = numEntries == 32 ? 0xFFFFFFFFL : ((1L << numEntries) - 1);
       return (int) (result & mask);
     } else {
@@ -255,17 +263,26 @@ public final class SparsePartialKeys<T extends Number> {
 
   /**
    * SIMD search for 32-bit partial keys.
+   *
+   * <p>
+   * HFT: this is the innermost operation of the trie descent — one call per level, per lookup — and
+   * it used to run all four 8-lane blocks unconditionally, i.e. cover 32 entries whatever the node's
+   * actual fan-out. A node with eight or fewer children therefore paid four vector loads, four
+   * subset compares and four mask extractions to produce 24 bits that the trailing {@code mask}
+   * immediately discarded. Bounding the loop by the live entry count is exactly equivalent — every
+   * bit a skipped block could set sits at position {@code >= numEntries} and is masked off — and on
+   * the profiled CAS index the mask extraction alone was 10% of a point lookup.
    */
   private int searchInts(int densePartialKey) {
     if (INT_SPECIES.length() >= 8) {
       IntVector searchReg = IntVector.broadcast(INT_SPECIES, densePartialKey);
       int result = 0;
 
-      // Process 8 entries at a time
-      for (int i = 0; i < 4; i++) {
+      // Process 8 entries at a time, over the blocks that hold live entries only.
+      final int blocks = (numEntries + 7) >>> 3;
+      for (int i = 0; i < blocks; i++) {
         IntVector haystack = IntVector.fromArray(INT_SPECIES, intEntries, i * 8);
-        VectorMask<Integer> matches =
-            searchReg.and(haystack).compare(jdk.incubator.vector.VectorOperators.EQ, haystack);
+        VectorMask<Integer> matches = searchReg.and(haystack).compare(VectorOperators.EQ, haystack);
         result |= ((int) matches.toLong() << (i * 8));
       }
 

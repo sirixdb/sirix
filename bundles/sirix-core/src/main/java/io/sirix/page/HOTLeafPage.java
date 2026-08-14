@@ -54,6 +54,8 @@ import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -192,6 +194,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   private static final ValueLayout.OfShort JAVA_SHORT_BE_UNALIGNED =
       ValueLayout.JAVA_SHORT.withByteAlignment(1).withOrder(ByteOrder.BIG_ENDIAN);
+
+  /**
+   * The on-heap counterpart of {@link #JAVA_LONG_BE_UNALIGNED}: reads eight bytes of a probe key as
+   * one big-endian {@code long}, so a key comparison can consume both sides a word at a time.
+   *
+   * <p>
+   * HFT: this compiles to a single unaligned load plus a byte swap. The hand-rolled alternative —
+   * eight {@code &0xFF} loads shifted and or-ed together — is what the suffix comparator used to do,
+   * and C2 does not reliably fold that idiom back into one load, so it cost eight bounds-checked
+   * array reads per word on the hottest loop in a point lookup.
+   */
+  private static final VarHandle BYTE_ARRAY_LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
 
   /**
    * {@link #valueRef} sentinel for a slot that does not address a readable value. Chosen as
@@ -869,15 +884,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     final int keySuffixLen = keyLen - keySuffixStart;
     final int minLen = Math.min(suffixLen, keySuffixLen);
 
-    // Fast path: compare 8 bytes at a time
+    // Fast path: compare 8 bytes at a time. Both sides are single word loads — see
+    // BYTE_ARRAY_LONG_BE for why the probe side is not assembled from eight shifted byte reads.
     int i = 0;
     for (; i + 8 <= minLen; i += 8) {
       final long aWord = slotMemory.get(JAVA_LONG_BE_UNALIGNED, suffixStart + i);
-      final long bWord = ((long) (key[keySuffixStart + i] & 0xFF) << 56)
-          | ((long) (key[keySuffixStart + i + 1] & 0xFF) << 48) | ((long) (key[keySuffixStart + i + 2] & 0xFF) << 40)
-          | ((long) (key[keySuffixStart + i + 3] & 0xFF) << 32) | ((long) (key[keySuffixStart + i + 4] & 0xFF) << 24)
-          | ((long) (key[keySuffixStart + i + 5] & 0xFF) << 16) | ((long) (key[keySuffixStart + i + 6] & 0xFF) << 8)
-          | (long) (key[keySuffixStart + i + 7] & 0xFF);
+      final long bWord = (long) BYTE_ARRAY_LONG_BE.get(key, keySuffixStart + i);
       if (aWord != bWord) {
         return Long.compareUnsigned(aWord, bWord);
       }
@@ -1104,24 +1116,37 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * The single home for this leaf's key-byte addressing (the {@code u16} suffix-length header, the
    * {@code offset + 2} suffix start): {@link #compareKeyWithBound}, {@link #compareKeyPrefix} and
    * {@link #compareKeyPrefixPart} differ only in how far they compare and how they break a tie, so
-   * having them share this loop keeps the slot layout described once. Small enough to inline, which
-   * matters because all three sit on read hot paths.
+   * having them share this loop keeps the slot layout described once. All three sit on read hot
+   * paths, so it stays well inside {@code FreqInlineSize} and inlines into each of them.
+   *
+   * <p>
+   * HFT: both halves consume the key wholesale rather than a byte at a time. The prefix half is a
+   * {@link Arrays#mismatch(byte[], int, int, byte[], int, int)} intrinsic; the suffix half reads
+   * eight bytes per iteration from each side, which also divides the per-access
+   * {@code MemorySegment} overhead — bounds check, session liveness check, endian conversion — by
+   * eight. Only the sign of the result is defined, as it always was: every caller feeds it into a
+   * {@code < 0} / {@code > 0} test.
    */
   private int compareKeyBytes(final int index, final byte[] probe, final int cmpLen) {
-    final int offset = slotOffsets[index];
-    final long suffixStart = offset + 2;
-    int p = 0;
     final int commonMin = Math.min(commonPrefixLen, cmpLen);
-    while (p < commonMin) {
-      final int a = commonPrefix[p] & 0xFF;
-      final int b = probe[p] & 0xFF;
+    final int prefixMismatch = Arrays.mismatch(commonPrefix, 0, commonMin, probe, 0, commonMin);
+    if (prefixMismatch >= 0) {
+      return (commonPrefix[prefixMismatch] & 0xFF) - (probe[prefixMismatch] & 0xFF);
+    }
+    if (commonMin == cmpLen) {
+      return 0;
+    }
+    final long suffixStart = slotOffsets[index] + 2L - commonPrefixLen;
+    int p = commonMin;
+    for (final int wordEnd = cmpLen - 8; p <= wordEnd; p += 8) {
+      final long a = slotMemory.get(JAVA_LONG_BE_UNALIGNED, suffixStart + p);
+      final long b = (long) BYTE_ARRAY_LONG_BE.get(probe, p);
       if (a != b) {
-        return a - b;
+        return Long.compareUnsigned(a, b);
       }
-      p++;
     }
     while (p < cmpLen) {
-      final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (p - commonPrefixLen)) & 0xFF;
+      final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + p) & 0xFF;
       final int b = probe[p] & 0xFF;
       if (a != b) {
         return a - b;
