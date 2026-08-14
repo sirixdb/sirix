@@ -111,6 +111,14 @@ import static io.brackit.query.util.path.Path.parse;
  * a fork that lands in the slow mode drags {@link #pointGet} with it. Treat it as this harness's
  * control: if it moved, the run is not comparable and the narrow stages are the only evidence.
  * </p>
+ *
+ * <p>
+ * <b>Reference point,</b> movies.json CAS index on {@code /[]/title}, 4 cores, JDK 25, interleaved
+ * A/B against the pre-optimization tree: descendToLeaf 72.6 → 70.9 ns, findEntryInLeaf 66.4 → 54.1,
+ * serializeKey 125.9 → 93.9, pointGet 576.2 → 483.7. The descent stage is the figure comparable to
+ * a main-memory trie lookup; the rest of {@link #pointGet} is key encoding, an in-page binary search
+ * over ~180 entries, and posting-list reassembly, none of which a single-tuple trie lookup performs.
+ * </p>
  */
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.NANOSECONDS)

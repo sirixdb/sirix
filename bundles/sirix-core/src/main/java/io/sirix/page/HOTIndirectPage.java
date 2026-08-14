@@ -587,6 +587,10 @@ public final class HOTIndirectPage implements Page {
       // could return is already a match bit, and clearing the lowest set bit each round visits them
       // in ascending index order, returning the same child the scan did. On a full node that is a
       // handful of candidates instead of 32 branches, once per descent level per lookup.
+      //
+      // Measured NEUTRAL on the profiled CAS index: an interleaved A/B against the linear scan put
+      // descendToLeaf at 72.6 -> 70.9 ns, inside the per-fork spread. Kept because it is equivalent
+      // and strictly less work, not because it was measured to help here.
       for (int remaining = matchMask; remaining != 0; remaining &= remaining - 1) {
         final int i = Integer.numberOfTrailingZeros(remaining);
         if (partialKeys[i] == densePartialKey)
@@ -839,7 +843,9 @@ public final class HOTIndirectPage implements Page {
   private static long getKeyWordAt(byte[] key, int pos) {
     // HFT: the whole-window case — every descent level of a key long enough to reach it — is one
     // unaligned load plus a byte swap. The per-byte assembly below is only for the tail, where the
-    // window runs past the end of the key and the missing bytes must read as 0x00.
+    // window runs past the end of the key and the missing bytes must read as 0x00. Measured
+    // neutral on the profiled CAS index, same as the match-mask probe in findChildSpanNode: the
+    // descent's cost is not in assembling this word.
     if (pos >= 0 && pos + Long.BYTES <= key.length) {
       return (long) BYTE_ARRAY_LONG_BE.get(key, pos);
     }
