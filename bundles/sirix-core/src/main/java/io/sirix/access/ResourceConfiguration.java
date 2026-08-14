@@ -183,18 +183,16 @@ public final class ResourceConfiguration {
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
   /**
-   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree
-   * hash maintained on structural mutations). Override at JVM level via
-   * {@code -Dsirix.hashType=NONE} when you want to elide per-record hash bytes
-   * entirely (bench workloads); legacy tests rely on the ROLLING default.
+   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree hash maintained on
+   * structural mutations). Override at JVM level via {@code -Dsirix.hashType=NONE} when you want to
+   * elide per-record hash bytes entirely (bench workloads); legacy tests rely on the ROLLING default.
    *
-   * <p>The per-record hash field is stored as a signed-varint (1 byte for hash=0,
-   * up to 10 for a real 64-bit ROLLING hash) — when the resource is configured
-   * {@code HashType.NONE} the bench writer pays only 1 byte per record for the
-   * field, vs. 8 bytes under the previous fixed-width layout.
+   * <p>
+   * The per-record hash field is stored as a signed-varint (1 byte for hash=0, up to 10 for a real
+   * 64-bit ROLLING hash) — when the resource is configured {@code HashType.NONE} the bench writer
+   * pays only 1 byte per record for the field, vs. 8 bytes under the previous fixed-width layout.
    */
-  private static final HashType HASH_TYPE =
-      HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
+  private static final HashType HASH_TYPE = HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
 
   /**
    * Versions to restore.
@@ -207,17 +205,17 @@ public final class ResourceConfiguration {
   private static final RecordSerializer NODE_SERIALIZER = new NodeSerializerImpl();
 
   /**
-   * The current binary encoding version. Single version (V0) — the on-disk
-   * format includes a version byte to reserve room for future bumps, but
-   * there are no alternative encodings to select at runtime.
+   * The current binary encoding version. Single version (V0) — the on-disk format includes a version
+   * byte to reserve room for future bumps, but there are no alternative encodings to select at
+   * runtime.
    */
   public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V1;
 
   /**
    * Stable identifier of the node-hash function baked into the on-disk format (XXH3-64 via
-   * {@code LongHashFunction.xx3()}). Persisted in the resource settings and validated on open so
-   * that a future change of the hash function is detectable instead of silently re-verifying old
-   * resources against the wrong function.
+   * {@code LongHashFunction.xx3()}). Persisted in the resource settings and validated on open so that
+   * a future change of the hash function is detectable instead of silently re-verifying old resources
+   * against the wrong function.
    */
   public static final String NODE_HASH_FUNCTION_ID = "XX3";
 
@@ -270,27 +268,29 @@ public final class ResourceConfiguration {
   public final boolean withPathSummary;
 
   /**
-   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are
-   * maintained on the PathSummary nodes. Requires {@link #withPathSummary} to be true.
-   * When enabled, aggregate queries over unfiltered paths ({@code sum/avg/min/max},
-   * {@code countDistinct}) can short-circuit via the PathSummary without scanning data
-   * pages — typically microseconds instead of seconds.
+   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are maintained on
+   * the PathSummary nodes. Requires {@link #withPathSummary} to be true. When enabled, aggregate
+   * queries over unfiltered paths ({@code sum/avg/min/max}, {@code countDistinct}) can short-circuit
+   * via the PathSummary without scanning data pages — typically microseconds instead of seconds.
    */
   public final boolean withPathStatistics;
 
   /**
    * Selects the hash/descendant-count maintenance mode for AUTO-COMMITTING bulk inserts.
    *
-   * <p>{@code false} (default): incremental per-insert adaptation — the upstream behavior.
-   * Correct for imports that fit within the first auto-commit epoch ({@code maxNodes}); for
-   * larger imports, nodes inserted after the first intermediate commit are unmaintained
-   * (hash 0, descendant counts missing from ancestors).
+   * <p>
+   * {@code false} (default): incremental per-insert adaptation — the upstream behavior. Correct for
+   * imports that fit within the first auto-commit epoch ({@code maxNodes}); for larger imports, nodes
+   * inserted after the first intermediate commit are unmaintained (hash 0, descendant counts missing
+   * from ancestors).
    *
-   * <p>{@code true}: per-insert adaptation is skipped uniformly and ONE postorder repair runs
-   * over the entire imported subtree at the end — correct for any import size, at the cost of
-   * a full subtree walk after the import (which for large files can rival the import itself).
+   * <p>
+   * {@code true}: per-insert adaptation is skipped uniformly and ONE postorder repair runs over the
+   * entire imported subtree at the end — correct for any import size, at the cost of a full subtree
+   * walk after the import (which for large files can rival the import itself).
    *
-   * <p>Non-auto-committing bulk inserts always repair at the end (single-trx scope).
+   * <p>
+   * Non-auto-committing bulk inserts always repair at the end (single-trx scope).
    */
   public final boolean repairBulkInsertHashes;
 
@@ -422,10 +422,9 @@ public final class ResourceConfiguration {
   /**
    * Per-resource identity UUID, generated at resource creation and written into both files'
    * superblocks (reserved bytes [40, 56)). Cross-links the binary files to this settings file:
-   * opening a data file with a different resource's settings — the classic
-   * "restored the JSON from the wrong backup" corruption — fails fast instead of misreading.
-   * {@code null} for resources created before the field existed (their superblock UUID is zero,
-   * accepted as legacy).
+   * opening a data file with a different resource's settings — the classic "restored the JSON from
+   * the wrong backup" corruption — fails fast instead of misreading. {@code null} for resources
+   * created before the field existed (their superblock UUID is zero, accepted as legacy).
    */
   public final UUID resourceUuid;
 
@@ -525,6 +524,24 @@ public final class ResourceConfiguration {
   /**
    * Get the database ID from the parent database configuration.
    *
+   * <p>
+   * Returns {@code 0} when no configuration is attached, and that value is a HAZARD rather than a
+   * neutral default: this id is the leading component of every JVM-global cache key in the engine —
+   * {@code PageReference}, {@code RBIndexKey}, {@code NamesCacheKey}, {@code PathSummaryCacheKey},
+   * {@code RevisionRootPageCacheKey} and the HOT lookup cache. Resource ids restart at 0 in every
+   * database, so two unattached resources collapse onto the same {@code (0, 0, revision, …)} key
+   * space and one is served the other's cached data.
+   * </p>
+   *
+   * <p>
+   * Only the HOT lookup cache currently guards against it ({@code AbstractHOTIndexReader} disables
+   * memoization for id 0). Making the unattached state impossible here is the real fix, but it cannot
+   * be done from this accessor alone: {@link #setDatabaseConfiguration} is package-private and
+   * {@code NodeStorageEngineReaderTest} legitimately builds a configuration without a database, so
+   * throwing breaks callers that never touch a cache. Closing it properly means either widening that
+   * setter and requiring it, or applying the id-0 guard at the other five key sites.
+   * </p>
+   *
    * @return the database ID, or 0 if database configuration not set
    */
   public long getDatabaseId() {
@@ -551,11 +568,11 @@ public final class ResourceConfiguration {
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-                      .add("Resource", resourcePath)
-                      .add("Type", storageType)
-                      .add("Revision", versioningType)
-                      .add("HashKind", hashType)
-                      .toString();
+                         .add("Resource", resourcePath)
+                         .add("Type", storageType)
+                         .add("Revision", versioningType)
+                         .add("HashKind", hashType)
+                         .toString();
   }
 
   /**
@@ -622,8 +639,8 @@ public final class ResourceConfiguration {
       "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
-      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
-      "pathStatistics", "repairBulkInsertHashes", "resourceUuid", "regionCompression"};
+      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath", "pathStatistics",
+      "repairBulkInsertHashes", "resourceUuid", "regionCompression"};
 
   /**
    * Serialize the configuration.
@@ -713,16 +730,16 @@ public final class ResourceConfiguration {
   }
 
   /**
-   * Reads the next field name and fails fast when it is not the expected one. The resource
-   * settings are format identity — a reordered, truncated, or hand-edited file must be a loud
-   * error, never a misparse (this used to be an {@code assert}, a no-op in production).
+   * Reads the next field name and fails fast when it is not the expected one. The resource settings
+   * are format identity — a reordered, truncated, or hand-edited file must be a loud error, never a
+   * misparse (this used to be an {@code assert}, a no-op in production).
    */
   private static void expectField(final JsonReader jsonReader, final String expected, final Path configFile)
       throws IOException {
     final String name = jsonReader.nextName();
     if (!name.equals(expected)) {
-      throw new SirixIOException(configFile + ": malformed resource settings — expected field '" + expected
-          + "' but found '" + name + "'");
+      throw new SirixIOException(
+          configFile + ": malformed resource settings — expected field '" + expected + "' but found '" + name + "'");
     }
   }
 
@@ -784,10 +801,9 @@ public final class ResourceConfiguration {
       // configs stored LongHashFunction.xx3().toString(); both spellings mean XXH3.
       expectField(jsonReader, JSONNAMES[7], configFile);
       final String hashFunctionId = jsonReader.nextString();
-      if (!NODE_HASH_FUNCTION_ID.equals(hashFunctionId)
-          && !hashFunctionId.toLowerCase(Locale.ROOT).contains("xx3")) {
-        throw new SirixIOException(configFile + ": resource was written with node-hash function '"
-            + hashFunctionId + "' but this build only supports '" + NODE_HASH_FUNCTION_ID
+      if (!NODE_HASH_FUNCTION_ID.equals(hashFunctionId) && !hashFunctionId.toLowerCase(Locale.ROOT).contains("xx3")) {
+        throw new SirixIOException(configFile + ": resource was written with node-hash function '" + hashFunctionId
+            + "' but this build only supports '" + NODE_HASH_FUNCTION_ID
             + "' (XXH3-64) — node hashes would not verify");
       }
       // Text compression.
@@ -1009,18 +1025,18 @@ public final class ResourceConfiguration {
     /**
      * Determines if a path summary should be build or not.
      *
-     * <p>On by default, matching {@code BasicJsonDBStore}. It used to default to {@code false}
-     * here, so a resource created straight through this builder silently lost every optimisation
-     * that reads the summary — path-based index selection, the count/sum answers, the scan's
-     * page-skip — while the same resource created through the query store kept them. Two defaults
-     * for the same decision is how a system ends up only being fast in the configuration its
-     * benchmarks happen to use.
+     * <p>
+     * On by default, matching {@code BasicJsonDBStore}. It used to default to {@code false} here, so a
+     * resource created straight through this builder silently lost every optimisation that reads the
+     * summary — path-based index selection, the count/sum answers, the scan's page-skip — while the
+     * same resource created through the query store kept them. Two defaults for the same decision is
+     * how a system ends up only being fast in the configuration its benchmarks happen to use.
      */
     private boolean pathSummary = true;
 
     /**
-     * Determines if per-path value statistics are maintained on PathSummary nodes.
-     * Requires {@link #pathSummary} to be {@code true}.
+     * Determines if per-path value statistics are maintained on PathSummary nodes. Requires
+     * {@link #pathSummary} to be {@code true}.
      */
     private boolean pathStatistics;
 
@@ -1050,9 +1066,9 @@ public final class ResourceConfiguration {
     private StringCompressionType stringCompressionType = StringCompressionType.NONE;
 
     /**
-     * Region wire compression defaults ON: the measured trade (−37% database size for ~13%
-     * ingest) is the right default for a database whose stated goal is small storage, and the
-     * dial exists precisely for resources that want the speed back.
+     * Region wire compression defaults ON: the measured trade (−37% database size for ~13% ingest) is
+     * the right default for a database whose stated goal is small storage, and the dial exists
+     * precisely for resources that want the speed back.
      */
     private RegionCompressionType regionCompressionType = RegionCompressionType.LZ77;
 
@@ -1078,9 +1094,9 @@ public final class ResourceConfiguration {
     private ValidTimeConfig validTimeConfig = null;
 
     /**
-     * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the
-     * persisted value when deserializing an existing configuration ({@code null} = legacy config
-     * without the field).
+     * Per-resource identity UUID. A fresh random UUID for new resources; overwritten with the persisted
+     * value when deserializing an existing configuration ({@code null} = legacy config without the
+     * field).
      */
     private UUID resourceUuid = UUID.randomUUID();
 
@@ -1118,14 +1134,12 @@ public final class ResourceConfiguration {
         case "lz4":
           if (!FFILz4Compressor.isNativeAvailable()) {
             // Graceful degrade: missing native → uncompressed pages, operator sees a warning.
-            System.err.println(
-                "[sirix] WARN: liblz4 not available, falling back to uncompressed pages.");
+            System.err.println("[sirix] WARN: liblz4 not available, falling back to uncompressed pages.");
             return new ByteHandlerPipeline();
           }
           return new ByteHandlerPipeline(new FFILz4Compressor());
         default:
-          throw new IllegalArgumentException(
-              "Unknown sirix.compression value: '" + choice + "' (expected: none, lz4)");
+          throw new IllegalArgumentException("Unknown sirix.compression value: '" + choice + "' (expected: none, lz4)");
       }
     }
 
@@ -1253,13 +1267,13 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL)
-     * are maintained on PathSummary nodes. Requires {@code buildPathSummary(true)}.
+     * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are maintained on
+     * PathSummary nodes. Requires {@code buildPathSummary(true)}.
      *
-     * <p>When enabled, aggregate queries ({@code sum/avg/min/max}, {@code countDistinct})
-     * over unfiltered paths short-circuit through the PathSummary — microseconds instead
-     * of a full scan. Costs ~10-20% write-path overhead on top of plain PathSummary
-     * maintenance.
+     * <p>
+     * When enabled, aggregate queries ({@code sum/avg/min/max}, {@code countDistinct}) over unfiltered
+     * paths short-circuit through the PathSummary — microseconds instead of a full scan. Costs ~10-20%
+     * write-path overhead on top of plain PathSummary maintenance.
      *
      * @return reference to the builder object
      * @throws IllegalStateException if enabled without a path summary
@@ -1274,11 +1288,10 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Opt in to the postorder hash/descendant-count repair at the END of auto-committing bulk
-     * inserts. The repair walks the ENTIRE imported subtree — for large imports that can rival
-     * the import itself — so it defaults to {@code false}: bulk-imported nodes then carry hash 0
-     * in the final revision. Enable for resources where hash integrity over bulk-loaded data
-     * matters more than import speed.
+     * Opt in to the postorder hash/descendant-count repair at the END of auto-committing bulk inserts.
+     * The repair walks the ENTIRE imported subtree — for large imports that can rival the import itself
+     * — so it defaults to {@code false}: bulk-imported nodes then carry hash 0 in the final revision.
+     * Enable for resources where hash integrity over bulk-loaded data matters more than import speed.
      */
     public Builder repairBulkInsertHashes(final boolean repair) {
       this.repairBulkInsertHashes = repair;
@@ -1470,11 +1483,11 @@ public final class ResourceConfiguration {
      * <p>
      * The persistent valid-time interval index and two {@code xs:dateTime} CAS indexes over the
      * valid-time fields are created automatically by the store layers (JSONiq
-     * {@code jn:store}/{@code jn:load} with valid-time options and the REST create handler);
-     * resources created directly through the Java API can create them explicitly via
+     * {@code jn:store}/{@code jn:load} with valid-time options and the REST create handler); resources
+     * created directly through the Java API can create them explicitly via
      * {@code jn:create-valid-time-index}/{@code jn:create-cas-index} or the
-     * {@code io.sirix.query.json.ValidTimeIndexes} helper. Setting this configuration alone does
-     * not create any index.
+     * {@code io.sirix.query.json.ValidTimeIndexes} helper. Setting this configuration alone does not
+     * create any index.
      * </p>
      *
      * @param validTimeConfig the valid time configuration, or null to disable
@@ -1486,9 +1499,9 @@ public final class ResourceConfiguration {
     }
 
     /**
-     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null}
-     * for legacy configs, which disables the superblock cross-check); new resources keep the
-     * generated random default.
+     * Sets the resource identity UUID. Deserialization passes the persisted value ({@code null} for
+     * legacy configs, which disables the superblock cross-check); new resources keep the generated
+     * random default.
      *
      * @param resourceUuid the persisted UUID, or {@code null} for a legacy configuration
      * @return reference to the builder object
@@ -1507,8 +1520,8 @@ public final class ResourceConfiguration {
      * </p>
      *
      * <p>
-     * See {@link #validTimeConfig(ValidTimeConfig)} for how the valid-time interval index is
-     * created — setting the paths alone does not create any index.
+     * See {@link #validTimeConfig(ValidTimeConfig)} for how the valid-time interval index is created —
+     * setting the paths alone does not create any index.
      * </p>
      *
      * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")
@@ -1543,24 +1556,24 @@ public final class ResourceConfiguration {
     @Override
     public String toString() {
       return ToStringHelper.of(this)
-                        .add("binaryEncodingVersion", binaryEncodingVersion)
-                        .add("Type", type)
-                        .add("RevisionKind", revisionKind)
-                        .add("HashKind", hashType)
-                        .add("HashFunction", hashFunction)
-                        .add("PathSummary", pathSummary)
-                        .add("TextCompression", useTextCompression)
-                        .add("Store diffs", storeDiffs)
-                        .add("Store child count", storeChildCount)
-                        .add("Store node history", storeNodeHistory)
-                        .add("Custom commit timestamps", customCommitTimestamps)
-                        .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
-                        .add("Use deweyIDs", useDeweyIDs)
-                        .add("Byte handler pipeline", byteHandler)
-                        .add("Index backend type", indexBackendType)
-                        .add("Verify checksums on read", verifyChecksumsOnRead)
-                        .add("Valid time config", validTimeConfig)
-                        .toString();
+                           .add("binaryEncodingVersion", binaryEncodingVersion)
+                           .add("Type", type)
+                           .add("RevisionKind", revisionKind)
+                           .add("HashKind", hashType)
+                           .add("HashFunction", hashFunction)
+                           .add("PathSummary", pathSummary)
+                           .add("TextCompression", useTextCompression)
+                           .add("Store diffs", storeDiffs)
+                           .add("Store child count", storeChildCount)
+                           .add("Store node history", storeNodeHistory)
+                           .add("Custom commit timestamps", customCommitTimestamps)
+                           .add("Max number of revisions to restore", maxNumberOfRevisionsToRestore)
+                           .add("Use deweyIDs", useDeweyIDs)
+                           .add("Byte handler pipeline", byteHandler)
+                           .add("Index backend type", indexBackendType)
+                           .add("Verify checksums on read", verifyChecksumsOnRead)
+                           .add("Valid time config", validTimeConfig)
+                           .toString();
     }
 
     /**

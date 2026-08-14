@@ -1122,10 +1122,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * <p>
    * HFT: both halves consume the key wholesale rather than a byte at a time. The prefix half is a
    * {@link Arrays#mismatch(byte[], int, int, byte[], int, int)} intrinsic; the suffix half reads
-   * eight bytes per iteration from each side, which also divides the per-access
-   * {@code MemorySegment} overhead — bounds check, session liveness check, endian conversion — by
-   * eight. Only the sign of the result is defined, as it always was: every caller feeds it into a
-   * {@code < 0} / {@code > 0} test.
+   * eight bytes per iteration from each side, which also divides the per-access {@code MemorySegment}
+   * overhead — bounds check, session liveness check, endian conversion — by eight. Only the sign of
+   * the result is defined, as it always was: every caller feeds it into a {@code < 0} / {@code > 0}
+   * test.
    */
   private int compareKeyBytes(final int index, final byte[] probe, final int cmpLen) {
     final int commonMin = Math.min(commonPrefixLen, cmpLen);

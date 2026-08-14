@@ -3,6 +3,7 @@ package io.sirix.access;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
 import io.sirix.cache.EmptyCache;
+import io.sirix.cache.HOTLookupCache;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PathSummaryCacheKey;
 import io.sirix.cache.PathSummaryData;
@@ -30,6 +31,8 @@ public final class EmptyBufferManager implements BufferManager {
       new EmptyCache<>();
 
   private static final EmptyCache<RBIndexKey, Node> INDEX_CACHE = new EmptyCache<>();
+
+  private static final HOTLookupCache HOT_LOOKUP_CACHE = HOTLookupCache.disabled();
 
   private static final EmptyCache<NamesCacheKey, Names> NAMES_CACHE = new EmptyCache<>();
 
@@ -70,6 +73,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<RBIndexKey, Node> getIndexCache() {
     return INDEX_CACHE;
+  }
+
+  @Override
+  public HOTLookupCache getHOTLookupCache() {
+    return HOT_LOOKUP_CACHE;
   }
 
   @Override

@@ -244,7 +244,9 @@ public final class SparsePartialKeys<T extends Number> {
         VectorMask<Short> matches2 = searchReg.and(haystack2).compare(VectorOperators.EQ, haystack2);
         result |= (int) matches2.toLong() << 16;
       }
-      long mask = numEntries == 32 ? 0xFFFFFFFFL : ((1L << numEntries) - 1);
+      final long mask = numEntries == 32
+          ? 0xFFFFFFFFL
+          : ((1L << numEntries) - 1);
       return (int) (result & mask);
     } else {
       return searchShortsScalar(densePartialKey);
@@ -267,11 +269,11 @@ public final class SparsePartialKeys<T extends Number> {
    * <p>
    * HFT: this is the innermost operation of the trie descent — one call per level, per lookup — and
    * it used to run all four 8-lane blocks unconditionally, i.e. cover 32 entries whatever the node's
-   * actual fan-out. A node with eight or fewer children therefore paid four vector loads, four
-   * subset compares and four mask extractions to produce 24 bits that the trailing {@code mask}
-   * immediately discarded. Bounding the loop by the live entry count is exactly equivalent — every
-   * bit a skipped block could set sits at position {@code >= numEntries} and is masked off — and on
-   * the profiled CAS index the mask extraction alone was 10% of a point lookup.
+   * actual fan-out. A node with eight or fewer children therefore paid four vector loads, four subset
+   * compares and four mask extractions to produce 24 bits that the trailing {@code mask} immediately
+   * discarded. Bounding the loop by the live entry count is exactly equivalent — every bit a skipped
+   * block could set sits at position {@code >= numEntries} and is masked off — and on the profiled
+   * CAS index the mask extraction alone was 10% of a point lookup.
    */
   private int searchInts(int densePartialKey) {
     if (INT_SPECIES.length() >= 8) {
@@ -286,7 +288,9 @@ public final class SparsePartialKeys<T extends Number> {
         result |= ((int) matches.toLong() << (i * 8));
       }
 
-      long mask = numEntries == 32 ? 0xFFFFFFFFL : ((1L << numEntries) - 1);
+      final long mask = numEntries == 32
+          ? 0xFFFFFFFFL
+          : ((1L << numEntries) - 1);
       return (int) (result & mask);
     } else {
       return searchIntsScalar(densePartialKey);
@@ -321,8 +325,8 @@ public final class SparsePartialKeys<T extends Number> {
   }
 
   /**
-   * Set entry at index (boxed API, allocates).
-   * Prefer {@link #setByteEntry(int, byte)} for byte-type sparse keys.
+   * Set entry at index (boxed API, allocates). Prefer {@link #setByteEntry(int, byte)} for byte-type
+   * sparse keys.
    *
    * @param index the entry index
    * @param value the partial key value
@@ -340,8 +344,10 @@ public final class SparsePartialKeys<T extends Number> {
   /**
    * Set byte-type entry at index without boxing.
    *
-   * <p>This is the preferred hot-path setter for {@code forBytes()} instances — avoids autoboxing
-   * {@code byte} to {@code Byte} that {@link #setEntry(int, Number)} would incur.</p>
+   * <p>
+   * This is the preferred hot-path setter for {@code forBytes()} instances — avoids autoboxing
+   * {@code byte} to {@code Byte} that {@link #setEntry(int, Number)} would incur.
+   * </p>
    *
    * @param index the entry index
    * @param value the partial key value

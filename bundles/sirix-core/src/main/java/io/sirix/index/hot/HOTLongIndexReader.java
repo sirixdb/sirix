@@ -97,11 +97,21 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   /**
    * Reassemble all chunks of a primitive long key. See {@link HOTIndexReader#get} for the algorithm;
    * this is the long-key mirror.
+   *
+   * @param key the logical index key
+   * @param mode must be {@link SearchMode#EQUAL}; range modes go via the range cursors
+   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL} — same guard,
+   *         same reason as {@link HOTIndexReader#get}, and shared with it so an unguarded twin cannot
+   *         reach the memoized path.
    */
-  public @Nullable NodeReferences get(long key, SearchMode mode) {
+  public @Nullable NodeReferences get(final long key, final SearchMode mode) {
+    requireEqualMode(mode);
     final byte[] keyBuf = KEY_BUFFER.get();
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
-    return collectChunksViaLowerBoundWalk(keyBuf, prefixLen);
+    // Same memoization as HOTIndexReader#get: deterministic for a committed revision, bypassed for
+    // a writer-backed reader.
+    return pointLookup(keyBuf, prefixLen);
   }
 
 

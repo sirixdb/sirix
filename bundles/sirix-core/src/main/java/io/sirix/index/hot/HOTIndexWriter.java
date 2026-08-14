@@ -251,12 +251,21 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
    * </p>
    *
    * @param key the logical index key
-   * @param mode the search mode (only {@code EQUAL} is meaningful here; range modes go through the
-   *        reader's {@code range}/{@code iteratorFrom} APIs)
+   * @param mode must be {@link SearchMode#EQUAL}; range modes go through the reader's
+   *        {@code range}/{@code iteratorFrom} APIs
    * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL}. This parameter
+   *         used to be documented as advisory and silently ignored, i.e. every mode got the
+   *         {@code EQUAL} answer; the guard is shared with {@link HOTIndexReader#get} so a caller
+   *         cannot learn a different contract from whichever of the two twins it happened to pick.
    */
-  public @Nullable NodeReferences get(K key, SearchMode mode) {
+  public @Nullable NodeReferences get(final K key, final SearchMode mode) {
     requireNonNull(key);
+    // Same contract as the reader's get, enforced through the reader's helper so there is ONE copy of
+    // the rule. A writer-backed lookup is never memoized, so the cache-key argument does not apply
+    // here — but this method ignores `mode` exactly as the reader's did, and leaving the twin
+    // unguarded is how a caller learns the restriction from whichever of the two it happened to pick.
+    AbstractHOTIndexReader.requireEqualMode(mode);
 
     final byte[] keyBuf = prefixKeyBuffer(key);
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);

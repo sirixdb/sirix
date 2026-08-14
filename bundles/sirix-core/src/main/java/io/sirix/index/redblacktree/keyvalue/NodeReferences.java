@@ -125,14 +125,101 @@ public final class NodeReferences implements References {
     // present keys as absent, with no exception anywhere. Note the order is UNSIGNED: a caller who
     // sorted with Arrays.sort (signed) and holds any high-bit-set key would otherwise be accepted
     // and then misbehave only for those keys.
-    for (int i = 1; i < keys.length; i++) {
+    requireAscending(keys);
+    return new NodeReferences(keys);
+  }
+
+  /**
+   * {@link #ofSortedArray} for a run the caller must KEEP: copies rather than adopts, so the caller's
+   * array stays its own.
+   *
+   * <p>
+   * The one caller that needs this is the HOT lookup cache's hit path, which holds a SHARED stored
+   * posting list and has to copy before handing it to a mutable {@code NodeReferences} anyway.
+   * </p>
+   *
+   * <p>
+   * The ordering is NOT re-checked here, and that is the difference from {@link #ofSortedArray}. The
+   * check is O(n) in a serial {@code Long.compareUnsigned} chain, and this method sits on a memoized
+   * READ path: re-deriving a property of an immutable, already-validated array on hit number one
+   * million produces the same answer it produced on hit number one, at up to
+   * {@code MAX_CACHED_NODE_KEYS} comparisons a time in front of a vectorizable {@code clone()}. The
+   * check moved to the ADMISSION side, where it runs once per array ever cached — see
+   * {@link #isSortedAscending} and its caller in {@code AbstractHOTIndexReader.memoize}.
+   * {@link #ofSortedArray}, which ADOPTS an arbitrary caller's array, keeps its own check.
+   * </p>
+   *
+   * <p>
+   * The name carries the {@code Unchecked} suffix because that is the only thing standing between a
+   * future caller and silent wrong answers: this is {@code public}, it validates nothing beyond null,
+   * and an out-of-order run makes {@link #contains}'s unsigned binary search report PRESENT node keys
+   * as absent, with no exception anywhere. A caller that cannot point at the
+   * {@link #isSortedAscending} check that already covered its array wants {@link #ofSortedArray}.
+   * </p>
+   *
+   * @param keys a run this class itself produced (via {@link #toSortedArray()}) and validated on the
+   *        way in; must be sorted strictly ascending in UNSIGNED order
+   * @return references over a private copy of the run
+   */
+  public static NodeReferences copyOfSortedUnchecked(final long[] keys) {
+    Objects.requireNonNull(keys, "keys");
+    return new NodeReferences(keys.clone());
+  }
+
+  /**
+   * The ordering contract of {@link #ofSortedArray}, ANSWERED rather than thrown, so a producer whose
+   * admission is optional can decline instead of failing — {@code AbstractHOTIndexReader.memoize}
+   * refuses to cache a run it cannot vouch for rather than failing a query that already has its
+   * answer. Exposed so that check is paid ONCE, on the write side, for a run then handed to
+   * {@link #copyOfSortedUnchecked} many times.
+   *
+   * <p>
+   * An {@code assert} was not enough: assertions are off in production, so a caller that sorted with
+   * {@code Arrays.sort} (SIGNED) and holds a high-bit-set key would be accepted, and
+   * {@link #contains}'s unsigned binary search would then report present node keys as ABSENT with no
+   * exception anywhere.
+   * </p>
+   *
+   * @param keys the run to test
+   * @return {@code true} iff {@code keys} is strictly ascending in unsigned order
+   */
+  public static boolean isSortedAscending(final long[] keys) {
+    Objects.requireNonNull(keys, "keys");
+    for (int i = 1, n = keys.length; i < n; i++) {
       if (Long.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
-        throw new IllegalArgumentException("keys must be sorted strictly ascending by unsigned order; index " + (i - 1)
-            + " (" + Long.toUnsignedString(keys[i - 1]) + ") is not below index " + i + " ("
-            + Long.toUnsignedString(keys[i]) + ")");
+        return false;
       }
     }
-    return new NodeReferences(keys);
+    return true;
+  }
+
+  /**
+   * ONE scan behind every entry point's rejection, so no two of them can come to enforce different
+   * contracts.
+   *
+   * @param keys the array to check
+   * @throws IllegalArgumentException if {@code keys} is not strictly ascending unsigned
+   */
+  private static void requireAscending(final long[] keys) {
+    final int offender = firstNonAscendingIndex(keys);
+    if (offender >= 0) {
+      throw new IllegalArgumentException("keys must be sorted strictly ascending by unsigned order; index " + offender
+          + " (" + Long.toUnsignedString(keys[offender]) + ") is not below index " + (offender + 1) + " ("
+          + Long.toUnsignedString(keys[offender + 1]) + ")");
+    }
+  }
+
+  /**
+   * @param keys the array to scan
+   * @return the index whose successor does not exceed it, or {@code -1} when strictly ascending
+   */
+  private static int firstNonAscendingIndex(final long[] keys) {
+    for (int i = 1; i < keys.length; i++) {
+      if (Long.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
+        return i - 1;
+      }
+    }
+    return -1;
   }
 
   private NodeReferences(final long[] compactKeys) {
@@ -230,6 +317,28 @@ public final class NodeReferences implements References {
         }
       }
     };
+  }
+
+  /**
+   * The referenced node keys as a fresh, exactly-sized {@code long[]} in ascending unsigned order —
+   * the array form {@link #ofSortedArray} accepts back.
+   *
+   * <p>
+   * ONE read of {@link #refs} decides both the size and the contents, which is the whole point:
+   * draining from outside the class costs a {@link #cardinality()} read plus a
+   * {@link #forEachNodeKey} read, and those two can disagree if the instance is mutated in between —
+   * leaving the caller to size an array from one answer and fill it from another. The compact case,
+   * which is what the HOT read path produces, is a single {@code clone()}; the bitmap case defers to
+   * Roaring's own bulk export instead of a per-key callback.
+   * </p>
+   *
+   * @return a fresh array the caller owns, ascending unsigned; empty when there are no references
+   */
+  public long[] toSortedArray() {
+    final Object current = refs;
+    return current instanceof long[] keys
+        ? keys.clone()
+        : ((Roaring64Bitmap) current).toArray();
   }
 
   /** Visit every referenced node key in ascending order, without materializing a bitmap. */

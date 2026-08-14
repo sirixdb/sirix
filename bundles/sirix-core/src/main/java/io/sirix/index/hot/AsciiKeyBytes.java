@@ -34,8 +34,8 @@ final class AsciiKeyBytes {
    * <p>
    * HFT: accumulates every char into one {@code int} and tests the accumulator once, instead of
    * branching per char. The branchless form is a plain OR reduction over the string's backing array,
-   * which C2 can unroll and vectorize; the early-exit form cannot be, and this loop runs once per
-   * key serialized. Chars are non-negative, so an accumulator below {@code 0x80} proves every
+   * which C2 can unroll and vectorize; the early-exit form cannot be, and this loop runs once per key
+   * serialized. Chars are non-negative, so an accumulator below {@code 0x80} proves every
    * contributing char was.
    *
    * @param s the string

@@ -391,7 +391,7 @@ class HOTLeafPageTest {
   // probe set that perturbs every byte position.
 
   /** Shared head of every {@link #alignmentLeaf} key — becomes the leaf's commonPrefix. */
-  private static final byte[] ALIGNMENT_HEAD = { 'P', 'R', 'E' };
+  private static final byte[] ALIGNMENT_HEAD = {'P', 'R', 'E'};
 
   /** Shortest and longest key in {@link #alignmentLeaf}; the span covers 0..37-byte suffixes. */
   private static final int ALIGNMENT_MIN_LEN = ALIGNMENT_HEAD.length;
@@ -422,7 +422,7 @@ class HOTLeafPageTest {
 
   private static HOTLeafPage alignmentLeaf() {
     final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
-    final byte[] value = { 1 };
+    final byte[] value = {1};
     for (final byte[] key : alignmentKeys()) {
       assertTrue(page.put(key, value), "put failed for key of length " + key.length);
     }
@@ -437,9 +437,9 @@ class HOTLeafPageTest {
   private static List<byte[]> alignmentProbes() {
     final List<byte[]> probes = new ArrayList<>();
     probes.add(new byte[0]);
-    probes.add(new byte[] { 'P' });
-    probes.add(new byte[] { 'P', 'R' });
-    probes.add(new byte[] { 'P', 'S' });
+    probes.add(new byte[] {'P'});
+    probes.add(new byte[] {'P', 'R'});
+    probes.add(new byte[] {'P', 'S'});
     for (final byte[] key : alignmentKeys()) {
       probes.add(key);
       for (int p = 0; p < key.length; p++) {
@@ -525,9 +525,8 @@ class HOTLeafPageTest {
             final int expected = head != 0
                 ? Integer.signum(head)
                 : Integer.signum(partLen - probe.length);
-            assertEquals(expected, Integer.signum(page.compareKeyPrefixPart(i, trailer, probe, probe.length)),
-                "entry " + i + " (len " + stored.length + ") trailer " + trailer + " vs probe of length "
-                    + probe.length);
+            assertEquals(expected, Integer.signum(page.compareKeyPrefixPart(i, trailer, probe, probe.length)), "entry "
+                + i + " (len " + stored.length + ") trailer " + trailer + " vs probe of length " + probe.length);
           }
         }
       }

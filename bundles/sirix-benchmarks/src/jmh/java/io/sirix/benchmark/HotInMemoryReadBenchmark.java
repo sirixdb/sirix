@@ -35,6 +35,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.Database;
+import io.sirix.cache.HOTLookupCache;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.SearchMode;
@@ -113,11 +114,42 @@ import static io.brackit.query.util.path.Path.parse;
  * </p>
  *
  * <p>
- * <b>Reference point,</b> movies.json CAS index on {@code /[]/title}, 4 cores, JDK 25, interleaved
- * A/B against the pre-optimization tree: descendToLeaf 72.6 → 70.9 ns, findEntryInLeaf 66.4 → 54.1,
- * serializeKey 125.9 → 93.9, pointGet 576.2 → 483.7. The descent stage is the figure comparable to
- * a main-memory trie lookup; the rest of {@link #pointGet} is key encoding, an in-page binary search
- * over ~180 entries, and posting-list reassembly, none of which a single-tuple trie lookup performs.
+ * <b>Reference point,</b> movies.json CAS index on {@code /[]/title}, 4 cores, JDK 25. Narrow
+ * stages, interleaved A/B against the pre-optimization tree: descendToLeaf 72.6 -> 70.9 ns,
+ * findEntryInLeaf 66.4 -> 54.1, serializeKey 125.9 -> 93.9. The descent stage is the figure
+ * comparable to a main-memory trie lookup; the rest of a point lookup is key encoding, an in-page
+ * binary search over ~180 entries, and posting-list reassembly, none of which a single-tuple trie
+ * lookup performs.
+ *
+ * <p>
+ * The composite stages depend on how the point-lookup cache is sized, so they are only meaningful
+ * with {@code sirix.hotLookupCache.maxEntries} stated. Over a ~33K-key corpus:
+ * </p>
+ *
+ * <pre>
+ * maxEntries      pointGet          pointGetHotKeys
+ * 0 (disabled)    551.9 ns          373.0 ns
+ * 65536           240.2 ns           66.8 ns   (both hit)
+ * 64              661.1 ns           66.1 ns   (pointGet misses; pointGetHotKeys still HITS)
+ * </pre>
+ *
+ * <p>
+ * Read that as: memoizing is worth 2.3x when the working set fits and 5.6x on a small hot set, and
+ * costs about 20% when it never fits. The 64-entry row is the one worth keeping honest — sizing the
+ * cache below the key count is the ONLY way this harness measures what a miss costs, since the
+ * trial warm-up touches every probe and would otherwise leave even {@link #pointGet} a pure hit
+ * workload.
+ * </p>
+ *
+ * <p>
+ * <b>The 64-entry row is a miss row for {@link #pointGet} ONLY</b>, and the second column is the
+ * trap. {@code maxEntries=64} builds {@code highestOneBit(64/8) = 8} sets of
+ * {@link HOTLookupCache} WAYS, i.e. 64 slots, and {@link #HOT_KEY_COUNT} is 32 — so the
+ * whole hot set stays resident and 66.1 ns is a HIT measurement, statistically indistinguishable
+ * from the 66.8 ns above it, as the numbers themselves show. Making {@code pointGetHotKeys} miss
+ * needs a table smaller than its working set, which the constructor floors at one 8-way set; a
+ * separate row would have to state both the size and the key count to mean anything. Do not read
+ * this column as the cost of a miss on a hot key.
  * </p>
  */
 @BenchmarkMode(Mode.AverageTime)
@@ -146,10 +178,22 @@ public class HotInMemoryReadBenchmark {
   private byte[][] leafKeys;
   private int leafCursor;
 
+  /**
+   * Working-set size for {@link #pointGetHotKeys}. Small enough that every key stays memoized, and
+   * small enough that the whole set stays in cache, so the stage measures the hit path rather than
+   * the memory system.
+   */
+  private static final int HOT_KEY_COUNT = 32;
+
+  /** {@link #HOT_KEY_COUNT} clamped to the corpus, which {@code -Dsirix.bench.corpus} can shrink. */
+  private int hotKeyCount;
+
+  private int hotCursor;
+
   @Setup(Level.Trial)
   public void setUp() throws Exception {
-    final Path corpus = Paths.get(System.getProperty("sirix.bench.corpus",
-        "bundles/sirix-core/src/test/resources/json/movies.json"));
+    final Path corpus =
+        Paths.get(System.getProperty("sirix.bench.corpus", "bundles/sirix-core/src/test/resources/json/movies.json"));
     dbPath = Files.createTempDirectory("hot-inmem-read");
     Databases.removeDatabase(dbPath);
     Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
@@ -162,15 +206,16 @@ public class HotInMemoryReadBenchmark {
       final var ic = manager.getWtxIndexController(trx.getRevisionNumber());
       casDef = IndexDefs.createCASIdxDef(false, Type.STR,
           Collections.singleton(parse("/[]/title", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
-      new JsonShredder.Builder(trx, JsonShredder.createFileReader(corpus), InsertPosition.AS_FIRST_CHILD)
-          .commitAfterwards().build().call();
+      new JsonShredder.Builder(trx, JsonShredder.createFileReader(corpus),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
       ic.createIndexes(Set.of(casDef), trx);
       trx.commit();
     }
 
     session = database.beginResourceSession("r");
     rtx = session.beginNodeReadOnlyTrx();
-    reader = HOTIndexReader.create(rtx.getStorageEngineReader(), CASKeySerializer.INSTANCE, casDef.getType(), casDef.getID());
+    reader = HOTIndexReader.create(rtx.getStorageEngineReader(), CASKeySerializer.INSTANCE, casDef.getType(),
+        casDef.getID());
 
     final List<CASValue> keys = new ArrayList<>();
     for (final Iterator<Map.Entry<CASValue, ?>> it = cast(reader.iterator()); it.hasNext();) {
@@ -205,6 +250,8 @@ public class HotInMemoryReadBenchmark {
     if (leaf == null) {
       throw new IllegalStateException("median probe does not route to a leaf");
     }
+    hotKeyCount = Math.min(HOT_KEY_COUNT, probes.length);
+
     final int leafEntries = leaf.getEntryCount();
     final List<byte[]> resident = new ArrayList<>(leafEntries);
     for (int i = 0; i < leafEntries; i++) {
@@ -268,6 +315,29 @@ public class HotInMemoryReadBenchmark {
   @Benchmark
   public void pointGet(final Blackhole bh) {
     bh.consume(reader.get(probes[next()], SearchMode.EQUAL));
+  }
+
+  /**
+   * The same lookup over a SMALL key set that fits the memoization cache, so nearly every call is a
+   * cache hit.
+   *
+   * <p>
+   * This is the stage the point-lookup cache exists for, and unlike {@link #pointGet} it is a
+   * HIT-path measurement at EVERY cache size the table in the class javadoc lists — including the
+   * 64-entry row, which is a miss row for {@code pointGet} alone. Its working set is
+   * {@link #HOT_KEY_COUNT} keys against a table the constructor never builds smaller than one
+   * {@code WAYS}-way set, so the whole set stays resident; turning this stage into a miss
+   * measurement takes a table smaller than {@link #HOT_KEY_COUNT}, not merely one below the corpus
+   * size. See the class javadoc for the sizing of all stages at once.
+   * </p>
+   */
+  @Benchmark
+  public void pointGetHotKeys(final Blackhole bh) {
+    final int i = hotCursor;
+    hotCursor = i + 1 == hotKeyCount
+        ? 0
+        : i + 1;
+    bh.consume(reader.get(probes[i], SearchMode.EQUAL));
   }
 
   /**

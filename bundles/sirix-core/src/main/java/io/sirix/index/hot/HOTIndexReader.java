@@ -129,12 +129,17 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
    * </p>
    *
    * @param key the logical index key
-   * @param mode reserved (only {@code EQUAL} is meaningful for {@code get}); range modes go via
+   * @param mode must be {@link SearchMode#EQUAL}; range modes go via
    *        {@link #range(Comparable, Comparable)} / {@link #iteratorFrom(Comparable, boolean)}
    * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL}. This parameter
+   *         used to be documented as "reserved" and silently ignored, i.e. every mode got the
+   *         {@code EQUAL} answer; memoization makes that assumption load-bearing, because the cache
+   *         key does not carry the mode and a mode-sensitive answer would be served across modes.
    */
-  public @Nullable NodeReferences get(K key, SearchMode mode) {
+  public @Nullable NodeReferences get(final K key, final SearchMode mode) {
     requireNonNull(key);
+    requireEqualMode(mode);
 
     // Size the buffer BEFORE serializing: checking the returned length afterwards is too late,
     // the write past the end has already happened.
@@ -145,15 +150,25 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
       setKeyBuffer(keyBuf);
     }
     final int prefixLen = serializeKey(key, keyBuf, 0);
-    return reassembleChunksForPrefix(keyBuf, prefixLen);
+    // Through the cache: for a committed revision the walk below is deterministic, so a key already
+    // asked about under this revision is answered without re-walking. A writer-backed reader gets a
+    // null cache and always computes — see AbstractHOTIndexReader#lookupCache.
+    return pointLookup(keyBuf, prefixLen);
   }
 
   /**
-   * Internal helper: reassemble all chunk slots whose composite key starts with
-   * {@code prefixBuf[0..prefixLen)}. Shared by {@link #get} and the range iterators.
+   * Reassemble all chunk slots whose composite key starts with {@code keyBuf[0..keyLen)}, without
+   * consulting or populating the memoization cache.
+   *
+   * <p>
+   * This is the whole of what {@link #get} used to do inline. It carries the leftmost-fallback retry
+   * for tries written before the writer enforced I8/I12, which is why the override exists rather than
+   * leaving the base class's chunk-walk-only default.
+   * </p>
    */
-  private @Nullable NodeReferences reassembleChunksForPrefix(byte[] prefixBuf, int prefixLen) {
-    final NodeReferences collected = collectChunksViaLowerBoundWalk(prefixBuf, prefixLen);
+  @Override
+  protected @Nullable NodeReferences computePointLookup(final byte[] keyBuf, final int keyLen) {
+    final NodeReferences collected = collectChunksViaLowerBoundWalk(keyBuf, keyLen);
     if (collected != null) {
       return collected;
     }
@@ -167,7 +182,7 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     if (rootRef == null) {
       return null;
     }
-    final Roaring64Bitmap merged = collectViaLeafWalk(rootRef, prefixBuf, prefixLen);
+    final Roaring64Bitmap merged = collectViaLeafWalk(rootRef, keyBuf, keyLen);
     if (merged == null || merged.isEmpty()) {
       return null;
     }

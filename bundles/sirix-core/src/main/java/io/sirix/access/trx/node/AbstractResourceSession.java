@@ -112,10 +112,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final ConcurrentMap<Integer, StorageEngineWriter> storageEngineWriterMap;
 
   /**
-   * Cache key for {@link #REVISION_INFO_CACHE}: database ids are random positive longs persisted
-   * per database and claimed per directory in-JVM, resource ids are persisted per resource — the
-   * pair is stable and unique, so (databaseId, resourceId, revision) can never be misattributed
-   * across resources.
+   * Cache key for {@link #REVISION_INFO_CACHE}: database ids are random positive longs persisted per
+   * database and claimed per directory in-JVM, resource ids are persisted per resource — the pair is
+   * stable and unique, so (databaseId, resourceId, revision) can never be misattributed across
+   * resources.
    */
   private record RevisionInfoKey(long databaseId, long resourceId, int revision) {
   }
@@ -123,12 +123,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * GLOBAL cache of (databaseId, resourceId, revision) → {@link RevisionInfo} (author, timestamp,
    * commit message). A committed revision is immutable, so an entry never has to be invalidated by
-   * new commits (they add new keys). The cache is static because REST closes the session per
-   * request — a per-session cache re-read one {@code RevisionRootPage} per revision on EVERY
-   * {@code /history} call; the global cache only pays I/O for revisions not yet seen by this JVM.
-   * Invalidation: resource removal drops the (databaseId, resourceId) slice, database removal and
-   * crash-recovery truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()}
-   * (cold-process simulation in tests) drops everything.
+   * new commits (they add new keys). The cache is static because REST closes the session per request
+   * — a per-session cache re-read one {@code RevisionRootPage} per revision on EVERY {@code /history}
+   * call; the global cache only pays I/O for revisions not yet seen by this JVM. Invalidation:
+   * resource removal drops the (databaseId, resourceId) slice, database removal and crash-recovery
+   * truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()} (cold-process
+   * simulation in tests) drops everything.
    */
   private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
       com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
@@ -185,8 +185,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final AtomicInteger storageEngineIDCounter;
 
   /**
-   * Per-thread shared read-only transactions for parallel query execution.
-   * Key: (threadId, revision) → one read-only trx per worker thread per revision.
+   * Per-thread shared read-only transactions for parallel query execution. Key: (threadId, revision)
+   * → one read-only trx per worker thread per revision.
    */
   private final ConcurrentHashMap<SharedTrxKey, R> sharedTrxMap;
 
@@ -240,13 +240,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param uberPage holds a reference to the revision root page tree
    * @param writeLock allow for concurrent writes
    * @param user the user tied to the resource session
-   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter}
+   *        instances.
    * @throws SirixException if Sirix encounters an exception
    */
   protected AbstractResourceSession(final ResourceStore<? extends ResourceSession<R, W>> resourceStore,
-      final ResourceConfiguration resourceConf, final BufferManager bufferManager,
-      final IOStorage storage, final UberPage uberPage, final Semaphore writeLock,
-      final @Nullable User user, final StorageEngineWriterFactory storageEngineWriterFactory) {
+      final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+      final UberPage uberPage, final Semaphore writeLock, final @Nullable User user,
+      final StorageEngineWriterFactory storageEngineWriterFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
     this.bufferManager = requireNonNull(bufferManager);
@@ -313,7 +314,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       int bestRevision = -1;
       if (Files.isDirectory(indexesDir)) {
         try (final var children = Files.list(indexesDir)) {
-          for (final var it = children.iterator(); it.hasNext(); ) {
+          for (final var it = children.iterator(); it.hasNext();) {
             final String name = it.next().getFileName().toString();
             if (name.endsWith(".xml")) {
               try {
@@ -362,15 +363,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link StorageEngineWriter} instance
    */
   @Override
-  public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
-      final int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+  public StorageEngineWriter createPageTransaction(final int id, final int representRevision, final int storedRevision,
+      final Abort abort, final boolean isBoundToNodeTrx) {
     return createPageTransaction(id, representRevision, storedRevision, abort, isBoundToNodeTrx, null);
   }
 
   @Override
-  public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
-      final int storedRevision, final Abort abort, boolean isBoundToNodeTrx,
-      final @Nullable UberPage pendingBaseUberPage) {
+  public StorageEngineWriter createPageTransaction(final int id, final int representRevision, final int storedRevision,
+      final Abort abort, final boolean isBoundToNodeTrx, final @Nullable UberPage pendingBaseUberPage) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
@@ -380,8 +380,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Pipelined async commits pass the pending (phase-1-complete, canonical in-memory) uber page
     // of the still-hardening revision as the base for the successor epoch; readers keep resolving
     // "latest" through lastCommittedUberPage until the background hardening publishes it.
-    final UberPage lastCommittedUberPage =
-        pendingBaseUberPage != null ? pendingBaseUberPage : this.lastCommittedUberPage.get();
+    final UberPage lastCommittedUberPage = pendingBaseUberPage != null
+        ? pendingBaseUberPage
+        : this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
 
     // Crash recovery runs BEFORE the writer is constructed, and the ordering is load-bearing.
@@ -421,7 +422,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public RevisionRootPage getPendingRevisionRoot(final int revision) {
     final PendingRevisionRoot pending = pendingRevisionRoot;
-    return pending != null && pending.revision() == revision ? pending.rootPage() : null;
+    return pending != null && pending.revision() == revision
+        ? pending.rootPage()
+        : null;
   }
 
   @Override
@@ -440,8 +443,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     storageEngineWriterMap.remove(transactionID);
   }
 
-  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer,
-      int lastCommittedRev) {
+  private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(final Writer writer,
+      final int lastCommittedRev) {
     if (!Files.exists(getCommitFile())) {
       return;
     }
@@ -452,7 +455,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // tracking, no retained previous uber page), and its data does not outlive the process, so the
     // marker describes a commit whose pages are gone with it: log and carry on.
     if (!writer.supportsTruncateTo()) {
-      LOGGER.warn("Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"
+      LOGGER.warn(
+          "Resource {} has a commit marker from an aborted commit, but {} cannot truncate —"
               + " skipping crash recovery. Use a persistent StorageType where rollback matters.",
           resourceConfig.getResource(), writer.getClass().getSimpleName());
       return;
@@ -481,10 +485,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(fromRevision);
     assertAccess(toRevision);
 
-    checkArgument(fromRevision > 0 && toRevision > 0,
-                  "Revision numbers must be positive, but got %s and %s.",
-                  fromRevision,
-                  toRevision);
+    checkArgument(fromRevision > 0 && toRevision > 0, "Revision numbers must be positive, but got %s and %s.",
+        fromRevision, toRevision);
 
     // Accept both argument orders (callers like the REST history endpoint naturally pass an
     // ascending [start, end]) and from == to; results are returned newest-first like the other
@@ -510,10 +512,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertAccess(fromRevision);
     assertAccess(toRevision);
 
-    checkArgument(fromRevision > 0 && toRevision > 0,
-                  "Revision numbers must be positive, but got %s and %s.",
-                  fromRevision,
-                  toRevision);
+    checkArgument(fromRevision > 0 && toRevision > 0, "Revision numbers must be positive, but got %s and %s.",
+        fromRevision, toRevision);
 
     final int newest = Math.max(fromRevision, toRevision);
     final int oldest = Math.min(fromRevision, toRevision);
@@ -523,13 +523,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Read the commit timestamps (epoch millis) for the inclusive revision range
-   * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them
-   * newest-first. No {@link StorageEngineReader} is opened and no {@code RevisionRootPage} is
-   * read — the timestamps are already resident.
+   * {@code [oldest, newest]} from the in-memory {@link RevisionIndex} and return them newest-first.
+   * No {@link StorageEngineReader} is opened and no {@code RevisionRootPage} is read — the timestamps
+   * are already resident.
    *
-   * <p>If the in-memory index lags the requested range (a fresh process, or out-of-band growth
-   * by another writer), it is resynced once from disk via {@link IOStorage#loadRevisionIndex},
-   * mirroring the storage-open path.
+   * <p>
+   * If the in-memory index lags the requested range (a fresh process, or out-of-band growth by
+   * another writer), it is resynced once from disk via {@link IOStorage#loadRevisionIndex}, mirroring
+   * the storage-open path.
    */
   private long[] historyTimestampsNewestFirst(final int newest, final int oldest) {
     final RevisionIndexHolder holder = storage.getRevisionIndexHolder();
@@ -539,8 +540,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       index = holder.get();
     }
     if (index.size() <= newest) {
-      throw new IllegalStateException("Revision index holds " + index.size()
-          + " entries but revision " + newest + " was requested.");
+      throw new IllegalStateException(
+          "Revision index holds " + index.size() + " entries but revision " + newest + " was requested.");
     }
 
     // RevisionIndex stores timestamps in ascending revision order; reverse in place to honour
@@ -563,7 +564,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
     // The most recent `revisions` revisions, clamped to the first user revision (1); revision 0
     // is the empty bootstrap and is never reported.
-    final int oldest = revisions >= newest ? 1 : newest - revisions + 1;
+    final int oldest = revisions >= newest
+        ? 1
+        : newest - revisions + 1;
     return buildHistory(newest, oldest);
   }
 
@@ -571,11 +574,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Build the history (newest revision first) for the inclusive revision range
    * {@code [oldest, newest]}.
    *
-   * <p>Already-seen, immutable revisions are served synchronously from
-   * {@link #REVISION_INFO_CACHE} straight into a pre-sized result array — no per-revision
-   * {@link CompletableFuture}, no stream pipeline. Only cache misses (cold revisions) open a
-   * {@link StorageEngineReader}, and those run in parallel so a cold first call still overlaps
-   * its I/O across revisions.
+   * <p>
+   * Already-seen, immutable revisions are served synchronously from {@link #REVISION_INFO_CACHE}
+   * straight into a pre-sized result array — no per-revision {@link CompletableFuture}, no stream
+   * pipeline. Only cache misses (cold revisions) open a {@link StorageEngineReader}, and those run in
+   * parallel so a cold first call still overlaps its I/O across revisions.
    */
   private List<RevisionInfo> buildHistory(final int newest, final int oldest) {
     final int count = newest - oldest + 1;
@@ -593,8 +596,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         if (misses == null) {
           misses = new ArrayList<>();
         }
-        misses.add(CompletableFuture.runAsync(
-            () -> result[slot] = REVISION_INFO_CACHE.get(cacheKey, this::loadRevisionInfo)));
+        misses.add(
+            CompletableFuture.runAsync(() -> result[slot] = REVISION_INFO_CACHE.get(cacheKey, this::loadRevisionInfo)));
       }
     }
 
@@ -607,18 +610,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Cold-path loader for one revision's {@link RevisionInfo}: reads the commit credentials and
-   * timestamp directly through a {@link StorageEngineReader}, bypassing the full
-   * node-transaction machinery (node cursor, item list, per-trx wiring) that
-   * {@code beginNodeReadOnlyTrx} sets up.
+   * timestamp directly through a {@link StorageEngineReader}, bypassing the full node-transaction
+   * machinery (node cursor, item list, per-trx wiring) that {@code beginNodeReadOnlyTrx} sets up.
    */
   private RevisionInfo loadRevisionInfo(final RevisionInfoKey key) {
     final int revision = key.revision();
     try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
       final CommitCredentials commitCredentials = reader.getCommitCredentials();
-      return new RevisionInfo(commitCredentials.getUser(),
-                              revision,
-                              Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
-                              commitCredentials.getMessage());
+      return new RevisionInfo(commitCredentials.getUser(), revision,
+          Instant.ofEpochMilli(reader.getActualRevisionRootPage().getRevisionTimestamp()),
+          commitCredentials.getMessage());
     }
   }
 
@@ -674,10 +675,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Read {@code nodeKey} at {@code revision} through a lightweight {@link StorageEngineReader}
-   * (no {@link io.sirix.api.NodeReadOnlyTrx} wrapper, document-node fetch, or trx bookkeeping) and
-   * hand it to {@code visitor} if the record exists in that revision. The reader stays open for
-   * the duration of the callback so the record remains valid.
+   * Read {@code nodeKey} at {@code revision} through a lightweight {@link StorageEngineReader} (no
+   * {@link NodeReadOnlyTrx} wrapper, document-node fetch, or trx bookkeeping) and hand it to
+   * {@code visitor} if the record exists in that revision. The reader stays open for the duration of
+   * the callback so the record remains valid.
    */
   private void visitRecord(final long nodeKey, final int revision, final RecordHistoryVisitor visitor) {
     try (final StorageEngineReader reader = createStorageEngineReader(revision)) {
@@ -704,7 +705,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       final int[] changeRevisions = getRecordChangeRevisions(nodeKey);
       for (int i = 0; i < changeRevisions.length; i++) {
         final int fromRevision = changeRevisions[i];
-        final int toRevision = (i + 1 < changeRevisions.length) ? changeRevisions[i + 1] - 1 : maxRevision;
+        final int toRevision = (i + 1 < changeRevisions.length)
+            ? changeRevisions[i + 1] - 1
+            : maxRevision;
         visitRun(nodeKey, fromRevision, toRevision, visitor);
       }
     } else {
@@ -748,11 +751,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public R beginNodeReadOnlyTrx(final int revision) {
     // Read-only opens have no shared-state concurrency concerns:
-    //  * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
-    //  * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
-    //    bookkeeping — already not synchronized.
-    //  * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
-    //  * nodeTrxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
+    // * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
+    // * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
+    // bookkeeping — already not synchronized.
+    // * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
+    // * nodeTrxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
     // Removing the per-session monitor allows N concurrent reader-opens to run in parallel,
     // unblocking the depth-N pipeline in the prefetched temporal axes (and any other caller
     // that opens multiple rtxs back-to-back from concurrent threads).
@@ -780,7 +783,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final StorageEngineReader storageEngineReader) {
-    final Node node = storageEngineReader.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
+    final Node node =
+        storageEngineReader.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
       storageEngineReader.close();
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
@@ -814,8 +818,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public W beginNodeTrx(final int maxNodeCount, final int maxTime,
-      final TimeUnit timeUnit) {
+  public W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit) {
     return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
   }
 
@@ -830,14 +833,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public W beginNodeTrx(final int maxTime, final TimeUnit timeUnit,
-      final AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final int maxTime, final TimeUnit timeUnit, final AfterCommitState afterCommitState) {
     return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
   }
 
   @Override
-  public synchronized W beginNodeTrx(final int maxNodeCount, final int maxTime,
-      final TimeUnit timeUnit, final AfterCommitState afterCommitState) {
+  public synchronized W beginNodeTrx(final int maxNodeCount, final int maxTime, final TimeUnit timeUnit,
+      final AfterCommitState afterCommitState) {
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -866,15 +868,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
       final StorageType storageType = getResourceConfig().getStorageType();
       final boolean supportedBackend = storageType == StorageType.FILE_CHANNEL
-          || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-              && storageType == StorageType.MEMORY_MAPPED);
+          || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH && storageType == StorageType.MEMORY_MAPPED);
       if (!supportedBackend) {
-        throw new IllegalArgumentException(
-            afterCommitState + " requires the FILE_CHANNEL"
-                + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-                    ? " or MEMORY_MAPPED"
-                    : "")
-                + " storage backend; got " + storageType);
+        throw new IllegalArgumentException(afterCommitState + " requires the FILE_CHANNEL"
+            + (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+                ? " or MEMORY_MAPPED"
+                : "")
+            + " storage backend; got " + storageType);
       }
       if (maxTime > 0) {
         throw new IllegalArgumentException(
@@ -902,18 +902,20 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       // Create new storage engine writer (shares the same ID with the node write trx).
       final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
       final int lastRev = getMostRecentRevisionNumber();
-      final StorageEngineWriter storageEngineWriter = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+      final StorageEngineWriter storageEngineWriter =
+          createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
       final Node documentNode = getDocumentNode(storageEngineWriter);
 
       // Create new node write transaction.
       final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
-      final W wtx =
-          createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
+      final W wtx = createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode,
+          afterCommitState);
 
       // Remember node transaction for debugging and safe close.
       // noinspection unchecked
-      if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
+      if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null
+          || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
         // Clean up: remove any entries we just inserted, then close resources.
         nodeTrxMap.remove(nodeTrxId);
         storageEngineWriterMap.remove(nodeTrxId);
@@ -1030,8 +1032,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param storageEngineWriter storage engine writer
    */
   @Override
-  public void setNodePageWriteTransaction(final int transactionID,
-      final StorageEngineWriter storageEngineWriter) {
+  public void setNodePageWriteTransaction(final int transactionID, final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
     storageEngineWriterMap.put(transactionID, storageEngineWriter);
   }
@@ -1233,7 +1234,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     try {
       final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
       final int lastRev = getMostRecentRevisionNumber();
-      final StorageEngineWriter storageEngineWriter = createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
+      final StorageEngineWriter storageEngineWriter =
+          createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
 
       // Remember storage engine writer for debugging and safe close.
       if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
@@ -1266,8 +1268,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Number of currently-open read-only or read-write node transactions on this session.
-   * Useful for diagnostics and for asserting the absence of resource leaks in tests.
+   * Number of currently-open read-only or read-write node transactions on this session. Useful for
+   * diagnostics and for asserting the absence of resource leaks in tests.
    */
   public int activeTrxCount() {
     return nodeTrxMap.size();

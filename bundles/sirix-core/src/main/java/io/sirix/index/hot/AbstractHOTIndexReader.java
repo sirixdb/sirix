@@ -30,8 +30,11 @@ package io.sirix.index.hot;
 import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.HOTLookupCache;
+import io.sirix.cache.HOTLookupKey;
 import io.sirix.index.IndexType;
+import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTLeafPage;
@@ -40,12 +43,15 @@ import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.ValidTimeIndexPage;
+import io.sirix.utils.LogWrapper;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
@@ -70,6 +76,9 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public abstract class AbstractHOTIndexReader<K> {
+
+  /** Only ever used to report a refused memoization, which nothing else surfaces. */
+  private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(AbstractHOTIndexReader.class));
 
   protected final StorageEngineReader storageEngineReader;
   protected final IndexType indexType;
@@ -98,6 +107,47 @@ public abstract class AbstractHOTIndexReader<K> {
   private final AtomicReference<ChunkWalkState> pooledWalkState = new AtomicReference<>();
 
   /**
+   * The session's memoized point lookups, or {@code null} when this reader must not use them.
+   *
+   * <p>
+   * Null for a WRITER-backed reader, and the reason is the same one that makes the cache free of an
+   * invalidation protocol: entries are keyed by revision number and a committed revision's index
+   * content is immutable, but an uncommitted transaction mutates the index UNDER a revision number
+   * that is already a key here. A writer consulting the cache could therefore read its own
+   * pre-modification answer back. It is exactly the distinction {@link #getRootReference} already
+   * draws for the memoized root reference.
+   * </p>
+   */
+  private final @Nullable HOTLookupCache lookupCache;
+
+  /**
+   * Whether the backing reader resolves pages through a transaction intent log.
+   *
+   * <p>
+   * Captured once because it decides BOTH memoizations this class performs — the point-lookup cache
+   * above and {@link #getRootReference}'s cached root — and they must never drift apart: an
+   * intent-log reader resolves uncommitted pages under an already-committed revision number, so
+   * either memoization would pin or serve content an in-flight commit can still replace.
+   * </p>
+   */
+  private final boolean usesTrxIntentLog;
+
+  /**
+   * The reader's snapshot coordinates, captured once.
+   *
+   * <p>
+   * Each of the three accessors runs {@code assertNotClosed()} and the last dereferences the revision
+   * root page, so reading them per lookup put three guarded virtual calls on the hot path for values
+   * that cannot change over a reader's lifetime.
+   * </p>
+   */
+  private final long databaseId;
+
+  private final long resourceId;
+
+  private final int revisionNumber;
+
+  /**
    * Protected constructor.
    *
    * @param storageEngineReader the storage engine reader
@@ -108,6 +158,213 @@ public abstract class AbstractHOTIndexReader<K> {
     this.storageEngineReader = requireNonNull(storageEngineReader);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
+    // hasTrxIntentLog() rather than `instanceof StorageEngineWriter`: the writer hands out a plain
+    // NodeStorageEngineReader carrying its intent log (StorageEngineWriter#getStorageEngineReader),
+    // which is NOT a StorageEngineWriter yet resolves uncommitted pages under an already-committed
+    // revision number. Nothing constructs an index reader over one today, but one call would poison
+    // that revision process-wide; the intent-log test is exactly the property that matters.
+    //
+    // Taken straight off the reader's own buffer manager: routing through getResourceSession() is
+    // the longer way round to the very same object, and would have meant a new method on the public
+    // ResourceSession interface for a cache that is not per-resource at all.
+    this.usesTrxIntentLog = storageEngineReader.hasTrxIntentLog();
+    // DEGRADE, never throw. Before memoization an index reader needed nothing but a
+    // StorageEngineReader, so requiring a wired-up buffer manager here would turn a working index
+    // open into an NPE from a constructor for any reader that has none — a test double, a forwarding
+    // decorator, an embedded wiring path. Missing infrastructure is a reason to skip the cache, not
+    // to fail the read; the two branches below are the same "no cache" outcome as a writer-backed
+    // reader, which is the behaviour that shipped before this class memoized anything.
+    final HOTLookupCache sessionCache;
+    if (usesTrxIntentLog) {
+      sessionCache = null;
+    } else {
+      final BufferManager bufferManager = storageEngineReader.getBufferManager();
+      sessionCache = bufferManager == null
+          ? null
+          : bufferManager.getHOTLookupCache();
+    }
+    this.databaseId = storageEngineReader.getDatabaseId();
+    this.resourceId = storageEngineReader.getResourceId();
+    this.revisionNumber = storageEngineReader.getRevisionNumber();
+    // A disabled cache is treated as no cache at all. Otherwise every lookup still built two keys,
+    // copied the key bytes and drained the whole posting list into a long[] only to have put()
+    // refuse it — which also meant maxEntries=0 did not actually measure the uncached path.
+    //
+    // databaseId == 0 disables it too, and that one is a correctness guard rather than a
+    // micro-optimisation: ResourceConfiguration#getDatabaseId returns 0 when no DatabaseConfiguration
+    // was attached, real ids are random POSITIVE longs, and resource ids restart at 0 in every
+    // database — so an unattached configuration would file two unrelated databases under the same
+    // (0, 0, revision, ...) slice of a JVM-GLOBAL table and answer one resource's lookup with
+    // another's posting list. Every production open path attaches one; this is what makes that a
+    // property the cache enforces rather than one it assumes.
+    this.lookupCache = sessionCache != null && sessionCache.isEnabled() && databaseId != 0L
+        ? sessionCache
+        : null;
+  }
+
+  /**
+   * Sentinel array length marking a memoized ABSENT key.
+   *
+   * <p>
+   * A present key always has at least one node key — {@code collectChunksViaLowerBoundWalk} returns
+   * {@code null} rather than an empty result — so zero length is free to mean "asked before, not
+   * there". Worth memoizing precisely because a miss is the EXPENSIVE case: an absent key cannot be
+   * answered by the landing-leaf fast path and falls through to the full lower bound, which
+   * re-descends the trie comparing per-child first keys.
+   * </p>
+   */
+  private static final long[] ABSENT = new long[0];
+
+  /**
+   * Reject a search mode a memoized point lookup cannot answer.
+   *
+   * <p>
+   * ONE copy, in the class that owns {@link #pointLookup}, rather than one per {@code get} overload:
+   * the invariant belongs to the cache key — {@link HOTLookupKey} does not carry the mode, so a
+   * mode-sensitive answer would be served across modes — and a subclass that adds an overload must
+   * inherit the guard rather than remember to restate it.
+   * </p>
+   *
+   * @param mode the caller's search mode
+   * @throws IllegalArgumentException if {@code mode} is anything but {@link SearchMode#EQUAL}
+   */
+  protected static void requireEqualMode(final SearchMode mode) {
+    if (mode != SearchMode.EQUAL) {
+      throw new IllegalArgumentException("get supports only SearchMode.EQUAL, got " + mode + "; use the range cursors");
+    }
+  }
+
+  /** Borrowing cache key over the caller's serialization buffer — see {@code HOTLookupKey.probe}. */
+  private HOTLookupKey probeKey(final byte[] keyBuf, final int keyLen) {
+    return HOTLookupKey.probe(databaseId, resourceId, revisionNumber, indexType, indexNumber, keyBuf, 0, keyLen);
+  }
+
+  /**
+   * Answer a point lookup for {@code keyBuf[0, keyLen)}, memoizing the result for this revision.
+   *
+   * <p>
+   * The whole point of the cache: for a committed revision the walk below is deterministic, so
+   * repeating it for a key already asked about is pure CPU waste. On a miss the freshly computed
+   * answer is admitted — including the absent case — subject to
+   * {@link HOTLookupCache#MAX_CACHED_NODE_KEYS}.
+   * </p>
+   *
+   * @param keyBuf buffer holding the serialized logical key
+   * @param keyLen serialized length of the key
+   * @return the references for the key, or {@code null} when it has none
+   */
+  protected final @Nullable NodeReferences pointLookup(final byte[] keyBuf, final int keyLen) {
+    // Unconditionally, not as a side effect of building a probe key: HOTLookupKey.probe runs the
+    // identical checkFromIndexSize, so without this the SAME malformed (keyBuf, keyLen) is diagnosed
+    // or waved through depending on whether a cache happens to be configured — a writer-backed
+    // reader or sirix.hotLookupCache.maxEntries=0 took the unchecked path.
+    Objects.checkFromIndexSize(0, keyLen, requireNonNull(keyBuf, "keyBuf").length);
+    final HOTLookupCache cache = lookupCache;
+    if (cache == null) {
+      return computePointLookup(keyBuf, keyLen);
+    }
+    // ONE key object, hashed ONCE, reused for the probe and for the admission. Building it per phase
+    // instead cost three allocations and three full passes over the key bytes on every miss — and a
+    // miss is the path that must not end up slower than the walk the cache exists to avoid.
+    final HOTLookupKey probe = probeKey(keyBuf, keyLen);
+    final long[] hit = cache.get(probe);
+    if (hit != null) {
+      // A fresh NodeReferences over a COPY per hit. Both halves are load-bearing: the class is
+      // mutable and getNodeKeys() hands out the live set, so sharing the cached instance would turn
+      // "every lookup returns a fresh object" into an aliasing contract the first mutating consumer
+      // would break for everyone else — and `hit` is the cache's own stored array, which a consumer
+      // must never be handed a reference to.
+      return hit.length == 0
+          ? null
+          : NodeReferences.copyOfSortedUnchecked(hit);
+    }
+    // Snapshot the key bytes BEFORE the walk, not after it. `probe` BORROWS the caller's reusable
+    // serialization buffer and froze its hash at construction, while computePointLookup below is an
+    // overridable extension point running on the same thread with that very buffer in reach —
+    // serializeKeyToArray writes into it in place whenever the key fits. Copying afterwards would
+    // file the entry under hash(bytes-before-the-walk) while carrying bytes-after: a slot no probe
+    // can ever match, or — on a 32-bit hash collision — one that answers a different logical key.
+    // The copy costs one byte[] per miss even when the answer turns out too large to admit, which is
+    // the rare case; nothing on today's walk path rewrites the buffer, but the ordering is what makes
+    // that a property of this method rather than of every future override.
+    final HOTLookupKey owned = probe.owned();
+    // Captured BEFORE the walk reads a single page, and handed back at admission. An invalidation
+    // sweep that overlaps this walk bumps the generation, so the answer below — which may have been
+    // built from pages the sweep is discarding — is refused rather than resurrected under a revision
+    // number truncateTo is about to re-issue over different content. Ordering the sweep's own steps
+    // cannot achieve this; see HOTLookupCache#generation.
+    final long generation = cache.generation();
+    final NodeReferences computed = computePointLookup(keyBuf, keyLen);
+    memoize(cache, owned, computed, generation);
+    return computed;
+  }
+
+  /**
+   * Compute a point lookup without consulting or populating the cache. Overridden where a reader has
+   * a fallback beyond the chunk walk.
+   *
+   * @param keyBuf buffer holding the serialized logical key
+   * @param keyLen serialized length of the key
+   * @return the references for the key, or {@code null} when it has none
+   */
+  protected @Nullable NodeReferences computePointLookup(final byte[] keyBuf, final int keyLen) {
+    return collectChunksViaLowerBoundWalk(keyBuf, keyLen);
+  }
+
+  /**
+   * Admit a freshly computed answer, absent results included.
+   *
+   * @param cache the cache to admit into
+   * @param key the OWNING key, copied off the probe before the walk ran — see {@link #pointLookup}
+   * @param computed the answer, or {@code null} when the key has none
+   * @param generation the cache's sweep generation, read before the answer was computed
+   */
+  private static void memoize(final HOTLookupCache cache, final HOTLookupKey key,
+      final @Nullable NodeReferences computed, final long generation) {
+    if (computed == null) {
+      cache.put(key, ABSENT, generation);
+      return;
+    }
+    // Gate BEFORE exporting, so an oversized posting list is never materialized here.
+    if (computed.cardinality() > HOTLookupCache.MAX_CACHED_NODE_KEYS) {
+      return; // too big to be worth copying on every hit — see MAX_CACHED_NODE_KEYS
+    }
+    // Sized and filled by ONE read of the representation. Sizing from cardinality() and then filling
+    // through forEachNodeKey is two independent reads, and a disagreement between them yields a
+    // TRUNCATED posting list that is indistinguishable from a complete one — the failure this cache
+    // must never produce, since a wrong answer here is served silently for the rest of the revision.
+    // The bound itself is re-checked by put(), which refuses an oversized array outright, so there is
+    // no second length test here: the gate above exists to avoid MATERIALIZING a huge posting list,
+    // not to enforce the bound twice.
+    final long[] nodeKeys = computed.toSortedArray();
+    // A zero-length array is the ABSENT sentinel, so a non-null-but-empty result must NOT be stored:
+    // it would come back as null on the next hit, and NameIndex/PathIndex distinguish those two
+    // outcomes. Both producers guarantee non-empty today (the accumulator returns null for an empty
+    // result rather than an empty NodeReferences), but computePointLookup is overridable and the
+    // sentinel makes the invariant load-bearing, so it is checked here rather than assumed.
+    if (nodeKeys.length == 0) {
+      return;
+    }
+    // The ordering contract is enforced HERE, once per array ever cached, rather than by
+    // NodeReferences.copyOfSortedUnchecked on every hit — the hit path would re-derive a property of an
+    // immutable array it had already established, at up to MAX_CACHED_NODE_KEYS serial unsigned
+    // comparisons a time. Not dropped, because copyOfSortedUnchecked's own javadoc explains why an
+    // assert is
+    // not enough: an out-of-order run makes contains()'s unsigned binary search report present node
+    // keys as absent, with no exception anywhere.
+    //
+    // REFUSED, not thrown. Memoization is an optimization the caller never asked for, so a run this
+    // cannot admit must cost a recomputation and nothing else — the same bargain the class makes for
+    // an evicted entry. Throwing instead would fail a query that had already
+    // computed its answer, and only on the configurations where a HOTLookupCache exists: the same
+    // lookup would keep succeeding on a writer-backed reader, under EmptyBufferManager, or with the
+    // cache sized to zero. That is the configuration-dependent diagnosis this read path is written to
+    // avoid, and it would be reached with the result in hand.
+    if (!NodeReferences.isSortedAscending(nodeKeys)) {
+      LOGGER.warn("Refusing to memoize a posting list that is not strictly ascending unsigned; key={}", key);
+      return;
+    }
+    cache.put(key, nodeKeys, generation);
   }
 
   /**
@@ -152,8 +409,7 @@ public abstract class AbstractHOTIndexReader<K> {
     final ChunkWalkState pooled = pooledWalkState.getAndSet(null);
     final ChunkWalkState state = pooled != null
         ? pooled
-        : new ChunkWalkState(new HOTTrieReader(storageEngineReader),
-            new NodeReferencesSerializer.ChunkAccumulator());
+        : new ChunkWalkState(new HOTTrieReader(storageEngineReader), new NodeReferencesSerializer.ChunkAccumulator());
     final HOTTrieReader trie = state.trie();
     final NodeReferencesSerializer.ChunkAccumulator accumulator = state.accumulator();
     try {
@@ -310,7 +566,11 @@ public abstract class AbstractHOTIndexReader<K> {
       return root;
     }
     root = resolveRootReference();
-    if (root != null && !(storageEngineReader instanceof StorageEngineWriter)) {
+    // The SAME captured predicate as lookupCache, so the two memoization decisions cannot drift: a
+    // reader carrying a transaction intent log resolves uncommitted pages, so memoizing its root
+    // reference would pin a chain an in-flight commit can replace. (`instanceof StorageEngineWriter`
+    // missed the plain reader the writer hands out over its own intent log.)
+    if (root != null && !usesTrxIntentLog) {
       cachedRootReference = root; // benign race: resolution is idempotent for a snapshot
     }
     return root;

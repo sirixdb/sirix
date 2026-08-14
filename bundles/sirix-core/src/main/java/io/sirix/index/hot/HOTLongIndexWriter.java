@@ -191,8 +191,18 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Reassemble all chunks of {@code key} into a single {@link NodeReferences}. See
    * {@link HOTIndexReader#get} for the algorithm; this is the primitive-long mirror.
+   *
+   * @param key the logical index key
+   * @param mode must be {@link SearchMode#EQUAL}; range modes go via the range cursors
+   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL} — same guard,
+   *         same reason as {@link HOTIndexReader#get}, which previously documented the mode as
+   *         advisory and silently ignored it
    */
-  public @Nullable NodeReferences get(long key, SearchMode mode) {
+  public @Nullable NodeReferences get(final long key, final SearchMode mode) {
+    // See HOTIndexWriter#get — one shared rule, enforced on every twin rather than on whichever one
+    // was edited last.
+    AbstractHOTIndexReader.requireEqualMode(mode);
     final byte[] keyBuf = KEY_BUFFER.get();
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
 

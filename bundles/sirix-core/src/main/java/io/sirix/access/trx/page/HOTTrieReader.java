@@ -29,7 +29,6 @@
 package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
-import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -255,7 +254,16 @@ public final class HOTTrieReader implements AutoCloseable {
     // a subtree's first key is a constant of the parent page object. A WRITE transaction can
     // re-point a child reference's page without touching the parent node, which no
     // parent-local invalidation can observe — so writer-backed readers never touch the cache.
-    this.firstKeyCacheEnabled = !(storageEngineReader instanceof StorageEngineWriter);
+    //
+    // hasTrxIntentLog() rather than `instanceof StorageEngineWriter`, and the distinction is
+    // load-bearing here for the same reason AbstractHOTIndexReader states it for the lookup cache:
+    // StorageEngineWriter#getStorageEngineReader hands out a PLAIN NodeStorageEngineReader carrying
+    // the writer's intent log, which is not a StorageEngineWriter yet resolves uncommitted pages
+    // under an already-committed revision number. AbstractHOTIndexReader constructs this class with
+    // exactly the reader it was handed, so the two memoizations sit one call apart and must agree
+    // on what "read-only snapshot" means — the intent-log test is the property that actually
+    // matters, and it is strictly the more conservative of the two.
+    this.firstKeyCacheEnabled = !storageEngineReader.hasTrxIntentLog();
   }
 
   /** See the constructor — memoized first-key probes are restricted to read-only snapshots. */
