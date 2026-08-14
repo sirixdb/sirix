@@ -294,7 +294,7 @@ without observing any prefetched results. `close()` after `close()` is a no-op.
 **Inv 4a (uniqueness):** for any sequence of concurrent `beginNodeReadOnlyTrx`
 calls on the same session, every returned reader has a unique trx ID.
 
-**Pf:** the ID is allocated via `nodeTrxIDCounter.incrementAndGet()`, which is
+**Pf:** the ID is allocated via `trxIDCounter.incrementAndGet()`, which is
 atomic on the underlying `AtomicInteger`. The post-allocation `nodeTrxMap.put`
 is guarded by a duplicate-detection check (`throw new SirixUsageException` if
 `put` returns non-null), giving a second line of defence against any future
@@ -313,7 +313,7 @@ subsequent observation by the calling thread. ∎
 with it. Pre-fix the synchronized on `beginNodeReadOnlyTrx` did serialize
 against the writer. Post-fix the reader path has no monitor.
 
-**Pf:** the `nodeTrxIDCounter` increment, the storage-engine reader
+**Pf:** the `trxIDCounter` increment, the storage-engine reader
 construction, and the `ConcurrentHashMap.put` are all lock-free. The writer's
 `beginNodeTrx` still holds the per-session monitor, but it touches no field
 that a reader-path racing it could observe in an inconsistent state — the only
@@ -322,6 +322,48 @@ shared mutable structure is `nodeTrxMap`, which is concurrent. ∎
 - **Test (4a + 4b):** `ResourceSessionTest.concurrentReaderOpens_areRaceFreeAndProduceUniqueIds`
   — 16 threads × 64 opens = 1024 concurrent `beginNodeReadOnlyTrx`, asserts
   unique IDs, exact `activeTrxCount()`, and clean teardown back to baseline.
+
+**Inv 4d (id uniqueness across BOTH bookkeeping spaces):** no node transaction
+id ever equals the id of a *different* storage engine reader/writer in the same
+session.
+
+**Pf:** every id in the session — node transactions (`beginNodeReadOnlyTrx`,
+`beginNodeTrx`) and storage engine instances (`createStorageEngineReader`,
+`createStorageEngineWriter`) alike — comes from a single `trxIDCounter`
+`incrementAndGet()`, which is strictly monotonic. The one case where two objects
+share an id is a read-write node transaction and its bound storage engine
+writer, which are handed the SAME single increment on purpose. ∎
+
+**Inv 4e (bookkeeping is bounded):** `storageEngineReaderMap` contains an entry
+for a storage engine reader iff that reader has not been closed; in particular a
+loop of open/close leaves its size constant.
+
+**Pf:** `createStorageEngineReader` / `createStorageEngineWriter` are the only
+producers, each inserting under the id it just drew. `NodeStorageEngineReader.close()`
+removes unconditionally — no predicate can suppress it — and
+`NodeStorageEngineWriter.close()` removes the unbound writer it registered.
+Removal is `ConcurrentMap.remove(key, value)`, so it drops an entry only while
+that entry still maps to the closing instance; neither class overrides `equals`,
+so this is reference identity. Hence removal is idempotent under double close and
+cannot touch a foreign entry, while Inv 4d independently guarantees no foreign
+entry shares the id. ∎
+
+This replaces a gate that asked `getNodeReadTrxByTrxId(trxId).isEmpty()` before
+removing — a lookup in `nodeTrxMap` (node ids) keyed by a storage engine id.
+With two independent counters those spaces collided: on a cold session a
+read-only open drew one id from each, so the numbers matched and the gate
+suppressed **every** removal (unbounded growth, one pinned page reader and epoch
+ticket per open); a writer-bound reader, whose node transaction was unregistered
+first, instead passed the gate and removed the *live* reader holding the same
+number.
+
+- **Test (4e):** `ResourceSessionTest.readOnlyTrxCycles_doNotLeakStorageEngineReaderEntries`
+  — 64 read-only cycles on a cold session (counters aligned, the alignment that
+  made the leak deterministic), then write cycles, then 64 more with the counters
+  de-aligned; `activeStorageEngineReaderCount()` must stay 0 throughout.
+- **Test (4d + 4e):** `ResourceSessionTest.writeTrxClose_doesNotEvictLiveStorageEngineReaders`
+  — a standalone storage engine reader taking the id the first `beginNodeTrx` is
+  about to draw must survive eight write-transaction closes still tracked and open.
 
 ---
 

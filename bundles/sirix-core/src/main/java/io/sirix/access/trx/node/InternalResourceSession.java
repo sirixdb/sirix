@@ -5,6 +5,7 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.io.Reader;
 import io.sirix.page.RevisionRootPage;
@@ -79,9 +80,17 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeReadTransaction(int trxId);
 
-  void closePageReadTransaction(Integer trxId);
+  /**
+   * Drop a storage engine reader from the session's bookkeeping. The reader instance is passed so
+   * the entry is removed only if it is still mapped to exactly that instance.
+   */
+  void closePageReadTransaction(int trxId, StorageEngineReader storageEngineReader);
 
-  void closePageWriteTransaction(Integer transactionID);
+  /**
+   * Drop a storage engine writer that is not bound to a node transaction from the session's
+   * bookkeeping and release the write lock it holds.
+   */
+  void closePageWriteTransaction(int transactionID, StorageEngineWriter storageEngineWriter);
 
   /**
    * Get the revision epoch tracker for MVCC-aware eviction.

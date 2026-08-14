@@ -2515,9 +2515,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         pageReader.close();
       }
 
-      if (resourceSession.getNodeReadTrxByTrxId(trxId).isEmpty()) {
-        resourceSession.closePageReadTransaction(trxId);
-      }
+      // Drop this reader from the session's bookkeeping, unconditionally and by identity.
+      //
+      // This used to be gated on "no node transaction carries my id" — a check across two
+      // then-independent id spaces: trxId is a storage engine id, while getNodeReadTrxByTrxId
+      // consults the node transaction map. The two counters advanced in lockstep for a
+      // read-only workload, so the gate was a false positive on EVERY beginNodeReadOnlyTrx
+      // close and the entry was never removed; conversely a writer-bound reader (whose node
+      // transaction had just been unregistered) passed the gate and removed an unrelated live
+      // reader that happened to hold the same number. Ids are now drawn from one session-wide
+      // counter and the removal below is identity-scoped, so neither is expressible: a reader
+      // that is closing is not running, and only its own entry can go.
+      resourceSession.closePageReadTransaction(trxId, this);
 
       // Drop most-recent slot references. They are UNGUARDED references to SHARED cache
       // instances — this transaction holds no pin on them (the only guard it owns is

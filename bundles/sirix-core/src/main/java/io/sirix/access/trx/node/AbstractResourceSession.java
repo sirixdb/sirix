@@ -175,14 +175,23 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final IOStorage storage;
 
   /**
-   * Atomic counter for concurrent generation of node transaction id.
+   * Atomic counter for concurrent generation of transaction ids, shared by node transactions and
+   * storage engine readers/writers alike.
+   *
+   * <p>ONE counter, deliberately: node trx ids key {@link #nodeTrxMap} and
+   * {@link #storageEngineWriterMap}, storage engine ids key {@link #storageEngineReaderMap}, and
+   * close paths cross between them (a node trx closes its storage engine reader; a storage engine
+   * reader consults the node trx bookkeeping). Two independent counters made those two id spaces
+   * collide numerically while meaning different things, so a close could skip its own entry (the
+   * map grew for the session's lifetime) or evict a live, unrelated one. A single monotonic
+   * counter makes an id unique across BOTH spaces, which is what every cross-map lookup here
+   * already assumed. Ids also stay unique in pin diagnostics and logs, where they identify a
+   * transaction, not a slot in some space.
+   *
+   * <p>A read-write node transaction still shares one id with its bound storage engine writer —
+   * that is a single {@code incrementAndGet} used for both, not a collision.
    */
-  private final AtomicInteger nodeTrxIDCounter;
-
-  /**
-   * Atomic counter for concurrent generation of storage engine id.
-   */
-  final AtomicInteger storageEngineIDCounter;
+  private final AtomicInteger trxIDCounter;
 
   /**
    * Per-thread shared read-only transactions for parallel query execution. Key: (threadId, revision)
@@ -258,8 +267,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     storageEngineReaderMap = new ConcurrentHashMap<>();
     storageEngineWriterMap = new ConcurrentHashMap<>();
 
-    nodeTrxIDCounter = new AtomicInteger();
-    storageEngineIDCounter = new AtomicInteger();
+    trxIDCounter = new AtomicInteger();
     commitLock = new ReentrantLock(false);
     sharedTrxMap = new ConcurrentHashMap<>();
 
@@ -755,7 +763,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
     // bookkeeping — already not synchronized.
     // * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
-    // * nodeTrxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
+    // * trxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
     // Removing the per-session monitor allows N concurrent reader-opens to run in parallel,
     // unblocking the depth-N pipeline in the prefetched temporal axes (and any other caller
     // that opens multiple rtxs back-to-back from concurrent threads).
@@ -763,18 +771,29 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);
 
-    final Node documentNode = getDocumentNode(storageEngineReader);
+    // Every failure after the reader exists must close it: it holds an epoch ticket, a page
+    // reader and an entry in storageEngineReaderMap, none of which anything else would reclaim
+    // (getDocumentNode already closes on its own failure path — closing twice is idempotent).
+    boolean success = false;
+    try {
+      final Node documentNode = getDocumentNode(storageEngineReader);
 
-    // Create new reader.
-    final R reader = createNodeReadOnlyTrx(nodeTrxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
+      // Create new reader.
+      final R reader = createNodeReadOnlyTrx(trxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
 
-    // Remember reader for debugging and safe close.
-    if (nodeTrxMap.put(reader.getId(), reader) != null) {
-      throw new SirixUsageException(ID_GENERATION_EXCEPTION);
+      // Remember reader for debugging and safe close.
+      if (nodeTrxMap.put(reader.getId(), reader) != null) {
+        throw new SirixUsageException(ID_GENERATION_EXCEPTION);
+      }
+      TransactionMetrics.onReadOnlyTrxOpened();
+
+      success = true;
+      return reader;
+    } finally {
+      if (!success) {
+        storageEngineReader.close();
+      }
     }
-    TransactionMetrics.onReadOnlyTrxOpened();
-
-    return reader;
   }
 
   public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader, Node documentNode);
@@ -900,7 +919,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     boolean success = false;
     try {
       // Create new storage engine writer (shares the same ID with the node write trx).
-      final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
+      final int nodeTrxId = trxIDCounter.incrementAndGet();
       final int lastRev = getMostRecentRevisionNumber();
       final StorageEngineWriter storageEngineWriter =
           createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
@@ -1083,33 +1102,45 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Close a write transaction.
+   * Close a storage engine writer that is NOT bound to a node transaction.
    *
-   * @param transactionID write transaction ID
+   * @param transactionID storage engine writer ID
+   * @param storageEngineWriter the writer being closed; the bookkeeping entry is dropped only if
+   *        the map still maps {@code transactionID} to exactly this instance
    */
   @Override
-  public void closePageWriteTransaction(final Integer transactionID) {
+  public void closePageWriteTransaction(final int transactionID, final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
 
-    // Remove from internal map.
-    storageEngineReaderMap.remove(transactionID);
+    // Remove from internal map. Identity-scoped: see closePageReadTransaction.
+    storageEngineReaderMap.remove(transactionID, requireNonNull(storageEngineWriter));
 
-    // Make new transactions available.
+    // Make new transactions available. Unconditional — this writer took a permit in
+    // createStorageEngineWriter whether or not its bookkeeping entry is still present.
     LOGGER.trace("Lock unlock (closePageWriteTransaction).");
     writeLock.release();
   }
 
   /**
-   * Close a read transaction.
+   * Close a storage engine reader: drop it from {@link #storageEngineReaderMap}.
    *
-   * @param transactionID read transaction ID
+   * <p>Removal is by (key, value) rather than by key alone. A storage engine reader bound to a
+   * node transaction carries that transaction's id, and while ids are unique session-wide (see
+   * {@link #trxIDCounter}) the two maps are keyed by different populations — so a bare
+   * {@code remove(id)} from a bound reader could only ever be a no-op or, if the id spaces were
+   * ever allowed to overlap again, evict a live foreign reader. Identity removal makes that
+   * structurally impossible and is idempotent, so a double close cannot drop a successor that
+   * reused the id.
+   *
+   * @param transactionID storage engine reader ID
+   * @param storageEngineReader the reader being closed
    */
   @Override
-  public void closePageReadTransaction(final Integer transactionID) {
+  public void closePageReadTransaction(final int transactionID, final StorageEngineReader storageEngineReader) {
     assertNotClosed();
 
     // Remove from internal map.
-    storageEngineReaderMap.remove(transactionID);
+    storageEngineReaderMap.remove(transactionID, requireNonNull(storageEngineReader));
   }
 
   /**
@@ -1203,7 +1234,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public StorageEngineReader createStorageEngineReader(final int revision) {
     assertAccess(revision);
 
-    final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
+    final int currentStorageEngineID = trxIDCounter.incrementAndGet();
     final NodeStorageEngineReader storageEngineReader =
         new NodeStorageEngineReader(currentStorageEngineID, this, lastCommittedUberPage.get(), revision,
             storage.createReader(), bufferManager, new RevisionRootPageReader(), null);
@@ -1232,7 +1263,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     boolean success = false;
     try {
-      final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
+      final int currentStorageEngineID = trxIDCounter.incrementAndGet();
       final int lastRev = getMostRecentRevisionNumber();
       final StorageEngineWriter storageEngineWriter =
           createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
@@ -1273,6 +1304,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   public int activeTrxCount() {
     return nodeTrxMap.size();
+  }
+
+  /**
+   * Number of storage engine readers/writers this session still tracks as open. Every entry is
+   * dropped when its reader closes, so a workload that opens and closes transactions in a loop
+   * must leave this bounded — it is the direct leak signal for {@link #storageEngineReaderMap}.
+   */
+  public int activeStorageEngineReaderCount() {
+    return storageEngineReaderMap.size();
   }
 
   /**

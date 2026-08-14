@@ -1849,7 +1849,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
 
       if (!isBoundToNodeTrx) {
-        storageEngineReader.resourceSession.closePageWriteTransaction(storageEngineReader.getTrxId());
+        storageEngineReader.resourceSession.closePageWriteTransaction(storageEngineReader.getTrxId(), this);
       }
 
       // CRITICAL: Close storageEngineReader FIRST to release guards BEFORE TIL tries to close pages
