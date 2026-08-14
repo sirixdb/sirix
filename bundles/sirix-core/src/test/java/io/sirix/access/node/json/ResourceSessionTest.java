@@ -88,16 +88,16 @@ public final class ResourceSessionTest {
 
   /**
    * Pre-fix this would have run strictly serially because beginNodeReadOnlyTrx was
-   * {@code synchronized} on the per-session monitor; post-fix all opens proceed in parallel.
-   * Either way the routine must remain race-free: every opened reader gets a unique trx ID,
-   * lands in nodeTrxMap exactly once, and the activeTrxCount() observed at the end equals
-   * the number of opens.
+   * {@code synchronized} on the per-session monitor; post-fix all opens proceed in parallel. Either
+   * way the routine must remain race-free: every opened reader gets a unique trx ID, lands in
+   * nodeTrxMap exactly once, and the activeTrxCount() observed at the end equals the number of opens.
    *
-   * <p>The test guards three invariants that the {@code synchronized} previously hid:
+   * <p>
+   * The test guards three invariants that the {@code synchronized} previously hid:
    * <ul>
-   *   <li>{@code trxIDCounter} (AtomicInteger) generates unique IDs under contention.</li>
-   *   <li>{@code nodeTrxMap.put} (ConcurrentMap) does not double-insert under contention.</li>
-   *   <li>No thread observes a partially-constructed reader (publication safety).</li>
+   * <li>{@code trxIDCounter} (AtomicInteger) generates unique IDs under contention.</li>
+   * <li>{@code nodeTrxMap.put} (ConcurrentMap) does not double-insert under contention.</li>
+   * <li>No thread observes a partially-constructed reader (publication safety).</li>
    * </ul>
    */
   @DisplayName("concurrent beginNodeReadOnlyTrx is race-free and produces unique IDs")
@@ -186,17 +186,19 @@ public final class ResourceSessionTest {
   /**
    * The session's storage-engine bookkeeping must not grow across open/close cycles.
    *
-   * <p>Regression: the removal in {@code NodeStorageEngineReader.close()} was gated on "no node
-   * transaction carries my id" — a lookup in the node transaction map, which is keyed by a
-   * different id space than the storage-engine map being drained. On a cold session the two
-   * counters advance in exact lockstep (a read-only open draws one id from each), so the gate was
-   * a false positive on every close and NOT ONE entry was ever removed: the map grew by one per
-   * {@code beginNodeReadOnlyTrx} for the lifetime of the session, pinning a page reader and an
-   * epoch ticket per entry.
+   * <p>
+   * Regression: the removal in {@code NodeStorageEngineReader.close()} was gated on "no node
+   * transaction carries my id" — a lookup in the node transaction map, which is keyed by a different
+   * id space than the storage-engine map being drained. On a cold session the two counters advance in
+   * exact lockstep (a read-only open draws one id from each), so the gate was a false positive on
+   * every close and NOT ONE entry was ever removed: the map grew by one per
+   * {@code beginNodeReadOnlyTrx} for the lifetime of the session, pinning a page reader and an epoch
+   * ticket per entry.
    *
-   * <p>The cycles run before any write transaction ON PURPOSE. {@code beginNodeTrx} draws a node
-   * id without drawing a storage-engine id, which de-aligns the two counters and masks the leak —
-   * an earlier version of this test opened a write transaction first and passed against the bug.
+   * <p>
+   * The cycles run before any write transaction ON PURPOSE. {@code beginNodeTrx} draws a node id
+   * without drawing a storage-engine id, which de-aligns the two counters and masks the leak — an
+   * earlier version of this test opened a write transaction first and passed against the bug.
    */
   @DisplayName("open/close cycles do not leak storage engine reader bookkeeping")
   @Test
@@ -250,14 +252,16 @@ public final class ResourceSessionTest {
   /**
    * Closing a read-write transaction must not evict a live, unrelated storage engine reader.
    *
-   * <p>Regression (mirror image of the leak above): a writer-bound storage engine reader carries
-   * its NODE transaction's id, and by the time it closed, that node transaction had already been
+   * <p>
+   * Regression (mirror image of the leak above): a writer-bound storage engine reader carries its
+   * NODE transaction's id, and by the time it closed, that node transaction had already been
    * unregistered — so the stale gate opened and {@code storageEngineReaderMap.remove(nodeTrxId)}
    * dropped whatever reader had been handed the same number by the independent storage-engine
    * counter. That reader stayed open but untracked, so the session never closed it at teardown.
    *
-   * <p>The standalone reader is created FIRST, on a cold session, so it holds storage-engine id 1
-   * — exactly the id the node transaction counter hands to the first {@code beginNodeTrx}.
+   * <p>
+   * The standalone reader is created FIRST, on a cold session, so it holds storage-engine id 1 —
+   * exactly the id the node transaction counter hands to the first {@code beginNodeTrx}.
    */
   @DisplayName("closing a write trx leaves unrelated storage engine readers tracked")
   @Test

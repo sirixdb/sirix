@@ -178,18 +178,20 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Atomic counter for concurrent generation of transaction ids, shared by node transactions and
    * storage engine readers/writers alike.
    *
-   * <p>ONE counter, deliberately: node trx ids key {@link #nodeTrxMap} and
+   * <p>
+   * ONE counter, deliberately: node trx ids key {@link #nodeTrxMap} and
    * {@link #storageEngineWriterMap}, storage engine ids key {@link #storageEngineReaderMap}, and
    * close paths cross between them (a node trx closes its storage engine reader; a storage engine
    * reader consults the node trx bookkeeping). Two independent counters made those two id spaces
-   * collide numerically while meaning different things, so a close could skip its own entry (the
-   * map grew for the session's lifetime) or evict a live, unrelated one. A single monotonic
-   * counter makes an id unique across BOTH spaces, which is what every cross-map lookup here
-   * already assumed. Ids also stay unique in pin diagnostics and logs, where they identify a
-   * transaction, not a slot in some space.
+   * collide numerically while meaning different things, so a close could skip its own entry (the map
+   * grew for the session's lifetime) or evict a live, unrelated one. A single monotonic counter makes
+   * an id unique across BOTH spaces, which is what every cross-map lookup here already assumed. Ids
+   * also stay unique in pin diagnostics and logs, where they identify a transaction, not a slot in
+   * some space.
    *
-   * <p>A read-write node transaction still shares one id with its bound storage engine writer —
-   * that is a single {@code incrementAndGet} used for both, not a collision.
+   * <p>
+   * A read-write node transaction still shares one id with its bound storage engine writer — that is
+   * a single {@code incrementAndGet} used for both, not a collision.
    */
   private final AtomicInteger trxIDCounter;
 
@@ -1105,8 +1107,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Close a storage engine writer that is NOT bound to a node transaction.
    *
    * @param transactionID storage engine writer ID
-   * @param storageEngineWriter the writer being closed; the bookkeeping entry is dropped only if
-   *        the map still maps {@code transactionID} to exactly this instance
+   * @param storageEngineWriter the writer being closed; the bookkeeping entry is dropped only if the
+   *        map still maps {@code transactionID} to exactly this instance
    */
   @Override
   public void closePageWriteTransaction(final int transactionID, final StorageEngineWriter storageEngineWriter) {
@@ -1124,13 +1126,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Close a storage engine reader: drop it from {@link #storageEngineReaderMap}.
    *
-   * <p>Removal is by (key, value) rather than by key alone. A storage engine reader bound to a
-   * node transaction carries that transaction's id, and while ids are unique session-wide (see
+   * <p>
+   * Removal is by (key, value) rather than by key alone. A storage engine reader bound to a node
+   * transaction carries that transaction's id, and while ids are unique session-wide (see
    * {@link #trxIDCounter}) the two maps are keyed by different populations — so a bare
-   * {@code remove(id)} from a bound reader could only ever be a no-op or, if the id spaces were
-   * ever allowed to overlap again, evict a live foreign reader. Identity removal makes that
-   * structurally impossible and is idempotent, so a double close cannot drop a successor that
-   * reused the id.
+   * {@code remove(id)} from a bound reader could only ever be a no-op or, if the id spaces were ever
+   * allowed to overlap again, evict a live foreign reader. Identity removal makes that structurally
+   * impossible and is idempotent, so a double close cannot drop a successor that reused the id.
    *
    * @param transactionID storage engine reader ID
    * @param storageEngineReader the reader being closed
@@ -1308,8 +1310,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   /**
    * Number of storage engine readers/writers this session still tracks as open. Every entry is
-   * dropped when its reader closes, so a workload that opens and closes transactions in a loop
-   * must leave this bounded — it is the direct leak signal for {@link #storageEngineReaderMap}.
+   * dropped when its reader closes, so a workload that opens and closes transactions in a loop must
+   * leave this bounded — it is the direct leak signal for {@link #storageEngineReaderMap}.
    */
   public int activeStorageEngineReaderCount() {
     return storageEngineReaderMap.size();
