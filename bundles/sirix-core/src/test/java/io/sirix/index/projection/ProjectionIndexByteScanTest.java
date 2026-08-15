@@ -889,4 +889,99 @@ final class ProjectionIndexByteScanTest {
             new ProjectionIndexScan.ColumnPredicate[0], 0, new int[] {1}, new Long2ObjectOpenHashMap<>(),
             ProjectionIndexByteScan.newGroupAggAcc(1, Long.MAX_VALUE), 0));
   }
+
+  // ==================== NE ====================
+
+  @Test
+  void numericNeParity() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.NE, 43L)};
+    assertEquals(9L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds), "9 of the 10 values differ from 43");
+    assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void numericNeMatchingNothingParity() {
+    // A single-row leaf whose only value IS the literal — also the zone-skip case, where
+    // min == max == lit lets the whole row group be discarded without reading a value.
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
+    page.appendRow(1L, new long[] {7L, 0L, 0L}, new boolean[3], new String[] {null, null, "Eng"});
+    final List<byte[]> leaves = List.of(page.serialize());
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.NE, 7L)};
+    assertEquals(0L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+    assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void neOverAMissingCellIsFalseNotTrue() {
+    // THE semantic that separates NE from !EQ. In JSONiq a missing field dereferences to the
+    // empty sequence, `() != 7` is the empty sequence, and `where` reads that as false — so a
+    // record lacking the field must NOT match `!= 7`. Implemented as a negation it would match,
+    // and every `<> ''` query in an analytical benchmark would over-count by the sparse rows.
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
+    final boolean[] absent = {false, true, true};
+    final boolean[] present = {true, true, true};
+    // Row 0 HAS the numeric column and differs from the literal; rows 1..3 do not have it at all.
+    page.appendRow(0L, new long[] {99L, 0L, 0L}, new boolean[3], new String[] {"", "", "Eng"}, present, null);
+    for (int i = 1; i < 4; i++) {
+      page.appendRow(i, new long[] {0L, 0L, 0L}, new boolean[3], new String[] {"", "", "Eng"}, absent, null);
+    }
+    final List<byte[]> leaves = List.of(page.serialize());
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.NE, 7L)};
+    assertEquals(1L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds),
+        "only the row that HAS the field may match; three missing rows must not");
+    assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void stringNeParity() {
+    // 9 rows cycling Eng/Sales/Ops ⇒ 6 differ from "Eng". Row count 9 also puts the mask's tail
+    // bits in play: complementing the whole word would light rows 9..63, which do not exist.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 9));
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.stringNe(2, "Eng".getBytes(StandardCharsets.UTF_8))};
+    assertEquals(6L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+    assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void stringNeAgainstAValueNotInTheDictMatchesEveryPresentRow() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 9));
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.stringNe(2, "NotInDict".getBytes(StandardCharsets.UTF_8))};
+    assertEquals(9L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+    assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void stringNeOverAMissingCellIsFalse() {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS_NUM_BOOL_STR);
+    final boolean[] absent = {true, true, false};
+    final boolean[] present = {true, true, true};
+    page.appendRow(0L, new long[3], new boolean[3], new String[] {"", "", "Sales"}, present, null);
+    page.appendRow(1L, new long[3], new boolean[3], new String[] {"", "", ""}, absent, null);
+    final List<byte[]> leaves = List.of(page.serialize());
+    final ProjectionIndexScan.ColumnPredicate[] preds =
+        {ProjectionIndexScan.ColumnPredicate.stringNe(2, "Eng".getBytes(StandardCharsets.UTF_8))};
+    assertEquals(1L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds),
+        "the row without the field must not match `!= \"Eng\"`");
+  }
+
+  @Test
+  void booleanNeIsEqualityAgainstTheComplement() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    assertEquals(
+        ProjectionIndexByteScan.conjunctiveCount(leaves,
+            new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.booleanEq(1, false)}),
+        ProjectionIndexByteScan.conjunctiveCount(leaves,
+            new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.booleanNe(1, true)}));
+  }
 }
