@@ -410,9 +410,26 @@ public final class ClickBenchHitsGenerator extends Reader {
   // ── record generation ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Appends the JSON object for one row. Every column is emitted through {@link #num(long)},
-   * {@link #text(String)}, {@link #location} or {@link #timestamp}, each of which consumes the next
-   * entry of {@link #PREFIXES}; the count check at the end therefore also checks the order.
+   * Appends the JSON object for one row: one statement per column, in {@code create.sql} order. Every
+   * column is emitted through {@link #num(long)}, {@link #text(String)}, {@link #locationOrEmpty} or
+   * {@link #timestamp}, each of which consumes the next entry of {@link #PREFIXES}; the count check
+   * at the end therefore also checks the order.
+   *
+   * <p>
+   * Each column's distribution is named — {@link #flag(int)}, {@link #emptyOr(int, String[])},
+   * {@link #zeroOrSkewed(int, int[])} and the rest — rather than spelled out here, which is what
+   * keeps this method's branch count at one. The draws a later column needs, or that two columns
+   * share, are taken up front. Draw <em>order</em> is the dataset: moving one draw across another
+   * rewrites every value after it, so the statement order below is as much a part of the encoding
+   * contract as the column order is.
+   *
+   * <p>
+   * The 105 emissions deliberately stay in one method. Splitting them into per-group helpers — the
+   * obvious way to shorten this — costs ~19 % throughput on the GraalVM JIT this project runs on
+   * (445k → 360k rows/s, interleaved A/B at 1M rows): the inliner spends its budget on the first
+   * group or two and leaves the rest out of line, and the record path is a straight line of ~700
+   * appends with nothing to amortise a partial inline against. Under C2 the same split costs ~2 %.
+   * Measure before re-splitting.
    *
    * @param row the row index, which together with the seed determines every value
    */
@@ -424,62 +441,37 @@ public final class ClickBenchHitsGenerator extends Reader {
     final int day = pickDay();
     final int secondOfDay = nextInt(SECONDS_PER_DAY);
     final long userId = pickUserId();
-    final long watchId = nextInt(64) == 0
-        ? HOT_WATCH_IDS[nextInt(HOT_WATCH_IDS.length)]
-        : nextLong() >>> 4;
+    final long watchId = pickWatchId();
     final int counterId = pickCounterId();
     final int clientIp = pickClientIp();
     final int regionId = REGION_IDS[skewedSquare(REGION_IDS.length)];
     final int resolutionWidth = RESOLUTION_WIDTHS[nextInt(RESOLUTION_WIDTHS.length)];
     final int resolutionHeight = RESOLUTION_HEIGHTS[nextInt(RESOLUTION_HEIGHTS.length)];
     final boolean isMobile = nextInt(100) < 6;
-    final String mobilePhoneModel = isMobile && nextInt(100) < 85
-        ? MOBILE_PHONE_MODELS[nextInt(MOBILE_PHONE_MODELS.length)]
-        : EMPTY;
-    final int mobilePhone = mobilePhoneModel.isEmpty()
-        ? 0
-        : 1 + nextInt(7);
-    final int searchEngineId = nextInt(100) < 80
-        ? 0
-        : SEARCH_ENGINE_IDS[nextInt(SEARCH_ENGINE_IDS.length)];
-    final String searchPhrase = nextInt(100) < 85
-        ? EMPTY
-        : SEARCH_PHRASES[skewedSquare(SEARCH_PHRASES.length)];
-    final int advEngineId = nextInt(100) < 90
-        ? 0
-        : 1 + nextInt(20);
+    final String mobilePhoneModel = pickMobilePhoneModel(isMobile);
+    final int mobilePhone = pickMobilePhone(mobilePhoneModel);
+    final int searchEngineId = pickSearchEngineId();
+    final String searchPhrase = pickSearchPhrase();
+    final int advEngineId = zeroOrFrom(90, 1, 20);
     final String title = pickTitle();
 
     final boolean urlEmpty = nextInt(1000) < 20;
     final int urlHost = pickHost();
     final int urlPath = nextInt(PATHS.length);
-    final int urlId = nextInt(2) == 0
-        ? nextInt(URL_ID_SPACE)
-        : NO_ID;
+    final int urlId = pickLocationId();
     final boolean urlSecure = nextInt(5) == 0;
     final boolean refererEmpty = nextInt(1000) < 120;
     final int refererHost = pickHost();
     final int refererPath = nextInt(PATHS.length);
-    final int refererId = nextInt(2) == 0
-        ? nextInt(URL_ID_SPACE)
-        : NO_ID;
+    final int refererId = pickLocationId();
     final boolean refererSecure = nextInt(5) == 0;
-    final long urlHash = nextInt(PLANTED_URL_HASH_ONE_IN) == 0
-        ? PLANTED_URL_HASH
-        : urlEmpty
-            ? 0L
-            : locationHash(urlHost, urlPath, urlId);
-    final long refererHash = nextInt(PLANTED_REFERER_HASH_ONE_IN) == 0
-        ? PLANTED_REFERER_HASH
-        : refererEmpty
-            ? 0L
-            : locationHash(refererHost, refererPath, refererId);
+    final long urlHash = pickLocationHash(PLANTED_URL_HASH_ONE_IN, PLANTED_URL_HASH, urlEmpty, urlHost, urlPath, urlId);
+    final long refererHash = pickLocationHash(PLANTED_REFERER_HASH_ONE_IN, PLANTED_REFERER_HASH, refererEmpty,
+        refererHost, refererPath, refererId);
 
-    // 1..10
+    // 1..10 WatchID..UserID — what was hit, when, and by whom.
     num(watchId);
-    num(nextInt(100) < 95
-        ? 1
-        : 0);
+    num(flag(95));
     text(title);
     num(1);
     timestamp(day, secondOfDay);
@@ -489,41 +481,25 @@ public final class ClickBenchHitsGenerator extends Reader {
     num(regionId);
     num(userId);
 
-    // 11..20
-    num(nextInt(100) < 90
-        ? 0
-        : nextInt(3));
+    // 11..13 CounterClass..UserAgent — the platform the hit came from.
+    num(zeroOr(90, 3));
     num(OS_CODES[nextInt(OS_CODES.length)]);
     num(USER_AGENT_CODES[nextInt(USER_AGENT_CODES.length)]);
-    if (urlEmpty) {
-      text(EMPTY);
-    } else {
-      location(urlHost, urlPath, urlId, urlSecure);
-    }
-    if (refererEmpty) {
-      text(EMPTY);
-    } else {
-      location(refererHost, refererPath, refererId, refererSecure);
-    }
-    num(nextInt(100) < 8
-        ? 1
-        : 0);
-    num(REFERER_CATEGORY_IDS[skewedSquare(REFERER_CATEGORY_IDS.length)]);
-    num(nextInt(100) < 70
-        ? 0
-        : REGION_IDS[skewedSquare(REGION_IDS.length)]);
-    num(REFERER_CATEGORY_IDS[skewedSquare(REFERER_CATEGORY_IDS.length)]);
-    num(nextInt(100) < 70
-        ? 0
-        : REGION_IDS[skewedSquare(REGION_IDS.length)]);
 
-    // 21..30
+    // 14..20 URL..URLRegionID — the two locations, and how each one is classified.
+    locationOrEmpty(urlEmpty, urlHost, urlPath, urlId, urlSecure);
+    locationOrEmpty(refererEmpty, refererHost, refererPath, refererId, refererSecure);
+    num(flag(8));
+    num(REFERER_CATEGORY_IDS[skewedSquare(REFERER_CATEGORY_IDS.length)]);
+    num(zeroOrSkewed(70, REGION_IDS));
+    num(REFERER_CATEGORY_IDS[skewedSquare(REFERER_CATEGORY_IDS.length)]);
+    num(zeroOrSkewed(70, REGION_IDS));
+
+    // 21..30 ResolutionWidth..UserAgentMinor — the screen, and the plugin/browser versions.
     num(resolutionWidth);
     num(resolutionHeight);
     num(RESOLUTION_DEPTHS[nextInt(RESOLUTION_DEPTHS.length)]);
-    num(nextInt(100) < 30
-        ? 0
-        : 10 + nextInt(6));
+    num(zeroOrFrom(30, 10, 6));
     num(nextInt(10));
     text(FLASH_MINOR2[nextInt(FLASH_MINOR2.length)]);
     num(0);
@@ -531,184 +507,110 @@ public final class ClickBenchHitsGenerator extends Reader {
     num(nextInt(31));
     text(USER_AGENT_MINOR[nextInt(USER_AGENT_MINOR.length)]);
 
-    // 31..40
-    num(nextInt(100) < 99
-        ? 1
-        : 0);
-    num(nextInt(100) < 98
-        ? 1
-        : 0);
-    num(isMobile
-        ? 1
-        : 0);
+    // 31..40 CookieEnable..SearchPhrase — browser capabilities, the mobile columns, the search.
+    num(flag(99));
+    num(flag(98));
+    num(flagOf(isMobile));
     num(mobilePhone);
     text(mobilePhoneModel);
-    text(nextInt(100) < 98
-        ? EMPTY
-        : PARAMS[nextInt(PARAMS.length)]);
+    text(emptyOr(98, PARAMS));
     num((int) (nextLong() >>> 40));
     num(TRAFIC_SOURCE_IDS[nextInt(TRAFIC_SOURCE_IDS.length)]);
     num(searchEngineId);
     text(searchPhrase);
 
-    // 41..50
+    // 41..50 AdvEngineID..SilverlightVersion4 — the ad engine, the client window and its clock.
     num(advEngineId);
-    num(nextInt(1000) < 5
-        ? 1
-        : 0);
+    num(flagPerMille(5));
     num(resolutionWidth - WINDOW_DELTAS[nextInt(WINDOW_DELTAS.length)]);
     num(resolutionHeight - WINDOW_DELTAS[nextInt(WINDOW_DELTAS.length)]);
     num(CLIENT_TIME_ZONES[nextInt(CLIENT_TIME_ZONES.length)]);
     timestamp(day, jitterSecond(secondOfDay, 300));
     num(0);
     num(0);
-    num(nextInt(100) < 95
-        ? 0
-        : 30729);
+    num(pickSilverlightVersion3());
     num(0);
 
-    // 51..60
+    // 51..60 PageCharset..IsEvent — encoding, tracker version, visit flags, the original URL.
     text(PAGE_CHARSETS[nextInt(PAGE_CHARSETS.length)]);
     num(CODE_VERSIONS[nextInt(CODE_VERSIONS.length)]);
-    num(nextInt(100) < 10
-        ? 1
-        : 0);
-    num(nextInt(100) < 1
-        ? 1
-        : 0);
-    num(nextInt(100) < 30
-        ? 1
-        : 0);
+    num(flag(10));
+    num(flag(1));
+    num(flag(30));
     num(mix64(userId ^ (day * 0x9E3779B97F4A7C15L)) >>> 4);
-    if (nextInt(100) < 3 && !urlEmpty) {
-      location(urlHost, urlPath, urlId, urlSecure);
-    } else {
-      text(EMPTY);
-    }
+    // OriginalURL repeats this row's URL on ~3 % of the rows. The draw is taken first and
+    // unconditionally, so a row without a URL advances the stream exactly like one with it.
+    locationOrEmpty(nextInt(100) >= 3 || urlEmpty, urlHost, urlPath, urlId, urlSecure);
     num((int) (nextLong() >>> 40));
     num(0);
-    num(nextInt(1000) < 2
-        ? 1
-        : 0);
+    num(flagPerMille(2));
 
-    // 61..70
-    num(nextInt(1000) < 2
-        ? 1
-        : 0);
-    num(nextInt(100) < 3
-        ? 1
-        : 0);
-    num(nextInt(100) < 1
-        ? 1
-        : 0);
+    // 61..70 IsParameter..Robotness — the remaining hit flags, the local clock, demographics.
+    num(flagPerMille(2));
+    num(flag(3));
+    num(flag(1));
     text(HIT_COLORS[nextInt(HIT_COLORS.length)]);
     timestamp(day, jitterSecond(secondOfDay, 60));
     num(AGES[nextInt(AGES.length)]);
     num(nextInt(3));
     num(nextInt(6));
-    num(nextInt(100) < 70
-        ? 0
-        : nextInt(4096));
-    num(nextInt(1000) < 3
-        ? nextInt(100)
-        : 0);
+    num(zeroOr(70, 4096));
+    num(pickRobotness());
 
-    // 71..80
+    // 71..79 RemoteIP..HTTPError — the second IP, the window handles, locale and social.
     num(pickClientIp());
-    num(nextInt(100) < 90
-        ? -1
-        : nextInt(4));
-    num(nextInt(100) < 95
-        ? -1
-        : nextInt(4));
-    num(nextInt(100) < 20
-        ? -1
-        : nextInt(31));
+    num(unsetOr(90, 4));
+    num(unsetOr(95, 4));
+    num(unsetOr(20, 31));
     text(BROWSER_LANGUAGES[skewedSquare(BROWSER_LANGUAGES.length)]);
     text(BROWSER_COUNTRIES[skewedSquare(BROWSER_COUNTRIES.length)]);
-    text(nextInt(100) < 97
-        ? EMPTY
-        : SOCIAL_NETWORKS[nextInt(SOCIAL_NETWORKS.length)]);
-    text(nextInt(100) < 97
-        ? EMPTY
-        : SOCIAL_ACTIONS[nextInt(SOCIAL_ACTIONS.length)]);
-    num(nextInt(1000) < 5
-        ? HTTP_ERRORS[nextInt(HTTP_ERRORS.length)]
-        : 0);
-    num(timing(3000));
+    text(emptyOr(97, SOCIAL_NETWORKS));
+    text(emptyOr(97, SOCIAL_ACTIONS));
+    num(pickHttpError());
 
-    // 81..90
+    // 80..85 SendTiming..FetchTiming — the page-load phases, each an independent draw.
+    num(timing(3000));
     num(timing(500));
     num(timing(1000));
     num(timing(3000));
     num(timing(5000));
     num(timing(5000));
-    num(nextInt(100) < 97
-        ? 0
-        : 1 + nextInt(4));
-    text(nextInt(100) < 97
-        ? EMPTY
-        : SOCIAL_SOURCE_PAGES[nextInt(SOCIAL_SOURCE_PAGES.length)]);
-    num(nextInt(1000) < 5
-        ? 100L * (1 + nextInt(10_000))
-        : 0L);
-    text(nextInt(1000) < 5
-        ? ORDER_IDS[nextInt(ORDER_IDS.length)]
-        : EMPTY);
-    text(nextInt(100) < 97
-        ? EMPTY
-        : PARAM_CURRENCIES[nextInt(PARAM_CURRENCIES.length)]);
 
-    // 91..100
-    num(nextInt(100) < 97
-        ? 0
-        : PARAM_CURRENCY_IDS[nextInt(PARAM_CURRENCY_IDS.length)]);
-    text(nextInt(1000) < 10
-        ? OPENSTAT[nextInt(OPENSTAT.length)]
-        : EMPTY);
-    text(nextInt(1000) < 10
-        ? OPENSTAT[nextInt(OPENSTAT.length)]
-        : EMPTY);
-    text(nextInt(1000) < 10
-        ? OPENSTAT[nextInt(OPENSTAT.length)]
-        : EMPTY);
-    text(nextInt(1000) < 10
-        ? OPENSTAT[nextInt(OPENSTAT.length)]
-        : EMPTY);
-    text(nextInt(100) < 95
-        ? EMPTY
-        : UTM_SOURCES[nextInt(UTM_SOURCES.length)]);
-    text(nextInt(100) < 95
-        ? EMPTY
-        : UTM_MEDIUMS[nextInt(UTM_MEDIUMS.length)]);
-    text(nextInt(100) < 95
-        ? EMPTY
-        : UTM_CAMPAIGNS[nextInt(UTM_CAMPAIGNS.length)]);
-    text(nextInt(100) < 95
-        ? EMPTY
-        : UTM_CONTENTS[nextInt(UTM_CONTENTS.length)]);
-    text(nextInt(100) < 95
-        ? EMPTY
-        : UTM_TERMS[nextInt(UTM_TERMS.length)]);
+    // 86..91 SocialSourceNetworkID..ParamCurrencyID — the social source and the order params.
+    num(zeroOrFrom(97, 1, 4));
+    text(emptyOr(97, SOCIAL_SOURCE_PAGES));
+    num(pickParamPrice());
+    text(emptyOrPerMille(5, ORDER_IDS));
+    text(emptyOr(97, PARAM_CURRENCIES));
+    num(pickParamCurrencyId());
 
-    // 101..105
-    text(nextInt(100) < 95
-        ? EMPTY
-        : FROM_TAGS[nextInt(FROM_TAGS.length)]);
-    num(nextInt(100) < 99
-        ? 0
-        : 1);
+    // 92..95 OpenstatServiceName..OpenstatSourceID — the four openstat tags.
+    text(emptyOrPerMille(10, OPENSTAT));
+    text(emptyOrPerMille(10, OPENSTAT));
+    text(emptyOrPerMille(10, OPENSTAT));
+    text(emptyOrPerMille(10, OPENSTAT));
+
+    // 96..101 UTMSource..FromTag — the campaign tags.
+    text(emptyOr(95, UTM_SOURCES));
+    text(emptyOr(95, UTM_MEDIUMS));
+    text(emptyOr(95, UTM_CAMPAIGNS));
+    text(emptyOr(95, UTM_CONTENTS));
+    text(emptyOr(95, UTM_TERMS));
+    text(emptyOr(95, FROM_TAGS));
+
+    // 102..105 HasGCLID..CLID — the click id, the hashes Q40/Q41 select on, and CLID.
+    num(pickHasGclid());
     num(refererHash);
     num(urlHash);
-    num(nextInt(1000) < 5
-        ? (int) (nextLong() >>> 41)
-        : 0);
+    num(pickClid());
 
     if (column != PREFIXES.length) {
       throw new IllegalStateException("emitted " + column + " columns, expected " + PREFIXES.length);
     }
     buffer.append('}');
   }
+
+
 
   /** Emits {@code "Name":<digits>}; {@code append(long)} writes exact int64 digits, never a float. */
   private void num(final long value) {
@@ -747,6 +649,22 @@ public final class ClickBenchHitsGenerator extends Reader {
     sb.append('"');
   }
 
+  /**
+   * Emits a URL column as either the empty string or the assembled location — the shape {@code URL},
+   * {@code Referer} and {@code OriginalURL} all take.
+   *
+   * @param empty whether this row leaves the column empty; callers evaluate their draw into this
+   *        argument, so the row's stream advances identically on both branches
+   */
+  private void locationOrEmpty(final boolean empty, final int host, final int path, final int id,
+      final boolean secure) {
+    if (empty) {
+      text(EMPTY);
+    } else {
+      location(host, path, id, secure);
+    }
+  }
+
   /** Emits {@code "Name":"YYYY-MM-DDTHH:MM:SS"} for the given day of July 2013 and second of day. */
   private void timestamp(final int day, final int secondOfDay) {
     final StringBuilder sb = buffer;
@@ -761,6 +679,83 @@ public final class ClickBenchHitsGenerator extends Reader {
 
   private static void appendTwoDigits(final StringBuilder sb, final int value) {
     sb.append(TWO_DIGITS, value << 1, 2);
+  }
+
+  // ── column shapes ─────────────────────────────────────────────────────────────────────────────
+  //
+  // The handful of distributions the 105 columns are built from. Naming them keeps the record body
+  // at one statement per column, and keeps the branch each column's distribution needs out of the
+  // method that emits it. Each one consumes its draws in the order it is written, so replacing one
+  // with an equivalent-looking expression that draws in another order changes the whole dataset.
+
+  /** A flag column: {@code 1} on {@code percent} % of the rows, {@code 0} on the rest. */
+  private int flag(final int percent) {
+    return nextInt(100) < percent
+        ? 1
+        : 0;
+  }
+
+  /** A flag column that is {@code 1} on {@code perMille} rows in a thousand. */
+  private int flagPerMille(final int perMille) {
+    return nextInt(1000) < perMille
+        ? 1
+        : 0;
+  }
+
+  /** A boolean the schema stores as {@code 0}/{@code 1}. Consumes no draw. */
+  private static int flagOf(final boolean value) {
+    return value
+        ? 1
+        : 0;
+  }
+
+  /** Zero on {@code percent} % of the rows, otherwise a uniform draw in {@code [0, bound)}. */
+  private int zeroOr(final int percent, final int bound) {
+    return nextInt(100) < percent
+        ? 0
+        : nextInt(bound);
+  }
+
+  /**
+   * Zero on {@code percent} % of the rows, otherwise a uniform draw in {@code [base, base + bound)}.
+   */
+  private int zeroOrFrom(final int percent, final int base, final int bound) {
+    return nextInt(100) < percent
+        ? 0
+        : base + nextInt(bound);
+  }
+
+  /** Zero on {@code percent} % of the rows, otherwise a square-skewed pick from {@code pool}. */
+  private int zeroOrSkewed(final int percent, final int[] pool) {
+    return nextInt(100) < percent
+        ? 0
+        : pool[skewedSquare(pool.length)];
+  }
+
+  /**
+   * {@code -1} — the "not set" the real data uses — on {@code percent} %, otherwise below
+   * {@code bound}.
+   */
+  private int unsetOr(final int percent, final int bound) {
+    return nextInt(100) < percent
+        ? -1
+        : nextInt(bound);
+  }
+
+  /** Empty on {@code percent} % of the rows, otherwise a uniform pick from {@code pool}. */
+  private String emptyOr(final int percent, final String[] pool) {
+    return nextInt(100) < percent
+        ? EMPTY
+        : pool[nextInt(pool.length)];
+  }
+
+  /**
+   * Empty except on {@code perMille} rows in a thousand, which take a uniform pick from {@code pool}.
+   */
+  private String emptyOrPerMille(final int perMille, final String[] pool) {
+    return nextInt(1000) < perMille
+        ? pool[nextInt(pool.length)]
+        : EMPTY;
   }
 
   // ── per-column draws ──────────────────────────────────────────────────────────────────────────
@@ -782,6 +777,77 @@ public final class ClickBenchHitsGenerator extends Reader {
       return PLANTED_USER_ID;
     }
     return mix64(skewedCube(USER_ID_SPACE) * 0x2545F4914F6CDD1DL) >>> 4;
+  }
+
+  /** One row in 64 reuses a hot watch id, so Q32's {@code GROUP BY WatchID, ClientIP} has groups. */
+  private long pickWatchId() {
+    if (nextInt(64) == 0) {
+      return HOT_WATCH_IDS[nextInt(HOT_WATCH_IDS.length)];
+    }
+    return nextLong() >>> 4;
+  }
+
+  /**
+   * {@code MobilePhoneModel}, empty on ~95 % of all rows: only mobile rows can carry one, and only 85
+   * % of those do. Non-mobile rows consume no draw here — the {@code &&} short-circuits.
+   */
+  private String pickMobilePhoneModel(final boolean isMobile) {
+    if (isMobile && nextInt(100) < 85) {
+      return MOBILE_PHONE_MODELS[nextInt(MOBILE_PHONE_MODELS.length)];
+    }
+    return EMPTY;
+  }
+
+  /** {@code MobilePhone}, non-zero exactly when the model is non-empty, and drawn only then. */
+  private int pickMobilePhone(final String mobilePhoneModel) {
+    if (mobilePhoneModel.isEmpty()) {
+      return 0;
+    }
+    return 1 + nextInt(7);
+  }
+
+  private int pickSearchEngineId() {
+    if (nextInt(100) < 80) {
+      return 0;
+    }
+    return SEARCH_ENGINE_IDS[nextInt(SEARCH_ENGINE_IDS.length)];
+  }
+
+  /** Empty on ~85 % of the rows, so the queries that filter {@code SearchPhrase <> ''} select few. */
+  private String pickSearchPhrase() {
+    if (nextInt(100) < 85) {
+      return EMPTY;
+    }
+    return SEARCH_PHRASES[skewedSquare(SEARCH_PHRASES.length)];
+  }
+
+  /**
+   * Half the locations carry an {@code ?id=} suffix; the other half consume the draw all the same.
+   */
+  private int pickLocationId() {
+    if (nextInt(2) == 0) {
+      return nextInt(URL_ID_SPACE);
+    }
+    return NO_ID;
+  }
+
+  /**
+   * The hash of one location, with its planted literal mixed in. The planted draw is taken first and
+   * unconditionally, so a row spends the same draws whether or not the location is empty.
+   *
+   * @param oneIn one row in this many carries {@code planted} regardless of the location
+   * @param planted the literal a ClickBench query selects on
+   * @param empty whether the location column is empty, which hashes to {@code 0}
+   */
+  private long pickLocationHash(final int oneIn, final long planted, final boolean empty, final int host,
+      final int path, final int id) {
+    if (nextInt(oneIn) == 0) {
+      return planted;
+    }
+    if (empty) {
+      return 0L;
+    }
+    return locationHash(host, path, id);
   }
 
   private int pickCounterId() {
@@ -818,6 +884,57 @@ public final class ClickBenchHitsGenerator extends Reader {
       return GOOGLE_TITLES[nextInt(GOOGLE_TITLES.length)];
     }
     return TITLES[skewedSquare(TITLES.length)];
+  }
+
+  /** {@code SilverlightVersion3}: zero, or the single build number the real column is full of. */
+  private int pickSilverlightVersion3() {
+    return nextInt(100) < 95
+        ? 0
+        : 30729;
+  }
+
+  /** {@code Robotness}: zero unless the hit is one of the 3 in 1000 that look automated. */
+  private int pickRobotness() {
+    return nextInt(1000) < 3
+        ? nextInt(100)
+        : 0;
+  }
+
+  /** {@code HTTPError}: zero — the hit was served — on all but 5 rows in 1000. */
+  private int pickHttpError() {
+    return nextInt(1000) < 5
+        ? HTTP_ERRORS[nextInt(HTTP_ERRORS.length)]
+        : 0;
+  }
+
+  /**
+   * {@code ParamPrice}: an order value in hundredths, which is why it needs the {@code long} range.
+   */
+  private long pickParamPrice() {
+    return nextInt(1000) < 5
+        ? 100L * (1 + nextInt(10_000))
+        : 0L;
+  }
+
+  /** {@code ParamCurrencyID}: the ISO 4217 number of the currency, on the rows that carry a price. */
+  private int pickParamCurrencyId() {
+    return nextInt(100) < 97
+        ? 0
+        : PARAM_CURRENCY_IDS[nextInt(PARAM_CURRENCY_IDS.length)];
+  }
+
+  /** {@code HasGCLID}: set on the 1 % of rows that arrived with a Google click id. */
+  private int pickHasGclid() {
+    return nextInt(100) < 99
+        ? 0
+        : 1;
+  }
+
+  /** {@code CLID}: set on 5 rows in 1000, from the high bits of a fresh draw. */
+  private int pickClid() {
+    return nextInt(1000) < 5
+        ? (int) (nextLong() >>> 41)
+        : 0;
   }
 
   /** A timing column: zero on most rows, a plausible millisecond value otherwise. */

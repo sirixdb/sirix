@@ -1739,35 +1739,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
-    if (handle.rowGroupCount() == 0)
-      return null;
-    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE)
-      return null;
-    if (!handle.numericColumnIsIntegral(col, fetcher)) {
-      return null; // not provably value-exact — fail closed
-    }
-    if (!handle.columnSparseClean(col, fetcher, materializer)) {
+    if (!doubleColumnIsValueExact(handle, col, fetcher, materializer)) {
       return null;
     }
     final boolean pure = needsPurity && handle.doubleColumnPureSource(col, fetcher);
     if (needsPurity && !pure) {
       return null;
     }
-    final ProjectionIndexScan.ColumnPredicate[] preds;
-    if (cp == null) {
-      preds = new ProjectionIndexScan.ColumnPredicate[0];
-    } else {
-      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
-        return null;
-      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-      if (extracted == null)
-        return null;
-      preds = fuseRangePredicates(extracted);
+    final ProjectionIndexScan.ColumnPredicate[] preds = columnPredicatesForServing(cp, handle);
+    if (preds == null) {
+      return null;
     }
     final ProjectionColumnStore sliceStore = store != null && predsSliceable(store, preds)
         ? store
         : null;
     return new DoubleAggServing(handle, col, preds, sliceStore, pure, fetcher, materializer);
+  }
+
+  /**
+   * Whether a double column may be aggregated straight out of the projection: it must hold row
+   * groups, be a NUMERIC_DOUBLE column, be provably integral and carry clean sparse evidence.
+   * Anything unproven declines — the gate is fail-closed and runs before any leaf is touched.
+   */
+  private static boolean doubleColumnIsValueExact(final ProjectionIndexRegistry.Handle handle, final int col,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final Supplier<List<byte[]>> materializer) {
+    if (handle.rowGroupCount() == 0)
+      return false;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE)
+      return false;
+    if (!handle.numericColumnIsIntegral(col, fetcher)) {
+      return false; // not provably value-exact — fail closed
+    }
+    if (!handle.columnSparseClean(col, fetcher, materializer)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * The column predicates a compiled predicate contributes to a served aggregate: an empty array when
+   * there is no predicate at all, the fused conjunctive form when the projection covers and can
+   * express every leaf, and {@code null} when either fails — {@code null} means decline.
+   */
+  private ProjectionIndexScan.ColumnPredicate[] columnPredicatesForServing(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle) {
+    if (cp == null) {
+      return new ProjectionIndexScan.ColumnPredicate[0];
+    }
+    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
+      return null;
+    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+    if (extracted == null)
+      return null;
+    return fuseRangePredicates(extracted);
   }
 
   /**
@@ -4114,25 +4138,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private long computeTargetPathNodeKey(final String[] sourcePath, final String field) {
-    // Build the expected named-ancestor chain: sourcePath with "[]" entries
-    // stripped (array-descent nodes aren't materialised in the PathSummary),
-    // reversed so walking up getParent() from a candidate yields it in order.
-    final int srcLen = sourcePath == null
-        ? 0
-        : sourcePath.length;
-    int namedCount = 0;
-    for (int i = 0; i < srcLen; i++) {
-      final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg))
-        namedCount++;
-    }
-    final String[] expectedAncestors = new String[namedCount];
-    int w = 0;
-    for (int i = 0; i < srcLen; i++) {
-      final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg))
-        expectedAncestors[w++] = seg;
-    }
+    final String[] expectedAncestors = namedAncestorChain(sourcePath);
     // Ancestor chain is walked from deepest (closest to the candidate) upward;
     // compare against `expectedAncestors` in reverse order (last source-path
     // segment = closest ancestor).
@@ -4144,36 +4150,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return -1L;
         long onlyMatch = -1L;
         for (final PathNode candidate : candidates) {
-          PathNode cursor = candidate.getParent();
-          boolean ok = true;
-          for (int i = expectedAncestors.length - 1; i >= 0; i--) {
-            // Skip anonymous ancestors (array layers, non-ELEMENT/OBJECT_KEY roots).
-            while (cursor != null && resolvedLocalName(summary, cursor) == null) {
-              cursor = cursor.getParent();
-            }
-            if (cursor == null) {
-              ok = false;
-              break;
-            }
-            final String name = resolvedLocalName(summary, cursor);
-            if (!expectedAncestors[i].equals(name)) {
-              ok = false;
-              break;
-            }
-            cursor = cursor.getParent();
-          }
-          if (!ok)
+          if (!candidateMatchesAncestorChain(summary, candidate, expectedAncestors))
             continue;
-          // Post-condition: after consuming expectedAncestors, the remaining
-          // ancestor chain must contain NO more named ancestors (otherwise the
-          // candidate lives deeper than the query path — e.g. pet.dept when
-          // the query is $u.dept). Without this check, an empty
-          // expectedAncestors matches every candidate regardless of depth.
-          while (cursor != null && resolvedLocalName(summary, cursor) == null) {
-            cursor = cursor.getParent();
-          }
-          if (cursor != null)
-            continue; // extra named ancestor — too deep
           if (onlyMatch != -1L) {
             // Ambiguous — two PathNodes share the same qualified prefix.
             // Can't happen with a consistent summary; fail closed.
@@ -4195,6 +4173,70 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         summary.close();
       }
     }
+  }
+
+  /**
+   * The named ancestors a candidate path node must carry, in source-path order. Anonymous
+   * array-descent segments are dropped because the PathSummary does not materialise them.
+   */
+  private static String[] namedAncestorChain(final String[] sourcePath) {
+    // Build the expected named-ancestor chain: sourcePath with "[]" entries
+    // stripped (array-descent nodes aren't materialised in the PathSummary),
+    // reversed so walking up getParent() from a candidate yields it in order.
+    final int srcLen = sourcePath == null
+        ? 0
+        : sourcePath.length;
+    int namedCount = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg))
+        namedCount++;
+    }
+    final String[] expectedAncestors = new String[namedCount];
+    int w = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg))
+        expectedAncestors[w++] = seg;
+    }
+    return expectedAncestors;
+  }
+
+  /**
+   * Whether one candidate path node sits at EXACTLY the queried path: every expected named ancestor
+   * matches walking upward, and no further named ancestor remains above them.
+   */
+  private static boolean candidateMatchesAncestorChain(final PathSummaryReader summary, final PathNode candidate,
+      final String[] expectedAncestors) {
+    PathNode cursor = candidate.getParent();
+    boolean ok = true;
+    for (int i = expectedAncestors.length - 1; i >= 0; i--) {
+      // Skip anonymous ancestors (array layers, non-ELEMENT/OBJECT_KEY roots).
+      while (cursor != null && resolvedLocalName(summary, cursor) == null) {
+        cursor = cursor.getParent();
+      }
+      if (cursor == null) {
+        ok = false;
+        break;
+      }
+      final String name = resolvedLocalName(summary, cursor);
+      if (!expectedAncestors[i].equals(name)) {
+        ok = false;
+        break;
+      }
+      cursor = cursor.getParent();
+    }
+    if (!ok)
+      return false;
+    // Post-condition: after consuming expectedAncestors, the remaining
+    // ancestor chain must contain NO more named ancestors (otherwise the
+    // candidate lives deeper than the query path — e.g. pet.dept when
+    // the query is $u.dept). Without this check, an empty
+    // expectedAncestors matches every candidate regardless of depth.
+    while (cursor != null && resolvedLocalName(summary, cursor) == null) {
+      cursor = cursor.getParent();
+    }
+    return cursor == null; // a remaining named ancestor means too deep
   }
 
   /**
@@ -4533,30 +4575,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final LinkedHashSet<String> strSet = new LinkedHashSet<>();
     collectLiterals(root, fieldSet, strSet);
 
-    // ANCHOR SOUNDNESS: the scan iterates fieldNames[0]'s slots, so records
-    // missing that field are never visited. That is only sound when the
-    // predicate provably excludes them (comparison/EBV over a missing field is
-    // false in XQuery). Reorder so a sound anchor sits at index 0; if none
-    // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
-    // an anchor-based scan would silently lose matches on sparse data, and the
-    // dispatch has no generic pipeline left to fall back to at evaluate time.
-    if (!fieldSet.isEmpty()) {
-      final String soundAnchor = root.findSoundAnchorField();
-      if (soundAnchor == null) {
-        throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-            "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
-                + "referenced field. The query detection should not have claimed it — "
-                + "update brackit or rewrite the predicate.",
-            predicateCacheKey(root));
-      }
-      if (!soundAnchor.equals(fieldSet.iterator().next())) {
-        final LinkedHashSet<String> reordered = new LinkedHashSet<>();
-        reordered.add(soundAnchor);
-        reordered.addAll(fieldSet);
-        fieldSet.clear();
-        fieldSet.addAll(reordered);
-      }
-    }
+    hoistSoundAnchorField(root, fieldSet);
 
     final CompiledPredicate cp = new CompiledPredicate();
     cp.tree = root;
@@ -4587,9 +4606,68 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
         dblLit, decLit, strIdx);
 
-    cp.ops = new byte[ops.size()];
-    for (int i = 0; i < ops.size(); i++)
-      cp.ops[i] = ops.get(i);
+    cp.ops = unboxBytes(ops);
+    markArrayContainsFields(cp, fieldIdx);
+    cp.children = unboxInts(children);
+    cp.childStart = unboxInts(childStart);
+    cp.childCount = unboxInts(childCount);
+    cp.fieldIdx = unboxInts(fieldIdx);
+    cp.cmpOp = unboxInts(cmpOp);
+    cp.longLit = unboxLongs(longLit);
+    cp.dblLit = unboxDoubles(dblLit);
+    cp.decLit = new BigDecimal[decLit.size()];
+    cp.decLongArm = new byte[decLit.size()];
+    cp.decLongLit = new long[decLit.size()];
+    cp.decDblImage = new double[decLit.size()];
+    for (int i = 0; i < decLit.size(); i++) {
+      final BigDecimal c = decLit.get(i);
+      cp.decLit[i] = c;
+      if (c != null) {
+        cp.decDblImage[i] = c.doubleValue();
+        precomputeDecLongArm(cp, i, c);
+      }
+    }
+    cp.strIdx = unboxInts(strIdx);
+    return cp;
+  }
+
+  /**
+   * Which collected field the anchor scan iterates. The scan visits only {@code fieldNames[0]}'s
+   * slots, so index 0 must hold a field the predicate provably requires; this moves such a field to
+   * the front, and throws when the predicate has none (silently losing matches is not an option).
+   */
+  private static void hoistSoundAnchorField(final PredicateNode root, final LinkedHashSet<String> fieldSet) {
+    // ANCHOR SOUNDNESS: the scan iterates fieldNames[0]'s slots, so records
+    // missing that field are never visited. That is only sound when the
+    // predicate provably excludes them (comparison/EBV over a missing field is
+    // false in XQuery). Reorder so a sound anchor sits at index 0; if none
+    // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
+    // an anchor-based scan would silently lose matches on sparse data, and the
+    // dispatch has no generic pipeline left to fall back to at evaluate time.
+    if (!fieldSet.isEmpty()) {
+      final String soundAnchor = root.findSoundAnchorField();
+      if (soundAnchor == null) {
+        throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+            "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
+                + "referenced field. The query detection should not have claimed it — "
+                + "update brackit or rewrite the predicate.",
+            predicateCacheKey(root));
+      }
+      if (!soundAnchor.equals(fieldSet.iterator().next())) {
+        final LinkedHashSet<String> reordered = new LinkedHashSet<>();
+        reordered.add(soundAnchor);
+        reordered.addAll(fieldSet);
+        fieldSet.clear();
+        fieldSet.addAll(reordered);
+      }
+    }
+  }
+
+  /**
+   * Which fields the loader must expand into element lists, and whether the predicate contains an
+   * array-membership test at all — both derived from the flattened ARRAY_CONTAINS nodes.
+   */
+  private static void markArrayContainsFields(final CompiledPredicate cp, final ArrayList<Integer> fieldIdx) {
     // Which fields hold ELEMENT LISTS rather than one value, and whether any do. The loader walks
     // a field's elements only when the predicate asked about them, and the batched/bytecode
     // evaluators — one value per field per row — decline the whole predicate on the flag.
@@ -4603,43 +4681,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
     }
-    cp.children = new int[children.size()];
-    for (int i = 0; i < children.size(); i++)
-      cp.children[i] = children.get(i);
-    cp.childStart = new int[childStart.size()];
-    for (int i = 0; i < childStart.size(); i++)
-      cp.childStart[i] = childStart.get(i);
-    cp.childCount = new int[childCount.size()];
-    for (int i = 0; i < childCount.size(); i++)
-      cp.childCount[i] = childCount.get(i);
-    cp.fieldIdx = new int[fieldIdx.size()];
-    for (int i = 0; i < fieldIdx.size(); i++)
-      cp.fieldIdx[i] = fieldIdx.get(i);
-    cp.cmpOp = new int[cmpOp.size()];
-    for (int i = 0; i < cmpOp.size(); i++)
-      cp.cmpOp[i] = cmpOp.get(i);
-    cp.longLit = new long[longLit.size()];
-    for (int i = 0; i < longLit.size(); i++)
-      cp.longLit[i] = longLit.get(i);
-    cp.dblLit = new double[dblLit.size()];
-    for (int i = 0; i < dblLit.size(); i++)
-      cp.dblLit[i] = dblLit.get(i);
-    cp.decLit = new BigDecimal[decLit.size()];
-    cp.decLongArm = new byte[decLit.size()];
-    cp.decLongLit = new long[decLit.size()];
-    cp.decDblImage = new double[decLit.size()];
-    for (int i = 0; i < decLit.size(); i++) {
-      final BigDecimal c = decLit.get(i);
-      cp.decLit[i] = c;
-      if (c != null) {
-        cp.decDblImage[i] = c.doubleValue();
-        precomputeDecLongArm(cp, i, c);
-      }
-    }
-    cp.strIdx = new int[strIdx.size()];
-    for (int i = 0; i < strIdx.size(); i++)
-      cp.strIdx[i] = strIdx.get(i);
-    return cp;
+  }
+
+  /** Unboxes a boxed {@code Byte} list into the primitive array the compiled form stores. */
+  private static byte[] unboxBytes(final ArrayList<Byte> list) {
+    final byte[] out = new byte[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Integer} list into the primitive array the compiled form stores. */
+  private static int[] unboxInts(final ArrayList<Integer> list) {
+    final int[] out = new int[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Long} list into the primitive array the compiled form stores. */
+  private static long[] unboxLongs(final ArrayList<Long> list) {
+    final long[] out = new long[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Double} list into the primitive array the compiled form stores. */
+  private static double[] unboxDoubles(final ArrayList<Double> list) {
+    final double[] out = new double[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
   }
 
   /**
@@ -4819,31 +4892,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       case PredicateNode.And a -> {
         ops.set(myIdx, CompiledPredicate.OP_AND);
-        final int start = children.size();
-        // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
-        for (int i = 0; i < a.children().size(); i++)
-          children.add(-1);
-        for (int i = 0; i < a.children().size(); i++) {
-          children.set(start + i, flatten(a.children().get(i), fieldNames, strLits, ops, children, childStart,
-              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
-        }
-        childStart.set(myIdx, start);
-        childCount.set(myIdx, a.children().size());
+        flattenChildren(a.children(), myIdx, fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+            cmpOp, longLit, dblLit, decLit, strIdx);
       }
       case PredicateNode.Or o -> {
         ops.set(myIdx, CompiledPredicate.OP_OR);
-        final int start = children.size();
-        for (int i = 0; i < o.children().size(); i++)
-          children.add(-1);
-        for (int i = 0; i < o.children().size(); i++) {
-          children.set(start + i, flatten(o.children().get(i), fieldNames, strLits, ops, children, childStart,
-              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
-        }
-        childStart.set(myIdx, start);
-        childCount.set(myIdx, o.children().size());
+        flattenChildren(o.children(), myIdx, fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+            cmpOp, longLit, dblLit, decLit, strIdx);
       }
     }
     return myIdx;
+  }
+
+  /**
+   * Where an n-ary node's children land in the flat form: it appends each child's subtree and records
+   * the contiguous child-index window on the parent slot {@code myIdx}.
+   */
+  private static void flattenChildren(final List<PredicateNode> kids, final int myIdx, final String[] fieldNames,
+      final String[] strLits, final ArrayList<Byte> ops, final ArrayList<Integer> children,
+      final ArrayList<Integer> childStart, final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx,
+      final ArrayList<Integer> cmpOp, final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
+      final ArrayList<BigDecimal> decLit, final ArrayList<Integer> strIdx) {
+    final int start = children.size();
+    // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
+    for (int i = 0; i < kids.size(); i++)
+      children.add(-1);
+    for (int i = 0; i < kids.size(); i++) {
+      children.set(start + i, flatten(kids.get(i), fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+          cmpOp, longLit, dblLit, decLit, strIdx));
+    }
+    childStart.set(myIdx, start);
+    childCount.set(myIdx, kids.size());
   }
 
   private static int indexOf(final String[] arr, final String s) {
@@ -6359,53 +6438,89 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
     }
     switch (cmpOp) {
-      case OP_GT: {
-        final long k = firstLongWithCompareAtLeast(d, 1);
-        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) <= 0) {
-          // No long compares greater — constant false.
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
-      }
-      case OP_GE: {
-        final long k = firstLongWithCompareAtLeast(d, 0);
-        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) < 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
-      }
-      case OP_LT: {
-        final long k = lastLongWithCompareAtMost(d, -1);
-        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) >= 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
-      }
-      case OP_LE: {
-        final long k = lastLongWithCompareAtMost(d, 0);
-        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) > 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
-      }
-      case OP_EQ: {
-        final long lo = firstLongWithCompareAtLeast(d, 0);
-        final long hi = lastLongWithCompareAtMost(d, 0);
-        final boolean loValid = Double.compare((double) lo, d) == 0;
-        final boolean hiValid = Double.compare((double) hi, d) == 0;
-        if (!loValid || !hiValid || lo > hi) {
-          // Fractional / out-of-range threshold — equality is unsatisfiable.
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        if (lo == hi) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numericBetween(column, ProjectionIndexScan.Op.GE, lo,
-            ProjectionIndexScan.Op.LE, hi);
-      }
+      case OP_GT:
+        return integralColumnGreaterThan(column, d);
+      case OP_GE:
+        return integralColumnGreaterOrEqual(column, d);
+      case OP_LT:
+        return integralColumnLessThan(column, d);
+      case OP_LE:
+        return integralColumnLessOrEqual(column, d);
+      case OP_EQ:
+        return integralColumnEqual(column, d);
       default:
         return null;
     }
+  }
+
+  /**
+   * The long-space form of {@code L > d}: a lower bound at the first long that compares greater, or
+   * constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnGreaterThan(final int column, final double d) {
+    final long k = firstLongWithCompareAtLeast(d, 1);
+    if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) <= 0) {
+      // No long compares greater — constant false.
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+  }
+
+  /**
+   * The long-space form of {@code L >= d}: a lower bound at the first long that compares
+   * greater-or-equal, or constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnGreaterOrEqual(final int column, final double d) {
+    final long k = firstLongWithCompareAtLeast(d, 0);
+    if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) < 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+  }
+
+  /**
+   * The long-space form of {@code L < d}: an upper bound at the last long that compares less, or
+   * constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnLessThan(final int column, final double d) {
+    final long k = lastLongWithCompareAtMost(d, -1);
+    if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) >= 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+  }
+
+  /**
+   * The long-space form of {@code L <= d}: an upper bound at the last long that compares
+   * less-or-equal, or constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnLessOrEqual(final int column, final double d) {
+    final long k = lastLongWithCompareAtMost(d, 0);
+    if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) > 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+  }
+
+  /**
+   * The long-space form of {@code L == d}: unsatisfiable for a fractional or out-of-range threshold,
+   * a single value where the double image is unique, and a RANGE above 2^53 where several longs share
+   * one double image.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnEqual(final int column, final double d) {
+    final long lo = firstLongWithCompareAtLeast(d, 0);
+    final long hi = lastLongWithCompareAtMost(d, 0);
+    final boolean loValid = Double.compare((double) lo, d) == 0;
+    final boolean hiValid = Double.compare((double) hi, d) == 0;
+    if (!loValid || !hiValid || lo > hi) {
+      // Fractional / out-of-range threshold — equality is unsatisfiable.
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    if (lo == hi) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numericBetween(column, ProjectionIndexScan.Op.GE, lo,
+        ProjectionIndexScan.Op.LE, hi);
   }
 
   /**
