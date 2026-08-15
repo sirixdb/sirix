@@ -1474,11 +1474,8 @@ public final class TypedGroupByDifferentialTest {
   // the defect and watching this file stay green.
 
   @Test
-  void notEqualOnAStringFieldAgrees() throws Exception {
-    // String NE has no PredicateNode variant yet (StrEq carries no operator), so this still
-    // declines — but it must keep ANSWERING correctly, and it flips to a serve the moment the
-    // node type lands.
-    assertOrderedDifferential("""
+  void notEqualOnAStringFieldIsServed() throws Exception {
+    assertOrderedDifferentialServed("""
         for $u in %s
         where $u.dept != "Eng"
         let $k := $u.city
@@ -1486,6 +1483,49 @@ public final class TypedGroupByDifferentialTest {
         let $c := count($u)
         order by $c descending
         return {"city": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void stringNotEqualWithTheLiteralOnTheLeftIsServed() throws Exception {
+    // The mirrored operand order takes the other arm of extractPredicate. `ne` is symmetric, so it
+    // must produce the identical leaf rather than fall through unrepresentable.
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        where "Eng" != $u.dept
+        let $k := $u.city
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"city": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void stringNotEqualAgainstTheEmptyStringIsServed() throws Exception {
+    // The ClickBench idiom itself: `<> ''`. Distinct from "field is absent", which is the case the
+    // kernels must NOT fold into it.
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        where $u.dept != ""
+        let $k := $u.city
+        group by $k
+        let $c := count($u)
+        return {"city": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void stringNotEqualOverASparseFieldExcludesTheMissingRows() throws Exception {
+    // "tier" is MISSING on about a third of the records. Those rows must NOT match `!= "gold"`:
+    // the deref is the empty sequence and a general comparison over it is false. Complementing an
+    // equality mask would match every one of them, which is the whole reason StrNe exists as its
+    // own node rather than as Not(StrEq).
+    assertOrderedDifferentialServedSparse("""
+        for $u in %s
+        where $u.tier != "gold"
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"dept": $k, "count": $c}""".formatted(SRC));
   }
 
   @Test
