@@ -66,6 +66,11 @@ public final class ClickBenchRunMain {
     throw new AssertionError("no instances");
   }
 
+  /** The harness's command line, after parsing and validation. */
+  private record Options(Path dbDir, int tries, int variant, int threads, double loadTime, boolean reuseExecutor,
+      Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected) {
+  }
+
   public static void main(final String[] args) throws Exception {
     if (args.length < 1) {
       System.err.println("Usage: ClickBenchRunMain <dbDir> [--tries N] [--queries 0,3,7-12] "
@@ -74,6 +79,63 @@ public final class ClickBenchRunMain {
       System.exit(2);
       return;
     }
+    final Options options = parseOptions(args);
+
+    final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
+    Allocators.getInstance().init(offheap);
+
+    // The differential's second leg runs the interpreter, and it only really runs the interpreter if
+    // the harness ALSO keeps its hands off: installing an executor explicitly overrides the
+    // store-resolved auto-wiring that -Dsirix.query.autoVectorize=false switches off, so honouring
+    // the kill switch here is what makes "fast path vs interpreter" an actual comparison.
+    final boolean fastPaths = !"false".equalsIgnoreCase(System.getProperty("sirix.query.autoVectorize", "true"));
+
+    final double[][] timings = new double[QUERY_COUNT][options.tries()];
+    for (final double[] row : timings) {
+      Arrays.fill(row, Double.NaN);
+    }
+
+    System.out.printf("# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s%n",
+        options.dbDir(), options.tries(), options.variant(), options.threads(), !options.reuseExecutor(), fastPaths);
+
+    try (var store = BasicJsonDBStore.newBuilder().location(options.dbDir()).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup(ClickBenchSchema.DATABASE);
+      if (collection == null) {
+        throw new IllegalStateException("no database '" + ClickBenchSchema.DATABASE + "' under " + options.dbDir()
+            + " — run ClickBenchLoadMain first");
+      }
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession(ClickBenchSchema.RESOURCE);
+      final int revision = session.getMostRecentRevisionNumber();
+
+      SirixVectorizedExecutor shared = null;
+      if (options.reuseExecutor() && fastPaths) {
+        shared = new SirixVectorizedExecutor(session, revision, options.threads());
+        SequentialPipelineStrategy.setVectorizedExecutor(shared);
+      }
+      try {
+        if (options.adHoc() != null) {
+          runAdHoc(options, chain, ctx, session, revision, shared, fastPaths);
+          session.close();
+          System.exit(0);
+        }
+        runSuite(options, chain, ctx, session, revision, fastPaths, timings);
+      } finally {
+        if (shared != null) {
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+          shared.close();
+        }
+        session.close();
+      }
+    }
+
+    report(options, timings);
+    System.exit(0);
+  }
+
+  /** Reads the command line; {@link #validate} checks the ranges. */
+  private static Options parseOptions(final String[] args) throws IOException {
     final Path dbDir = Path.of(args[0]);
     int tries = 3;
     int variant = 0;
@@ -104,137 +166,111 @@ public final class ClickBenchRunMain {
         default -> throw new IllegalArgumentException("unknown option: " + args[i]);
       }
     }
-    if (tries < 1) {
+    return validate(new Options(dbDir, tries, variant, threads, loadTime, reuseExecutor, dumpDir, jsonOut, comment,
+        adHoc, selected));
+  }
+
+  private static Options validate(final Options options) throws IOException {
+    if (options.tries() < 1) {
       throw new IllegalArgumentException("--tries must be >= 1");
     }
-    if (threads < 1) {
+    if (options.threads() < 1) {
       throw new IllegalArgumentException("--threads must be >= 1");
     }
-    if (dumpDir != null) {
-      Files.createDirectories(dumpDir);
+    if (options.dumpDir() != null) {
+      Files.createDirectories(options.dumpDir());
     }
+    return options;
+  }
 
-    final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
-    Allocators.getInstance().init(offheap);
-
-    // The differential's second leg runs the interpreter, and it only really runs the interpreter if
-    // the harness ALSO keeps its hands off: installing an executor explicitly overrides the
-    // store-resolved auto-wiring that -Dsirix.query.autoVectorize=false switches off, so honouring
-    // the kill switch here is what makes "fast path vs interpreter" an actual comparison.
-    final boolean fastPaths = !"false".equalsIgnoreCase(System.getProperty("sirix.query.autoVectorize", "true"));
-
-    final double[][] timings = new double[QUERY_COUNT][tries];
-    for (final double[] row : timings) {
-      Arrays.fill(row, Double.NaN);
+  /**
+   * Escape hatch for investigating a disagreement: runs one hand-written body against the same
+   * binding the catalog queries use and prints it.
+   */
+  private static void runAdHoc(final Options options, final SirixCompileChain chain, final SirixQueryContext ctx,
+      final JsonResourceSession session, final int revision, final SirixVectorizedExecutor shared,
+      final boolean fastPaths) throws IOException {
+    final SirixVectorizedExecutor executor = shared != null || !fastPaths
+        ? null
+        : new SirixVectorizedExecutor(session, revision, options.threads());
+    if (executor != null) {
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
     }
-
-    System.out.printf("# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s%n", dbDir,
-        tries, variant, threads, !reuseExecutor, fastPaths);
-
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-        var ctx = SirixQueryContext.createWithJsonStore(store);
-        var chain = SirixCompileChain.createWithJsonStore(store)) {
-      final JsonDBCollection collection = (JsonDBCollection) store.lookup(ClickBenchSchema.DATABASE);
-      if (collection == null) {
-        throw new IllegalStateException(
-            "no database '" + ClickBenchSchema.DATABASE + "' under " + dbDir + " — run ClickBenchLoadMain first");
-      }
-      final JsonResourceSession session = collection.getDatabase().beginResourceSession(ClickBenchSchema.RESOURCE);
-      final int revision = session.getMostRecentRevisionNumber();
-
-      SirixVectorizedExecutor shared = null;
-      if (reuseExecutor && fastPaths) {
-        shared = new SirixVectorizedExecutor(session, revision, threads);
-        SequentialPipelineStrategy.setVectorizedExecutor(shared);
-      }
-      try {
-        if (adHoc != null) {
-          // Escape hatch for investigating a disagreement: run one hand-written body against the
-          // same binding the catalog queries use, print it, and stop.
-          final SirixVectorizedExecutor executor = shared != null || !fastPaths
-              ? null
-              : new SirixVectorizedExecutor(session, revision, threads);
-          if (executor != null) {
-            SequentialPipelineStrategy.setVectorizedExecutor(executor);
-          }
-          try {
-            final long t0 = System.nanoTime();
-            final String serialized = execute(chain, ctx,
-                ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, adHoc));
-            System.out.printf("# ad-hoc query took %.3f s%n", (System.nanoTime() - t0) / 1e9);
-            System.out.println(serialized.length() > 4000
-                ? serialized.substring(0, 4000) + "…"
-                : serialized);
-          } finally {
-            if (executor != null) {
-              SequentialPipelineStrategy.setVectorizedExecutor(null);
-              executor.close();
-            }
-          }
-          session.close();
-          System.exit(0);
-        }
-        System.out.printf("%-4s | %10s | %10s | %10s | %s%n", "q", "try1(s)", "hot(s)", "rows", "note");
-        for (final ClickBenchQueries.Query query : ClickBenchQueries.all()) {
-          if (selected != null && !selected.contains(query.index())) {
-            continue;
-          }
-          final String text =
-              ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, query.jsoniq(variant));
-          String note = "";
-          long rows = -1L;
-          for (int t = 0; t < tries; t++) {
-            SirixVectorizedExecutor perTry = null;
-            if (!reuseExecutor && fastPaths) {
-              perTry = new SirixVectorizedExecutor(session, revision, threads);
-              SequentialPipelineStrategy.setVectorizedExecutor(perTry);
-            }
-            try {
-              final long t0 = System.nanoTime();
-              final String serialized = execute(chain, ctx, text);
-              timings[query.index()][t] = (System.nanoTime() - t0) / 1e9;
-              if (t == tries - 1 && dumpDir != null) {
-                rows = dump(dumpDir, query.index(), serialized);
-              }
-            } catch (final Exception e) {
-              note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
-              break;
-            } finally {
-              if (perTry != null) {
-                SequentialPipelineStrategy.setVectorizedExecutor(null);
-                perTry.close();
-              }
-            }
-          }
-          System.out.printf("%-4d | %10s | %10s | %10s | %s%n", query.index(), format(timings[query.index()][0]),
-              format(hot(timings[query.index()])), rows < 0
-                  ? "-"
-                  : Long.toString(rows),
-              note);
-        }
-      } finally {
-        if (shared != null) {
-          SequentialPipelineStrategy.setVectorizedExecutor(null);
-          shared.close();
-        }
-        session.close();
+    try {
+      final long t0 = System.nanoTime();
+      final String serialized = execute(chain, ctx,
+          ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, options.adHoc()));
+      System.out.printf("# ad-hoc query took %.3f s%n", (System.nanoTime() - t0) / 1e9);
+      System.out.println(serialized.length() > 4000
+          ? serialized.substring(0, 4000) + "…"
+          : serialized);
+    } finally {
+      if (executor != null) {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
       }
     }
+  }
 
-    final long dataSize = ClickBenchLoadMain.directorySize(dbDir);
+  /** Runs the selected queries {@code --tries} times each, filling {@code timings} in place. */
+  private static void runSuite(final Options options, final SirixCompileChain chain, final SirixQueryContext ctx,
+      final JsonResourceSession session, final int revision, final boolean fastPaths, final double[][] timings)
+      throws IOException {
+    System.out.printf("%-4s | %10s | %10s | %10s | %s%n", "q", "try1(s)", "hot(s)", "rows", "note");
+    for (final ClickBenchQueries.Query query : ClickBenchQueries.all()) {
+      if (options.selected() != null && !options.selected().contains(query.index())) {
+        continue;
+      }
+      final String text =
+          ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, query.jsoniq(options.variant()));
+      String note = "";
+      long rows = -1L;
+      for (int t = 0; t < options.tries(); t++) {
+        SirixVectorizedExecutor perTry = null;
+        if (!options.reuseExecutor() && fastPaths) {
+          perTry = new SirixVectorizedExecutor(session, revision, options.threads());
+          SequentialPipelineStrategy.setVectorizedExecutor(perTry);
+        }
+        try {
+          final long t0 = System.nanoTime();
+          final String serialized = execute(chain, ctx, text);
+          timings[query.index()][t] = (System.nanoTime() - t0) / 1e9;
+          if (t == options.tries() - 1 && options.dumpDir() != null) {
+            rows = dump(options.dumpDir(), query.index(), serialized);
+          }
+        } catch (final Exception e) {
+          note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
+          break;
+        } finally {
+          if (perTry != null) {
+            SequentialPipelineStrategy.setVectorizedExecutor(null);
+            perTry.close();
+          }
+        }
+      }
+      System.out.printf("%-4d | %10s | %10s | %10s | %s%n", query.index(), format(timings[query.index()][0]),
+          format(hot(timings[query.index()])), rows < 0
+              ? "-"
+              : Long.toString(rows),
+          note);
+    }
+  }
+
+  /** The ClickBench output contract: a Load time line, a Data size line, then 43 timing rows. */
+  private static void report(final Options options, final double[][] timings) throws IOException {
+    final long dataSize = ClickBenchLoadMain.directorySize(options.dbDir());
     System.out.println();
-    if (loadTime >= 0) {
-      System.out.printf(Locale.ROOT, "Load time: %.3f%n", loadTime);
+    if (options.loadTime() >= 0) {
+      System.out.printf(Locale.ROOT, "Load time: %.3f%n", options.loadTime());
     }
     System.out.printf("Data size: %d%n", dataSize);
     for (int q = 0; q < QUERY_COUNT; q++) {
       System.out.println(formatRow(timings[q]));
     }
-    if (jsonOut != null) {
-      writeResultsJson(jsonOut, timings, loadTime, dataSize, comment);
-      System.out.printf("# results JSON: %s%n", jsonOut.toAbsolutePath());
+    if (options.jsonOut() != null) {
+      writeResultsJson(options.jsonOut(), timings, options.loadTime(), dataSize, options.comment());
+      System.out.printf("# results JSON: %s%n", options.jsonOut().toAbsolutePath());
     }
-    System.exit(0);
   }
 
   private static String requireValue(final String[] args, final int index, final String option) {
