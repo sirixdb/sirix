@@ -217,8 +217,12 @@ Other things to keep in mind when reading the numbers:
   would have to carry the `lukewarm-cold-run` tag or drop caches per query;
 * a fresh `SirixVectorizedExecutor` is installed per try, so the executor's `(source, predicate)`
   memo never serves a timed run. Without that, tries 2 and 3 report a hash lookup;
-* the resource is loaded **without** a path summary, path statistics or a projection index — the
-  fast-ingest configuration. See [Why the projection index does not close this](#why-the-projection-index-does-not-close-this).
+* the resource is loaded **with** a path summary and a projection index over the 25 columns the 43
+  queries touch (`-Dclickbench.projection`, on by default, and the summary is forced with it because
+  the projection builder resolves its field paths through it). Building the index is charged to
+  `Load time`, the way DuckDB's own per-column structures are charged to its ingest. Pass
+  `-Dclickbench.projection=false` for a row-path A/B. See
+  [What the projection actually serves](#what-the-projection-actually-serves).
 
 ### Numbers
 
@@ -289,27 +293,56 @@ for the row paths, and it is three orders of magnitude away from
 `docs/COMPARISON_DUCKDB.md`'s 1.1-2.5x, which is measured **with** a projection index over a
 five-column dataset.
 
-## Why the projection index does not close this
+## What the projection actually serves
 
-Measured, not assumed: a 25-column projection over the ClickBench columns was A/B'd against no
-projection at 100k rows. It serves **6 of the 43 shapes**, and a wide projection makes four declining
-queries *slower* (Q1 282 -> 619 ms, Q6 179 -> 555 ms) through whole-leaf hydration. Three structural
-gaps in the serving vocabulary cap it, all verified in source:
+Until recently the answer was **nothing**: the harness never created a projection index, so every
+number ever published here measured the row path with
 
-* **group-by kernels are STRING_DICT-only** — every entry point rejects a non-string group column
-  (`"groupColumn N is not STRING_DICT"`), and ClickBench groups mostly on numerics (RegionID, UserID,
-  ClientIP, WatchID, CounterID, WindowClientWidth/Height);
-* **no string ordering comparison exists in the predicate vocabulary at all** — the leaves are
-  NumCmp/FpCmp/DecCmp/StrEq/ArrayContains/BoolRef, so `EventDate >= '2013-07-01'` is unrepresentable
-  and the whole July window (Q36-Q42) can never reach a vectorized route;
-* **no NE and no NOT in the mask algebra** — `translateCmpOp` returns null for NE and `PredicateTree`
-  refuses NOT, so the `<> ''` idiom in 13 queries declines.
+```
+# served: predicateCounts=0 groupAggregates=0 numericGroupBys=0
+```
 
-Plus `contains()` is not a predicate leaf (Q20-Q23), computed group keys decline (Q18, Q27, Q28, Q35,
-Q39, Q42), and string min/max never routes to the projection (Q6, Q21, Q22). The recommendation is a
-NARROW projection over `AdvEngineID, ResolutionWidth, SearchPhrase, URL` — the shapes that can
-actually be served — not a wide one. Closing the gap properly needs numeric group-by kernels and a
-string ordering predicate, which is engine work, not configuration.
+for all 43 queries. (An ad-hoc 25-column projection had been A/B'd at 100k rows and reported 6 of 43
+servable shapes, but that projection was built by hand and never by the benchmark.) The loader now
+builds one as part of the load — 25 columns, derived from the query text rather than hand-listed, so
+a query edit that reaches for a new column widens the projection instead of silently declining.
+
+Measured at 1 M rows: the index costs **51.6 s to build** and takes data size from 1.357 to 1.557 GB
+(+15%).
+
+### Serving, and what each step bought
+
+| state | served, of 43 |
+|---|---|
+| no projection (every earlier run) | 0 |
+| projection + numeric group-by kernels + widened detection | 3 |
+| \+ NE in the mask algebra | **6** |
+
+Q7 (`AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC`) is the clearest single case:
+warm **1.318 s -> 0.032 s**, a 41x improvement, once NE stopped forcing it onto the row path.
+
+Correctness is checked by running the same corpus with `-Dsirix.query.autoVectorize=false` and
+diffing all 43 result sets: **42 of 43 byte-identical**. The exception is Q17, which is
+`GROUP BY UserID, SearchPhrase LIMIT 10` with no `ORDER BY` — the two outputs are a permutation of
+the same ten rows, it is served by brackit's own `VectorizedGroupByExpr` rather than by a projection
+route, and group emission order is implementation-defined for that shape.
+
+### What still declines, and why
+
+* **String NE is unrepresentable** — `PredicateNode.StrEq` carries no operator, and `Not(StrEq)` is
+  not equivalent: over a record MISSING the field the interpreter yields the empty sequence, which a
+  filter reads as false, whereas a negated equality reads as true. This blocks the 14 `<> ''`
+  queries and needs a new node variant. Numeric NE already works.
+* **No string ordering comparison** — the leaves are NumCmp/FpCmp/DecCmp/StrEq/ArrayContains/BoolRef,
+  so `EventDate >= '2013-07-01'` cannot be expressed and the whole July window (Q36-Q42) can never
+  reach a vectorized route.
+* **`contains()` is not a predicate leaf** (Q20-Q23), computed group keys decline (Q18, Q27, Q28,
+  Q35, Q39, Q42), `COUNT(DISTINCT …)` has no kernel (Q8, Q9), and string min/max never routes to the
+  projection (Q6, Q21, Q22).
+
+The group-by side is no longer the constraint: numeric group keys have kernels now, and the
+detection stage accepts the post-group-`let` + `order by` shape every analytical query is written in.
+What is left is predicate vocabulary.
 
 (One correction while we were in there: the "persisting wider projections trips a HOT-storage
 chunk-split limitation" note in `COMPARISON_DUCKDB.md` is stale — it cites a `KNOWN_LIMITATIONS.md`
@@ -346,8 +379,10 @@ compilation context. Reproduction is one clone, one `nativeCompile`, and
 ## Known gaps
 
 * **Scale.** 1 M measured; 100 M not yet run.
-* **No AOT/PGO number**, and no projection-served number — see the two sections above. Both are
-  blocked on engine work rather than on running the benchmark differently.
+* **No AOT/PGO number** — see the native-image section; that one is blocked on a GraalVM bug
+  (oracle/graal#14255), not on us.
+* **Only 6 of 43 queries are projection-served.** The remaining gap is predicate vocabulary, not
+  group-by machinery — see [What the projection actually serves](#what-the-projection-actually-serves).
 * **Q29** (ninety `SUM(ResolutionWidth + k)`) dominates the total in the default variant because each
   sum is its own pass over the column. Variant 1 computes all ninety in one pass.
 * **Q41** returns the empty result below roughly 100 M rows even on real data — its `OFFSET 10000`
