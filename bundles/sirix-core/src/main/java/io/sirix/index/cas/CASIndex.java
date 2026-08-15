@@ -413,25 +413,27 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
    */
   private static @Nullable NodeReferences exactMatches(final StorageEngineReader storageEngineReader,
       final NodeReferences candidates, final Atomic wanted, final Type contentType) {
-    final byte[] wantedBytes = wanted.stringValue().getBytes(StandardCharsets.UTF_8);
-    // Which comparison to use is a property of the INDEX, not of the candidate's node kind. A numeric
-    // index stores its values through a narrowing encoder, and the SAME logical number reaches the
-    // re-check as a NumericValueNode in JSON and as raw lexical bytes in XML — so dispatching on the
-    // node would compare "19.990" against "19.99" for the XML case and drop a row that matches.
-    // Hoisted out of the loop as well: it is the same for every candidate, and the sibling
-    // wantedBytes was already hoisted for exactly that reason.
-    final BigDecimal wantedNumber = CASKeySerializer.isNumericFamily(contentType)
+    if (storageEngineReader.hasTrxIntentLog()) {
+      return candidates; // writer-backed: cannot be shadowed, and must not be borrowed — see above
+    }
+    // ONE type dispatch, not two. isNumericFamily walks Type#instanceOf's parent chain, which
+    // getTypeId's own comment calls a pointer chase worth ordering by frequency, and the answer is
+    // loop-invariant. Two calls also coupled the branches by convention alone: editing one to a
+    // different type would have silently changed what the null check below meant.
+    final boolean numeric = CASKeySerializer.isNumericFamily(contentType);
+    final BigDecimal wantedNumber = numeric
         ? parseOrNull(wanted.stringValue())
         : null;
-    if (CASKeySerializer.isNumericFamily(contentType) && wantedNumber == null) {
+    if (numeric && wantedNumber == null) {
       // A numeric probe that is not a finite number — NaN or an infinity. The encoder canonicalizes
       // NaN onto a real value's key, so the seek's posting list is other values entirely; and XQuery
       // gives NaN no equals, so the answer is empty rather than that posting list.
       return null;
     }
-    if (storageEngineReader.hasTrxIntentLog()) {
-      return candidates; // writer-backed: cannot be shadowed, and must not be borrowed — see above
-    }
+    // Built only where it is read. matchesExactly consults it on the lexical path, and on the
+    // numeric path only to short-circuit an exact byte hit, so a numeric index still needs it — but
+    // a writer-backed reader, which returned above, now allocates neither this nor the BigDecimal.
+    final byte[] wantedBytes = wanted.stringValue().getBytes(StandardCharsets.UTF_8);
     final long candidateCount = candidates.cardinality();
     // GROWN, not sized from the cardinality. A posting list is unbounded — a value shared by a
     // 246-byte prefix across millions of documents is exactly what drives a probe into this method —
@@ -493,16 +495,24 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
    */
   private static boolean matchesExactly(final DataRecord record, final byte[] wantedBytes,
       final @Nullable BigDecimal wantedNumber) {
+    // BYTES FIRST, on both paths, because byte-identical settles a match either way and this runs
+    // once per candidate. The numeric branch below allocates a String and a BigDecimal per candidate
+    // and then parses a decimal, while the overwhelmingly common case is that the stored lexical
+    // bytes are exactly the probe's — so the vectorized Arrays.equals answers nearly every candidate
+    // and the decimal machinery is left for the case it exists to handle, where 1.50 must still match
+    // a probe of 1.5.
+    if (record instanceof final ValueNode valueNode && Arrays.equals(valueNode.getRawValue(), wantedBytes)) {
+      return true;
+    }
     if (wantedNumber != null) {
-      // Numeric index: compare NUMBERS, whatever shape the node stores them in. 1.50 and 1.5 are the
-      // same value and must both match a probe of 1.5; a lexical comparison would drop one of them.
+      // Numeric index: compare NUMBERS, whatever shape the node stores them in. The same logical
+      // number reaches here as a NumericValueNode in JSON and as raw lexical bytes in XML, and 1.50
+      // and 1.5 are one value — a byte comparison alone would drop rows for both reasons.
       final BigDecimal stored = storedNumber(record);
       return stored == null || stored.compareTo(wantedNumber) == 0;
     }
-    if (record instanceof final ValueNode valueNode) {
-      return Arrays.equals(valueNode.getRawValue(), wantedBytes);
-    }
-    return true;
+    // A lexical index whose bytes did not match is a non-match; anything this cannot read is KEPT.
+    return !(record instanceof ValueNode);
   }
 
   /**

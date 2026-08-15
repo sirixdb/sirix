@@ -328,7 +328,8 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * <li>Negative values: XOR all bits</li>
    * </ul>
    */
-  private int encodeNumericOrderPreserving(Atomic value, byte[] dest, int offset, boolean roundToFloat) {
+  private int encodeNumericOrderPreserving(final Atomic value, final byte[] dest, final int offset,
+      final boolean roundToFloat) {
     double d;
     if (value instanceof Numeric numeric) {
       d = numeric.doubleValue();
@@ -351,6 +352,20 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // Canonicalize NaN to sort last
     if (Double.isNaN(d)) {
       d = Double.MAX_VALUE;
+    }
+
+    // Collapse -0.0 onto +0.0, and note this is a CORRECTNESS fix, not tidiness. The sign-flip below
+    // branches on the VALUE (`d >= 0`), and `-0.0 >= 0` is true in Java while
+    // doubleToLongBits(-0.0) has the sign bit SET — so -0.0 took the positive branch and XORed to
+    // 0x0000000000000000, the absolute minimum key, sorting below -Infinity. `eq 0.0` then missed a
+    // stored -0.0, and any range spanning zero silently excluded it.
+    //
+    // Canonicalizing rather than branching on the sign bit is what XQuery asks for: -0.0 eq 0.0 is
+    // TRUE, so the two must share a key. Branching on the bit pattern instead would order them
+    // correctly but give them DISTINCT keys, which would break equality in the other direction.
+    // `d == 0.0` is true for both zeros, so this one comparison catches it.
+    if (d == 0.0) {
+      d = 0.0;
     }
 
     long bits = Double.doubleToLongBits(d);
@@ -514,10 +529,10 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * FALSE for everything else, which falls through to that method's string branch and is stored as
    * its raw lexical form. {@code xs:duration} is the family that matters there: lexical text order is
    * not duration order, so a byte-bounded scan would silently drop matching records, and callers fall
-   * back to a typed {@link io.sirix.index.cas.CASFilterRange#inRange} comparison — which is exactly
-   * what a {@code false} answer here makes {@code CASIndex} do. The instant family was in this
-   * paragraph while it was stored lexically; it is not any more, and the block comment at the top of
-   * this class records what that encoding got wrong.
+   * back to a typed {@code CASFilterRange#inRange} comparison — which is exactly what a {@code false}
+   * answer here makes {@code CASIndex} do. The instant family was in this paragraph while it was
+   * stored lexically; it is not any more, and the block comment at the top of this class records what
+   * that encoding got wrong.
    *
    * <p>
    * <b>This predicate is deliberately NOT "does the type have an id".</b> Those are different
@@ -603,6 +618,14 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // Lossless across the whole signed 64-bit range and SATURATING outside it, so a probe inside the
     // range can only be reported lossy by genuinely being outside it. Two values collide only when
     // both overflow the same end, and this round trip catches exactly that.
+    if (numeric instanceof Int32 || numeric instanceof Int64) {
+      // Primitive-backed, so longValue() is exact and the BigDecimal round trip below can only
+      // confirm what the type already guarantees. NOT simply false, though: Long.MAX_VALUE and
+      // Long.MIN_VALUE are the saturation sentinels every out-of-range value collapses onto, so an
+      // Int64 holding one of them genuinely does share its key and still needs the re-check.
+      final long exactly = numeric.longValue();
+      return exactly == Long.MAX_VALUE || exactly == Long.MIN_VALUE;
+    }
     final BigDecimal exact;
     try {
       exact = new BigDecimal(numeric.stringValue());

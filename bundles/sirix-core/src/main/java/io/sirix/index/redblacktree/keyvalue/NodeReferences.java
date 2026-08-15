@@ -185,12 +185,12 @@ public final class NodeReferences implements References {
    */
   public static boolean isSortedAscending(final long[] keys) {
     Objects.requireNonNull(keys, "keys");
-    for (int i = 1, n = keys.length; i < n; i++) {
-      if (Long.compareUnsigned(keys[i - 1], keys[i]) >= 0) {
-        return false;
-      }
-    }
-    return true;
+    // Delegates rather than repeating the loop, so the throwing and answering entry points cannot
+    // come to enforce different contracts — which is what firstNonAscendingIndex's own javadoc
+    // promises and what a second copy of the scan would quietly break. A divergence here is silent:
+    // a run this accepted and requireAscending rejected would be memoized by the lookup cache and
+    // then make contains()'s unsigned binary search report present node keys as absent.
+    return firstNonAscendingIndex(keys) < 0;
   }
 
   /**

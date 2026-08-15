@@ -32,8 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Today these invariants hold largely for free: {@code acquireGuard} and {@code close} are
  * {@code synchronized} on the page, so every check-then-act is atomic by mutual exclusion — at 31.6
  * ns per uncontended acquire/release pair ({@code CursorGuardCostBenchmark}). That cost is the
- * reason to move the count out of its own {@link java.util.concurrent.atomic.AtomicInteger} and in
- * beside the orphaned and closed bits, so each operation becomes a single CAS on one word.
+ * reason to move the count out of its own {@link AtomicInteger} and in beside the orphaned and
+ * closed bits, so each operation becomes a single CAS on one word.
  *
  * <p>
  * These tests exist AHEAD of that change, and deliberately: they pin the invariants against the

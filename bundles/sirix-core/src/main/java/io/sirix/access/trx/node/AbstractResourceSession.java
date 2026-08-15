@@ -130,6 +130,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * truncation drop the databaseId slice, {@code Databases.clearGlobalCaches()} (cold-process
    * simulation in tests) drops everything.
    */
+  // FULLY QUALIFIED deliberately, and it must stay that way: io.sirix.cache.Cache is imported in
+  // this file, so a single-type-import of Caffeine's Cache does not compile ("a type with the same
+  // simple name is already defined"). A review flagged this as a CLAUDE.md violation; it is the one
+  // place the rule cannot be followed without renaming one of the two types.
   private static final com.github.benmanes.caffeine.cache.Cache<RevisionInfoKey, RevisionInfo> REVISION_INFO_CACHE =
       com.github.benmanes.caffeine.cache.Caffeine.newBuilder().maximumSize(100_000).build();
 

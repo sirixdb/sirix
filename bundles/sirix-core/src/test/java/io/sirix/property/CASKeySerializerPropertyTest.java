@@ -170,7 +170,8 @@ final class CASKeySerializerPropertyTest {
         Arbitraries.longs().map(v -> Tuple.of((Atomic) new Int64(v), String.valueOf(v), Type.INR)),
         bigIntegerValues().map(v -> Tuple.of((Atomic) new Int(new BigDecimal(v)), v.toString(), Type.INR)),
         decimalValues().map(v -> Tuple.of((Atomic) new Dec(v), v.toString(), Type.DEC)),
-        Arbitraries.doubles().map(v -> Tuple.of((Atomic) new Dbl(v), String.valueOf(v), Type.DBL)),
+        Arbitraries.oneOf(Arbitraries.doubles(), Arbitraries.of(-0.0d, 0.0d))
+                   .map(v -> Tuple.of((Atomic) new Dbl(v), String.valueOf(v), Type.DBL)),
         Arbitraries.floats().map(v -> Tuple.of((Atomic) new Flt(v), String.valueOf(v), Type.FLO)));
   }
 
@@ -198,7 +199,27 @@ final class CASKeySerializerPropertyTest {
   Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> distinctLosslessPairs() {
     return Arbitraries.oneOf(pairsOf(shortStrings(), Type.STR), pairsOf(longs(), Type.INR),
         pairsOf(finiteDoubles(), Type.DBL), pairsOf(booleans(), Type.BOOL))
-                      .filter(p -> p.get1().get1().compareTo(p.get1().get2()) != 0);
+                      .filter(p -> areDistinctValues(p.get1().get1(), p.get1().get2()));
+  }
+
+  /**
+   * Whether two atomics are distinct VALUES, which is not the same question as
+   * {@code compareTo != 0}.
+   *
+   * <p>
+   * {@code Double.compare} is a TOTAL order and separates {@code -0.0} from {@code 0.0}; XQuery's
+   * {@code eq} does not — {@code -0.0 eq 0.0} is true. Injectivity is a statement about equality, so
+   * the zero pair must be excluded here, and in fact the encoder is required to give it ONE key:
+   * canonicalizing {@code -0.0} is what stops it landing on the minimum key, below {@code -Infinity}.
+   * The sibling ordering property uses {@code compareTo} precisely because ordering IS the total
+   * order. The two properties disagree about this pair on purpose.
+   * </p>
+   */
+  private static boolean areDistinctValues(final Atomic a, final Atomic b) {
+    if (a instanceof final Dbl left && b instanceof final Dbl right) {
+      return left.doubleValue() != right.doubleValue();
+    }
+    return a.compareTo(b) != 0;
   }
 
   private static <A extends Atomic> Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> pairsOf(final Arbitrary<A> values,
@@ -255,10 +276,26 @@ final class CASKeySerializerPropertyTest {
     return Arbitraries.doubles().map(Dbl::new);
   }
 
+  /**
+   * Doubles with the two ZEROS forced in.
+   *
+   * <p>
+   * {@code Arbitraries.doubles()} does not reliably produce {@code -0.0}, and its absence is exactly
+   * why these properties passed over an encoder that mapped it to the minimum key — below
+   * {@code -Infinity}. A generator that never emits the interesting value makes a property a
+   * decoration, which is the failure mode jqwik's {@code Statistics.collect} exists to expose.
+   * </p>
+   */
+  private static Arbitrary<Dbl> doublesWithZeros() {
+    return Arbitraries.oneOf(Arbitraries.doubles(), Arbitraries.of(-0.0d, 0.0d)).map(Dbl::new);
+  }
+
   private static Arbitrary<Dbl> finiteDoubles() {
     // NaN is canonicalized onto Double.MAX_VALUE's key by design, so it is neither ordered nor
     // injective and is excluded from those two properties rather than asserted about wrongly.
-    return Arbitraries.doubles().filter(d -> !Double.isNaN(d)).map(Dbl::new);
+    return Arbitraries.oneOf(Arbitraries.doubles(), Arbitraries.of(-0.0d, 0.0d))
+                      .filter(d -> !Double.isNaN(d))
+                      .map(Dbl::new);
   }
 
   private static Arbitrary<Flt> floats() {
