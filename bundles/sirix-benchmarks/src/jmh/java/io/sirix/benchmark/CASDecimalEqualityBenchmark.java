@@ -156,8 +156,7 @@ public class CASDecimalEqualityBenchmark {
     Files.delete(databaseDirectory.toPath());
     Databases.createJsonDatabase(new DatabaseConfiguration(databaseDirectory.toPath()));
     database = Databases.openJsonDatabase(databaseDirectory.toPath());
-    database.createResource(
-        ResourceConfiguration.newBuilder(RESOURCE).indexBackendType(IndexBackendType.HOT).build());
+    database.createResource(ResourceConfiguration.newBuilder(RESOURCE).indexBackendType(IndexBackendType.HOT).build());
 
     queriedPaths = Set.of(VALUE_PATH);
     indexDef = buildIndex(values, encoding);
@@ -177,10 +176,9 @@ public class CASDecimalEqualityBenchmark {
     for (int i = 0; i < DISTINCT_VALUES; i++) {
       final long cardinality = totalCardinality(probes[i]);
       if (cardinality != POSTINGS_PER_VALUE) {
-        throw new IllegalStateException(
-            "width=" + width + " contentType=" + contentType + " probe=" + values[i] + " resolved to " + cardinality
-                + " postings, expected " + POSTINGS_PER_VALUE
-                + " — the benchmark would be timing a lookup that does not find its value");
+        throw new IllegalStateException("width=" + width + " contentType=" + contentType + " probe=" + values[i]
+            + " resolved to " + cardinality + " postings, expected " + POSTINGS_PER_VALUE
+            + " — the benchmark would be timing a lookup that does not find its value");
       }
     }
   }

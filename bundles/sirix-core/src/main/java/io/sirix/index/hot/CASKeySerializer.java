@@ -569,9 +569,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * {@link #normalizedDecimalString}, which is what makes it usable as a fast path there. Stripping
    * {@code k} trailing zeros takes precision {@code p} to {@code p - k} and scale {@code s} to
    * {@code s - k}; working the three cases below through that substitution — including the
-   * transitions where stripping moves a value from one case to another — the stripped length is
-   * never the greater. So a caller may conclude "it fits" from this alone, and need fall back to
-   * formatting only where this says the value might not.
+   * transitions where stripping moves a value from one case to another — the stripped length is never
+   * the greater. So a caller may conclude "it fits" from this alone, and need fall back to formatting
+   * only where this says the value might not.
    * </p>
    *
    * @param exact the value

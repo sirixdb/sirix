@@ -252,11 +252,10 @@ final class CASKeySerializerPropertyTest {
    * enough. In an EXTENSION pair one value is a textual prefix of the other, so their suffixes first
    * differ where the shorter one has ended — the comparison lands on the terminator, and only the
    * terminator's side of the encoding is under test. Every original pair was of that shape, which
-   * left the digit comparison itself unexercised: perturbing the suffix bytes with an
-   * order-inverting but bijective transform kept this property green, because the transform never
-   * reached a position where two DIGITS met. The DIVERGENT pairs collide on the same double and
-   * differ at a digit instead, in both signs, so the complement now has to be right for digits as
-   * well as for lengths.
+   * left the digit comparison itself unexercised: perturbing the suffix bytes with an order-inverting
+   * but bijective transform kept this property green, because the transform never reached a position
+   * where two DIGITS met. The DIVERGENT pairs collide on the same double and differ at a digit
+   * instead, in both signs, so the complement now has to be right for digits as well as for lengths.
    * </p>
    */
   private static Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> collidingDecimalPairs() {

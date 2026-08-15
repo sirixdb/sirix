@@ -16,10 +16,11 @@ import java.io.IOException;
  * The two sides of a CAS index reach {@code CASKeySerializer} in different shapes, and each defect
  * below is one place where they encoded the same logical value to different keys — or two different
  * values to the same key. {@code CASIndexBuilder} stores every indexed value as a {@code Str} (it
- * builds one from the node's lexical form), while {@code ScanCASIndex} casts the query's argument to
- * the index's declared content type, so the probe arrives as a {@code Bool}, {@code Flt}, {@code Dbl}
- * or {@code Dec}. Anything in the encoder that behaves differently for a {@code Str} than for the
- * typed atomic splits the two sides apart, and the query silently returns the wrong rows.
+ * builds one from the node's lexical form), while {@code ScanCASIndex} casts the query's argument
+ * to the index's declared content type, so the probe arrives as a {@code Bool}, {@code Flt},
+ * {@code Dbl} or {@code Dec}. Anything in the encoder that behaves differently for a {@code Str}
+ * than for the typed atomic splits the two sides apart, and the query silently returns the wrong
+ * rows.
  * </p>
  *
  * <p>
@@ -27,18 +28,19 @@ import java.io.IOException;
  * whose contents are visible above it. All three failed before the encoder fixes:
  * </p>
  * <ul>
- * <li><b>boolean</b> — the encoder called {@code Atomic#booleanValue()}, which is XQuery's EFFECTIVE
- * boolean value. On the stored {@code Str} that is "the string is non-empty", so {@code "false"}
- * encoded to byte 1 exactly as {@code "true"} did: both values shared one key and one posting list.
- * The probe, a real {@code Bool}, encoded {@code false()} to byte 0 and matched nothing, so
- * {@code = false()} returned 0 rows and {@code = true()} returned every boolean node.</li>
+ * <li><b>boolean</b> — the encoder called {@code Atomic#booleanValue()}, which is XQuery's
+ * EFFECTIVE boolean value. On the stored {@code Str} that is "the string is non-empty", so
+ * {@code "false"} encoded to byte 1 exactly as {@code "true"} did: both values shared one key and
+ * one posting list. The probe, a real {@code Bool}, encoded {@code false()} to byte 0 and matched
+ * nothing, so {@code = false()} returned 0 rows and {@code = true()} returned every boolean
+ * node.</li>
  * <li><b>float</b> — the stored {@code Str} took the parse branch and gave
  * {@code Double.parseDouble("1.1")}, while the {@code Flt} probe gave {@code (double) 1.1f}. Those
  * differ in the low bits, so the keys differed and {@code = 1.1} found nothing at all.</li>
- * <li><b>decimal</b> — the equality re-check is gated on
- * {@code CASKeySerializer#losesInformation}, which used to ask whether the PROBE was exactly a
- * double. {@code 0.5} is, so the re-check was switched off for it — while a stored value differing
- * only past double precision encodes to that same double and came back as a hit.</li>
+ * <li><b>decimal</b> — the equality re-check is gated on {@code CASKeySerializer#losesInformation},
+ * which used to ask whether the PROBE was exactly a double. {@code 0.5} is, so the re-check was
+ * switched off for it — while a stored value differing only past double precision encodes to that
+ * same double and came back as a hit.</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -66,8 +68,8 @@ public final class CASKeyTypedEncodingTest extends AbstractJsonTest {
   }
 
   private static String createIndex(final String type, final String path) {
-    return "let $doc := jn:doc('json-path1','mydoc.jn') " + "let $i := jn:create-cas-index($doc,'" + type + "','"
-        + path + "') return sdb:commit($doc)";
+    return "let $doc := jn:doc('json-path1','mydoc.jn') " + "let $i := jn:create-cas-index($doc,'" + type + "','" + path
+        + "') return sdb:commit($doc)";
   }
 
   private static String countMatching(final String type, final String path, final String probe) {
@@ -78,8 +80,8 @@ public final class CASKeyTypedEncodingTest extends AbstractJsonTest {
   @Test
   @DisplayName("a boolean index separates false from true, having merged both onto one key before")
   void aBooleanIndexSeparatesFalseFromTrue() throws IOException {
-    test(store(BOOL_DOC), createIndex("xs:boolean", "/[]/flag"),
-        countMatching("xs:boolean", "/[]/flag", "false()"), "2");
+    test(store(BOOL_DOC), createIndex("xs:boolean", "/[]/flag"), countMatching("xs:boolean", "/[]/flag", "false()"),
+        "2");
   }
 
   @Test
@@ -94,8 +96,8 @@ public final class CASKeyTypedEncodingTest extends AbstractJsonTest {
   @Test
   @DisplayName("a float index finds a value whose float and double parses differ")
   void aFloatIndexFindsANonDyadicValue() throws IOException {
-    test(store(FLOAT_DOC), createIndex("xs:float", "/[]/m"),
-        countMatching("xs:float", "/[]/m", "xs:float('1.1')"), "2");
+    test(store(FLOAT_DOC), createIndex("xs:float", "/[]/m"), countMatching("xs:float", "/[]/m", "xs:float('1.1')"),
+        "2");
   }
 
   @Test
