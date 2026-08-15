@@ -2,8 +2,12 @@ package io.sirix.query.bench.clickbench;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * The 43 <a href="https://github.com/ClickHouse/ClickBench">ClickBench</a> queries, ported from SQL
@@ -102,6 +106,37 @@ public final class ClickBenchQueries {
       throw new IndexOutOfBoundsException("no ClickBench query with index " + index);
     }
     return QUERIES.get(index);
+  }
+
+  /** Matches {@code $var.Column} — the only way these queries reach a field. */
+  private static final Pattern FIELD_DEREF = Pattern.compile("\\$\\w+\\.([A-Za-z_][A-Za-z0-9_]*)");
+
+  /**
+   * Every column name the queries dereference, across ALL variants.
+   *
+   * <p>
+   * Read off the query text rather than maintained by hand: this drives which columns
+   * {@link ClickBenchProjection} projects, and a hand-kept list would drift the moment a query is
+   * edited — silently, as a decline at run time instead of a build error.
+   *
+   * <p>
+   * Names that are not columns are NOT filtered here (a group key bound to a literal, say). The
+   * caller cross-checks against {@link ClickBenchSchema#COLUMNS}, so an unknown name surfaces as an
+   * error rather than being quietly dropped.
+   *
+   * @return the dereferenced names, in first-appearance order
+   */
+  public static Set<String> referencedColumns() {
+    final Set<String> columns = new LinkedHashSet<>();
+    for (final Query query : QUERIES) {
+      for (final String variant : query.variants()) {
+        final Matcher matcher = FIELD_DEREF.matcher(variant);
+        while (matcher.find()) {
+          columns.add(matcher.group(1));
+        }
+      }
+    }
+    return columns;
   }
 
   /**

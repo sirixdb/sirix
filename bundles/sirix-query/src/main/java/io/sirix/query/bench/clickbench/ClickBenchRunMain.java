@@ -68,14 +68,14 @@ public final class ClickBenchRunMain {
 
   /** The harness's command line, after parsing and validation. */
   private record Options(Path dbDir, int tries, int variant, int threads, double loadTime, boolean reuseExecutor,
-      Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected) {
+      Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected, boolean buildProjection) {
   }
 
   public static void main(final String[] args) throws Exception {
     if (args.length < 1) {
       System.err.println("Usage: ClickBenchRunMain <dbDir> [--tries N] [--queries 0,3,7-12] "
           + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
-          + "[--load-time SECONDS] [--reuse-executor] [--comment TEXT]");
+          + "[--load-time SECONDS] [--reuse-executor] [--build-projection] [--comment TEXT]");
       System.exit(2);
       return;
     }
@@ -89,6 +89,14 @@ public final class ClickBenchRunMain {
     // store-resolved auto-wiring that -Dsirix.query.autoVectorize=false switches off, so honouring
     // the kill switch here is what makes "fast path vs interpreter" an actual comparison.
     final boolean fastPaths = !"false".equalsIgnoreCase(System.getProperty("sirix.query.autoVectorize", "true"));
+
+    // Corpora loaded before the projection became part of the load have none, and re-ingesting a
+    // large one to add an index is pure waste — build it in place first, then measure as usual.
+    if (options.buildProjection()) {
+      final double seconds = ClickBenchProjection.create(options.dbDir());
+      System.out.printf("# projection: columns=%d built in %.3f s%n", ClickBenchProjection.PROJECTED_COLUMNS.size(),
+          seconds);
+    }
 
     final double[][] timings = new double[QUERY_COUNT][options.tries()];
     for (final double[] row : timings) {
@@ -147,6 +155,7 @@ public final class ClickBenchRunMain {
     String comment = null;
     String adHoc = null;
     Set<Integer> selected = null;
+    boolean buildProjection = false;
 
     for (int i = 1; i < args.length; i++) {
       switch (args[i]) {
@@ -163,11 +172,12 @@ public final class ClickBenchRunMain {
         case "--query-file" ->
           adHoc = Files.readString(Path.of(requireValue(args, ++i, "--query-file")), StandardCharsets.UTF_8);
         case "--reuse-executor" -> reuseExecutor = true;
+        case "--build-projection" -> buildProjection = true;
         default -> throw new IllegalArgumentException("unknown option: " + args[i]);
       }
     }
     return validate(new Options(dbDir, tries, variant, threads, loadTime, reuseExecutor, dumpDir, jsonOut, comment,
-        adHoc, selected));
+        adHoc, selected, buildProjection));
   }
 
   private static Options validate(final Options options) throws IOException {

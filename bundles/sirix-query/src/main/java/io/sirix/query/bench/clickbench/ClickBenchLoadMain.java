@@ -44,10 +44,20 @@ import java.util.stream.Stream;
  * <ul>
  * <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
  * <li>{@code -Dsirix.autoCommit.nodes} (default 131072) — auto-commit window in nodes;</li>
- * <li>{@code -DbuildPathSummary} (default false), {@code -DbuildPathStatistics} (default false),
- * {@code -DhashType} (default NONE) — structures the analytical queries do not need;</li>
+ * <li>{@code -Dclickbench.projection} (default true) — build the projection index over the columns
+ * the 43 queries touch, as part of the load. Without it the benchmark measures the row path alone
+ * and no column or group-by kernel is reachable, which is what every earlier run did;</li>
+ * <li>{@code -DbuildPathSummary} (defaults to {@code clickbench.projection}) — the projection
+ * builder resolves its field paths through the summary, so the two cannot disagree;</li>
+ * <li>{@code -DbuildPathStatistics} (default false), {@code -DhashType} (default NONE) — structures
+ * the analytical queries do not need;</li>
  * <li>{@code -Dclickbench.validate} (default true) — post-load type check of the first record.</li>
  * </ul>
+ *
+ * <p>
+ * {@code Load time} includes building the projection, reported separately on its own line too:
+ * DuckDB likewise builds its per-column structures while ingesting, so charging ours to query time
+ * instead would be a comparison in our favour that the protocol does not allow.
  *
  * <p>
  * The validation is not ceremony: the official {@code hits.json.gz} is produced by ClickHouse,
@@ -85,7 +95,19 @@ public final class ClickBenchLoadMain {
     allocator.init(offheap);
 
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "131072"));
-    final boolean pathSummary = Boolean.parseBoolean(System.getProperty("buildPathSummary", "false"));
+    final boolean projection = Boolean.parseBoolean(System.getProperty("clickbench.projection", "true"));
+    // The projection builder resolves its field paths through the path summary, so the two options
+    // are not independent: a corpus loaded without a summary can never have a projection added, and
+    // discovering that only when jn:create-projection-index throws costs a whole re-ingest. Default
+    // the summary to whatever the projection needs, and reject the contradiction outright.
+    final boolean pathSummary =
+        Boolean.parseBoolean(System.getProperty("buildPathSummary", String.valueOf(projection)));
+    if (projection && !pathSummary) {
+      System.err.println("buildPathSummary=false cannot be combined with clickbench.projection=true — the "
+          + "projection builder resolves its paths through the summary. Set one of them.");
+      System.exit(2);
+      return;
+    }
     final boolean pathStatistics = Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
     final HashType hashType = HashType.fromString(System.getProperty("hashType", "NONE"));
 
@@ -108,7 +130,20 @@ public final class ClickBenchLoadMain {
         store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonReader);
       }
     }
-    final double loadSeconds = (System.nanoTime() - start) / 1e9;
+    double loadSeconds = (System.nanoTime() - start) / 1e9;
+
+    // The projection index is part of LOADING, the same way DuckDB builds its own per-column
+    // structures while ingesting: a run without it measures the row path and can say nothing about
+    // any column or group-by kernel. Reported on its own line as well, so the ingest cost and the
+    // index cost stay separable, and switchable off for a row-path A/B.
+    if (projection) {
+      final double projectionSeconds = ClickBenchProjection.create(dbDir);
+      System.out.printf("# projection: columns=%d built in %.3f s%n", ClickBenchProjection.PROJECTED_COLUMNS.size(),
+          projectionSeconds);
+      loadSeconds += projectionSeconds;
+    } else {
+      System.out.println("# projection: DISABLED (-Dclickbench.projection=false) — nothing will be served");
+    }
 
     // ClickBench's own driver syncs inside the measured window so "load time" means "the data is on
     // disk"; the store's close() already flushed, this makes the page cache write-back explicit.
