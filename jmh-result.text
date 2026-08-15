@@ -1,0 +1,5 @@
+Benchmark                                              Mode  Cnt    Score     Error  Units
+CursorGuardCostBenchmark.guardAcquireRelease           avgt    5   31.023 ±   0.166  ns/op
+CursorGuardCostBenchmark.guardAcquireReleaseContended  avgt    5  907.363 ± 188.135  ns/op
+CursorGuardCostBenchmark.stampReadValidate             avgt    5    4.711 ±   0.092  ns/op
+CursorGuardCostBenchmark.stampReadValidateContended    avgt    5    4.772 ±   0.087  ns/op

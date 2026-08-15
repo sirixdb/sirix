@@ -1,7 +1,7 @@
 package io.sirix.query.stream.node;
 
 import io.brackit.query.jdm.Stream;
-import org.roaringbitmap.longlong.PeekableLongIterator;
+import org.roaringbitmap.longlong.LongIterator;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.query.node.XmlDBCollection;
@@ -19,7 +19,7 @@ public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
 
   private final XmlNodeReadOnlyTrx rtx;
 
-  private PeekableLongIterator nodeKeyIterator;
+  private LongIterator nodeKeyIterator;
 
   public SirixNodeKeyStream(final Iterator<NodeReferences> iter, final XmlDBCollection collection,
       final XmlNodeReadOnlyTrx rtx) {
@@ -37,7 +37,7 @@ public final class SirixNodeKeyStream implements Stream<XmlDBNode> {
     }
     while (iter.hasNext()) {
       final NodeReferences nodeReferences = iter.next();
-      nodeKeyIterator = nodeReferences.getNodeKeys().getLongIterator();
+      nodeKeyIterator = nodeReferences.nodeKeyIterator();
       if (nodeKeyIterator.hasNext()) {
         var nodeKey = nodeKeyIterator.next();
         rtx.moveTo(nodeKey);

@@ -10,10 +10,14 @@ import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.utils.OS;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -248,6 +252,316 @@ class HOTLeafPageTest {
     assertEquals(value.length, valueSlice.byteSize());
 
     page.close();
+  }
+
+  /** Composite key {@code logicalPrefix ‖ chunkIdx_be4}, as the chunked posting lists store them. */
+  private static byte[] composite(String logicalPrefix, int chunkIdx) {
+    final byte[] prefix = logicalPrefix.getBytes(StandardCharsets.UTF_8);
+    final byte[] key = new byte[prefix.length + 4];
+    System.arraycopy(prefix, 0, key, 0, prefix.length);
+    key[prefix.length] = (byte) (chunkIdx >>> 24);
+    key[prefix.length + 1] = (byte) (chunkIdx >>> 16);
+    key[prefix.length + 2] = (byte) (chunkIdx >>> 8);
+    key[prefix.length + 3] = (byte) chunkIdx;
+    return key;
+  }
+
+  /**
+   * A leaf whose entries share the common prefix {@code "shared/"} (maintained by {@code put}'s LCP
+   * tracking), so the zero-copy key accessors exercise BOTH regions: on-heap commonPrefix and
+   * off-heap suffix.
+   */
+  private static HOTLeafPage prefixedLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] value = new byte[] {1};
+    assertTrue(page.put(composite("shared/alpha", 5), value));
+    assertTrue(page.put(composite("shared/alpha", 0x00010002), value));
+    assertTrue(page.put(composite("shared/alphaX", 1), value));
+    assertTrue(page.put(composite("shared/beta", 0), value));
+    return page;
+  }
+
+  @Test
+  void testGetKeyLengthMatchesMaterializedKey() {
+    final HOTLeafPage page = prefixedLeaf();
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      assertEquals(page.getKey(i).length, page.getKeyLength(i), "entry " + i);
+    }
+    page.close();
+  }
+
+  @Test
+  void testCompareKeyPrefixSpansPrefixAndSuffix() {
+    final HOTLeafPage page = prefixedLeaf();
+    final byte[] alpha = "shared/alpha".getBytes(StandardCharsets.UTF_8);
+    final int alphaChunkIdx = page.findEntry(composite("shared/alpha", 5));
+    final int extensionIdx = page.findEntry(composite("shared/alphaX", 1));
+    final int betaIdx = page.findEntry(composite("shared/beta", 0));
+    assertTrue(alphaChunkIdx >= 0 && extensionIdx >= 0 && betaIdx >= 0);
+
+    // Exact chunk slot and extension slot both START WITH the logical prefix.
+    assertEquals(0, page.compareKeyPrefix(alphaChunkIdx, alpha, alpha.length));
+    assertEquals(0, page.compareKeyPrefix(extensionIdx, alpha, alpha.length));
+    // A key on a different branch compares by its first differing byte ('b' > 'a').
+    assertTrue(page.compareKeyPrefix(betaIdx, alpha, alpha.length) > 0);
+    // Divergence INSIDE the shared commonPrefix region ("shared/" vs "sharez/").
+    final byte[] sharez = "sharez/alpha".getBytes(StandardCharsets.UTF_8);
+    assertTrue(page.compareKeyPrefix(alphaChunkIdx, sharez, sharez.length) < 0);
+    // A probe longer than the key: equal through the key's bytes -> the key is less.
+    final byte[] longProbe = composite("shared/alpha", 5); // 16 bytes, == full key of alphaChunkIdx
+    final byte[] longer = new byte[longProbe.length + 2];
+    System.arraycopy(longProbe, 0, longer, 0, longProbe.length);
+    assertTrue(page.compareKeyPrefix(alphaChunkIdx, longer, longer.length) < 0);
+    page.close();
+  }
+
+  @Test
+  void testCompareKeyPrefixPartExcludesChunkTrailer() {
+    final HOTLeafPage page = prefixedLeaf();
+    final byte[] alpha = "shared/alpha".getBytes(StandardCharsets.UTF_8);
+    final int alphaChunkIdx = page.findEntry(composite("shared/alpha", 5));
+    final int extensionIdx = page.findEntry(composite("shared/alphaX", 1));
+
+    // Trimming the 4-byte trailer leaves exactly the logical prefix.
+    assertEquals(0, page.compareKeyPrefixPart(alphaChunkIdx, 4, alpha, alpha.length));
+    // The extension key's trimmed part ("shared/alphaX") is longer -> greater.
+    assertTrue(page.compareKeyPrefixPart(extensionIdx, 4, alpha, alpha.length) > 0);
+    // Against a longer probe the trimmed part is shorter -> less.
+    final byte[] alphaY = "shared/alphaY".getBytes(StandardCharsets.UTF_8);
+    assertTrue(page.compareKeyPrefixPart(alphaChunkIdx, 4, alphaY, alphaY.length) < 0);
+    page.close();
+  }
+
+  @Test
+  void testReadKeyIntBEAcrossRegions() {
+    final HOTLeafPage page = prefixedLeaf();
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      final byte[] key = page.getKey(i);
+      // Every alignment: fully inside the commonPrefix, spanning the boundary, and the trailer.
+      for (final int pos : new int[] {0, 3, 5, key.length - 4}) {
+        final int expected = ((key[pos] & 0xFF) << 24) | ((key[pos + 1] & 0xFF) << 16) | ((key[pos + 2] & 0xFF) << 8)
+            | (key[pos + 3] & 0xFF);
+        assertEquals(expected, page.readKeyIntBE(i, pos), "entry " + i + " pos " + pos);
+      }
+    }
+    page.close();
+  }
+
+  @Test
+  void testChunkAccumulatorPackedTombstoneAndRoaring() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+
+    // Packed chunk (2 bit16 values), a tombstone, and a Roaring chunk (>64 values).
+    final NodeReferences packed = new NodeReferences();
+    packed.addNodeKey(0x0001);
+    packed.addNodeKey(0xFFFF);
+    final NodeReferences tombstone = new NodeReferences();
+    final NodeReferences roaring = new NodeReferences();
+    for (int v = 0; v < 100; v++) {
+      roaring.addNodeKey(v * 3);
+    }
+    assertTrue(page.put(composite("k", 3), NodeReferencesSerializer.serialize(packed)));
+    assertTrue(page.put(composite("k", 4), NodeReferencesSerializer.serialize(tombstone)));
+    assertTrue(page.put(composite("k", 5), NodeReferencesSerializer.serialize(roaring)));
+
+    final NodeReferencesSerializer.ChunkAccumulator accumulator = new NodeReferencesSerializer.ChunkAccumulator();
+    for (int i = 0; i < page.getEntryCount(); i++) {
+      final long chunkIdx = page.readKeyIntBE(i, page.getKeyLength(i) - 4) & 0xFFFFFFFFL;
+      accumulator.addChunk(page, page.valueRef(i), chunkIdx << 16);
+    }
+    final NodeReferences merged = accumulator.toNodeReferencesAndReset();
+
+    final Roaring64Bitmap expected = new Roaring64Bitmap();
+    expected.add((3L << 16) | 0x0001);
+    expected.add((3L << 16) | 0xFFFF);
+    for (int v = 0; v < 100; v++) {
+      expected.add((5L << 16) | (v * 3));
+    }
+    assertEquals(NodeReferences.owning(expected), merged);
+    page.close();
+  }
+
+  // ===== Differential coverage for the zero-alloc key comparators =====
+  //
+  // These read the suffix EIGHT BYTES AT A TIME and finish with a byte tail, so their failure modes
+  // are alignment-specific: a key whose suffix is 7, 8 or 9 bytes long exercises three different
+  // code paths, and an off-by-one in the tail is invisible to any fixed set of hand-picked keys.
+  // Everything below therefore cross-checks against Arrays.compareUnsigned over the materialized
+  // key, across a key set that lands the compare at every offset in the eight-byte stride and a
+  // probe set that perturbs every byte position.
+
+  /** Shared head of every {@link #alignmentLeaf} key — becomes the leaf's commonPrefix. */
+  private static final byte[] ALIGNMENT_HEAD = {'P', 'R', 'E'};
+
+  /** Shortest and longest key in {@link #alignmentLeaf}; the span covers 0..37-byte suffixes. */
+  private static final int ALIGNMENT_MIN_LEN = ALIGNMENT_HEAD.length;
+  private static final int ALIGNMENT_MAX_LEN = 40;
+
+  /**
+   * A key of exactly {@code len} bytes: the shared head, then bytes derived from {@code len} so that
+   * no two keys collide and every key carries bytes above {@code 0x7F} — the comparators treat bytes
+   * as unsigned, which a purely ASCII corpus would never catch.
+   */
+  private static byte[] alignmentKey(final int len) {
+    final byte[] key = new byte[len];
+    System.arraycopy(ALIGNMENT_HEAD, 0, key, 0, Math.min(len, ALIGNMENT_HEAD.length));
+    for (int i = ALIGNMENT_HEAD.length; i < len; i++) {
+      key[i] = (byte) ((len * 31 + i * 17) & 0xFF);
+    }
+    return key;
+  }
+
+  /** Keys of every length in {@code [ALIGNMENT_MIN_LEN, ALIGNMENT_MAX_LEN]}, in insertion order. */
+  private static List<byte[]> alignmentKeys() {
+    final List<byte[]> keys = new ArrayList<>(ALIGNMENT_MAX_LEN - ALIGNMENT_MIN_LEN + 1);
+    for (int len = ALIGNMENT_MIN_LEN; len <= ALIGNMENT_MAX_LEN; len++) {
+      keys.add(alignmentKey(len));
+    }
+    return keys;
+  }
+
+  private static HOTLeafPage alignmentLeaf() {
+    final HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    final byte[] value = {1};
+    for (final byte[] key : alignmentKeys()) {
+      assertTrue(page.put(key, value), "put failed for key of length " + key.length);
+    }
+    return page;
+  }
+
+  /**
+   * Probes derived from the stored keys: each key itself, each key with one byte bumped up and down
+   * at every position, and each key truncated and extended by up to three bytes. The truncations and
+   * extensions are what move a divergence across the eight-byte stride boundary.
+   */
+  private static List<byte[]> alignmentProbes() {
+    final List<byte[]> probes = new ArrayList<>();
+    probes.add(new byte[0]);
+    probes.add(new byte[] {'P'});
+    probes.add(new byte[] {'P', 'R'});
+    probes.add(new byte[] {'P', 'S'});
+    for (final byte[] key : alignmentKeys()) {
+      probes.add(key);
+      for (int p = 0; p < key.length; p++) {
+        final byte[] lower = key.clone();
+        lower[p] = (byte) ((lower[p] & 0xFF) - 1);
+        probes.add(lower);
+        final byte[] higher = key.clone();
+        higher[p] = (byte) ((higher[p] & 0xFF) + 1);
+        probes.add(higher);
+      }
+      for (int drop = 1; drop <= 3 && key.length - drop >= 0; drop++) {
+        probes.add(Arrays.copyOf(key, key.length - drop));
+      }
+      for (int add = 1; add <= 3; add++) {
+        probes.add(Arrays.copyOf(key, key.length + add));
+      }
+    }
+    return probes;
+  }
+
+  /** Unsigned-lex comparison of the first {@code n} bytes of each side. */
+  private static int compareFirstBytes(final byte[] a, final byte[] b, final int n) {
+    for (int i = 0; i < n; i++) {
+      final int diff = (a[i] & 0xFF) - (b[i] & 0xFF);
+      if (diff != 0) {
+        return diff;
+      }
+    }
+    return 0;
+  }
+
+  @Test
+  void compareKeyWithBoundMatchesArraysCompareAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int i = 0; i < page.getEntryCount(); i++) {
+        final byte[] stored = page.getKey(i);
+        for (final byte[] probe : alignmentProbes()) {
+          assertEquals(Integer.signum(Arrays.compareUnsigned(stored, probe)),
+              Integer.signum(page.compareKeyWithBound(i, probe)),
+              "entry " + i + " (len " + stored.length + ") vs probe of length " + probe.length);
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void compareKeyPrefixMatchesReferenceAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int i = 0; i < page.getEntryCount(); i++) {
+        final byte[] stored = page.getKey(i);
+        for (final byte[] probe : alignmentProbes()) {
+          final int compared = Math.min(stored.length, probe.length);
+          final int head = compareFirstBytes(stored, probe, compared);
+          final int expected = head != 0
+              ? Integer.signum(head)
+              : (stored.length < probe.length
+                  ? -1
+                  : 0);
+          assertEquals(expected, Integer.signum(page.compareKeyPrefix(i, probe, probe.length)),
+              "entry " + i + " (len " + stored.length + ") vs prefix of length " + probe.length);
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void compareKeyPrefixPartMatchesReferenceAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      for (int trailer = 0; trailer <= 5; trailer++) {
+        for (int i = 0; i < page.getEntryCount(); i++) {
+          final byte[] stored = page.getKey(i);
+          final int partLen = Math.max(0, stored.length - trailer);
+          for (final byte[] probe : alignmentProbes()) {
+            final int compared = Math.min(partLen, probe.length);
+            final int head = compareFirstBytes(stored, probe, compared);
+            final int expected = head != 0
+                ? Integer.signum(head)
+                : Integer.signum(partLen - probe.length);
+            assertEquals(expected, Integer.signum(page.compareKeyPrefixPart(i, trailer, probe, probe.length)), "entry "
+                + i + " (len " + stored.length + ") trailer " + trailer + " vs probe of length " + probe.length);
+          }
+        }
+      }
+    } finally {
+      page.close();
+    }
+  }
+
+  @Test
+  void findEntryMatchesLinearSearchAtEveryAlignment() {
+    final HOTLeafPage page = alignmentLeaf();
+    try {
+      final int entryCount = page.getEntryCount();
+      final byte[][] sorted = new byte[entryCount][];
+      for (int i = 0; i < entryCount; i++) {
+        sorted[i] = page.getKey(i);
+      }
+      for (final byte[] probe : alignmentProbes()) {
+        int expected = -(entryCount + 1);
+        for (int i = 0; i < entryCount; i++) {
+          final int cmp = Arrays.compareUnsigned(sorted[i], probe);
+          if (cmp == 0) {
+            expected = i;
+            break;
+          }
+          if (cmp > 0) {
+            expected = -(i + 1);
+            break;
+          }
+        }
+        assertEquals(expected, page.findEntry(probe), "probe of length " + probe.length);
+      }
+    } finally {
+      page.close();
+    }
   }
 }
 

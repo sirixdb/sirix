@@ -98,6 +98,12 @@ public final class AtomicUtil {
         return Calc.fromBigDecimal(((Numeric) atomic).decimalValue());
       }
     }
+    // The instant family, through the same order-preserving codec the HOT backend uses: without it
+    // this method threw "Unsupported type", so a red-black-tree CAS index simply could not be built
+    // over xs:dateTime at all.
+    if (InstantKeyCodec.isInstantType(type)) {
+      return InstantKeyCodec.toBytes(atomic, type);
+    }
     throw new SirixRuntimeException("Unsupported type: %s", type);
   }
 
@@ -130,6 +136,9 @@ public final class AtomicUtil {
       if (type.instanceOf(Type.DEC)) {
         return new Dec(Calc.toBigDecimal(b));
       }
+    }
+    if (InstantKeyCodec.isInstantType(type)) {
+      return InstantKeyCodec.decode(b, 0, b.length, type);
     }
     throw new SirixRuntimeException("Unsupported type: %s", type);
   }

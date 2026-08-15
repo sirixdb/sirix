@@ -4,6 +4,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.index.SearchMode;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.hot.HOTBulkIndexLoader;
 import io.sirix.index.hot.HOTIndexWriter;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
@@ -35,6 +36,13 @@ public final class NameIndexBuilder {
   private final boolean useHOT;
 
   /**
+   * Bulk loader for the HOT backend, non-{@code null} exactly when this builder starts against an
+   * empty index tree — the normal "create an index over an already-shredded revision" case. Every
+   * entry is collected and the trie is materialised once in {@link #finish()}.
+   */
+  private final @Nullable HOTBulkIndexLoader<QNm> bulkLoader;
+
+  /**
    * Constructor with RBTree writer (legacy path).
    */
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
@@ -45,6 +53,7 @@ public final class NameIndexBuilder {
     this.hotWriter = null;
     this.storageEngineReader = storageEngineReader;
     this.useHOT = false;
+    this.bulkLoader = null;
   }
 
   /**
@@ -58,6 +67,11 @@ public final class NameIndexBuilder {
     this.hotWriter = hotWriter;
     this.storageEngineReader = storageEngineReader;
     this.useHOT = true;
+    // Bulk-load only into a virgin tree: the loader replaces the root instead of merging into it,
+    // so an index that already holds entries keeps the incremental path.
+    this.bulkLoader = hotWriter.isEmptyTree()
+        ? hotWriter.createBulkLoader()
+        : null;
   }
 
   public VisitResultType build(QNm name, ImmutableNode node) {
@@ -88,23 +102,37 @@ public final class NameIndexBuilder {
         () -> setNodeReferencesRBTree(node, new NodeReferences(), name));
   }
 
+  /**
+   * Add {@code node} to {@code name}'s posting list in the HOT backend.
+   *
+   * <p>
+   * A HOT slot write is an OR-merge of the incoming bitmap into the stored one, so adding one
+   * reference needs neither a read-back of the stored references nor a re-insert of them. Doing so
+   * made building an index quadratic in how many nodes share a name — which, for a name index, is the
+   * point of the index.
+   * </p>
+   */
   private void buildHOT(QNm name, ImmutableNode node) {
     assert hotWriter != null;
-    NodeReferences existingRefs = hotWriter.get(name, SearchMode.EQUAL);
-    if (existingRefs != null) {
-      setNodeReferencesHOT(node, existingRefs, name);
+    if (bulkLoader != null) {
+      bulkLoader.add(name, node.getNodeKey());
     } else {
-      setNodeReferencesHOT(node, new NodeReferences(), name);
+      hotWriter.indexNodeKey(name, node.getNodeKey());
+    }
+  }
+
+  /**
+   * Materialise everything the traversal collected. Must be called exactly once, after the document
+   * traversal that feeds {@link #build} has finished; a no-op unless this builder is bulk-loading.
+   */
+  public void finish() {
+    if (bulkLoader != null) {
+      bulkLoader.flush();
     }
   }
 
   private void setNodeReferencesRBTree(final ImmutableNode node, final NodeReferences references, final QNm name) {
     assert rbTreeWriter != null;
     rbTreeWriter.index(name, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
-  }
-
-  private void setNodeReferencesHOT(final ImmutableNode node, final NodeReferences references, final QNm name) {
-    assert hotWriter != null;
-    hotWriter.index(name, references.addNodeKey(node.getNodeKey()), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

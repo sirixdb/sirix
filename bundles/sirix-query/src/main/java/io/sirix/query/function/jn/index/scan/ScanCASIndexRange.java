@@ -41,13 +41,29 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
   public final static QNm DEFAULT_NAME = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "scan-cas-index-range");
 
   public ScanCASIndexRange() {
-    super(DEFAULT_NAME,
-        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany), SequenceType.NODE,
-            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.ANA, Cardinality.One),
-            new SequenceType(AtomicType.ANA, Cardinality.One), new SequenceType(AtomicType.BOOL, Cardinality.One),
-            new SequenceType(AtomicType.BOOL, Cardinality.One),
-            new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
+    super(DEFAULT_NAME, new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
+        SequenceType.NODE, new SequenceType(AtomicType.INR, Cardinality.One),
+        // Bounds are ZeroOrOne, not One: an empty sequence means "unbounded on this end". The
+        // index has always supported a one-sided range — CASFilterRange treats a null bound as
+        // unbounded, and the valid-time scan relies on exactly that — but this signature made
+        // the shape unreachable from a query, so `$x >= 'a'` could not be expressed as a range
+        // scan and the one-sided code path had no query-level coverage at all.
+        new SequenceType(AtomicType.ANA, Cardinality.ZeroOrOne),
+        new SequenceType(AtomicType.ANA, Cardinality.ZeroOrOne), new SequenceType(AtomicType.BOOL, Cardinality.One),
+        new SequenceType(AtomicType.BOOL, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
         true);
+  }
+
+  /**
+   * Cast a bound to the index's content type, mapping an absent argument to {@code null}.
+   *
+   * @param arg the argument, or {@code null} when the caller passed {@code ()}
+   * @return the cast bound, or {@code null} for an unbounded end
+   */
+  private static Atomic castBound(final StaticContext sctx, final Sequence arg, final Type keyType) {
+    return arg == null
+        ? null
+        : Cast.cast(sctx, (Atomic) arg, keyType, true);
   }
 
   @Override
@@ -76,8 +92,12 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
     }
 
     final Type keyType = indexDef.getContentType();
-    final Atomic min = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-    final Atomic max = Cast.cast(sctx, (Atomic) args[3], keyType, true);
+    final Atomic min = castBound(sctx, args[2], keyType);
+    final Atomic max = castBound(sctx, args[3], keyType);
+    if (min == null && max == null) {
+      throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
+          "At least one of $low-key / $high-key must be given; an unbounded range is a full index scan.");
+    }
     final boolean incMin = FunUtil.getBoolean(args, 4, "$include-low-key", true, true);
     final boolean incMax = FunUtil.getBoolean(args, 5, "$include-high-key", true, true);
     final String paths = FunUtil.getString(args, 6, "$paths", null, null, false);

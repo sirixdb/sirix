@@ -108,22 +108,62 @@ public final class NameKeySerializer implements HOTKeySerializer<QNm> {
 
     if (hasPrefix) {
       // Prefixed format: [0xFF][prefixLen:1][prefix:N][localName:M]
-      final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
-      if (prefixBytes.length > 255) {
-        throw new IllegalArgumentException("Namespace prefix too long: " + prefixBytes.length + " bytes (max 255)");
+      if (AsciiKeyBytes.isAsciiPrefix(prefix, prefix.length())) {
+        if (prefix.length() > 255) {
+          throw new IllegalArgumentException("Namespace prefix too long: " + prefix.length() + " bytes (max 255)");
+        }
+        dest[pos++] = PREFIX_SENTINEL;
+        dest[pos++] = (byte) prefix.length();
+        pos += AsciiKeyBytes.writeAsciiPrefix(prefix, prefix.length(), dest, pos);
+      } else {
+        final byte[] prefixBytes = prefix.getBytes(StandardCharsets.UTF_8);
+        if (prefixBytes.length > 255) {
+          throw new IllegalArgumentException("Namespace prefix too long: " + prefixBytes.length + " bytes (max 255)");
+        }
+        dest[pos++] = PREFIX_SENTINEL;
+        dest[pos++] = (byte) prefixBytes.length;
+        System.arraycopy(prefixBytes, 0, dest, pos, prefixBytes.length);
+        pos += prefixBytes.length;
       }
-      dest[pos++] = PREFIX_SENTINEL;
-      dest[pos++] = (byte) prefixBytes.length;
-      System.arraycopy(prefixBytes, 0, dest, pos, prefixBytes.length);
-      pos += prefixBytes.length;
     }
 
-    // Local name: raw UTF-8 bytes
-    final byte[] localBytes = localName.getBytes(StandardCharsets.UTF_8);
-    System.arraycopy(localBytes, 0, dest, pos, localBytes.length);
-    pos += localBytes.length;
+    // Local name: raw UTF-8 bytes. A name is serialized once per indexed node, so the ASCII case —
+    // which is very nearly all of them — writes straight into dest instead of through a throwaway
+    // byte[] (see AsciiKeyBytes).
+    if (AsciiKeyBytes.isAsciiPrefix(localName, localName.length())) {
+      pos += AsciiKeyBytes.writeAsciiPrefix(localName, localName.length(), dest, pos);
+    } else {
+      final byte[] localBytes = localName.getBytes(StandardCharsets.UTF_8);
+      System.arraycopy(localBytes, 0, dest, pos, localBytes.length);
+      pos += localBytes.length;
+    }
 
     return pos - offset;
+  }
+
+  /**
+   * A local name and a prefix are written as raw UTF-8, so the bound is three bytes a char — the most
+   * any single {@code char} encodes to, a surrogate pair being two chars for four bytes — plus the
+   * sentinel and length byte the prefixed format prepends.
+   *
+   * @throws IllegalArgumentException if the name is so long that its own bound overflows an
+   *         {@code int}; such a name could never be serialized into any buffer anyway
+   */
+  @Override
+  public int maxSerializedLength(final QNm key) {
+    requireNonNull(key, "Key cannot be null");
+    final String localName = key.getLocalName();
+    final String prefix = key.getPrefix();
+    long bound = localName == null
+        ? 0L
+        : 3L * localName.length();
+    if (prefix != null && !prefix.isEmpty()) {
+      bound += 2L + 3L * prefix.length();
+    }
+    if (bound > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("QNm too long to serialize: " + bound + " bytes");
+    }
+    return (int) bound;
   }
 
   @Override
