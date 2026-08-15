@@ -691,8 +691,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Fields the predicate compares with an ORDERING operator. Equality is left out on purpose: it is
-   * the one comparison whose null semantics the kernels already match.
+   * Fields the predicate compares with an operator whose JSON-null semantics the kernels do NOT
+   * reproduce.
+   *
+   * <p>
+   * Only {@code eq} is exempt, and only because it genuinely agrees: the interpreter answers
+   * {@code null eq "x"} with {@code leftIsNull && rightIsNull} — false — and the kernels read a JSON
+   * null as missing, which is also false.
+   *
+   * <p>
+   * {@code ne} is NOT exempt, though it looks equality-shaped. The interpreter answers
+   * {@code null ne "x"} with {@code !(leftIsNull && rightIsNull)} — <b>true</b> ({@code Cmp.java:88})
+   * — while the kernels read the null as missing and answer false, so a served {@code != } would
+   * silently DROP every null-valued row the interpreter counts. Exempting it was harmless only while
+   * no operator string {@code ne} could be produced; it became reachable the moment brackit's
+   * detection started emitting one.
    */
   private static void collectOrderedComparisonFields(final PredicateNode node, final Set<String> out) {
     switch (node) {
@@ -717,7 +730,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private static void addIfOrdering(final String field, final String op, final Set<String> out) {
-    if (!"eq".equals(op) && !"ne".equals(op)) {
+    if (!"eq".equals(op)) {
       out.add(field);
     }
   }
