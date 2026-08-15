@@ -1201,8 +1201,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * If {@code this} already has a slotted page (via eager {@code ensureSlottedPage} in the
    * constructor) and its capacity does not match, the replacement is allocated and published and only
    * then is the old one released — the constructor's allocation is wasted for the combine path, but
-   * reusing it in place requires handling size-class mismatches that rarely hit. Net: trade one 64 KiB
-   * release for a 1024× loop skip.
+   * reusing it in place requires handling size-class mismatches that rarely hit. Net: trade one 64
+   * KiB release for a 1024× loop skip.
    *
    * <p>
    * Overwrites the header's revision field after the copy so downstream readers observe this page's
