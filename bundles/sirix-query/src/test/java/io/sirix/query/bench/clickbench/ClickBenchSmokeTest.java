@@ -37,7 +37,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * Runs all 43 ported ClickBench queries against a small generated hits resource.
  *
- * <p>This is the gate that keeps the port honest in CI: every query must compile and execute, the
+ * <p>
+ * This is the gate that keeps the port honest in CI: every query must compile and execute, the
  * {@code LIMIT} translations must actually limit, and the queries that carry a second equivalent
  * JSONiq formulation must produce identical results through both. Cross-engine correctness (against
  * DuckDB) and fast-path-vs-interpreter correctness live in
@@ -58,8 +59,7 @@ public final class ClickBenchSmokeTest {
   static void loadHits() throws Exception {
     dbDir = Files.createTempDirectory("sirix-clickbench-smoke");
     store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(false).build();
-    try (Reader source = ClickBenchSource.open("generate:" + ROWS);
-         JsonReader jsonReader = new JsonReader(source)) {
+    try (Reader source = ClickBenchSource.open("generate:" + ROWS); JsonReader jsonReader = new JsonReader(source)) {
       store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonReader);
     }
     ctx = SirixQueryContext.createWithJsonStore(store);
@@ -131,7 +131,7 @@ public final class ClickBenchSmokeTest {
     // Q19 selects one planted UserID; every returned row must be exactly that id.
     for (final JsonArray row : run(ClickBenchQueries.byIndex(19).jsoniq())) {
       assertEquals(ClickBenchHitsGenerator.PLANTED_USER_ID, row.get(0).getAsLong(),
-                   "q19 returns only the queried user");
+          "q19 returns only the queried user");
     }
 
     // Q29 is one row of 90 sums, each 'shift * count' above the previous one.
@@ -143,7 +143,7 @@ public final class ClickBenchSmokeTest {
     assertEquals(base + 89L * ROWS, q29.getFirst().get(89).getAsLong(), "q29's last sum adds 89 per record");
 
     // The group-by queries must actually group: fewer rows than records, at least one row.
-    for (final int index : new int[] { 7, 12, 33 }) {
+    for (final int index : new int[] {7, 12, 33}) {
       final List<JsonArray> rows = run(ClickBenchQueries.byIndex(index).jsoniq());
       assertFalse(rows.isEmpty(), "q" + index + " grouped to nothing");
     }
@@ -159,7 +159,7 @@ public final class ClickBenchSmokeTest {
       for (int variant = 1; variant < query.variants().size(); variant++) {
         final List<JsonArray> other = run(query.jsoniq(variant));
         assertEquals(first.toString(), other.toString(),
-                     "q" + query.index() + " variant " + variant + " disagrees with variant 0");
+            "q" + query.index() + " variant " + variant + " disagrees with variant 0");
       }
     }
   }
@@ -173,8 +173,7 @@ public final class ClickBenchSmokeTest {
 
   /** Executes a query body and returns its rows in the same canonical form the harness dumps. */
   private static List<JsonArray> run(final String body) throws Exception {
-    final String text =
-        ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, body);
+    final String text = ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, body);
     final Sequence result = new Query(chain, text).execute(ctx);
     final StringWriter out = new StringWriter(1 << 12);
     try (PrintWriter pw = new PrintWriter(out)) {
@@ -218,6 +217,8 @@ public final class ClickBenchSmokeTest {
     while (end < sql.length() && Character.isDigit(sql.charAt(end))) {
       digits.append(sql.charAt(end++));
     }
-    return digits.isEmpty() ? -1 : Integer.parseInt(digits.toString());
+    return digits.isEmpty()
+        ? -1
+        : Integer.parseInt(digits.toString());
   }
 }

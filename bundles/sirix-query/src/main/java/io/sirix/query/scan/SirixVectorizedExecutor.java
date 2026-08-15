@@ -2180,24 +2180,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * {@code fn:min} / {@code fn:max} over a field whose values are strings.
    *
-   * <p>The numeric kernels skip non-numeric values, so a string column reaches their "no numeric
-   * value contributed" branch. That branch used to be terminal — every {@code min(EventDate)}-shaped
-   * query died with an internal error even though the interpreter answers it — but string extrema
-   * are perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by codepoint,
-   * which is what {@link String#compareTo} implements for the values a JSON document can hold.
+   * <p>
+   * The numeric kernels skip non-numeric values, so a string column reaches their "no numeric value
+   * contributed" branch. That branch used to be terminal — every {@code min(EventDate)}-shaped query
+   * died with an internal error even though the interpreter answers it — but string extrema are
+   * perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by codepoint, which
+   * is what {@link String#compareTo} implements for the values a JSON document can hold.
    *
-   * <p>The distinct values come from the typed group-key kernel, which already carries this file's
+   * <p>
+   * The distinct values come from the typed group-key kernel, which already carries this file's
    * page-boundary, sparse-anchor and FSST-decoding guards; taking the extremum over the distinct
-   * values equals taking it over all of them. The cost is a hash map of the column's distinct
-   * values, i.e. the same memory {@code count(distinct-values(...))} already pays, which is the
-   * right trade against declining a shape the caller cannot fall back from
+   * values equals taking it over all of them. The cost is a hash map of the column's distinct values,
+   * i.e. the same memory {@code count(distinct-values(...))} already pays, which is the right trade
+   * against declining a shape the caller cannot fall back from
    * ({@code VectorizedGroupByExpr#requireSupported} turns a {@code null} into an error rather than
    * into a generic-pipeline retry).
    *
-   * @param sourcePath       the scan source
-   * @param predicateOrNull  an optional predicate restricting the rows
-   * @param field            the aggregated field
-   * @param func             {@code "min"} or {@code "max"}; anything else declines
+   * @param sourcePath the scan source
+   * @param predicateOrNull an optional predicate restricting the rows
+   * @param field the aggregated field
+   * @param func {@code "min"} or {@code "max"}; anything else declines
    * @return the extremum, or {@code null} when this is not a pure-string column and the caller must
    *         keep failing loudly (mixed types, JSON nulls, booleans, or an aggregate other than
    *         min/max, where XQuery's own semantics are an error rather than a value)
@@ -2209,7 +2211,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     }
     final Object2LongOpenHashMap<String> groups =
-        typedGroupKeyCounts(sourcePath, predicateOrNull, new String[] { field });
+        typedGroupKeyCounts(sourcePath, predicateOrNull, new String[] {field});
     String best = null;
     for (final String encoded : groups.keySet()) {
       if (encoded.isEmpty()) {
@@ -9418,8 +9420,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // [0] non-integral value seen, [1] the long sum lane overflowed.
         final boolean[] flags = new boolean[2];
         final long[] fresh = parallelAggregate(field, targetPathNodeKey, flags);
-        final boolean nonIntegralOrOverflowed =
-            flags[0] || (flags[1] && ("sum".equals(func) || "avg".equals(func)));
+        final boolean nonIntegralOrOverflowed = flags[0] || (flags[1] && ("sum".equals(func) || "avg".equals(func)));
         // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every
         // record carrying the field, regardless of the value's type. The
         // numeric accumulator's count only covers numbers (a count over a
@@ -10747,14 +10748,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     double dblMax = -Double.MAX_VALUE;
 
     /**
-     * Carry for {@link #longSum} once it would overflow; {@code null} while the primitive
-     * accumulator still holds the whole total.
+     * Carry for {@link #longSum} once it would overflow; {@code null} while the primitive accumulator
+     * still holds the whole total.
      *
-     * <p>{@code xs:integer} is arbitrary precision, and brackit's own
-     * {@code AbstractNumeric#addLong} escalates to {@link BigDecimal} on overflow. A column of
-     * 64-bit ids — ClickBench sums {@code UserID}, whose values run to 1.1e18 — overflows a long
-     * accumulator after a few dozen rows and the wrapped total is silently wrong, so the kernel has
-     * to escalate too. The check costs one branch that never mispredicts in the common case.
+     * <p>
+     * {@code xs:integer} is arbitrary precision, and brackit's own {@code AbstractNumeric#addLong}
+     * escalates to {@link BigDecimal} on overflow. A column of 64-bit ids — ClickBench sums
+     * {@code UserID}, whose values run to 1.1e18 — overflows a long accumulator after a few dozen rows
+     * and the wrapped total is silently wrong, so the kernel has to escalate too. The check costs one
+     * branch that never mispredicts in the common case.
      */
     BigDecimal longSumCarry;
 
@@ -10981,10 +10983,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * Adds {@code v} into the long accumulator {@code acc[1]}, flagging {@code flagsOut[1]} instead of
    * wrapping when the running total would overflow.
    *
-   * <p>{@code xs:integer} is arbitrary precision. A column of 64-bit ids overflows a long
-   * accumulator after a few dozen rows — ClickBench Q3 averages {@code UserID}, whose values run to
-   * 1.1e18 — and the wrapped total is a silently wrong answer, not a fast one. The flag routes the
-   * caller to the exact {@link MixedAgg} redo.
+   * <p>
+   * {@code xs:integer} is arbitrary precision. A column of 64-bit ids overflows a long accumulator
+   * after a few dozen rows — ClickBench Q3 averages {@code UserID}, whose values run to 1.1e18 — and
+   * the wrapped total is a silently wrong answer, not a fast one. The flag routes the caller to the
+   * exact {@link MixedAgg} redo.
    */
   private static void accumulateChecked(final long[] acc, final long v, final boolean[] flagsOut) {
     final long sum = acc[1] + v;
@@ -10997,8 +11000,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * @param flagsOut {@code [0]} the column carried a non-integral number, {@code [1]} the long sum
-   *                 lane is not authoritative because it would have overflowed; either one means the
-   *                 caller must redo value aggregates through the exact accumulator
+   *        lane is not authoritative because it would have overflowed; either one means the caller
+   *        must redo value aggregates through the exact accumulator
    */
   private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] flagsOut)
       throws Exception {
@@ -11083,8 +11086,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 // ever see it. tagN values bounded by max(|min|,|max|) bound the page sum; when that
                 // bound clears the long range the page sum is trustworthy, otherwise the exact redo
                 // takes over.
-                final double pageBound = (double) tagN
-                    * Math.max(Math.abs((double) simdAggOut[1]), Math.abs((double) simdAggOut[2]));
+                final double pageBound =
+                    (double) tagN * Math.max(Math.abs((double) simdAggOut[1]), Math.abs((double) simdAggOut[2]));
                 if (pageBound >= 9.0e18) {
                   flagsOut[1] = true;
                 } else {

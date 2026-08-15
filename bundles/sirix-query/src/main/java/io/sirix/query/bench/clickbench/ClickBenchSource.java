@@ -17,14 +17,15 @@ import java.util.zip.GZIPInputStream;
  * Opens a ClickBench {@code hits} record stream as a {@link Reader} over a single JSON array, which
  * is what SirixDB's shredder consumes.
  *
- * <p>Three source spellings are accepted:
+ * <p>
+ * Three source spellings are accepted:
  * <ul>
- *   <li>{@code generate:<rows>[:seed]} — the offline synthetic generator, so the port runs without
- *       the 14 GB download;</li>
- *   <li>a path to a {@code .json} file holding a JSON array (what {@code prepare-data.sh} produces
- *       from {@code hits.parquet});</li>
- *   <li>a path to a JSON-lines file — one object per line, the shape of the official
- *       {@code hits.json.gz} — which is adapted to an array on the fly.</li>
+ * <li>{@code generate:<rows>[:seed]} — the offline synthetic generator, so the port runs without
+ * the 14 GB download;</li>
+ * <li>a path to a {@code .json} file holding a JSON array (what {@code prepare-data.sh} produces
+ * from {@code hits.parquet});</li>
+ * <li>a path to a JSON-lines file — one object per line, the shape of the official
+ * {@code hits.json.gz} — which is adapted to an array on the fly.</li>
  * </ul>
  * Any path ending in {@code .gz} is decompressed transparently.
  */
@@ -55,7 +56,9 @@ public final class ClickBenchSource {
       if (rows <= 0) {
         throw new IllegalArgumentException("row count must be positive: " + rows);
       }
-      final long seed = parts.length == 3 ? Long.parseLong(parts[2]) : 42L;
+      final long seed = parts.length == 3
+          ? Long.parseLong(parts[2])
+          : 42L;
       return new ClickBenchHitsGenerator(0L, rows, seed);
     }
     final Path path = Path.of(spec);
@@ -68,7 +71,9 @@ public final class ClickBenchSource {
         : in;
     final PushbackReader reader = new PushbackReader(
         new BufferedReader(new InputStreamReader(decoded, StandardCharsets.UTF_8), BUFFER_BYTES), PEEK_CHARS);
-    return isJsonArray(reader) ? reader : new JsonLinesAsArrayReader(reader);
+    return isJsonArray(reader)
+        ? reader
+        : new JsonLinesAsArrayReader(reader);
   }
 
   /** How far {@link #isJsonArray} may look ahead for the first non-whitespace character. */
@@ -99,8 +104,9 @@ public final class ClickBenchSource {
    * Adapts a JSON-lines stream ({@code {...}\n{...}\n}) to a single JSON array by injecting the
    * brackets and the separating commas, without buffering the whole file.
    *
-   * <p>Records are emitted verbatim, so this is byte-transparent for the record bodies; only the
-   * framing changes. Blank lines are skipped, which is what a trailing newline produces.
+   * <p>
+   * Records are emitted verbatim, so this is byte-transparent for the record bodies; only the framing
+   * changes. Blank lines are skipped, which is what a trailing newline produces.
    */
   private static final class JsonLinesAsArrayReader extends FilterReader {
 
@@ -125,7 +131,9 @@ public final class ClickBenchSource {
     public int read() throws IOException {
       final char[] one = new char[1];
       final int n = read(one, 0, 1);
-      return n == -1 ? -1 : one[0];
+      return n == -1
+          ? -1
+          : one[0];
     }
 
     @Override

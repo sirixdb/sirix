@@ -22,12 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Differential gate for the vectorized group-by paths: every query runs through
- * the interpreted pipeline AND the vectorized executor; the serialized results
- * (row-order normalized) must be IDENTICAL. Covers what the scale bench cannot:
- * numeric / boolean / double-typed group keys (historically returned EMPTY —
- * the kernels required string values), multi-key grouping, query-renamed output
- * fields, and predicated variants.
+ * Differential gate for the vectorized group-by paths: every query runs through the interpreted
+ * pipeline AND the vectorized executor; the serialized results (row-order normalized) must be
+ * IDENTICAL. Covers what the scale bench cannot: numeric / boolean / double-typed group keys
+ * (historically returned EMPTY — the kernels required string values), multi-key grouping,
+ * query-renamed output fields, and predicated variants.
  */
 public final class TypedGroupByDifferentialTest {
 
@@ -38,19 +37,18 @@ public final class TypedGroupByDifferentialTest {
   private static final String RES = "records.jn";
   private static final String SRC = "jn:doc('" + DB + "','" + RES + "')[]";
   /**
-   * Second resource ingested via the REST-path {@code JsonShredder}: its
-   * fractional numbers are stored as GENUINE doubles (JsonNumber round-trip),
-   * unlike jn:store which keeps them as BigDecimal — exercising the
-   * double-row (FK_DOUBLE) predicate arms incl. the generated batch kernels.
+   * Second resource ingested via the REST-path {@code JsonShredder}: its fractional numbers are
+   * stored as GENUINE doubles (JsonNumber round-trip), unlike jn:store which keeps them as BigDecimal
+   * — exercising the double-row (FK_DOUBLE) predicate arms incl. the generated batch kernels.
    */
   private static final String RES2 = "shredded.jn";
   private static final String SRC2 = "jn:doc('" + DB + "','" + RES2 + "')[]";
-  private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops" };
-  private static final String[] CITIES = { "NYC", "LA", "SF" };
+  private static final String[] DEPTS = {"Eng", "Sales", "Mkt", "Ops"};
+  private static final String[] CITIES = {"NYC", "LA", "SF"};
 
   private Path dbDir;
 
-  private static final String[] TIERS = { "gold", "silver", "bronze" };
+  private static final String[] TIERS = {"gold", "silver", "bronze"};
 
   @BeforeEach
   void setUp() throws Exception {
@@ -66,15 +64,22 @@ public final class TypedGroupByDifferentialTest {
       final int age = 18 + rng.nextInt(8);
       final double score = (rng.nextInt(7) + 1) / 2.0; // 0.5 .. 3.5 — non-integral doubles
       final boolean active = rng.nextBoolean();
-      sb.append("{\"id\":").append(i)
-        .append(",\"dept\":\"").append(dept)
-        .append("\",\"city\":\"").append(city)
-        .append("\",\"age\":").append(age)
-        .append(",\"score\":").append(score)
-        .append(",\"active\":").append(active)
+      sb.append("{\"id\":")
+        .append(i)
+        .append(",\"dept\":\"")
+        .append(dept)
+        .append("\",\"city\":\"")
+        .append(city)
+        .append("\",\"age\":")
+        .append(age)
+        .append(",\"score\":")
+        .append(score)
+        .append(",\"active\":")
+        .append(active)
         // "amount" hashes NEGATIVE (like "active") — regression coverage for the
         // nameKey-sentinel family ('< 0' treated legitimate negative hashes as missing).
-        .append(",\"amount\":").append(rng.nextInt(1000));
+        .append(",\"amount\":")
+        .append(rng.nextInt(1000));
       // ---- adversarial sparse / typed fields ----
       // "bonus": numeric, MISSING on ~30% of records.
       if (i % 10 < 7) {
@@ -118,8 +123,8 @@ public final class TypedGroupByDifferentialTest {
     sb.append(']');
 
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
     }
 
@@ -131,8 +136,7 @@ public final class TypedGroupByDifferentialTest {
     for (int i = 0; i < N; i++) {
       if (i > 0)
         sb2.append(',');
-      sb2.append("{\"id\":").append(i)
-         .append(",\"dept\":\"").append(DEPTS[rng2.nextInt(DEPTS.length)]).append('"');
+      sb2.append("{\"id\":").append(i).append(",\"dept\":\"").append(DEPTS[rng2.nextInt(DEPTS.length)]).append('"');
       // rating: int on half the records, genuine DOUBLE on the rest. The
       // shredder keeps a compact double only for EXPONENT-form literals that
       // round-trip (plain "3.7" stays BigDecimal!), so write x.5e0/x.25e0 —
@@ -141,7 +145,11 @@ public final class TypedGroupByDifferentialTest {
       if (i % 2 == 0) {
         sb2.append(",\"rating\":").append(1 + rng2.nextInt(5));
       } else {
-        sb2.append(",\"rating\":").append(1 + rng2.nextInt(5)).append(i % 4 == 1 ? ".5e0" : ".25e0");
+        sb2.append(",\"rating\":")
+           .append(1 + rng2.nextInt(5))
+           .append(i % 4 == 1
+               ? ".5e0"
+               : ".25e0");
       }
       // amount: pure-double column (exact quarters).
       sb2.append(",\"amount\":").append(rng2.nextInt(100)).append(".25e0");
@@ -166,9 +174,8 @@ public final class TypedGroupByDifferentialTest {
     try (final var db = Databases.openJsonDatabase(dbDir.resolve(DB))) {
       db.createResource(io.sirix.access.ResourceConfiguration.newBuilder(RES2).buildPathSummary(true).build());
       try (final var session = db.beginResourceSession(RES2);
-           final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(
-            io.sirix.service.json.shredder.JsonShredder.createStringReader(sb2.toString()));
+          final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertSubtreeAsFirstChild(io.sirix.service.json.shredder.JsonShredder.createStringReader(sb2.toString()));
         wtx.commit();
       }
     }
@@ -185,34 +192,33 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void stringKeyCanonical() throws Exception {
-    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
-        + "return {\"dept\": $d, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $d := $u.dept group by $d " + "return {\"dept\": $d, \"count\": count($u)}");
   }
 
   @Test
   void intKeyCanonical() throws Exception {
     // Historically the vectorized kernel required STRING group values and
     // silently returned an EMPTY sequence for numeric keys.
-    assertDifferential("for $u in " + SRC + " let $a := $u.age group by $a "
-        + "return {\"age\": $a, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $a := $u.age group by $a " + "return {\"age\": $a, \"count\": count($u)}");
   }
 
   @Test
   void booleanKeyCanonical() throws Exception {
-    assertDifferential("for $u in " + SRC + " let $b := $u.active group by $b "
-        + "return {\"active\": $b, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $b := $u.active group by $b " + "return {\"active\": $b, \"count\": count($u)}");
   }
 
   @Test
   void doubleKeyCanonical() throws Exception {
-    assertDifferential("for $u in " + SRC + " let $s := $u.score group by $s "
-        + "return {\"score\": $s, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $s := $u.score group by $s " + "return {\"score\": $s, \"count\": count($u)}");
   }
 
   @Test
   void renamedStringKey() throws Exception {
-    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
-        + "return {\"d\": $d, \"n\": count($u)}");
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d " + "return {\"d\": $d, \"n\": count($u)}");
   }
 
   // ==================== multi-key ====================
@@ -258,14 +264,16 @@ public final class TypedGroupByDifferentialTest {
   /**
    * A predicate over the group-by field itself must be applied by the column kernel, not per record.
    *
-   * <p>{@code regionEligible} used to read {@code predicateOrNull == null}, so every predicated
-   * group-by — including this one, where the filter and the key are the same column — reconstructed
-   * records through {@code rtx.moveTo}. The interval is now handed to the page kernel, which turns
-   * it into a selection vector over the encoded column
+   * <p>
+   * {@code regionEligible} used to read {@code predicateOrNull == null}, so every predicated group-by
+   * — including this one, where the filter and the key are the same column — reconstructed records
+   * through {@code rtx.moveTo}. The interval is now handed to the page kernel, which turns it into a
+   * selection vector over the encoded column
    * ({@link io.sirix.page.pax.NumberRegionSimd#selectMatching}) and tallies only the survivors.
    *
-   * <p>{@link #predicatedIntKey} already gates the ANSWER differentially. What it cannot see is
-   * which path produced it: the record walk returns the same groups, so a regression that quietly
+   * <p>
+   * {@link #predicatedIntKey} already gates the ANSWER differentially. What it cannot see is which
+   * path produced it: the record walk returns the same groups, so a regression that quietly
    * disqualifies the columnar path would leave every assertion green. Hence the page counter.
    */
   @Test
@@ -277,27 +285,28 @@ public final class TypedGroupByDifferentialTest {
     final String vectorized = normalize(run(query, true));
     assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
     assertTrue(SirixVectorizedExecutor.regionGroupByPagesServed() > 0,
-               "no page answered from the number column for a predicate over the group-by field");
+        "no page answered from the number column for a predicate over the group-by field");
     // `age` spans 18..25 on every page, so the interval [21, +inf) is neither disjoint from a
     // page's zone map nor contained in it — the selection kernel is the only thing that can
     // answer these pages, and this is what distinguishes it from the zone-map shortcuts.
     assertTrue(SirixVectorizedExecutor.regionGroupBySelectionPages() > 0,
-               "the interval was settled by zone maps alone — selectMatching never ran");
+        "the interval was settled by zone maps alone — selectMatching never ran");
   }
 
   /**
    * The same, for an interval that rules whole pages out and one that lets everything through.
    *
-   * <p>Both ends are answered by the tag's zone map rather than by the selection kernel — one
-   * returning "nothing on this page survives", the other "every value does, take the unfiltered
-   * tally". They are the arms most easily got backwards, and a wrong one shows up as extra or
-   * missing groups rather than as a crash.
+   * <p>
+   * Both ends are answered by the tag's zone map rather than by the selection kernel — one returning
+   * "nothing on this page survives", the other "every value does, take the unfiltered tally". They
+   * are the arms most easily got backwards, and a wrong one shows up as extra or missing groups
+   * rather than as a crash.
    */
   @Test
   void zoneMapEndsOfTheGroupKeyFilter() throws Exception {
     // `age` is 18..25 on every record: the first interval excludes all of them, the second
     // includes all of them, and the third cuts through the middle.
-    for (final String bound : new String[] { "gt 1000", "ge 0", "gt 21" }) {
+    for (final String bound : new String[] {"gt 1000", "ge 0", "gt 21"}) {
       final String query = "for $u in " + SRC + " where $u.age " + bound + " let $a := $u.age "
           + "group by $a return {\"age\": $a, \"count\": count($u)}";
       assertDifferential(query);
@@ -307,11 +316,12 @@ public final class TypedGroupByDifferentialTest {
   /**
    * A predicate on a DIFFERENT field than the group key must keep going through the records.
    *
-   * <p>The columnar kernel tallies a tag's values with no notion of which record each belongs to,
-   * so it cannot intersect one column's survivors with another's. Claiming the page here would
-   * count every {@code age} on it regardless of {@code amount} — the answer would simply be the
-   * unfiltered grouping. The differential assertion is the real gate; the counter pins that the
-   * page kernel declined rather than accidentally agreeing.
+   * <p>
+   * The columnar kernel tallies a tag's values with no notion of which record each belongs to, so it
+   * cannot intersect one column's survivors with another's. Claiming the page here would count every
+   * {@code age} on it regardless of {@code amount} — the answer would simply be the unfiltered
+   * grouping. The differential assertion is the real gate; the counter pins that the page kernel
+   * declined rather than accidentally agreeing.
    */
   @Test
   void predicateOnAnotherFieldStillGoesThroughRecords() throws Exception {
@@ -322,14 +332,13 @@ public final class TypedGroupByDifferentialTest {
     final String vectorized = normalize(run(query, true));
     assertEquals(interpreted, vectorized, "vectorized result differs from interpreted for: " + query);
     assertEquals(0, SirixVectorizedExecutor.regionGroupByPagesServed(),
-                 "a cross-field predicate cannot be applied by a per-field column kernel");
+        "a cross-field predicate cannot be applied by a per-field column kernel");
   }
 
   @Test
   void numCmpPredicateMultiKey() throws Exception {
     assertDifferential("for $u in " + SRC + " where $u.age gt 19 and $u.active "
-        + "let $d := $u.dept, $a := $u.age group by $d, $a "
-        + "return {\"d\": $d, \"a\": $a, \"n\": count($u)}");
+        + "let $d := $u.dept, $a := $u.age group by $d, $a " + "return {\"d\": $d, \"a\": $a, \"n\": count($u)}");
   }
 
   // ==================== negative-hash nameKey regressions ====================
@@ -371,8 +380,8 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void groupByNegativeHashIntField() throws Exception {
-    assertDifferential("for $u in " + SRC + " let $a := $u.amount group by $a "
-        + "return {\"amount\": $a, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $a := $u.amount group by $a " + "return {\"amount\": $a, \"count\": count($u)}");
   }
 
   // ==================== projection-backed paths ====================
@@ -390,14 +399,13 @@ public final class TypedGroupByDifferentialTest {
   @Test
   void projectionPredicatedTwoStringKeys() throws Exception {
     assertDifferentialWithProjection("for $u in " + SRC + " where $u.age gt 20 and $u.active "
-        + "let $d := $u.dept, $c := $u.city group by $d, $c "
-        + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+        + "let $d := $u.dept, $c := $u.city group by $d, $c " + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
   }
 
   @Test
   void projectionRenamedSingleKeyViaMultiPath() throws Exception {
-    assertDifferentialWithProjection("for $u in " + SRC + " let $d := $u.dept group by $d "
-        + "return {\"d\": $d, \"n\": count($u)}");
+    assertDifferentialWithProjection(
+        "for $u in " + SRC + " let $d := $u.dept group by $d " + "return {\"d\": $d, \"n\": count($u)}");
   }
 
   @Test
@@ -439,53 +447,53 @@ public final class TypedGroupByDifferentialTest {
   void sparseGroupKeyScanPath() throws Exception {
     // Records lacking `tier` group under the empty key — historically a loud
     // QueryException; now the typed kernel synthesizes the missing bucket.
-    assertDifferential("for $u in " + SRC + " let $t := $u.tier group by $t "
-        + "return {\"tier\": $t, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $t := $u.tier group by $t " + "return {\"tier\": $t, \"count\": count($u)}");
   }
 
   @Test
   void sparseGroupKeyProjectionPath() throws Exception {
-    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $t := $u.tier group by $t "
-        + "return {\"tier\": $t, \"count\": count($u)}");
+    assertDifferentialWithSparseProjection(
+        "for $u in " + SRC + " let $t := $u.tier group by $t " + "return {\"tier\": $t, \"count\": count($u)}");
   }
 
   @Test
   void sparseNumericGroupKeyScanPath() throws Exception {
     // Numeric sparse group key routes through the typed-primitive probe and
     // the typed kernel — the missing bucket must still be synthesized.
-    assertDifferential("for $u in " + SRC + " let $b := $u.bonus group by $b "
-        + "return {\"bonus\": $b, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $b := $u.bonus group by $b " + "return {\"bonus\": $b, \"count\": count($u)}");
   }
 
   @Test
   void groupKeyMissingOnAllRecords() throws Exception {
     // `ghost` exists on NO record: ONE empty-key group covering everything.
-    assertDifferential("for $u in " + SRC + " let $g := $u.ghost group by $g "
-        + "return {\"g\": $g, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $g := $u.ghost group by $g " + "return {\"g\": $g, \"count\": count($u)}");
   }
 
   @Test
   void presentButNullGroupKey() throws Exception {
     // null and MISSING are distinct buckets; the projection column cannot
     // represent null (fails closed to the typed kernel).
-    assertDifferential("for $u in " + SRC + " let $x := $u.nully group by $x "
-        + "return {\"x\": $x, \"count\": count($u)}");
+    assertDifferential(
+        "for $u in " + SRC + " let $x := $u.nully group by $x " + "return {\"x\": $x, \"count\": count($u)}");
   }
 
   @Test
   void presentButNullGroupKeyWithSparseProjectionInstalled() throws Exception {
     // The installed projection carries `nully` but flags it unrepresentable —
     // the projection path must decline and the fallback stays correct.
-    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $x := $u.nully group by $x "
-        + "return {\"x\": $x, \"count\": count($u)}");
+    assertDifferentialWithSparseProjection(
+        "for $u in " + SRC + " let $x := $u.nully group by $x " + "return {\"x\": $x, \"count\": count($u)}");
   }
 
   @Test
   void mixedKindGroupKeyFailsClosedToTypedKernel() throws Exception {
     // `mixed` holds numbers AND strings — STRING_DICT cannot represent the
     // numeric rows; the typed kernel groups them per-type like the interpreter.
-    assertDifferentialWithSparseProjection("for $u in " + SRC + " let $m := $u.mixed group by $m "
-        + "return {\"m\": $m, \"count\": count($u)}");
+    assertDifferentialWithSparseProjection(
+        "for $u in " + SRC + " let $m := $u.mixed group by $m " + "return {\"m\": $m, \"count\": count($u)}");
   }
 
   @Test
@@ -640,7 +648,8 @@ public final class TypedGroupByDifferentialTest {
     final StringBuilder sb = new StringBuilder();
     sb.append('[');
     for (int i = 0; i < 200; i++) {
-      if (i > 0) sb.append(',');
+      if (i > 0)
+        sb.append(',');
       sb.append("{\"id\":").append(i).append(",\"dept\":\"").append(DEPTS[i % DEPTS.length]).append('"');
       if (i % 2 == 0) {
         // genuine double via exponent form on the sparse key
@@ -664,8 +673,7 @@ public final class TypedGroupByDifferentialTest {
     assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
         + "return {\"d\": $d, \"a\": avg(for $x in $u return $x.age)}");
     assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
-        + "return {\"d\": $d, \"m\": min(for $x in $u return $x.age), "
-        + "\"x\": max(for $x in $u return $x.age)}");
+        + "return {\"d\": $d, \"m\": min(for $x in $u return $x.age), " + "\"x\": max(for $x in $u return $x.age)}");
     assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
         + "return {\"d\": $d, \"u\": count(distinct-values(for $x in $u return $x.age))}");
     assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
@@ -689,7 +697,7 @@ public final class TypedGroupByDifferentialTest {
   void stringSumAndAvgAggregatesFailLoud() {
     // sum/avg over a STRING field are a type error in the interpreter too, so the numeric kernels
     // must never fabricate a value for them — they stay loud.
-    for (final String fn : new String[] { "sum", "avg" }) {
+    for (final String fn : new String[] {"sum", "avg"}) {
       final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
           () -> run(fn + "(for $u in " + SRC + " return $u.dept)", true), fn);
       final String msg = String.valueOf(ex.getMessage());
@@ -802,8 +810,7 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void countDistinctOverSparseFieldViaProjection() throws Exception {
-    assertDifferentialWithSparseProjection(
-        "count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
+    assertDifferentialWithSparseProjection("count(for $u in " + SRC + " let $t := $u.tier group by $t return $t)");
   }
 
   @Test
@@ -867,12 +874,11 @@ public final class TypedGroupByDifferentialTest {
 
   @Test
   void doubleRowsRangeAndGroupBy() throws Exception {
-    assertDifferential2("count(for $u in " + SRC2
-        + " where $u.rating ge 1.5 and $u.rating le 3.5 return $u)");
+    assertDifferential2("count(for $u in " + SRC2 + " where $u.rating ge 1.5 and $u.rating le 3.5 return $u)");
     assertDifferential2("for $u in " + SRC2 + " where $u.rating gt 2.5 let $d := $u.dept group by $d "
         + "return {\"dept\": $d, \"count\": count($u)}");
-    assertDifferential2("for $u in " + SRC2 + " let $r := $u.rating group by $r "
-        + "return {\"rating\": $r, \"count\": count($u)}");
+    assertDifferential2(
+        "for $u in " + SRC2 + " let $r := $u.rating group by $r " + "return {\"rating\": $r, \"count\": count($u)}");
   }
 
   // ==================== mixed-provenance numeric group keys ====================
@@ -882,15 +888,15 @@ public final class TypedGroupByDifferentialTest {
     // 18 (int), 18.0e0 (genuine double) and 18.00 (decimal) are ONE group under
     // the interpreter's eq-based grouping — the typed kernel historically split
     // them by type tag into three buckets.
-    assertDifferential2("for $u in " + SRC2 + " let $m := $u.mix group by $m "
-        + "return {\"m\": $m, \"n\": count($u)}");
+    assertDifferential2(
+        "for $u in " + SRC2 + " let $m := $u.mix group by $m " + "return {\"m\": $m, \"n\": count($u)}");
   }
 
   @Test
   void mixedProvenanceFractionalGroupKeysMerge() throws Exception {
     // 1.5 (decimal), 1.5e0 (double) and 1.50 (decimal, different scale) merge.
-    assertDifferential2("for $u in " + SRC2 + " let $f := $u.fracmix group by $f "
-        + "return {\"f\": $f, \"n\": count($u)}");
+    assertDifferential2(
+        "for $u in " + SRC2 + " let $f := $u.fracmix group by $f " + "return {\"f\": $f, \"n\": count($u)}");
   }
 
   @Test
@@ -928,9 +934,9 @@ public final class TypedGroupByDifferentialTest {
     // the same values group differently depending on arrival order).
     shredExtraResource("plateau.jn",
         "[{\"v\":9007199254740993},{\"v\":9007199254740992.0e0},{\"v\":9007199254740992}]");
-    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-        () -> run2On("plateau.jn", "for $u in jn:doc('" + DB + "','plateau.jn')[] let $v := $u.v group by $v "
-            + "return {\"v\": $v, \"n\": count($u)}", true));
+    final var ex =
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> run2On("plateau.jn", "for $u in jn:doc('"
+            + DB + "','plateau.jn')[] let $v := $u.v group by $v " + "return {\"v\": $v, \"n\": count($u)}", true));
     org.junit.jupiter.api.Assertions.assertTrue(String.valueOf(ex.getMessage()).contains("2^53"),
         "loud error should explain the plateau hazard, got: " + ex.getMessage());
   }
@@ -942,9 +948,9 @@ public final class TypedGroupByDifferentialTest {
     // their lexical renderings differ — order-dependent rendering.
     shredExtraResource("inexact.jn",
         "[{\"v\":0.1e0},{\"v\":0.1000000000000000055511151231257827021181583404541015625}]");
-    final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
-        () -> run2On("inexact.jn", "for $u in jn:doc('" + DB + "','inexact.jn')[] let $v := $u.v group by $v "
-            + "return {\"v\": $v, \"n\": count($u)}", true));
+    final var ex =
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> run2On("inexact.jn", "for $u in jn:doc('"
+            + DB + "','inexact.jn')[] let $v := $u.v group by $v " + "return {\"v\": $v, \"n\": count($u)}", true));
     org.junit.jupiter.api.Assertions.assertTrue(String.valueOf(ex.getMessage()).contains("decimal"),
         "loud error should explain the decimal-image hazard, got: " + ex.getMessage());
   }
@@ -1039,8 +1045,7 @@ public final class TypedGroupByDifferentialTest {
   @Test
   void projectionPredicatedGroupByWithDoubleThreshold() throws Exception {
     assertDifferentialWithProjection("for $u in " + SRC + " where $u.amount gt 500.5 "
-        + "let $d := $u.dept, $c := $u.city group by $d, $c "
-        + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+        + "let $d := $u.dept, $c := $u.city group by $d, $c " + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
   }
 
   private void assertDifferentialWithProjection(final String query) throws Exception {
@@ -1058,8 +1063,8 @@ public final class TypedGroupByDifferentialTest {
 
   private String runWithSparseProjection(final String query) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
       final var session = db.beginResourceSession(RES);
       SirixVectorizedExecutor exec = null;
@@ -1075,55 +1080,50 @@ public final class TypedGroupByDifferentialTest {
         return out.toString();
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
-        if (exec != null) exec.close();
+        if (exec != null)
+          exec.close();
       }
     }
   }
 
   /**
-   * Install an in-memory wildcard projection over the SPARSE/typed fields:
-   * tier (string, sparse), bonus (numeric, sparse), nully (string column fed
-   * nulls — must be flagged unrepresentable), mixed (string column fed
-   * numbers — likewise), plus the dense dept/age columns. Mirrors
+   * Install an in-memory wildcard projection over the SPARSE/typed fields: tier (string, sparse),
+   * bonus (numeric, sparse), nully (string column fed nulls — must be flagged unrepresentable), mixed
+   * (string column fed numbers — likewise), plus the dense dept/age columns. Mirrors
    * {@code ScaleBenchProjectionSetup}'s slow path without HOT persistence.
    */
   private static void installSparseWildcardProjection(final io.sirix.api.json.JsonResourceSession session) {
-    final var rootPath = io.brackit.query.util.path.Path.parse("/[]",
-        io.brackit.query.util.path.PathParser.Type.JSON);
-    final java.util.List<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> fieldPaths =
-        java.util.List.of(
-            io.brackit.query.util.path.Path.parse("/[]/dept", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/tier", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/bonus", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/age", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/nully", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON),
-            io.brackit.query.util.path.Path.parse("/[]/region", io.brackit.query.util.path.PathParser.Type.JSON));
+    final var rootPath = io.brackit.query.util.path.Path.parse("/[]", io.brackit.query.util.path.PathParser.Type.JSON);
+    final java.util.List<io.brackit.query.util.path.Path<io.brackit.query.atomic.QNm>> fieldPaths = java.util.List.of(
+        io.brackit.query.util.path.Path.parse("/[]/dept", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/tier", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/bonus", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/age", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/nully", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/mixed", io.brackit.query.util.path.PathParser.Type.JSON),
+        io.brackit.query.util.path.Path.parse("/[]/region", io.brackit.query.util.path.PathParser.Type.JSON));
     final var def = io.sirix.index.IndexDefs.createProjectionIdxDef(rootPath, fieldPaths,
-        java.util.List.of(io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
-            io.brackit.query.jdm.Type.LON, io.brackit.query.jdm.Type.LON,
-            io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
+        java.util.List.of(io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.LON,
+            io.brackit.query.jdm.Type.LON, io.brackit.query.jdm.Type.STR, io.brackit.query.jdm.Type.STR,
             io.brackit.query.jdm.Type.STR),
         7, io.sirix.index.IndexDef.DbType.JSON);
     final java.util.List<byte[]> leaves = new java.util.ArrayList<>();
     final io.sirix.index.projection.ProjectionIndexBuilder builder;
     final int revision = session.getMostRecentRevisionNumber();
-    try (var rtx = session.beginNodeReadOnlyTrx(revision);
-         var pathSummary = session.openPathSummary(revision)) {
+    try (var rtx = session.beginNodeReadOnlyTrx(revision); var pathSummary = session.openPathSummary(revision)) {
       builder = new io.sirix.index.projection.ProjectionIndexBuilder(def, pathSummary, leaves::add);
       builder.build(rtx);
     }
     io.sirix.index.projection.ProjectionIndexRegistry.installWildcard(
         session.getResourceConfig().getResource().toString(),
-        new String[] { "dept", "tier", "bonus", "age", "nully", "mixed", "region" },
-        leaves,
+        new String[] {"dept", "tier", "bonus", "age", "nully", "mixed", "region"}, leaves,
         builder.numericColumnNonIntegralFlags());
   }
 
   private String runWithProjection(final String query) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final var db = Databases.openJsonDatabase(dbDir.resolve(DB));
       final var session = db.beginResourceSession(RES);
       SirixVectorizedExecutor exec = null;
@@ -1139,7 +1139,8 @@ public final class TypedGroupByDifferentialTest {
         return out.toString();
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
-        if (exec != null) exec.close();
+        if (exec != null)
+          exec.close();
       }
     }
   }
@@ -1164,7 +1165,7 @@ public final class TypedGroupByDifferentialTest {
     try (final var db = Databases.openJsonDatabase(dbDir.resolve(DB))) {
       db.createResource(io.sirix.access.ResourceConfiguration.newBuilder(resource).buildPathSummary(true).build());
       try (final var session = db.beginResourceSession(resource);
-           final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final io.sirix.api.json.JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(io.sirix.service.json.shredder.JsonShredder.createStringReader(json));
         wtx.commit();
       }
@@ -1181,12 +1182,12 @@ public final class TypedGroupByDifferentialTest {
   /** {@link #run2} against an arbitrary resource of the test database. */
   private String run2On(final String resource, final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
-         // that auto-wires an executor would compare the fast path against itself and prove nothing.
-         var chain = vectorized
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+        // that auto-wires an executor would compare the fast path against itself and prove nothing.
+        var chain = vectorized
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {
@@ -1203,19 +1204,20 @@ public final class TypedGroupByDifferentialTest {
         return out.toString();
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
-        if (exec != null) exec.close();
+        if (exec != null)
+          exec.close();
       }
     }
   }
 
   private String run2(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
-         // that auto-wires an executor would compare the fast path against itself and prove nothing.
-         var chain = vectorized
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+        // that auto-wires an executor would compare the fast path against itself and prove nothing.
+        var chain = vectorized
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {
@@ -1241,12 +1243,12 @@ public final class TypedGroupByDifferentialTest {
 
   private String run(final String query, final boolean vectorized) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
-         // that auto-wires an executor would compare the fast path against itself and prove nothing.
-         var chain = vectorized
-             ? SirixCompileChain.createWithJsonStore(store)
-             : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        // The interpreted arm is this test's ground truth, so it has to STAY interpreted: a chain
+        // that auto-wires an executor would compare the fast path against itself and prove nothing.
+        var chain = vectorized
+            ? SirixCompileChain.createWithJsonStore(store)
+            : SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store)) {
       SirixVectorizedExecutor exec = null;
       try {
         if (vectorized) {
@@ -1272,7 +1274,11 @@ public final class TypedGroupByDifferentialTest {
 
   /** Group emission order is engine-specific — compare as sorted record lines. */
   private static String normalize(final String s) {
-    return s.replace("} {", "}\n{").lines().map(String::strip).filter(l -> !l.isEmpty()).sorted()
+    return s.replace("} {", "}\n{")
+            .lines()
+            .map(String::strip)
+            .filter(l -> !l.isEmpty())
+            .sorted()
             .reduce("", (a, b) -> a + "\n" + b);
   }
 }
