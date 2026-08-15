@@ -133,10 +133,16 @@ final class CASKeySerializerPropertyTest {
    * </p>
    *
    * <p>
-   * Restricted to the lossless families on purpose. {@code xs:decimal} and {@code xs:float} narrow by
-   * design and {@code xs:string} truncates past {@link #MAX_STRING_VALUE_BYTES}, so asserting
-   * injectivity there would be asserting something false — which is why the equality path re-checks
-   * its candidates against the real values instead.
+   * Restricted to the lossless families on purpose. {@code xs:float} narrows by design and
+   * {@code xs:string} truncates past {@link #MAX_STRING_VALUE_BYTES}, so asserting injectivity there
+   * would be asserting something false — which is why the equality path re-checks those candidates
+   * against the real values instead.
+   *
+   * <p>
+   * {@code xs:decimal} was in that excluded set until the key began carrying the exact value after
+   * the order-preserving double. It is included now, and that inclusion IS the proof the encoding
+   * change worked: the property could not even be stated for decimals before, because two values
+   * differing past double precision genuinely shared a key.
    * </p>
    */
   @Property
@@ -191,15 +197,20 @@ final class CASKeySerializerPropertyTest {
   @Provide
   Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> orderedPairs() {
     return Arbitraries.oneOf(pairsOf(shortStrings(), Type.STR), pairsOf(longs(), Type.INR),
-        pairsOf(bigIntegers(), Type.INR), pairsOf(decimals(), Type.DEC), pairsOf(finiteDoubles(), Type.DBL));
+        pairsOf(bigIntegers(), Type.INR), pairsOf(decimals(), Type.DEC), pairsOf(finiteDoubles(), Type.DBL),
+        // The pairs that share a double, NEGATIVES INCLUDED. Their absence here is what let an
+        // ordering inversion through: the colliding pairs were added to the injectivity generator
+        // only, so the ordering property never saw a case where the suffix decides. Within one
+        // double the suffix IS the comparison, and for negatives a naive byte compare inverts it.
+        collidingDecimalPairs());
   }
 
   /** Pairs over the families whose encoding is injective, so a collision is a real defect. */
   @Provide
   Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> distinctLosslessPairs() {
     return Arbitraries.oneOf(pairsOf(shortStrings(), Type.STR), pairsOf(longs(), Type.INR),
-        pairsOf(finiteDoubles(), Type.DBL), pairsOf(booleans(), Type.BOOL))
-                      .filter(p -> areDistinctValues(p.get1().get1(), p.get1().get2()));
+        pairsOf(finiteDoubles(), Type.DBL), pairsOf(booleans(), Type.BOOL), pairsOf(decimals(), Type.DEC),
+        collidingDecimalPairs()).filter(p -> areDistinctValues(p.get1().get1(), p.get1().get2()));
   }
 
   /**
@@ -220,6 +231,27 @@ final class CASKeySerializerPropertyTest {
       return left.doubleValue() != right.doubleValue();
     }
     return a.compareTo(b) != 0;
+  }
+
+
+  /**
+   * Decimal pairs that share a {@code double}, which is the ONLY interesting case for decimal
+   * injectivity — and one a random generator will not produce.
+   *
+   * <p>
+   * Without these the property is a decoration: {@code decimals()} generates at scale 6 within
+   * +/-1e12, and no two such values collide, so the assertion passed just as happily over the old
+   * bare-double key that could not tell them apart. Deleting the exact suffix from the encoder left
+   * the whole property green until these pairs were added. That is the second time in this file a
+   * generator gap hid a real defect — the first was {@code -0.0} — so the lesson is worth stating
+   * where the next person will read it: a property is only as strong as the values it is fed.
+   * </p>
+   */
+  private static Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> collidingDecimalPairs() {
+    return Arbitraries.of(Tuple.of("0.5", "0.5000000000000000001"), Tuple.of("19.99", "19.990000000000000001"),
+        Tuple.of("0.1", "0.1000000000000000001"), Tuple.of("-3.25", "-3.250000000000000001"))
+                      .map(pair -> Tuple.of(Tuple.of((Atomic) new Dec(new BigDecimal(pair.get1())),
+                          (Atomic) new Dec(new BigDecimal(pair.get2()))), Type.DEC));
   }
 
   private static <A extends Atomic> Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> pairsOf(final Arbitrary<A> values,

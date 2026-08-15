@@ -85,6 +85,17 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   private static final long SIGN_FLIP = 0x8000_0000_0000_0000L;
 
   /**
+   * The key every NaN encodes to: above every real value, and reachable by no real value.
+   *
+   * <p>
+   * Reversing the sign-flip on it gives {@code 0x7FFF_FFFF_FFFF_FFFF}, itself a NaN bit pattern, so
+   * no finite double and neither infinity can land here — {@code +Infinity}, the largest real value,
+   * encodes to {@code 0xFFF0_0000_0000_0000}.
+   * </p>
+   */
+  private static final long NAN_KEY_BITS = 0xFFFF_FFFF_FFFF_FFFFL;
+
+  /**
    * Type IDs for stable serialization (independent of Type.ordinal()).
    */
   private static final short TYPE_STRING = 1;
@@ -273,8 +284,9 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
         // Integer family (xs:integer and subtypes): lossless 64-bit encoding, not double.
         return encodeIntegerOrderPreserving(value, dest, offset);
       case TYPE_DOUBLE:
-      case TYPE_DECIMAL:
         return encodeNumericOrderPreserving(value, dest, offset, false);
+      case TYPE_DECIMAL:
+        return encodeDecimalOrderPreserving(value, dest, offset);
       case TYPE_FLOAT:
         // Rounded to float precision FIRST, because the two sides of an xs:float index reach this
         // method in different shapes and must land on one key. CASIndexBuilder stores every value as
@@ -349,11 +361,6 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       d = (float) d;
     }
 
-    // Canonicalize NaN to sort last
-    if (Double.isNaN(d)) {
-      d = Double.MAX_VALUE;
-    }
-
     // Collapse -0.0 onto +0.0, and note this is a CORRECTNESS fix, not tidiness. The sign-flip below
     // branches on the VALUE (`d >= 0`), and `-0.0 >= 0` is true in Java while
     // doubleToLongBits(-0.0) has the sign bit SET — so -0.0 took the positive branch and XORed to
@@ -368,6 +375,25 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       d = 0.0;
     }
 
+    if (Double.isNaN(d)) {
+      // NaN gets a key of its OWN, above every real value. It used to be canonicalized onto
+      // Double.MAX_VALUE, which MERGED its posting list with that of a real, indexable number — the
+      // failure this class's own history note calls the fatal one, because a shared key corrupts
+      // equality and deletes rather than merely mis-ordering a range. A stored NaN made
+      // `eq 1.7976931348623157E308` return it, and deleting one entry disturbed the other's list.
+      //
+      // All-ones is safe as that key precisely because the sign-flip below is a bijection: reversing
+      // it gives 0x7FFF_FFFF_FFFF_FFFF, itself a NaN bit pattern, so no finite value and neither
+      // infinity can produce it (+Infinity, the largest real, encodes to 0xFFF0_...). Every NaN
+      // payload collapses onto this one key, which is what makes the encoding a function.
+      //
+      // decodeAtomic needs no change: reversing all-ones yields a NaN bit pattern and hands back NaN.
+      // Note this does NOT make `eq NaN` answer with those rows — XQuery gives NaN no equals, which
+      // CASIndex#exactMatches enforces separately.
+      writeBigEndian(NAN_KEY_BITS, dest, offset);
+      return 8;
+    }
+
     long bits = Double.doubleToLongBits(d);
 
     // Order-preserving transformation:
@@ -380,6 +406,21 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     }
 
     // Write big-endian
+    writeBigEndian(bits, dest, offset);
+
+    return 8;
+  }
+
+
+  /**
+   * Write {@code bits} big-endian at {@code offset}. One definition, because the byte-shift ladder
+   * appeared verbatim in each fixed-width encoder and a transposed shift there is invisible.
+   *
+   * @param bits the already order-transformed value
+   * @param dest destination buffer
+   * @param offset offset to write at
+   */
+  private static void writeBigEndian(final long bits, final byte[] dest, final int offset) {
     dest[offset] = (byte) (bits >>> 56);
     dest[offset + 1] = (byte) (bits >>> 48);
     dest[offset + 2] = (byte) (bits >>> 40);
@@ -388,8 +429,115 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     dest[offset + 5] = (byte) (bits >>> 16);
     dest[offset + 6] = (byte) (bits >>> 8);
     dest[offset + 7] = (byte) bits;
+  }
 
-    return 8;
+
+  /** Bytes a decimal's exact suffix may use: the value budget minus the 8-byte double prefix. */
+  private static final int MAX_DECIMAL_SUFFIX_BYTES = MAX_STRING_VALUE_BYTES - Long.BYTES;
+
+  /**
+   * Encodes {@code xs:decimal} as an order-preserving double FOLLOWED BY the exact value.
+   *
+   * <p>
+   * The double alone is what the encoder used to write, and it is why every decimal equality query
+   * had to re-read the candidate documents: two decimals differing past double precision collapsed
+   * onto one key, so the seek could only ever answer with candidates. That re-check opened a second
+   * {@code StorageEngineReader} and read one record per posting, turning an O(log n) descent into
+   * O(|posting list|) random reads on the most common query shape there is.
+   * </p>
+   *
+   * <p>
+   * Appending the exact value makes the key INJECTIVE, so equality is decided by the seek alone and
+   * {@code narrowsNumeric} can answer {@code false} — the re-check disappears from the hot path and
+   * survives only for a decimal too long to fit, which {@link #MAX_DECIMAL_SUFFIX_BYTES} bounds at
+   * ~238 significant digits.
+   * </p>
+   *
+   * <p>
+   * NORMALIZED, and that is the subtle part: {@code stripTrailingZeros().toPlainString()} so that
+   * {@code 1.50} and {@code 1.5} produce identical bytes. They are the same value and MUST share a
+   * key; a bare {@code toString()} would give them different suffixes and {@code eq 1.5} would stop
+   * finding a stored {@code 1.50} — trading the old over-match for a missing row, which is the worse
+   * failure.
+   * </p>
+   *
+   * <p>
+   * ORDERING is unchanged where it was ever right: the double prefix dominates the comparison, so
+   * byte order still follows value order between different doubles. WITHIN one double — values
+   * differing past ~17 significant digits — the suffix decides, and that is not value order. It was
+   * not value order before either: those values shared a single key, so a bound falling among them
+   * was already arbitrary. The error stays sub-ULP; what changes is that equality became exact.
+   * </p>
+   *
+   * @param value the decimal
+   * @param dest destination buffer
+   * @param offset offset to write at
+   * @return number of bytes written
+   */
+  private int encodeDecimalOrderPreserving(final Atomic value, final byte[] dest, final int offset) {
+    final int written = encodeNumericOrderPreserving(value, dest, offset, false);
+    final BigDecimal exact = exactDecimalOrNull(value);
+    if (exact == null) {
+      // NaN, an infinity, or a lexical form BigDecimal declines: there is no exact value to append,
+      // and the double prefix already carries whatever the encoder could represent.
+      return written;
+    }
+    final byte[] suffix = normalizedDecimalBytes(exact);
+    // One byte held back for the terminator, which is not optional — see below.
+    final int room = Math.min(dest.length - offset - written, MAX_DECIMAL_SUFFIX_BYTES) - 1;
+    if (room < 0) {
+      return written;
+    }
+    final int length = Math.min(suffix.length, room);
+    final boolean negative = exact.signum() < 0;
+    // SIGN-DEPENDENT complement and terminator, and both halves are load-bearing.
+    //
+    // Within one double the suffix decides the order, and a plain byte compare gets NEGATIVES
+    // backwards: "-0.5" is a prefix of "-0.5000000000000000001", so the length tiebreak in
+    // HOTLeafPage#compareKeyPrefixPart sorts the shorter first — while numerically -0.5 is the
+    // GREATER of the two. Complementing the payload flips the digit comparison, and the terminator
+    // flips the length tiebreak with it: 0xFF for a negative outranks any complemented digit, 0x00
+    // for a positive falls below any plain one, so under both signs "ends sooner" lands on the
+    // correct side.
+    //
+    // No escaping is needed, which is what makes this cheap. A normalized plain decimal is ASCII
+    // digits, '.' and '-' (0x2D..0x39); complemented that is 0xC6..0xD2, and neither 0x00 nor 0xFF
+    // can occur in either range. The alphabet is restricted enough that the terminator is
+    // unambiguous by construction rather than by convention.
+    for (int i = 0; i < length; i++) {
+      dest[offset + written + i] = negative
+          ? (byte) ~suffix[i]
+          : suffix[i];
+    }
+    dest[offset + written + length] = negative
+        ? (byte) 0xFF
+        : 0;
+    return written + length + 1;
+  }
+
+  /**
+   * {@code value} as an exact decimal, or {@code null} when it is not one.
+   *
+   * @param value the atomic
+   * @return the exact value, or {@code null}
+   */
+  private static @Nullable BigDecimal exactDecimalOrNull(final Atomic value) {
+    try {
+      return new BigDecimal(value.stringValue().trim());
+    } catch (final NumberFormatException e) {
+      return null;
+    }
+  }
+
+  /**
+   * The canonical bytes of {@code exact}, with trailing zeros stripped so that equal values produce
+   * equal bytes. ASCII by construction — a plain decimal string has no character outside it.
+   *
+   * @param exact the value
+   * @return its normalized bytes
+   */
+  private static byte[] normalizedDecimalBytes(final BigDecimal exact) {
+    return exact.stripTrailingZeros().toPlainString().getBytes(StandardCharsets.US_ASCII);
   }
 
   /**
@@ -428,14 +576,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // Sign-flip so unsigned byte order matches signed numeric order.
     final long bits = v ^ SIGN_FLIP;
 
-    dest[offset] = (byte) (bits >>> 56);
-    dest[offset + 1] = (byte) (bits >>> 48);
-    dest[offset + 2] = (byte) (bits >>> 40);
-    dest[offset + 3] = (byte) (bits >>> 32);
-    dest[offset + 4] = (byte) (bits >>> 24);
-    dest[offset + 5] = (byte) (bits >>> 16);
-    dest[offset + 6] = (byte) (bits >>> 8);
-    dest[offset + 7] = (byte) bits;
+    writeBigEndian(bits, dest, offset);
 
     return 8;
   }
@@ -655,6 +796,19 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // query off the bounded byte cursor into the O(index) typed full scan — a large regression on
       // exactly the indexes this predicate was added to keep correct.
       return Double.isNaN(numeric.doubleValue());
+    }
+    if (id == TYPE_DECIMAL) {
+      // EXACT by construction now — encodeDecimalOrderPreserving appends the normalized value after
+      // the double, so two distinct decimals cannot share a key and the seek settles equality on its
+      // own. This used to answer true unconditionally, which put every decimal `eq` through a second
+      // StorageEngineReader and a document read per posting.
+      //
+      // The one case left is a decimal whose normalized form does not FIT, which collapses onto its
+      // prefix exactly as an over-long string does. Bounded at ~238 significant digits, so the
+      // allocation here is paid by a query that is genuinely ambiguous rather than by every price
+      // lookup.
+      final BigDecimal exact = exactDecimalOrNull(value);
+      return exact == null || normalizedDecimalBytes(exact).length > MAX_DECIMAL_SUFFIX_BYTES - 1;
     }
     if (id != TYPE_INTEGER) {
       // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
@@ -949,6 +1103,21 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
 
       // Return the appropriate type based on the stored type
       if (type.instanceOf(Type.DEC)) {
+        if (length > Long.BYTES + 1) {
+          // The exact value the encoder appended, so this round-trips instead of handing back the
+          // double's shortest decimal form. CASFilterRange#inRange then compares the real value.
+          // Undoes the sign-dependent complement and drops the terminator the encoder reserved.
+          final int suffixLength = length - Long.BYTES - 1;
+          final boolean negative = (bytes[offset + length - 1] & 0xFF) == 0xFF;
+          final byte[] plain = new byte[suffixLength];
+          for (int i = 0; i < suffixLength; i++) {
+            final byte raw = bytes[offset + Long.BYTES + i];
+            plain[i] = negative
+                ? (byte) ~raw
+                : raw;
+          }
+          return new io.brackit.query.atomic.Dec(new BigDecimal(new String(plain, StandardCharsets.US_ASCII)));
+        }
         return new io.brackit.query.atomic.Dec(java.math.BigDecimal.valueOf(d));
       } else if (type.instanceOf(Type.FLO)) {
         return new io.brackit.query.atomic.Flt((float) d);

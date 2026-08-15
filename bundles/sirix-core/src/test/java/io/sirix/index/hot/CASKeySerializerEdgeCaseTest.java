@@ -109,6 +109,43 @@ final class CASKeySerializerEdgeCaseTest {
   }
 
   @Nested
+  @DisplayName("NaN")
+  final class NotANumber {
+
+    @Test
+    @DisplayName("NaN does not share a key with the largest real value")
+    void nanKeepsItsOwnKey() {
+      // It used to be canonicalized onto Double.MAX_VALUE, which MERGED the two posting lists — the
+      // failure this class's history note calls the fatal one, because a shared key corrupts equality
+      // and deletes rather than merely mis-ordering a range. A stored NaN made
+      // `eq 1.7976931348623157E308` return it, and deleting one entry disturbed the other's list.
+      assertFalse(Arrays.equals(key(new Dbl(Double.NaN), Type.DBL), key(new Dbl(Double.MAX_VALUE), Type.DBL)),
+          "NaN and Double.MAX_VALUE must not encode to the same key");
+    }
+
+    @Test
+    @DisplayName("NaN sorts above every real value, infinities included")
+    void nanSortsLast() {
+      final byte[] nan = key(new Dbl(Double.NaN), Type.DBL);
+      for (final double real : new double[] {Double.NEGATIVE_INFINITY, -1.0, 0.0, 1.0, Double.MAX_VALUE,
+          Double.POSITIVE_INFINITY}) {
+        assertTrue(Arrays.compareUnsigned(nan, key(new Dbl(real), Type.DBL)) > 0, () -> "NaN must sort above " + real);
+      }
+    }
+
+    @Test
+    @DisplayName("every NaN payload collapses onto the one key, so the encoding stays a function")
+    void allNaNPayloadsAgree() {
+      // Java exposes distinct NaN bit patterns; if they encoded differently, one logical value would
+      // occupy several keys and a seek would find only the payload it happened to be built from.
+      final double other = Double.longBitsToDouble(0x7FF8_0000_DEAD_BEEFL);
+      assertTrue(Double.isNaN(other), "precondition: still a NaN");
+      assertArrayEquals(key(new Dbl(Double.NaN), Type.DBL), key(new Dbl(other), Type.DBL),
+          "all NaN payloads must share one key");
+    }
+  }
+
+  @Nested
   @DisplayName("float")
   final class Floats {
 
@@ -249,14 +286,26 @@ final class CASKeySerializerEdgeCaseTest {
 
     @Test
     @DisplayName("every decimal is reported lossy, including the ones a double represents exactly")
-    void everyDecimalIsLossy() {
-      // 0.5 IS exactly a double, and the round-trip test that used to stand here therefore reported
-      // it lossless and switched the re-check off — while a stored 0.5000000000000000001 encodes to
-      // the same double. The predicate cannot see stored values, so probe-only reasoning is unsound
-      // for a narrowing encoder and the only sound answer is "always".
-      assertTrue(CASKeySerializer.losesInformation(new Dec(new BigDecimal("0.5")), Type.DEC),
-          "a dyadic decimal is still a collision risk");
-      assertTrue(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC));
+    void onlyAnOversizedDecimalIsLossy() {
+      // This asserted the OPPOSITE until the key began carrying the exact value after the double.
+      // The old reasoning was sound for the encoding it described: a key that was only a double
+      // could not tell 0.5 from 0.5000000000000000001, the predicate cannot see stored values, and
+      // so "always lossy" was the only safe answer. It also meant every decimal `eq` re-read the
+      // candidate documents, which is why the encoding changed.
+      //
+      // Now the key is injective, so the seek settles equality by itself and nothing needs a
+      // re-check.
+      assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("0.5")), Type.DEC),
+          "a decimal that fits is exact in the key");
+      assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC),
+          "the ordinary price case must not pay for a re-check");
+      assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("0.5000000000000000001")), Type.DEC),
+          "and neither must the value that used to collide with 0.5");
+
+      // The one case left: a decimal too long for the suffix budget collapses onto its prefix,
+      // exactly as an over-long string does, and only then is the re-check owed.
+      assertTrue(CASKeySerializer.losesInformation(new Dec(new BigDecimal("0." + "1".repeat(300))), Type.DEC),
+          "a decimal past the suffix budget cannot be stored exactly");
     }
 
     @Test
@@ -332,8 +381,11 @@ final class CASKeySerializerEdgeCaseTest {
       // the ordering. A range caller consulting losesInformation instead paid an O(index) scan to
       // reach the identical answer.
       assertFalse(CASKeySerializer.truncates(new Dec(new BigDecimal("19.99")), Type.DEC));
-      assertTrue(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC),
-          "the same bound IS lossy for equality, which is why the two predicates are separate");
+      // Lossless for equality too, now that the key carries the exact value. The two predicates stay
+      // separate because they still diverge on the LEXICAL family, where a bound past the cap
+      // truncates, and there both predicates answer true.
+      assertFalse(CASKeySerializer.losesInformation(new Dec(new BigDecimal("19.99")), Type.DEC),
+          "an ordinary decimal bound is exact in the key");
     }
 
     @Test
