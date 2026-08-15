@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
 import java.util.Arrays;
@@ -495,6 +496,118 @@ public final class ProjectionIndexRegistry {
       return col < status.length && status[col] == ProjectionIndexByteScan.SPARSE_STATUS_CLEAN;
     }
 
+    /**
+     * Sentinel for "the numeric range was resolved and is UNKNOWN" — see {@link #numericGroupRange}.
+     */
+    private static final long[] RANGE_UNKNOWN = new long[0];
+
+    /**
+     * Per-column memo of {@link #numericGroupRange}; {@code null} slot = not yet resolved.
+     */
+    private volatile long[][] numericRanges;
+
+    /**
+     * Index-wide zone-map union of NUMERIC_LONG column {@code col}: {@code {min, max, totalRows}}, or
+     * {@code null} when the range is UNKNOWN and the caller must not size an index-by-subtraction
+     * accumulator from it.
+     *
+     * <p>
+     * Metadata only on BOTH arms — a column-lazy handle reads the leaf DESCRIPTORS it already holds
+     * ({@link ProjectionColumnStore#columnZoneRange}, zero I/O and no segment fetch, hence no
+     * {@code ColumnSegmentFetcher} parameter), an eager handle walks leaf HEADERS
+     * ({@link ProjectionIndexByteScan#numericZoneUnion}). Neither touches a row.
+     *
+     * <p>
+     * Resolved values are memoized under the same double-checked publish the other gate caches use. A
+     * TRANSIENT materialize failure declines WITHOUT caching, so the next query retries with re-bound
+     * sources.
+     */
+    public long[] numericGroupRange(final int col, final Supplier<List<byte[]>> materializer) {
+      if (col < 0) {
+        return null;
+      }
+      long[][] cache = numericRanges;
+      if (cache != null && col < cache.length && cache[col] != null) {
+        return cache[col] == RANGE_UNKNOWN
+            ? null
+            : cache[col];
+      }
+      final long[] probe = new long[3];
+      final boolean known;
+      if (columnStore != null) {
+        known = descriptorZoneUnion(col, probe);
+      } else {
+        final List<byte[]> leaves;
+        try {
+          leaves = rowGroupPayloads(materializer);
+        } catch (final IllegalStateException materializeFailed) {
+          return null;
+        }
+        known = ProjectionIndexByteScan.numericZoneUnion(leaves, col, probe);
+      }
+      final long[] resolved = known
+          ? probe
+          : RANGE_UNKNOWN;
+      synchronized (this) {
+        cache = numericRanges;
+        if (cache == null || cache.length <= col) {
+          final long[][] grown = new long[Math.max(col + 1, fieldNames.length)][];
+          if (cache != null) {
+            System.arraycopy(cache, 0, grown, 0, cache.length);
+          }
+          cache = grown;
+          numericRanges = cache;
+        }
+        if (cache[col] == null) {
+          cache[col] = resolved;
+        }
+        return cache[col] == RANGE_UNKNOWN
+            ? null
+            : cache[col];
+      }
+    }
+
+    /**
+     * Column-lazy arm of {@link #numericGroupRange}: fold the per-leaf descriptor zone pairs. Mirrors
+     * {@link ProjectionIndexByteScan#numericZoneUnion}'s rules exactly — {@code min > max} leaves
+     * contribute rows but no range; a leaf whose entry is ABSENT makes the whole union unknown.
+     */
+    private boolean descriptorZoneUnion(final int col, final long[] out3) {
+      if (col >= columnStore.columnCount()
+          || columnStore.columnKind(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+      final int leaves = columnStore.rowGroupCount();
+      final long[] pair = new long[2];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      long rows = 0;
+      boolean anyRange = false;
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        if (!columnStore.columnZoneRange(leaf, col, pair)) {
+          return false;
+        }
+        rows += columnStore.rowCount(leaf);
+        if (pair[0] > pair[1]) {
+          continue;
+        }
+        if (pair[0] < min) {
+          min = pair[0];
+        }
+        if (pair[1] > max) {
+          max = pair[1];
+        }
+        anyRange = true;
+      }
+      if (!anyRange) {
+        return false;
+      }
+      out3[0] = min;
+      out3[1] = max;
+      out3[2] = rows;
+      return true;
+    }
+
     public String[] fieldNames() {
       return fieldNames.clone();
     }
@@ -672,6 +785,13 @@ public final class ProjectionIndexRegistry {
    */
   private static final boolean PREWARM_DENSE_GROUPBY_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
+
+  /**
+   * Accumulator-cell ceiling for the NUMERIC_LONG dense pre-warm. Unlike the string dense arm this is
+   * ON by default (the numeric dense arm is the driver's default choice), so the bound only exists to
+   * keep the install-time allocation trivial: 64 K cells = 512 KB, one array, freed immediately.
+   */
+  private static final int PREWARM_DENSE_CELLS = 1 << 16;
 
   private ProjectionIndexRegistry() {}
 
@@ -1012,6 +1132,47 @@ public final class ProjectionIndexRegistry {
               ProjectionIndexScan.ColumnPredicate.booleanEq(booleanCol, true)};
       for (int i = 0; i < PREWARM_ITERS; i++) {
         ProjectionIndexByteScan.conjunctiveCount(sub, mix);
+      }
+    }
+
+    // NUMERIC_LONG group-by shapes. Separate kernels from the dict ones below (no
+    // canonical dict, no intern, primitive-keyed accumulators), so they need their own
+    // tier-up drive — without it the first real numeric group-by runs interpreted and
+    // every cold measurement of it is wrong.
+    //
+    // Contained in its OWN try/catch: both numeric arms throw IllegalStateException by design on a
+    // leaf they cannot serve (no presence tail, an unaddressable range), where the dict kernels
+    // below simply tolerate. The single catch around the whole driver plus the already-latched
+    // PREWARMED flag would turn one such leaf into a permanent skip of every shape declared after
+    // this block — the dict group-by tier-up killed as collateral by a column it never reads.
+    if (numericCol >= 0) {
+      try {
+        final ProjectionIndexScan.ColumnPredicate[] noPreds = new ProjectionIndexScan.ColumnPredicate[0];
+        final Long2LongOpenHashMap numericSink = new Long2LongOpenHashMap(64);
+        numericSink.defaultReturnValue(0L);
+        final long[] missing = new long[1];
+        for (int i = 0; i < PREWARM_ITERS; i++) {
+          numericSink.clear();
+          missing[0] = 0;
+          ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(sub, noPreds, numericCol, numericSink, missing);
+        }
+        // Dense arm over the SAME leaves: only reachable when the sub-list's zone map yields a
+        // range small enough to address, which is exactly the regime the driver picks it in.
+        final long[] range = new long[3];
+        if (ProjectionIndexByteScan.numericZoneUnion(sub, numericCol, range)) {
+          final long span = range[1] - range[0];
+          if (span >= 0 && span < PREWARM_DENSE_CELLS) {
+            final long[] denseCounts = new long[(int) span + 1];
+            for (int i = 0; i < PREWARM_ITERS; i++) {
+              Arrays.fill(denseCounts, 0L);
+              missing[0] = 0;
+              ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(sub, noPreds, numericCol, range[0],
+                  denseCounts, missing);
+            }
+          }
+        }
+      } catch (final RuntimeException numericNotServable) {
+        // Pre-warm only — a leaf these kernels decline costs a tier-up, never an answer.
       }
     }
 

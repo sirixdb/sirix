@@ -228,6 +228,38 @@ public final class ProjectionColumnStore {
     return RowGroupDescriptor.entryColFlags(descriptor, entry);
   }
 
+  /**
+   * The column's zone-map range on {@code leaf} — {@code out2[0]} = min, {@code out2[1]} = max.
+   *
+   * <p>
+   * Descriptor truth at ZERO I/O: the encoder writes the same pair into the descriptor entry that
+   * {@link ColumnSlice#min()} / {@link ColumnSlice#max()} report, so a range read here is worth
+   * exactly as much as one read off a decoded slice, without fetching the column's segments. A
+   * {@code min > max} pair is the format's all-missing marker (rowless leaf, or every cell missing on
+   * this leaf), never a real range — callers must skip such leaves rather than fold the sentinels in.
+   *
+   * @return {@code false} when the entry is absent, meaning the range is UNKNOWN. Callers fail closed
+   *         on that; a fabricated range would under-report the union and let an index-by-subtraction
+   *         accumulator address out of bounds.
+   */
+  public boolean columnZoneRange(final int leaf, final int col, final long[] out2) {
+    if (out2 == null || out2.length < 2) {
+      throw new IllegalArgumentException("out2 must hold at least two longs");
+    }
+    if (col < 0 || col >= columnKinds.length) {
+      return false;
+    }
+    final byte[] descriptor = directories.get(leaf).descriptor();
+    final int entry =
+        RowGroupDescriptor.entryIndexOf(descriptor, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col));
+    if (entry < 0) {
+      return false;
+    }
+    out2[0] = RowGroupDescriptor.entryMin(descriptor, entry);
+    out2[1] = RowGroupDescriptor.entryMax(descriptor, entry);
+    return true;
+  }
+
   /** The leaf's descriptor — metadata this store already holds, needing no fetch. */
   public byte[] descriptor(final int leaf) {
     return directories.get(leaf).descriptor();

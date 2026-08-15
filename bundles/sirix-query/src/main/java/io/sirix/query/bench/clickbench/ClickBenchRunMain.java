@@ -254,6 +254,12 @@ public final class ClickBenchRunMain {
               : Long.toString(rows),
           note);
     }
+    // Which fast paths actually took the work. A route that silently declines is
+    // indistinguishable from one that works — the timings alone cannot tell them apart, so a
+    // "no regression" reading over a route that never engaged is the default failure mode here.
+    System.out.printf("# served: predicateCounts=%d groupAggregates=%d numericGroupBys=%d%n",
+        SirixVectorizedExecutor.projectionCountsServed(), SirixVectorizedExecutor.groupAggServedCount(),
+        SirixVectorizedExecutor.numericGroupByServedCount());
   }
 
   /** The ClickBench output contract: a Load time line, a Data size line, then 43 timing rows. */

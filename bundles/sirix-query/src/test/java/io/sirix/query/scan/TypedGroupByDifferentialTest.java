@@ -5,6 +5,8 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -1060,6 +1062,265 @@ public final class TypedGroupByDifferentialTest {
   void projectionPredicatedGroupByWithDoubleThreshold() throws Exception {
     assertDifferentialWithProjection("for $u in " + SRC + " where $u.amount gt 500.5 "
         + "let $d := $u.dept, $c := $u.city group by $d, $c " + "return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+  }
+
+  // ==================== NUMERIC_LONG group keys via the projection ====================
+  // A third resource whose numeric columns are built to exercise every arm of the
+  // NUMERIC_LONG group-by kernel and every gate that must decline it. The projection is
+  // CATALOGUED (jn:create-projection-index + commit), not registry-installed, so these
+  // cases run against a column-LAZY handle — the arm that resolves the zone-map range from
+  // leaf descriptors rather than from leaf headers.
+
+  private static final String RES3 = "numeric-groupby.jn";
+  private static final String SRC3 = "jn:doc('" + DB + "','" + RES3 + "')[]";
+
+  private boolean numericResourceReady;
+
+  /**
+   * Corpus for the numeric group-by cases. Per record:
+   * <ul>
+   * <li>{@code small} — 8 dense values: the DENSE accumulator arm;</li>
+   * <li>{@code neg} — straddles zero: the {@code v - base} sign trap;</li>
+   * <li>{@code wide} — span far beyond the row count: forced onto the HASH arm by the "never more
+   * cells than rows" guard;</li>
+   * <li>{@code sparse} — absent on ~30% of records: the missing-field group;</li>
+   * <li>{@code decint} — the SAME integral value written as {@code 20} and as {@code 20.00}; the
+   * decimal is integral and long-representable, so it is NOT flagged and the column SERVES, merging
+   * both spellings into one group (the one non-obvious serve);</li>
+   * <li>{@code hasnull} — integers plus JSON {@code null}: present-but-unrepresentable, gate 2;</li>
+   * <li>{@code realmix} — {@code 3} mixed with the genuine double {@code 3.0e0}: every Double source
+   * flags the column non-integral, gate 3;</li>
+   * <li>{@code dbl} — declared {@code double}, hence a NUMERIC_DOUBLE column, gate 1;</li>
+   * <li>{@code tags} — an array layer, hence a STRING_SET column, gate 1;</li>
+   * <li>{@code flag} — a BOOLEAN column, gate 1;</li>
+   * <li>{@code dept} — a string key, for the mixed composite that must still decline.</li>
+   * </ul>
+   */
+  private void ensureNumericResource() throws Exception {
+    if (numericResourceReady) {
+      return;
+    }
+    final StringBuilder sb = new StringBuilder(N * 128);
+    sb.append('[');
+    for (int i = 0; i < N; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append("{\"id\":").append(i);
+      sb.append(",\"small\":").append(100 + i % 8);
+      sb.append(",\"neg\":").append(-4 + i % 9);
+      sb.append(",\"wide\":").append(i * 7);
+      sb.append(",\"dept\":\"").append(DEPTS[i % DEPTS.length]).append('"');
+      if (i % 10 < 7) {
+        sb.append(",\"sparse\":").append(i % 5);
+      }
+      sb.append(",\"decint\":")
+        .append(20 + i % 3)
+        .append(i % 2 == 0
+            ? ""
+            : ".00");
+      sb.append(",\"hasnull\":")
+        .append(i % 3 == 0
+            ? "null"
+            : String.valueOf(i % 4));
+      sb.append(",\"realmix\":")
+        .append(i % 3)
+        .append(i % 2 == 0
+            ? ""
+            : ".0e0");
+      sb.append(",\"dbl\":").append(i % 4).append(".5e0");
+      sb.append(",\"flag\":").append(i % 2 == 0);
+      sb.append(",\"tags\":[\"t").append(i % 3).append("\"]}");
+    }
+    sb.append(']');
+    shredExtraResource(RES3, sb.toString());
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
+      // The commit is load-bearing: without it the definition is never catalogued and every
+      // lookup reports "no covering handle", so both arms quietly run through the records.
+      new Query(chain,
+          "let $doc := jn:doc('" + DB + "','" + RES3 + "') " + "let $i := jn:create-projection-index($doc, '/[]', "
+              + "('/[]/small','/[]/neg','/[]/wide','/[]/sparse','/[]/decint','/[]/hasnull',"
+              + "'/[]/realmix','/[]/dbl','/[]/flag','/[]/dept','/[]/tags/[]'), "
+              + "('long','long','long','long','long','long','long','double','boolean','string','string')) "
+              + "return {\"revision\": sdb:commit($doc)}").evaluate(ctx);
+    }
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    numericResourceReady = true;
+  }
+
+  /** The vectorized answer must match the interpreter AND the numeric route must have taken it. */
+  private String assertNumericProjectionServes(final String query) throws Exception {
+    ensureNumericResource();
+    final String interpreted = normalize(run2On(RES3, query, false));
+    final long before = SirixVectorizedExecutor.numericGroupByServedCount();
+    final String vectorized = normalize(run2On(RES3, query, true));
+    assertEquals(interpreted, vectorized, "numeric projection result differs for: " + query);
+    assertTrue(SirixVectorizedExecutor.numericGroupByServedCount() > before,
+        "the numeric group-by route DECLINED, so the agreement above is vacuous: " + query);
+    return vectorized;
+  }
+
+  /** The gate must decline AND the fallback must still be right — a decline is not an error. */
+  private void assertNumericProjectionDeclines(final String query) throws Exception {
+    ensureNumericResource();
+    final String interpreted = normalize(run2On(RES3, query, false));
+    final long before = SirixVectorizedExecutor.numericGroupByServedCount();
+    final String vectorized = normalize(run2On(RES3, query, true));
+    assertEquals(interpreted, vectorized, "fallback result differs for the declined shape: " + query);
+    assertEquals(before, SirixVectorizedExecutor.numericGroupByServedCount(),
+        "the numeric group-by route SERVED a shape it must decline: " + query);
+  }
+
+  private static String groupByCount(final String field) {
+    return "for $u in " + SRC3 + " let $k := $u." + field + " group by $k " + "return {\"" + field
+        + "\": $k, \"count\": count($u)}";
+  }
+
+  @Test
+  void projectionNumericGroupKeyDenseArm() throws Exception {
+    // 8 distinct values over ~2k rows: cells <= rows and cells <= the cap, so the dense
+    // index-by-subtraction accumulator is chosen.
+    assertNumericProjectionServes(groupByCount("small"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyHashArm() throws Exception {
+    // Same query, dense arm switched OFF in the SAME JVM — the two accumulators must be
+    // indistinguishable by result. (Comparing them across builds is what the box's thermal
+    // throttling makes untrustworthy; this is the correctness half of that discipline.)
+    ensureNumericResource();
+    SirixVectorizedExecutor.setNumericDenseGroupByEnabled(false);
+    try {
+      assertNumericProjectionServes(groupByCount("small"));
+    } finally {
+      SirixVectorizedExecutor.setNumericDenseGroupByEnabled(true);
+    }
+    // And a column the guards push onto the hash arm on their own: span 13,986 over 1,999 rows.
+    assertNumericProjectionServes(groupByCount("wide"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyNegativeValuesStraddlingZero() throws Exception {
+    assertNumericProjectionServes(groupByCount("neg"));
+  }
+
+  @Test
+  void projectionNumericGroupKeySparseMissingGroup() throws Exception {
+    // Records lacking `sparse` group under the empty key; the stored default 0 is ALSO a real
+    // value of this column, so a phantom would merge two groups rather than add one.
+    assertNumericProjectionServes(groupByCount("sparse"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyIntegralDecimalMergesWithLong() throws Exception {
+    // 20 and 20.00 are the same xs:integer-representable value: ONE group, keyed xs:integer.
+    final String served = assertNumericProjectionServes(groupByCount("decint"));
+    assertEquals(3, served.lines().filter(l -> !l.isEmpty()).count(),
+        "20/20.00, 21/21.00 and 22/22.00 must merge into three groups, not six: " + served);
+  }
+
+  @Test
+  void projectionNumericGroupKeyPredicatedSelectivitySweep() throws Exception {
+    // Common / mid / rare / none. A wrong-answer bug once hid behind a common literal for a
+    // whole session — the error scaled with rarity, not corpus size.
+    for (final String bound : new String[] {"-1", "6993", "13900", "20000"}) {
+      assertNumericProjectionServes("for $u in " + SRC3 + " where $u.wide gt " + bound + " let $k := $u.small "
+          + "group by $k return {\"small\": $k, \"count\": count($u)}");
+    }
+  }
+
+  @Test
+  void projectionNumericGroupKeyRenamedRoutesThroughTheMultiPath() throws Exception {
+    // Renamed output field: the single-key composite entry point, which encodes 'l<value>' and
+    // decodes it back to xs:integer through the shared typed-group decoder.
+    assertNumericProjectionServes(
+        "for $u in " + SRC3 + " let $k := $u.small group by $k return {\"g\": $k, \"n\": count($u)}");
+  }
+
+  @Test
+  void projectionNumericGroupAggregate() throws Exception {
+    ensureNumericResource();
+    final String query = "for $u in " + SRC3 + " let $k := $u.small group by $k "
+        + "return {\"small\": $k, \"n\": count($u), \"total\": sum($u.wide), \"top\": max($u.wide), "
+        + "\"lo\": min($u.wide), \"mean\": avg($u.wide)}";
+    final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+    assertNumericProjectionServes(query);
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > aggBefore,
+        "the per-group aggregate route must have served, not just the count route");
+  }
+
+  @Test
+  void projectionNumericGroupAggregateWithSparseKeyAndSparseAggregate() throws Exception {
+    assertNumericProjectionServes("for $u in " + SRC3 + " let $k := $u.sparse group by $k "
+        + "return {\"sparse\": $k, \"n\": count($u), \"total\": sum($u.wide)}");
+  }
+
+  @Test
+  void projectionNumericGroupKeyDeclinesOnDoubleColumn() throws Exception {
+    // NUMERIC_DOUBLE is byte-identical to NUMERIC_LONG on disk but holds the order-preserving
+    // transform of the double bits: reading it as a long would emit garbage keys.
+    assertNumericProjectionDeclines(groupByCount("dbl"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyDeclinesOnJsonNullColumn() throws Exception {
+    assertNumericProjectionDeclines(groupByCount("hasnull"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyDeclinesOnMixedIntAndDoubleColumn() throws Exception {
+    assertNumericProjectionDeclines(groupByCount("realmix"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyDeclinesOnBooleanColumn() throws Exception {
+    assertNumericProjectionDeclines(groupByCount("flag"));
+  }
+
+  @Test
+  void projectionNumericGroupKeyDeclinesOnStringSetColumn() throws Exception {
+    ensureNumericResource();
+    final String query = groupByCount("tags");
+    // Grouping by an ARRAY is UNDEFINED in JSONiq — the interpreter raises FOTY0012 — so this
+    // shape has no correct answer for a fast path to reproduce, and the differential comparison
+    // the other decline tests make is not available here. What is asserted is the gate: the
+    // numeric route must not claim a STRING_SET column. The arm itself is pinned at kernel level
+    // by ProjectionIndexByteScanTest#numericGroupByRejectsAStringSetColumn.
+    //
+    // NOT blessed here: the vectorized run ANSWERS this query (the typed slot-walk kernel
+    // flattens a one-element array to its element) where the interpreter errors. That divergence
+    // predates the numeric group-by route and reproduces with no projection installed at all —
+    // it belongs to the typed kernel, not to this gate, so this test deliberately does not
+    // compare the two outputs.
+    final Exception interpreted =
+        org.junit.jupiter.api.Assertions.assertThrows(Exception.class, () -> run2On(RES3, query, false));
+    assertTrue(causeChain(interpreted).contains("FOTY0012"), causeChain(interpreted));
+    final long before = SirixVectorizedExecutor.numericGroupByServedCount();
+    run2On(RES3, query, true);
+    assertEquals(before, SirixVectorizedExecutor.numericGroupByServedCount(),
+        "the numeric group-by route must never claim a STRING_SET column");
+  }
+
+  /** Flatten an exception chain to one string — wrappers move around, the code does not. */
+  private static String causeChain(final Throwable t) {
+    final StringBuilder sb = new StringBuilder();
+    for (Throwable c = t; c != null && sb.length() < 4096; c = c.getCause() == c
+        ? null
+        : c.getCause()) {
+      sb.append(c).append(" | ");
+    }
+    return sb.toString();
+  }
+
+  @Test
+  void projectionMixedStringAndNumericCompositeDeclines() throws Exception {
+    // A composite key mixing a string and a numeric column needs a typed multi-kernel; until
+    // then the shape must decline as a whole, never serve the numeric half as a string.
+    assertNumericProjectionDeclines("for $u in " + SRC3 + " let $d := $u.dept, $k := $u.small group by $d, $k "
+        + "return {\"dept\": $d, \"small\": $k, \"count\": count($u)}");
   }
 
   private void assertDifferentialWithProjection(final String query) throws Exception {

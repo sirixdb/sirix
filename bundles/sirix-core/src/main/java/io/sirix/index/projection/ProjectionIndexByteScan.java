@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
@@ -68,6 +69,18 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  *
  * <p>
  * All multi-byte integers are little-endian.
+ *
+ * <h2>Group-by kernels: two families, never interchangeable</h2>
+ *
+ * The STRING_DICT kernels ({@link #conjunctiveCountByGroup} and friends) and the NUMERIC_LONG
+ * kernels ({@link #conjunctiveCountByGroupNumeric} and friends) are siblings — each rejects the
+ * other's column kind loudly. The numeric family exists because a numeric key deletes the entire
+ * canonical-dictionary apparatus the string family needs: dict ids are LEAF-LOCAL and cannot be
+ * summed across leaves, whereas values are globally comparable by construction. So the numeric
+ * kernels carry no canonical-dict probe, no per-leaf {@code dictId → canonId} remap, no per-leaf
+ * fallback map, no FNV-1a intern and no {@code String} at all; the dense arm indexes by
+ * {@code value - base} and merges by elementwise sum with no decode step. See
+ * {@link #numericZoneUnion} for where {@code base} comes from (metadata, no row touches).
  */
 public final class ProjectionIndexByteScan {
 
@@ -1482,6 +1495,486 @@ public final class ProjectionIndexByteScan {
               acc[base + 2] = v;
             if (v > acc[base + 3])
               acc[base + 3] = v;
+          }
+        }
+      }
+    }
+  }
+
+  // ==================================================================
+  // NUMERIC_LONG group-by kernels.
+  // ==================================================================
+
+  /**
+   * Byte offsets of every column's zone-map {@code (min, max)} pair, written into {@code out} (which
+   * must hold at least {@code columnCount} entries). Header walk only — the row payload is never
+   * touched, and a STRING_DICT/STRING_SET column costs one read of its length header.
+   *
+   * @return the leaf's {@code rowCount}; {@code 0} for a rowless leaf, which carries NO per-column
+   *         zone pair at all (so {@code out} is left untouched); {@code -1} on an unknown column kind
+   */
+  private static int columnZonePairOffsets(final byte[] payload, final int[] out) {
+    final int rowCount = getIntLE(payload, 0);
+    final int columnCount = getIntLE(payload, 4);
+    final int kindsOff = 24;
+    if (rowCount == 0) {
+      return 0;
+    }
+    int cursor = kindsOff + columnCount + rowCount * 8;
+    for (int c = 0; c < columnCount; c++) {
+      out[c] = cursor;
+      cursor += 16;
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
+        default -> {
+          return -1;
+        }
+      }
+    }
+    return rowCount;
+  }
+
+  /** Grow the per-thread offset scratch in lockstep so the two arrays never disagree in length. */
+  private static void ensureOffsetScratch(final ScanScratch s, final int columnCount) {
+    if (s.columnDataOff.length < columnCount) {
+      s.columnDataOff = new int[columnCount];
+      s.columnMinMaxOff = new int[columnCount];
+    }
+  }
+
+  /**
+   * Union of a NUMERIC_LONG column's per-leaf zone maps: {@code out3} receives
+   * {@code {gMin, gMax, totalRows}}. The EAGER-handle twin of
+   * {@link ProjectionColumnStore#columnZoneRange} — leaf HEADERS only, no row payload, no I/O.
+   *
+   * <p>
+   * The union is what makes an index-by-subtraction group accumulator safe with no probe pass: zone
+   * maps fold in only PRESENT, representable values, so under the caller's sparse-clean gate every
+   * value the kernel will read is provably inside {@code [gMin, gMax]}.
+   *
+   * <p>
+   * Leaves whose pair reads {@code min > max} (the all-missing marker) contribute rows but no range —
+   * folding their sentinels in would produce an inverted union. A leaf whose range cannot be read at
+   * all makes the whole union UNKNOWN ({@code false}); skipping it would under-report the range and
+   * the dense arm would then address out of bounds.
+   *
+   * @return {@code false} — range UNKNOWN, caller must take the hash arm — on an empty leaf list, a
+   *         null payload, a column index out of range, a kind that is not NUMERIC_LONG on some leaf,
+   *         a structurally unwalkable leaf, or zero present rows across the whole index
+   */
+  public static boolean numericZoneUnion(final List<byte[]> rowGroupPayloads, final int col, final long[] out3) {
+    if (out3 == null || out3.length < 3) {
+      throw new IllegalArgumentException("out3 must hold at least three longs");
+    }
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty() || col < 0) {
+      return false;
+    }
+    final ScanScratch s = SCRATCH.get();
+    long gMin = Long.MAX_VALUE;
+    long gMax = Long.MIN_VALUE;
+    long rows = 0;
+    boolean anyRange = false;
+    for (final byte[] payload : rowGroupPayloads) {
+      if (payload == null) {
+        return false;
+      }
+      final int columnCount = columnCountOf(payload);
+      if (col >= columnCount) {
+        return false;
+      }
+      if (payload[24 + col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+      ensureOffsetScratch(s, columnCount);
+      final int rowCount = columnZonePairOffsets(payload, s.columnMinMaxOff);
+      if (rowCount < 0) {
+        return false;
+      }
+      rows += rowCount;
+      if (rowCount == 0) {
+        continue;
+      }
+      final int off = s.columnMinMaxOff[col];
+      final long min = getLongLE(payload, off);
+      final long max = getLongLE(payload, off + 8);
+      if (min > max) {
+        continue;
+      }
+      if (min < gMin) {
+        gMin = min;
+      }
+      if (max > gMax) {
+        gMax = max;
+      }
+      anyRange = true;
+    }
+    if (!anyRange) {
+      return false;
+    }
+    out3[0] = gMin;
+    out3[1] = gMax;
+    out3[2] = rows;
+    return true;
+  }
+
+  /**
+   * Zone-map pre-flight for per-group sums: declines BEFORE a single row is read when the aggregate
+   * columns cannot be summed exactly in a {@code long}. Port of
+   * {@code ProjectionColumnSegmentFoldScan#requireSumFitsLong} to the whole-leaf path.
+   *
+   * <p>
+   * A single WHOLE-COLUMN bound covers every group, because each group's sum is a sub-multiset of the
+   * column's — so one {@code O(leaves)} metadata check replaces an {@code O(rows)} scan that was
+   * going to be thrown away. {@link Math#absExact} supplies the {@link Long#MIN_VALUE} guard for
+   * free.
+   *
+   * <p>
+   * The bound is CONSERVATIVE (predicates and presence only ever remove contributions), so this may
+   * decline a shape whose actual sums would have fit — a slower correct answer instead of a wrapped
+   * wrong one. It is an EARLY-decline optimization layered over the per-row {@link Math#addExact} in
+   * the kernels, which remains the authority: on any leaf shape this walk cannot decode it abandons
+   * the pre-flight rather than reporting a partial (and therefore too-small) bound.
+   *
+   * @throws ArithmeticException naming the column — callers treat it as a DECLINE
+   */
+  public static void requireGroupSumsFitLong(final List<byte[]> rowGroupPayloads, final int[] aggColumns) {
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty() || aggColumns == null || aggColumns.length == 0) {
+      return;
+    }
+    final ScanScratch s = SCRATCH.get();
+    final long[] bounds = new long[aggColumns.length];
+    int failedColumn = -1;
+    try {
+      for (final byte[] payload : rowGroupPayloads) {
+        if (payload == null) {
+          return;
+        }
+        final int columnCount = columnCountOf(payload);
+        ensureOffsetScratch(s, columnCount);
+        final int rowCount = columnZonePairOffsets(payload, s.columnMinMaxOff);
+        if (rowCount <= 0) {
+          if (rowCount < 0) {
+            return;
+          }
+          continue;
+        }
+        for (int a = 0; a < aggColumns.length; a++) {
+          final int col = aggColumns[a];
+          if (col < 0 || col >= columnCount) {
+            return;
+          }
+          final int off = s.columnMinMaxOff[col];
+          final long min = getLongLE(payload, off);
+          final long max = getLongLE(payload, off + 8);
+          if (min > max) {
+            continue;
+          }
+          failedColumn = col;
+          final long magnitude = Math.max(Math.absExact(min), Math.absExact(max));
+          bounds[a] = Math.addExact(bounds[a], Math.multiplyExact((long) rowCount, magnitude));
+        }
+      }
+    } catch (final ArithmeticException overflow) {
+      throw new ArithmeticException("Projection column " + failedColumn
+          + " cannot be summed exactly in a long: the zone-map magnitude bound over " + rowGroupPayloads.size()
+          + " row groups leaves the signed 64-bit range");
+    }
+  }
+
+  /**
+   * Per-leaf preamble shared by the three numeric group kernels: verify the column kind, then locate
+   * the group column's presence words.
+   *
+   * <p>
+   * Presence is MANDATORY here, unlike in the string kernels. Those tolerate a missing tail and fall
+   * back to dense semantics, which for a dict id merely mis-groups; for a VALUE the stored default of
+   * a missing row (typically {@code 0}) is generally outside the zone-map range and would trip the
+   * dense arm's range guard — or, worse, land inside it and fabricate a phantom group {@code 0}.
+   *
+   * @return the leaf's validated presence-tail start
+   * @throws IllegalStateException on kind drift, an out-of-range column, or an unreadable presence
+   *         tail — callers catch it as a DECLINE
+   */
+  private static int numericGroupTailStart(final byte[] payload, final int groupColumn, final ScanScratch s) {
+    final int columnCount = columnCountOf(payload);
+    if (groupColumn < 0 || groupColumn >= columnCount) {
+      throw new IllegalStateException("groupColumn " + groupColumn + " out of range [0, " + columnCount + ")");
+    }
+    final byte kind = payload[24 + groupColumn];
+    if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      throw new IllegalStateException("groupColumn " + groupColumn + " is not NUMERIC_LONG (kind=" + kind + ")");
+    }
+    final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+    if (tailStart < 0) {
+      throw new IllegalStateException("groupColumn " + groupColumn
+          + " has no readable presence tail — a numeric group key must never fall back to the stored default");
+    }
+    return tailStart;
+  }
+
+  /**
+   * Bit mask selecting the VALID rows of mask word {@code w} — the once-per-word form of the
+   * {@code rowIdx >= rowCount} bound check the dict kernels re-run per set bit. Equivalent (the mask
+   * builder already clears the final word's tail bits), cheaper, and it is what lets the hot loop
+   * tally MISSING rows with one {@link Long#bitCount} instead of branching per row.
+   */
+  private static long validRowsMask(final int w, final int stride, final int rowCount) {
+    final int lastBits = rowCount & 63;
+    return lastBits != 0 && w == stride - 1
+        ? -1L >>> 64 - lastBits
+        : -1L;
+  }
+
+  /**
+   * Conjunctive filter + group-by-count over a
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} column — the HASH arm. Every
+   * matching row bumps {@code out} under its primitive value; matching rows whose group field is
+   * MISSING count into {@code missingOut[0]} (the null-key group), never under the stored default.
+   *
+   * <p>
+   * HFT-grade: one 8-byte load and one {@link Long2LongOpenHashMap#addTo} probe per matching row. No
+   * boxing (primitive key), no interning, no {@code String}, no per-leaf dictionary work, zero
+   * allocation on the hot path.
+   *
+   * <p>
+   * Counts cannot overflow and are deliberately unchecked: rows are bounded by
+   * {@code leaves × MAX_ROWS ≤ 2^31 × 2^10 = 2^41}.
+   *
+   * @param out caller-supplied accumulator with {@code defaultReturnValue(0L)}
+   * @param missingOut one-element sink for the missing-field group; must be non-null — presence is
+   *        mandatory on this path (see {@link #numericGroupPresenceOff})
+   * @throws IllegalStateException on column-kind drift or an unreadable presence tail — a DECLINE
+   */
+  public static void conjunctiveCountByGroupNumeric(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final Long2LongOpenHashMap out,
+      final long[] missingOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null) {
+      throw new IllegalArgumentException("out must not be null");
+    }
+    if (missingOut == null || missingOut.length < 1) {
+      throw new IllegalArgumentException("missingOut is mandatory — the numeric group path requires presence");
+    }
+    final ScanScratch s = SCRATCH.get();
+    long missing = 0;
+    for (final byte[] payload : rowGroupPayloads) {
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int presOff = presenceWordsOff(payload, numericGroupTailStart(payload, groupColumn, s), groupColumn);
+      final int valOff = s.columnDataOff[groupColumn];
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        final long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long presWord = getLongLE(payload, presOff + (w << 3));
+        missing += Long.bitCount(word & ~presWord);
+        long live = word & presWord;
+        final int rowBase = w << 6;
+        while (live != 0L) {
+          final int bit = Long.numberOfTrailingZeros(live);
+          live &= live - 1L;
+          out.addTo(getLongLE(payload, valOff + (rowBase + bit) * 8), 1L);
+        }
+      }
+    }
+    missingOut[0] += missing;
+  }
+
+  /**
+   * DENSE arm of {@link #conjunctiveCountByGroupNumeric}: the group index IS the value, offset by
+   * {@code base}, so a matching row costs one 8-byte load and one array increment — no hash probe.
+   * The caller sizes {@code counts} from the zone-map union ({@link #numericZoneUnion}) and passes
+   * {@code base = gMin}.
+   *
+   * <p>
+   * There is no {@code fallbackOut} counterpart to the string dense kernel's: values are globally
+   * comparable, so "outside the accumulator" is not a late-arriving value, it is CORRUPTION (a zone
+   * map disagreeing with its own column). The range guard converts it into a decline rather than an
+   * {@link ArrayIndexOutOfBoundsException} or, worse, a silently wrong bucket. Keep the branch: it is
+   * perfectly predicted (always false) and it is the only thing standing between a corrupt leaf and a
+   * wrong answer.
+   *
+   * @param counts caller-zeroed accumulator; its LENGTH defines the addressable range, so it cannot
+   *        drift from the guard
+   * @throws IllegalStateException on kind drift, an unreadable presence tail, or a value outside
+   *         {@code [base, base + counts.length)} — all DECLINES
+   */
+  public static void conjunctiveCountByGroupNumericDense(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final long base,
+      final long[] counts, final long[] missingOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (counts == null || counts.length == 0) {
+      throw new IllegalArgumentException("counts must be a non-empty caller-zeroed accumulator");
+    }
+    if (missingOut == null || missingOut.length < 1) {
+      throw new IllegalArgumentException("missingOut is mandatory — the numeric group path requires presence");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int cells = counts.length;
+    long missing = 0;
+    for (final byte[] payload : rowGroupPayloads) {
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int presOff = presenceWordsOff(payload, numericGroupTailStart(payload, groupColumn, s), groupColumn);
+      final int valOff = s.columnDataOff[groupColumn];
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        final long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long presWord = getLongLE(payload, presOff + (w << 3));
+        missing += Long.bitCount(word & ~presWord);
+        long live = word & presWord;
+        final int rowBase = w << 6;
+        while (live != 0L) {
+          final int bit = Long.numberOfTrailingZeros(live);
+          live &= live - 1L;
+          final long v = getLongLE(payload, valOff + (rowBase + bit) * 8);
+          final long d = v - base;
+          if (d < 0 || d >= cells) {
+            throw new IllegalStateException("group value " + v + " outside zone range [" + base + ", " + (base + cells)
+                + ") on column " + groupColumn);
+          }
+          counts[(int) d]++;
+        }
+      }
+    }
+    missingOut[0] += missing;
+  }
+
+  /**
+   * Per-group NUMERIC_LONG aggregates keyed by a NUMERIC_LONG group column — the numeric twin of
+   * {@link #conjunctiveAggregateByGroup}. Accumulator layout, per-aggregate-column presence AND,
+   * exact-sum discipline and first-seen ordinals ({@code (leafIndexBase + leaf) << 20 | rowIdx},
+   * min-on-merge) are unchanged: the ordinals are what make the served emission order match the
+   * interpreter's document first-appearance order.
+   *
+   * <p>
+   * Hash only, no dense arm: a per-group accumulator is {@code 2 + 4·aggCols} longs, so a dense array
+   * of them is {@code long[cells × slots]} and explodes; and at the cardinality where per-group
+   * aggregates actually appear the map is L1-resident and the probe is invisible against the per-row
+   * presence + value loads.
+   *
+   * @param missingAcc accumulator for matching rows whose GROUP field is missing (the null-key group)
+   * @throws ArithmeticException on a per-group sum overflow — a DECLINE
+   * @throws IllegalStateException on kind drift or an unreadable presence tail — a DECLINE
+   */
+  public static void conjunctiveAggregateByGroupNumeric(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final Long2ObjectOpenHashMap<long[]> out, final long[] missingAcc, final int leafIndexBase) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || missingAcc == null || aggColumns == null) {
+      throw new IllegalArgumentException("out, missingAcc and aggColumns must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = aggColumns.length;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = numericGroupTailStart(payload, groupColumn, s);
+      final int groupPresOff = presenceWordsOff(payload, tailStart, groupColumn);
+      final int groupValOff = s.columnDataOff[groupColumn];
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        // Same fail-loud per-leaf kind check the group column gets: a leaf whose kind byte
+        // drifted from the handle metadata must never be folded as longs silently.
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          final long[] acc;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            acc = missingAcc;
+            if (acc[0] == 0) {
+              // First missing-group row of this chunk — record its ordinal so the
+              // null-key group emits at its document first-appearance position.
+              acc[1] = leafOrdinalBase | rowIdx;
+            }
+          } else {
+            final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+            long[] existing = out.get(gv);
+            if (existing == null) {
+              existing = newGroupAggAcc(aggCount, leafOrdinalBase | rowIdx);
+              out.put(gv, existing);
+            }
+            acc = existing;
+          }
+          acc[0]++;
+          for (int a = 0; a < aggCount; a++) {
+            if ((getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+              continue;
+            }
+            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+            final int base = 2 + 4 * a;
+            acc[base]++;
+            // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
+            // sum to exact decimal — a wrapped long would silently serve a wrong total.
+            acc[base + 1] = Math.addExact(acc[base + 1], v);
+            if (v < acc[base + 2]) {
+              acc[base + 2] = v;
+            }
+            if (v > acc[base + 3]) {
+              acc[base + 3] = v;
+            }
           }
         }
       }

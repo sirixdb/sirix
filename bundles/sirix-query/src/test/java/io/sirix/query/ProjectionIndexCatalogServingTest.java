@@ -779,6 +779,74 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void numericKeyGroupAggregatesServeInDocumentFirstAppearanceOrder() throws IOException {
+    // The NUMERIC_LONG twin of perGroupAggregatesServeAndMatchTheGenericPipeline. The exact-string
+    // assertion is the point: the differential harnesses elsewhere normalize by sorting and are
+    // therefore blind to emission ORDER, and order (document first appearance, with the null-key
+    // group interleaved at its own ordinal) is what the served records have to reproduce.
+    // The `region` key is also the trap for the key's TYPE: a numeric key wrapped in Str would
+    // serialize as "3" instead of 3 — a wrong result, not a degradation.
+    query("""
+          jn:store('json-path1','numgroupagg.jn','[
+            {"region": 3, "amount": 10},
+            {"region": 1, "amount": 20},
+            {"amount": 30},
+            {"region": 3, "amount": 5},
+            {"region": 1},
+            {"region": -2, "amount": 7}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','numgroupagg.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/region', '/[]/amount'),
+              ('long', 'long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    final String groupQuery = """
+          let $doc := jn:doc('json-path1','numgroupagg.jn')
+          for $r in $doc[]
+          let $k := $r.region
+          group by $k
+          return {"region": $k, "n": count($r), "total": sum($r.amount), "top": max($r.amount)}
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("numgroupagg.jn");
+      final String generic = evaluateQuery(chain, ctx, groupQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long numericBefore = SirixVectorizedExecutor.numericGroupByServedCount();
+        final String served = evaluateQuery(chain, ctx, groupQuery);
+        Assertions.assertEquals(generic, served,
+            "served per-group aggregates under a numeric key must match the generic pipeline exactly");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "the numeric group-aggregate query must be SERVED from the projection");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.numericGroupByServedCount() - numericBefore,
+            "the NUMERIC route specifically must be the one that served it");
+        // Document first-appearance order: 3, 1, null (record 3), -2. The key renders as an
+        // xs:integer, and the group whose only member lacks `amount` emits the empty sequence.
+        Assertions.assertEquals("{\"region\":3,\"n\":2,\"total\":15,\"top\":10}"
+            + " {\"region\":1,\"n\":2,\"total\":20,\"top\":20}" + " {\"region\":null,\"n\":1,\"total\":30,\"top\":30}"
+            + " {\"region\":-2,\"n\":1,\"total\":7,\"top\":7}", served);
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void multiKeyGroupAggregatesServeAndMatchTheGenericPipeline() throws IOException {
     // Gap item 1a: N group keys. Fixture exercises every composite-missing combination
     // (both present / missing city / missing dept / missing both), plus a filtered
