@@ -147,6 +147,76 @@ tasks.register('duckBench', JavaExec) {
     }
 }
 
+// ClickBench loader: shreds the hits records into a Sirix JSON resource and prints
+// ClickBench's "Load time:" / "Data size:" lines. Usage:
+//   ./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="/tmp/cb-1m generate:1000000"
+//   ./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="/tmp/cb-full /data/hits.json"
+tasks.register('clickBenchLoad', JavaExec) {
+    group = 'verification'
+    description = 'Load the ClickBench hits dataset into a SirixDB JSON resource.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchLoadMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// ClickBench synthetic data writer: emits the same records the loader's
+// "generate:<rows>" source produces, so a reference engine can read byte-identical
+// data. Usage:
+//   ./gradlew :sirix-query:clickBenchGenerate -Pclickbench.args="/tmp/hits.json 200000 42"
+tasks.register('clickBenchGenerate', JavaExec) {
+    group = 'verification'
+    description = 'Write the synthetic ClickBench hits dataset to a JSON file.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchGenerateMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = [
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xmx2g'
+    ]
+}
+
+// ClickBench runner: runs the 43 queries under the ClickBench protocol. Usage:
+//   ./gradlew :sirix-query:clickBench -Pclickbench.args="/tmp/cb-1m --tries 3 --json /tmp/cb.json"
+//   ./gradlew :sirix-query:clickBench -Pclickbench.args="/tmp/cb-1m --tries 1 --dump /tmp/cb-results"
+tasks.register('clickBench', JavaExec) {
+    group = 'verification'
+    description = 'Run the 43 ClickBench queries against a loaded SirixDB resource.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchRunMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
 // Correctness-validation runner: prints each scale-bench query's actual
 // result against an existing shredded DB so we can diff against DuckDB /
 // other reference engines. Usage:
