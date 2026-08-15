@@ -30,9 +30,13 @@ package io.sirix.index.hot;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.Dec;
+import io.brackit.query.atomic.Flt;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.expr.Cast;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.InstantKeyCodec;
@@ -484,13 +488,13 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // and the double prefix already carries whatever the encoder could represent.
       return written;
     }
-    final byte[] suffix = normalizedDecimalBytes(exact);
+    final String suffix = normalizedDecimalString(exact);
     // One byte held back for the terminator, which is not optional — see below.
     final int room = Math.min(dest.length - offset - written, MAX_DECIMAL_SUFFIX_BYTES) - 1;
     if (room < 0) {
       return written;
     }
-    final int length = Math.min(suffix.length, room);
+    final int length = Math.min(suffix.length(), room);
     final boolean negative = exact.signum() < 0;
     // SIGN-DEPENDENT complement and terminator, and both halves are load-bearing.
     //
@@ -506,10 +510,15 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     // digits, '.' and '-' (0x2D..0x39); complemented that is 0xC6..0xD2, and neither 0x00 nor 0xFF
     // can occur in either range. The alphabet is restricted enough that the terminator is
     // unambiguous by construction rather than by convention.
+    //
+    // Narrowed from the String's chars rather than through getBytes(US_ASCII), which is the same
+    // bytes without the intermediate array: that alphabet is single-byte in ASCII by construction,
+    // so the cast cannot lose anything the encoder would have kept.
     for (int i = 0; i < length; i++) {
+      final byte b = (byte) suffix.charAt(i);
       dest[offset + written + i] = negative
-          ? (byte) ~suffix[i]
-          : suffix[i];
+          ? (byte) ~b
+          : b;
     }
     dest[offset + written + length] = negative
         ? (byte) 0xFF
@@ -524,6 +533,15 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * @return the exact value, or {@code null}
    */
   private static @Nullable BigDecimal exactDecimalOrNull(final Atomic value) {
+    // An xs:decimal probe already HOLDS the BigDecimal, and this is the hot path for it: both the
+    // encoder and losesInformation land here on every decimal equality query. Formatting it to a
+    // String and re-parsing that String allocated four objects and ran a full decimal parse to
+    // arrive back at the value it started from. Taking the field directly is the same value —
+    // Dec#stringValue is that BigDecimal's own canonical lexical form, so the round trip was
+    // identity by construction.
+    if (value instanceof Dec dec) {
+      return dec.decimalValue();
+    }
     try {
       return new BigDecimal(value.stringValue().trim());
     } catch (final NumberFormatException e) {
@@ -532,14 +550,47 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   /**
-   * The canonical bytes of {@code exact}, with trailing zeros stripped so that equal values produce
+   * The canonical text of {@code exact}, with trailing zeros stripped so that equal values produce
    * equal bytes. ASCII by construction — a plain decimal string has no character outside it.
    *
    * @param exact the value
-   * @return its normalized bytes
+   * @return its normalized form
    */
-  private static byte[] normalizedDecimalBytes(final BigDecimal exact) {
-    return exact.stripTrailingZeros().toPlainString().getBytes(StandardCharsets.US_ASCII);
+  private static String normalizedDecimalString(final BigDecimal exact) {
+    return exact.stripTrailingZeros().toPlainString();
+  }
+
+  /**
+   * The length {@link BigDecimal#toPlainString()} would produce for {@code exact}, derived from its
+   * precision and scale rather than by formatting it.
+   *
+   * <p>
+   * Exact for the value as given, and therefore an UPPER BOUND on the length of
+   * {@link #normalizedDecimalString}, which is what makes it usable as a fast path there. Stripping
+   * {@code k} trailing zeros takes precision {@code p} to {@code p - k} and scale {@code s} to
+   * {@code s - k}; working the three cases below through that substitution — including the
+   * transitions where stripping moves a value from one case to another — the stripped length is
+   * never the greater. So a caller may conclude "it fits" from this alone, and need fall back to
+   * formatting only where this says the value might not.
+   * </p>
+   *
+   * @param exact the value
+   * @return the number of characters its plain form would occupy
+   */
+  private static int plainDecimalLength(final BigDecimal exact) {
+    final int precision = exact.precision();
+    final int scale = exact.scale();
+    // scale <= 0: the digits followed by -scale zeros. 0 < scale < precision: a point inserted
+    // among the digits. scale >= precision: "0." then scale digits, of which scale - precision are
+    // leading zeros.
+    final int digits = scale <= 0
+        ? precision - scale
+        : (precision > scale
+            ? precision + 1
+            : scale + 2);
+    return exact.signum() < 0
+        ? digits + 1
+        : digits;
   }
 
   /**
@@ -810,7 +861,18 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       // allocation here is paid by a query that is genuinely ambiguous rather than by every price
       // lookup.
       final BigDecimal exact = exactDecimalOrNull(value);
-      return exact == null || normalizedDecimalBytes(exact).length > MAX_DECIMAL_SUFFIX_BYTES - 1;
+      if (exact == null) {
+        return true;
+      }
+      // Only a LENGTH is wanted here, so formatting the value to get one was the whole cost of this
+      // check on every decimal equality query — the second full normalization per query, after the
+      // encoder's. plainDecimalLength bounds it from precision and scale without allocating, and the
+      // bound is exact for the unstripped form, so a value comfortably inside the budget (which is
+      // every decimal anyone actually indexes — the limit is ~237 significant digits) settles it in
+      // arithmetic. The formatting survives only where the bound cannot decide, which is where the
+      // key genuinely may not be injective and a re-check was going to be paid for anyway.
+      return plainDecimalLength(exact) > MAX_DECIMAL_SUFFIX_BYTES - 1
+          && normalizedDecimalString(exact).length() > MAX_DECIMAL_SUFFIX_BYTES - 1;
     }
     if (id != TYPE_INTEGER) {
       // xs:decimal: UNCONDITIONALLY lossy, and the round-trip test that used to stand here was
@@ -1117,7 +1179,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
           | ((long) (bytes[offset + 4] & 0xFF) << 24) | ((long) (bytes[offset + 5] & 0xFF) << 16)
           | ((long) (bytes[offset + 6] & 0xFF) << 8) | ((long) (bytes[offset + 7] & 0xFF));
       long longValue = bits ^ SIGN_FLIP;
-      return new io.brackit.query.atomic.Int64(longValue);
+      return new Int64(longValue);
     } else if (type.isNumeric()) {
       // Decode IEEE 754 order-preserving format (xs:double, xs:float, xs:decimal)
       long bits = ((long) (bytes[offset] & 0xFF) << 56) | ((long) (bytes[offset + 1] & 0xFF) << 48)
@@ -1151,20 +1213,20 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
                 ? (byte) ~raw
                 : raw;
           }
-          return new io.brackit.query.atomic.Dec(new BigDecimal(new String(plain, StandardCharsets.US_ASCII)));
+          return new Dec(new BigDecimal(new String(plain, StandardCharsets.US_ASCII)));
         }
-        return new io.brackit.query.atomic.Dec(java.math.BigDecimal.valueOf(d));
+        return new Dec(BigDecimal.valueOf(d));
       } else if (type.instanceOf(Type.FLO)) {
-        return new io.brackit.query.atomic.Flt((float) d);
+        return new Flt((float) d);
       } else {
-        return new io.brackit.query.atomic.Dbl(d);
+        return new Dbl(d);
       }
     } else if (type.instanceOf(Type.BOOL)) {
-      return new io.brackit.query.atomic.Bool(bytes[offset] == 1);
+      return new Bool(bytes[offset] == 1);
     } else {
       // String
       String str = new String(bytes, offset, length, StandardCharsets.UTF_8);
-      return new io.brackit.query.atomic.Str(str);
+      return new Str(str);
     }
   }
 }

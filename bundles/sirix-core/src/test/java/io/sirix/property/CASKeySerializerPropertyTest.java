@@ -246,10 +246,30 @@ final class CASKeySerializerPropertyTest {
    * generator gap hid a real defect — the first was {@code -0.0} — so the lesson is worth stating
    * where the next person will read it: a property is only as strong as the values it is fed.
    * </p>
+   *
+   * <p>
+   * The pairs come in two SHAPES, and the second shape is here because the first alone was not
+   * enough. In an EXTENSION pair one value is a textual prefix of the other, so their suffixes first
+   * differ where the shorter one has ended — the comparison lands on the terminator, and only the
+   * terminator's side of the encoding is under test. Every original pair was of that shape, which
+   * left the digit comparison itself unexercised: perturbing the suffix bytes with an
+   * order-inverting but bijective transform kept this property green, because the transform never
+   * reached a position where two DIGITS met. The DIVERGENT pairs collide on the same double and
+   * differ at a digit instead, in both signs, so the complement now has to be right for digits as
+   * well as for lengths.
+   * </p>
    */
   private static Arbitrary<Tuple2<Tuple2<Atomic, Atomic>, Type>> collidingDecimalPairs() {
-    return Arbitraries.of(Tuple.of("0.5", "0.5000000000000000001"), Tuple.of("19.99", "19.990000000000000001"),
-        Tuple.of("0.1", "0.1000000000000000001"), Tuple.of("-3.25", "-3.250000000000000001"))
+    return Arbitraries.of(
+        // Extension: the shorter value's terminator meets the longer value's next digit.
+        Tuple.of("0.5", "0.5000000000000000001"), Tuple.of("19.99", "19.990000000000000001"),
+        Tuple.of("0.1", "0.1000000000000000001"), Tuple.of("-3.25", "-3.250000000000000001"),
+        // Divergent: equal length, differing at a digit past double precision. '0' against '1' on
+        // purpose — adjacent codes, so a transform that merely permutes bytes locally shows up.
+        Tuple.of("0.5000000000000000001", "0.5000000000000000011"),
+        Tuple.of("19.990000000000000001", "19.990000000000000011"),
+        Tuple.of("-3.250000000000000001", "-3.250000000000000011"),
+        Tuple.of("-0.1000000000000000011", "-0.1000000000000000001"))
                       .map(pair -> Tuple.of(Tuple.of((Atomic) new Dec(new BigDecimal(pair.get1())),
                           (Atomic) new Dec(new BigDecimal(pair.get2()))), Type.DEC));
   }
