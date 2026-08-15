@@ -27,11 +27,13 @@
  */
 package io.sirix.index.hot;
 
+import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Numeric;
+import io.brackit.query.expr.Cast;
 import io.brackit.query.jdm.Type;
 import io.sirix.index.InstantKeyCodec;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -913,6 +915,39 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return narrowsNumeric(value, id);
     }
     return truncates(value, id);
+  }
+
+
+  /**
+   * Whether {@code value} is, or can be read as, the index's declared content type.
+   *
+   * <p>
+   * A probe that answers {@code false} matches NOTHING and the caller should say so directly.
+   * {@code CASIndexBuilder} skips any node whose value is not of the declared type, so nothing of
+   * that shape was ever indexed — but the per-type encoders below cannot express "no match" and
+   * instead fall back to {@code 0}, {@code false} or the empty string. That turns a type mismatch
+   * into a WRONG ANSWER rather than an empty one: {@code eq "abc"} on an {@code xs:decimal} index
+   * parses to {@code 0.0} and lands on ZERO's key, so it returns every zero-valued node.
+   * </p>
+   *
+   * @param value the probe, may be {@code null}
+   * @param type the index's declared content type
+   * @return {@code true} when the probe can be encoded as {@code type}
+   */
+  public static boolean isOfType(final @Nullable Atomic value, final Type type) {
+    if (value == null) {
+      return false;
+    }
+    requireNonNull(type, "type");
+    if (value.type() == type) {
+      return true;
+    }
+    try {
+      Cast.cast(null, value, type, false);
+      return true;
+    } catch (final QueryException e) {
+      return false;
+    }
   }
 
   /**

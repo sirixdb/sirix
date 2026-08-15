@@ -628,6 +628,19 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
       // an xs:decimal index with, say, an xs:double of the same numeric value produced a
       // different key and the lookup silently found nothing. (The RBTree backend never had this
       // problem — CASValue#compareTo coerces both sides with asType before comparing.)
+      // A probe that is not of the index's declared type matches NOTHING, and saying so here is the
+      // difference between an empty answer and a wrong one. CASIndexBuilder skips any node whose
+      // value is not of the declared type, so nothing of that shape was ever indexed — but the
+      // encoder cannot express "no match" and falls back to 0, false or the empty string instead.
+      // `eq "abc"` on an xs:decimal index therefore parsed to 0.0, landed on ZERO's key, and
+      // returned every zero-valued node.
+      //
+      // ScanCASIndex casts its probe and so raises a type error before reaching here; this covers
+      // the programmatic callers that build a CASFilter directly, which is the path that had no
+      // guard at all.
+      if (!CASKeySerializer.isOfType(atomic, indexDef.getContentType())) {
+        return Collections.emptyIterator();
+      }
       final CASValue value = new CASValue(atomic, indexDef.getContentType(), pcr);
 
       // Reaching this branch SKIPS the `pcrsAvailable` short-circuit further down, and that is sound

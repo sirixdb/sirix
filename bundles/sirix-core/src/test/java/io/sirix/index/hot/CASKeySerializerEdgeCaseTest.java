@@ -109,6 +109,34 @@ final class CASKeySerializerEdgeCaseTest {
   }
 
   @Nested
+  @DisplayName("type mismatch")
+  final class TypeMismatch {
+
+    @Test
+    @DisplayName("a probe that is not of the index's type is reported as such")
+    void aMistypedProbeIsRejected() {
+      // The encoder cannot express "no match": its per-type branches fall back to 0, false or the
+      // empty string, so a mistyped probe silently becomes a REAL key. "abc" under xs:decimal parses
+      // to 0.0 and lands on zero's key, which is why `eq "abc"` used to return every zero-valued
+      // node. CASIndex consults this and answers with an empty iterator instead.
+      assertFalse(CASKeySerializer.isOfType(new Str("abc"), Type.DEC), "a non-numeric string is not a decimal");
+      assertFalse(CASKeySerializer.isOfType(new Str("abc"), Type.INR));
+      assertFalse(CASKeySerializer.isOfType(null, Type.DEC), "an absent probe matches nothing");
+    }
+
+    @Test
+    @DisplayName("and one that is, or can be read as, the type is accepted")
+    void aWellTypedProbeIsAccepted() {
+      // The control. A predicate that simply answered false would turn every CAS equality query into
+      // an empty result, which no other test in this class would notice.
+      assertTrue(CASKeySerializer.isOfType(new Dec(new BigDecimal("19.99")), Type.DEC), "already the type");
+      assertTrue(CASKeySerializer.isOfType(new Str("19.99"), Type.DEC), "a lexical decimal reads as one");
+      assertTrue(CASKeySerializer.isOfType(new Str("abc"), Type.STR), "anything is a string");
+      assertTrue(CASKeySerializer.isOfType(new Int64(7L), Type.DEC), "an integer widens to decimal");
+    }
+  }
+
+  @Nested
   @DisplayName("NaN")
   final class NotANumber {
 
