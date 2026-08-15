@@ -1199,9 +1199,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    *
    * <p>
    * If {@code this} already has a slotted page (via eager {@code ensureSlottedPage} in the
-   * constructor), it is released first — the constructor's allocation is wasted for the combine path,
-   * but reusing it in place requires handling size-class mismatches that rarely hit. Net: trade one
-   * 64 KiB release for a 1024× loop skip.
+   * constructor) and its capacity does not match, the replacement is allocated and published and only
+   * then is the old one released — the constructor's allocation is wasted for the combine path, but
+   * reusing it in place requires handling size-class mismatches that rarely hit. Net: trade one 64 KiB
+   * release for a 1024× loop skip.
    *
    * <p>
    * Overwrites the header's revision field after the copy so downstream readers observe this page's
@@ -1221,17 +1222,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage != null && slottedPageCapacity == srcCap) {
       dst = slottedPage.reinterpret(srcCap);
     } else {
-      if (slottedPage != null) {
-        try {
-          segmentAllocator.release(slottedPage.reinterpret(slottedPageCapacity));
-        } catch (final Throwable e) {
-          LOGGER.debug("Release of pre-existing slottedPage before copy failed: {}", e.getMessage());
-        }
-        publishSlottedPage(null);
-      }
+      // Allocate and PUBLISH before releasing the old segment — see growSlottedPage for why a slot
+      // must not be released while the page still points at it. Also leaves the page holding its
+      // previous segment rather than nothing if the allocation throws, and saves the intermediate
+      // publish of null, which was a second rebind for no reader's benefit.
+      final MemorySegment previous = slottedPage;
+      final int previousCapacity = slottedPageCapacity;
       dst = segmentAllocator.allocate(srcCap);
       slottedPageCapacity = (int) dst.byteSize();
       publishSlottedPage(dst.reinterpret(slottedPageCapacity)); // capacity-bounded: keep FFM bounds checks
+      if (previous != null) {
+        try {
+          segmentAllocator.release(previous.reinterpret(previousCapacity));
+        } catch (final Throwable e) {
+          LOGGER.debug("Release of pre-existing slottedPage before copy failed: {}", e.getMessage());
+        }
+      }
     }
     MemorySegment.copy(srcSp, 0, dst, 0, srcCap);
     cachedHeapEnd = src.cachedHeapEnd;
@@ -1251,11 +1257,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final int newSize = currentSize * 2;
     final MemorySegment grown = segmentAllocator.allocate(newSize);
     // Copy all existing data
-    MemorySegment.copy(slottedPage, 0, grown, 0, currentSize);
-    // Release old segment (reinterpret back to actual size for allocator)
-    segmentAllocator.release(slottedPage.reinterpret(currentSize));
+    final MemorySegment previous = slottedPage;
+    MemorySegment.copy(previous, 0, grown, 0, currentSize);
     slottedPageCapacity = (int) grown.byteSize();
     publishSlottedPage(grown.reinterpret(slottedPageCapacity)); // capacity-bounded: keep FFM bounds checks
+    // Release the old segment only AFTER the new one is published, not before. While the page still
+    // points at a segment, an optimistic reader's stamp resolves to that segment's slot — and a slot
+    // released under a live binding is one whose bytes can be handed to another page while the
+    // binding still certifies reads of them. Publishing first means every such reader has already
+    // been invalidated by the rebind. Costs one extra live slot for the duration of the copy.
+    // (Reinterpret back to the actual size for the allocator.)
+    segmentAllocator.release(previous.reinterpret(currentSize));
     // No rebind needed: the caller (serializeToHeap) will rebind the active flyweight.
     // Cached header values remain valid — grow copies all data including header.
   }
@@ -3039,12 +3051,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param slottedPage the slotted page segment
    */
   public void setSlottedPage(final MemorySegment newSlottedPage) {
-    // Release old slotted page if different from the new one
-    if (this.slottedPage != null && this.slottedPage != newSlottedPage) {
-      segmentAllocator.release(this.slottedPage.reinterpret(slottedPageCapacity));
-    }
+    final MemorySegment previous = this.slottedPage;
+    final int previousCapacity = this.slottedPageCapacity;
     this.slottedPageCapacity = (int) newSlottedPage.byteSize();
     publishSlottedPage(newSlottedPage.reinterpret(slottedPageCapacity)); // capacity-bounded view
+    // Release the old slotted page — if there was one, and if it is not the segment just published —
+    // only AFTER the publication. See growSlottedPage: a slot released while the page still points
+    // at it can be handed to another page under a reader whose binding still certifies it.
+    //
+    // Compared by ADDRESS, not identity: a segment stored here has been through reinterpret, which
+    // returns a fresh object over the same memory, so an identity test would answer "different" for
+    // a caller re-publishing the very segment this page already holds — and then free it out from
+    // under the publication one line above.
+    if (previous != null && previous.address() != newSlottedPage.address()) {
+      segmentAllocator.release(previous.reinterpret(previousCapacity));
+    }
     this.cachedHeapEnd = PageLayout.getHeapEnd(this.slottedPage);
     this.cachedHeapUsed = PageLayout.getHeapUsed(this.slottedPage);
     this.cachedPopulatedCount = PageLayout.getPopulatedCount(this.slottedPage);
@@ -3278,37 +3299,66 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   // ===== Optimistic read stamps (Umbra/LeanStore-style, backed by FrameSlotAllocator slot versions)
   //
-  // The reader-side half of de-pinning this page. A pin (tryAcquireGuard) is a synchronized block
-  // plus an atomic RMW on a line every concurrent reader of the page shares — a STORE, so it
-  // invalidates that line in every other core. A version snapshot is a plain acquire-load that
-  // dirties nothing, so readers of one hot page stop contending with each other entirely. Identical
-  // protocol and identical hazards to HOTLeafPage's, deliberately: the two were kept the same shape
-  // so the ABA lesson below only has to be learned once.
+  // A pin (tryAcquireGuard) is a synchronized block plus an atomic RMW on a line every concurrent
+  // reader of the page shares — a STORE, so it invalidates that line in every other core. A version
+  // snapshot is a plain acquire-load that dirties nothing, so readers of one hot page stop contending
+  // with each other entirely. Identical protocol and identical hazards to HOTLeafPage's,
+  // deliberately: the two were kept the same shape so the ABA lesson below only has to be learned
+  // once.
+  //
+  // NO READER OF THIS PAGE TYPE DEPENDS ON IT YET, and that is a decision rather than an omission.
+  // It was built to de-pin the record cursor, and the measurement said not to: a guard is paid per
+  // PAGE SWITCH (a record page holds 1024 records, and moveToSingleton has a within-page fast path
+  // that takes no guard at all) while a stamp would be paid per VALIDATED READ, so the trade loses by
+  // orders of magnitude on any cursor with locality. HOTLeafPage's identical protocol DOES pay,
+  // because a trie descent touches a different leaf at every level. Kept, tested and correct because
+  // the reasoning turns on locality rather than on the protocol, and a reader without locality would
+  // revive it. See docs/RECORD_PATH_DEPINNING.md.
 
+  /** Coordinates of a page with no segment published at all — nothing to read, nothing to tear. */
   private static final long STAMP_COORDINATES_UNBOUND = Long.MIN_VALUE;
 
   /**
    * Packed {@code (classIdx << 32) | slotIdx} of the allocator slot backing {@link #slottedPage}, or
    * {@link FrameSlotAllocator#NO_SLOT_COORDINATES} for a page whose memory is not a live frame slot
-   * (heap-backed test pages, pool-allocator rollback). Bound lazily on the first {@link #readStamp()}
-   * — one map probe per binding — and RE-bound at every site that swaps {@link #slottedPage}, since
-   * the new segment is a different slot. {@code volatile}: bound by the first reading thread,
-   * observed by all.
+   * (heap-backed test pages, pool-allocator rollback).
+   *
+   * <p>
+   * Written ONLY by {@link #publishSlottedPage}, in the same rebind window as the segment itself, and
+   * never by a reader. It used to be bound lazily by the first {@link #readStamp()}, which is one map
+   * probe cheaper for a page nobody ever stamps — but it also put a STORE on the reader side, and a
+   * reader's store cannot be ordered against a concurrent publisher's: a reader that computed
+   * coordinates from the old segment could land them after the publisher had already reset them,
+   * leaving the OLD slot's coordinates describing the NEW segment. Every later reader would then
+   * validate its reads against a counter belonging to memory it is not reading — the exact false
+   * positive this whole protocol exists to rule out. Binding in the publisher costs one map probe per
+   * segment swap — none of which is on a read path — and takes the store off the read path entirely.
+   * </p>
    */
   private volatile long stampCoordinates = STAMP_COORDINATES_UNBOUND;
 
   /**
-   * Monotonic counter identifying the CURRENT binding, bumped every time {@link #stampCoordinates}
-   * could come to name a different slot.
+   * Sequence number identifying the CURRENT binding: EVEN when {@link #stampCoordinates} and
+   * {@link #slottedPage} agree, ODD while {@link #publishSlottedPage} is swapping them.
    *
    * <p>
    * The piece that makes a stamp self-describing without packing two quantities into one
    * {@code long}. A slot version is meaningless on its own — it is a sequence private to one slot,
    * and two slots can carry equal values at the same moment — so a reader must prove it is validating
    * against the SAME binding it read under. It carries this alongside the stamp and hands both back;
-   * a rebind in between changes the generation and the read is retried. Monotonic rather than a flag
-   * so that a rebind back to the same slot is still detected. {@code volatile}: written under the
-   * segment swap, read by every validating reader.
+   * a rebind in between changes the generation and the read is retried. A counter rather than a flag
+   * so that a rebind back to the same slot is still detected.
+   * </p>
+   *
+   * <p>
+   * The parity is what turns the check from a likelihood into a proof, and it is worth stating why a
+   * single post-swap increment is not enough. With one increment there is no marker published BEFORE
+   * the segment store, so a reader whose data load returned the new bytes can still observe the old
+   * generation at validation time and certify bytes the publisher was mid-way through writing. With
+   * the odd marker published first — and a {@code storeStore} fence pinning it there — a data load
+   * that returned the new bytes proves the odd store was globally visible before it, hence before the
+   * reader's own validation load, which coherence then forces to observe at least that value. Both
+   * the odd generation and the later even one fail the check.
    * </p>
    */
   private volatile long stampBindingGeneration;
@@ -3345,11 +3395,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @param base the segment as returned by the allocator; {@code null} clears the override
    */
   void setStampBaseSegment(final @Nullable MemorySegment base) {
-    this.stampBaseSegment = base;
-    this.stampCoordinates = STAMP_COORDINATES_UNBOUND;
-    // Changing the base changes which slot the next bind resolves to, so it is a rebind like any
-    // other and must invalidate outstanding stamps.
-    this.stampBindingGeneration++;
+    // Changing the base changes which slot the coordinates resolve to, so it is a rebind like any
+    // other: same odd/even window, same fence, same invalidation of outstanding stamps.
+    final long generation = stampBindingGeneration;
+    stampBindingGeneration = generation + 1;
+    VarHandle.storeStoreFence();
+    stampBaseSegment = base;
+    stampCoordinates = slotCoordinatesOf(slottedPage);
+    stampBindingGeneration = generation + 2;
   }
 
   /**
@@ -3367,7 +3420,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * snapshot and validation changes the generation, so validation fails and the read is retried.
    * </p>
    *
-   * @return the current binding generation
+   * @return the current binding generation; ODD means a rebind is in flight and no read taken now can
+   *         be proved, which {@link #validateStamp(long, long)} rejects
    */
   public long readStampBinding() {
     return stampBindingGeneration;
@@ -3396,15 +3450,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return the stamp to hand back to {@link #validateStamp(long, long)}
    */
   public long readStamp() {
-    long coordinates = stampCoordinates;
-    if (coordinates == STAMP_COORDINATES_UNBOUND) {
-      // Safe to bind at any time: an address maps to exactly one physical slot, so the coordinates
-      // are a pure function of the segment — only the VERSION at them tells generations apart.
-      coordinates = bindStampCoordinates();
-    }
-    if (coordinates == FrameSlotAllocator.NO_SLOT_COORDINATES) {
-      // Not frame-slot-backed. A live page's memory cannot be torn by slot reuse; a closed one must
-      // still never validate.
+    final long coordinates = stampCoordinates;
+    if (coordinates == FrameSlotAllocator.NO_SLOT_COORDINATES || coordinates == STAMP_COORDINATES_UNBOUND) {
+      // Not frame-slot-backed, or nothing published yet. A live page's memory cannot be torn by slot
+      // reuse; a closed one must still never validate.
       return isClosed()
           ? STAMP_INVALID
           : STAMP_UNBACKED;
@@ -3431,12 +3480,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return {@code true} iff reads under {@code stamp} are trustworthy
    */
   public boolean validateStamp(final long bindingAtRead, final long stamp) {
+    // No load taken under the stamp may sink below the generation check, or the check would be
+    // answering about a moment earlier than the reads it is certifying. A volatile load is an
+    // ACQUIRE, which stops later accesses floating up but does nothing to stop earlier ones sinking
+    // down — so the fence is not redundant with the volatile field below.
+    VarHandle.acquireFence();
     // FIRST, and for both stamp kinds. The binding is what makes a stamp interpretable at all: if the
     // page has been re-bound since it was taken, the stamp belongs to a slot this page no longer
     // reads, and the version check below would compare it against an unrelated counter. This also
     // covers the segment swap itself, so the UNBACKED branch is not a special case — a page that
     // swapped from unbacked to frame-backed, or the reverse, changes generation like any other.
-    if (stampBindingGeneration != bindingAtRead) {
+    // An ODD binding was snapshotted mid-swap and can never be certified, whatever it compares to.
+    if (stampBindingGeneration != bindingAtRead || (bindingAtRead & 1L) != 0L) {
       return false;
     }
     if (stamp == STAMP_UNBACKED) {
@@ -3457,24 +3512,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     return FrameSlotAllocator.getInstance().validateVersion((int) (coordinates >>> 32), (int) coordinates, stamp);
   }
 
-  private long bindStampCoordinates() {
-    final MemorySegment segment = slottedPage;
+  /**
+   * The allocator slot {@code segment} lives in, for {@link #stampCoordinates}. Publisher-side only —
+   * called inside a rebind window, never by a reader.
+   *
+   * @param segment the segment about to become {@link #slottedPage}, or {@code null} when the page is
+   *        releasing it
+   * @return packed slot coordinates, {@link FrameSlotAllocator#NO_SLOT_COORDINATES} when the memory
+   *         is not a live frame slot, or {@link #STAMP_COORDINATES_UNBOUND} when there is no segment
+   */
+  private long slotCoordinatesOf(final @Nullable MemorySegment segment) {
     if (segment == null) {
-      // Nothing allocated yet (or evicted). Do NOT cache this: a later ensureSlottedPage would find
-      // the binding already resolved to "unbacked" and the protocol would stay inert.
-      return FrameSlotAllocator.NO_SLOT_COORDINATES;
+      return STAMP_COORDINATES_UNBOUND;
     }
     final MemorySegmentAllocator allocator = Allocators.getInstance();
+    if (!(allocator instanceof final FrameSlotAllocator frameSlotAllocator)) {
+      return FrameSlotAllocator.NO_SLOT_COORDINATES;
+    }
     // Resolve against the segment the ALLOCATOR handed out, which is the whole allocation — for a
     // zero-copy page that is stampBaseSegment, not the slice in slottedPage. See the field javadoc.
     final MemorySegment base = stampBaseSegment;
-    final long coordinates = allocator instanceof final FrameSlotAllocator frameSlotAllocator
-        ? frameSlotAllocator.slotCoordinates(base != null
-            ? base
-            : segment)
-        : FrameSlotAllocator.NO_SLOT_COORDINATES;
-    stampCoordinates = coordinates;
-    return coordinates;
+    return frameSlotAllocator.slotCoordinates(base != null
+        ? base
+        : segment);
   }
 
   /**
@@ -3488,45 +3548,47 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * </p>
    *
    * <p>
-   * <b>The double clear is defence in depth, NOT a memory-ordering proof, and the difference matters
-   * before anything is built on this.</b> A volatile store has RELEASE semantics: it stops earlier
-   * accesses sinking below it, but does nothing to stop the PLAIN store to {@link #slottedPage} that
-   * follows from being hoisted above it. So the leading clear does not by itself close the window
-   * where a reader holds stale coordinates and reads the new segment. Worse, the coordinates are not
-   * carried IN the stamp, so a reader that snapshots slot A's version and then finds the binding
-   * rebound to slot B validates A's stamp against B's counter — two unrelated per-slot sequences that
-   * can compare equal by coincidence.
+   * <b>This is a seqlock write, and every part of the sequence is load-bearing.</b> The generation is
+   * driven ODD before anything else moves and EVEN again once everything has, so the window in which
+   * segment and coordinates disagree is exactly the window in which no stamp can validate. The order
+   * cannot be relaxed into a single trailing increment: a volatile store has RELEASE semantics, which
+   * stops earlier accesses sinking below it but does nothing to stop the PLAIN store to
+   * {@link #slottedPage} being hoisted above it — so with only a trailing bump, a reader whose data
+   * load already returned the NEW bytes could still read the OLD generation at validation time and
+   * certify bytes the publisher was mid-way through writing. With the odd marker published first, and
+   * the {@code storeStore} fence pinning it there, that is impossible: the data store cannot become
+   * visible before the odd store, so a reader that saw the new bytes must, by coherence, see a
+   * generation of at least the odd one when it validates.
    * </p>
    *
    * <p>
-   * What actually makes this safe today is an INVARIANT rather than a fence: every caller here is a
-   * write or teardown path — {@code ensureSlottedPage}, {@code growSlottedPage}, the bulk copy, and
-   * {@code close} — and teardown publishes {@code CLOSED_BIT}, which makes {@link #readStamp} answer
-   * {@link #STAMP_INVALID}. A page being grown or bulk-copied is one a writer holds, not one an
-   * optimistic reader is walking. {@code HOTLeafPage} rests on the same invariant with the same
-   * non-volatile field. That invariant is adequate for the current callers and NOT adequate for the
-   * record-read path this was added to serve: wiring a reader in requires making the stamp
-   * self-describing (its slot packed alongside its version, so a rebind cannot be mistaken for a
-   * stable read) or publishing the segment with release semantics. Do that first.
+   * What this replaced was an INVARIANT rather than a proof — every caller here is a write or
+   * teardown path ({@code ensureSlottedPage}, {@code growSlottedPage}, the bulk copy, {@code close}),
+   * and teardown publishes {@code CLOSED_BIT}, which makes {@link #readStamp} answer
+   * {@link #STAMP_INVALID}. That was adequate while no optimistic reader could be walking a page mid
+   * swap, and stops being adequate the moment the record-read path stops pinning.
    * </p>
    *
    * @param segment the new backing segment, or {@code null} when the page is releasing it
    */
   private void publishSlottedPage(final @Nullable MemorySegment segment) {
-    // BOTH binding fields, not just the coordinates. stampBaseSegment overrides which address
-    // bindStampCoordinates resolves against, so leaving it set makes the next bind resolve the OLD,
-    // already-released allocation and hand back coordinates for a slot this page no longer reads —
-    // the very false positive the reset exists to prevent, reintroduced by the field that was
-    // supposed to make the binding accurate. HOTLeafPage nulls it for the same reason.
+    final long generation = stampBindingGeneration;
+    // Enter the rebind. Published BEFORE the segment moves, and fenced there, which is what lets a
+    // reader conclude anything at all from having observed the new bytes (see the javadoc).
+    stampBindingGeneration = generation + 1;
+    VarHandle.storeStoreFence();
+    // BOTH binding fields, not just the coordinates. stampBaseSegment overrides which address the
+    // coordinates resolve against, so leaving it set would resolve the OLD, already-released
+    // allocation and hand back coordinates for a slot this page no longer reads — the very false
+    // positive the reset exists to prevent, reintroduced by the field that was supposed to make the
+    // binding accurate. HOTLeafPage nulls it for the same reason.
     stampBaseSegment = null;
-    stampCoordinates = STAMP_COORDINATES_UNBOUND;
     slottedPage = segment;
-    stampCoordinates = STAMP_COORDINATES_UNBOUND;
-    // LAST, so that a reader which already loaded the new generation cannot then observe the OLD
-    // coordinates: everything above is ordered before this volatile store, and a reader compares
-    // generations after its own reads. A stamp taken before the swap carries the old generation and
-    // can no longer validate.
-    stampBindingGeneration++;
+    stampCoordinates = slotCoordinatesOf(segment);
+    // Leave the rebind. Everything above is ordered before this volatile store, so a reader that
+    // observes this generation observes the segment and the coordinates that go with it. A stamp
+    // taken before the swap carries the old generation and can no longer validate.
+    stampBindingGeneration = generation + 2;
   }
 
   // Leak detection lives in LeakDetectorState above (registered with LEAK_CLEANER in

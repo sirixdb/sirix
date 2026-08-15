@@ -22,20 +22,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>
  * This is the machinery that replaces reference-counted pinning on the record path: a reader
- * snapshots {@link KeyValueLeafPage#readStamp()}, reads page bytes without acquiring anything, and
- * asks {@link KeyValueLeafPage#validateStamp(long)} whether those bytes were stable. The protocol
+ * snapshots {@link KeyValueLeafPage#readStampBinding()} and {@link KeyValueLeafPage#readStamp()},
+ * reads page bytes without acquiring anything, and asks
+ * {@link KeyValueLeafPage#validateStamp(long, long)} whether those bytes were stable. The protocol
  * is only worth anything if a stamp REFUSES to validate whenever the bytes could have moved, so
- * that is what these pin down — the two ways they can move, and the one case where nothing moved at
+ * that is what these pin down — the ways they can move, and the one case where nothing moved at
  * all.
  * </p>
  *
  * <p>
- * The page here is Arena-backed rather than frame-slot-backed, so it takes the
- * {@code STAMP_UNBACKED} branch: its memory cannot be torn by slot reuse, and closing is the only
- * event that can invalidate it. That is the branch these tests exercise. The frame-slot branch —
- * where a stamp is a real allocator slot version — is covered for the sibling page type by
- * {@code HOTLeafUseAfterCloseTest}, which is where the ABA ordering hazard in {@code readStamp} was
- * found; both pages run the identical protocol so that lesson does not have to be re-learned here.
+ * The Arena segment the constructor takes is the LEGACY slot memory, which the page releases; the
+ * slotted page these stamps actually cover is allocated by {@code ensureSlottedPage} from
+ * {@code Allocators.getInstance()}, so on a normal run these exercise the frame-slot branch, where
+ * a stamp is a real allocator slot version. The sibling page type runs the identical protocol and
+ * is pinned by {@code HOTLeafPageStampTest}; the ABA ordering hazard in {@code readStamp} was found
+ * on that side, in {@code HOTLeafUseAfterCloseTest}, and does not have to be re-learned here.
  * </p>
  *
  * @author Johannes Lichtenberger
@@ -109,15 +110,11 @@ final class KeyValueLeafPageStampTest {
     // once the page is bound elsewhere the stamp names a counter this page no longer reads, and
     // validating it against the NEW slot compares two unrelated sequences.
     //
-    // WHAT THIS PROVES, precisely, because the distinction cost a wrong claim once already: the
-    // re-bind is what matters, not the swap. Immediately after a swap `stampCoordinates` is UNBOUND
-    // and validateStamp already rejects on that alone — deleting the generation check does NOT fail
-    // that case. It is the readStamp() below, which re-binds the coordinates to the NEW slot, that
-    // leaves the old stamp facing a live and unrelated counter. Deleting the generation check does
-    // not reliably fail THIS case either: without it the answer depends on whether the two slots'
+    // WHAT THIS PROVES, precisely: the GUARANTEE, not the mechanism. Deleting the generation check
+    // does not reliably fail THIS case — without it the answer depends on whether the two slots'
     // versions happen to coincide, which is exactly the coincidence the check exists to rule out and
-    // exactly why it cannot be pinned by a deterministic assertion. This test pins the GUARANTEE;
-    // the mutation argument for it is that a passing run must not depend on two counters differing.
+    // exactly why it cannot be pinned here. The case that DOES pin it deterministically is the
+    // unbacked/backed swap below; read the two together.
     page.setSlot(new byte[] {1, 2, 3, 4}, 0);
     final long binding = page.readStampBinding();
     final long stamp = page.readStamp();
@@ -136,6 +133,32 @@ final class KeyValueLeafPageStampTest {
     assertTrue(page.validateStamp(afterBinding, afterStamp), "the new binding is usable");
 
     assertFalse(page.validateStamp(binding, stamp), "a stamp from the previous binding must not validate");
+  }
+
+  @Test
+  @DisplayName("a stamp does not survive the page swapping between unbacked and frame-backed")
+  void swappingBetweenUnbackedAndBackedInvalidatesAnOutstandingStamp() {
+    // The case that pins the generation check DETERMINISTICALLY, which the sibling rebind test
+    // above cannot. Point the binding at a segment the allocator never handed out — a mid-buffer
+    // slice, which is exactly what a zero-copy deserializer produces — and the page has no slot
+    // version to consult, so readStamp answers with the UNBACKED sentinel. Correct the base
+    // afterwards and the page IS frame-backed again.
+    //
+    // Without the generation check, that outstanding UNBACKED stamp validates on the strength of
+    // the page merely still being open, certifying reads taken while the page could not detect a
+    // torn one at all. This is the false positive the field javadoc claims is covered, and it needs
+    // no coincidence to reproduce.
+    page.setSlot(new byte[] {1, 2, 3, 4}, 0);
+    page.setStampBaseSegment(arena.allocate(SIXTYFOUR_KB).asSlice(64, 1024));
+    final long unbackedBinding = page.readStampBinding();
+    final long unbackedStamp = page.readStamp();
+    assertTrue(page.validateStamp(unbackedBinding, unbackedStamp), "precondition: usable while unbacked");
+
+    page.setStampBaseSegment(null); // back to the page's own, allocator-issued slotted page
+
+    assertNotEquals(unbackedBinding, page.readStampBinding(), "clearing the base must re-bind the page");
+    assertFalse(page.validateStamp(unbackedBinding, unbackedStamp),
+        "an unbacked stamp must not validate once the page is frame-backed again");
   }
 
   @Test

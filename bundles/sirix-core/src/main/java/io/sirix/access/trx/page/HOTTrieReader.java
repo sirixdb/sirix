@@ -222,6 +222,19 @@ public final class HOTTrieReader implements AutoCloseable {
   private long currentLeafStamp = HOTLeafPage.STAMP_INVALID;
 
   /**
+   * The leaf binding {@link #currentLeafStamp} was issued under, snapshotted immediately before it.
+   *
+   * <p>
+   * A stamp is a per-SLOT sequence number and proves nothing without the slot it belongs to: two
+   * slots' counters are unrelated and can hold equal values at once, so validating a stamp against
+   * whatever slot the leaf is bound to NOW can return {@code true} by coincidence. Carrying the
+   * binding here costs one {@code long} per reader and turns that coincidence into a rejected read.
+   * {@link HOTLeafPage#STAMP_INVALID} is odd, so the initial value never validates either.
+   * </p>
+   */
+  private long currentLeafBinding = HOTLeafPage.STAMP_INVALID;
+
+  /**
    * Bound on how many times {@link #loadPage} reloads a leaf that keeps getting evicted between
    * resolve and stamp snapshot. Each retry reads a fresh copy from storage, so the race is
    * independent per attempt; exhausting this many implies pathological thrashing.
@@ -1402,8 +1415,13 @@ public final class HOTTrieReader implements AutoCloseable {
       // closed or its slot is mid-teardown — drop the swizzle and reload a fresh copy. Every
       // read of this leaf's content must later pass validateCurrentLeaf() before its result is
       // trusted; the leaf stays evictable the entire time.
+      //
+      // The binding comes FIRST and travels with the stamp: a stamp is a per-slot sequence, so a
+      // rebind between the two reads must be detectable, and an ODD binding means a rebind is in
+      // flight right now — nothing read under it could be proved, so reload instead of reading.
+      final long binding = leaf.readStampBinding();
       final long stamp = leaf.readStamp();
-      if ((stamp & 1L) != 0L) {
+      if ((binding & 1L) != 0L || (stamp & 1L) != 0L) {
         ref.setPage(null);
         continue;
       }
@@ -1417,6 +1435,7 @@ public final class HOTTrieReader implements AutoCloseable {
       }
       currentLeaf = leaf;
       currentLeafRef = ref;
+      currentLeafBinding = binding;
       currentLeafStamp = stamp;
       return leaf;
     }
@@ -1430,7 +1449,7 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public boolean validateCurrentLeaf() {
     final HOTLeafPage leaf = currentLeaf;
-    return leaf == null || leaf.validateStamp(currentLeafStamp);
+    return leaf == null || leaf.validateStamp(currentLeafBinding, currentLeafStamp);
   }
 
   /** The most-recently-resolved leaf, or {@code null}. Reads of it require stamp validation. */
@@ -1549,6 +1568,7 @@ public final class HOTTrieReader implements AutoCloseable {
     // idle reader does not keep a leaf object (and its stamp) reachable.
     currentLeaf = null;
     currentLeafRef = null;
+    currentLeafBinding = HOTLeafPage.STAMP_INVALID;
     currentLeafStamp = HOTLeafPage.STAMP_INVALID;
   }
 
