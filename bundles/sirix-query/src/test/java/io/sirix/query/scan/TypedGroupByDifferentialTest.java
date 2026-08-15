@@ -1420,6 +1420,220 @@ public final class TypedGroupByDifferentialTest {
     }
   }
 
+  // ============ post-group aggregate let + order by (the ClickBench shape) ============
+
+  @Test
+  void postGroupLetOrderedDescending() throws Exception {
+    // Verbatim ClickBench Q7 shape: pre-group key let, group by, post-group aggregate let,
+    // order by that let, return referencing it. Predicated, so the widened detection has to
+    // survive the filter-safety gate as well.
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        where $u.amount > 0
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"dept": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void notEqualPredicateStillDeclinesButAnswers() throws Exception {
+    // ClickBench writes this filter as `<> 0`. NE is not in the mask algebra yet, so the
+    // predicate is unrepresentable and the whole shape declines — correctly, and to the
+    // interpreter. Pinned so that implementing NE flips this to a serve visibly rather than
+    // silently.
+    assertOrderedDifferential("""
+        for $u in %s
+        where $u.amount != 0
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"dept": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void postGroupLetOrderedAscending() throws Exception {
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c ascending
+        return {"dept": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void orderedByGroupKeyItself() throws Exception {
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        order by $k descending
+        return {"dept": $k, "n": count($u)}""".formatted(SRC));
+  }
+
+  @Test
+  void orderedWithManyTies() throws Exception {
+    // The tie case is the whole reason this sorts with Brackit's own stable TupleSort rather
+    // than a fresh comparator: grouping on `active` gives two groups, and ordering on a
+    // CONSTANT-valued aggregate makes every group tie, so the answer is entirely determined by
+    // whether ties keep document first-appearance order.
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $k := $u.city
+        group by $k
+        let $m := max($u.age)
+        order by $m descending
+        return {"city": $k, "m": $m}""".formatted(SRC));
+  }
+
+  @Test
+  void orderedOnSparseKeyWithNullGroup() throws Exception {
+    // "tier" is MISSING on ~a third of the records, so the null-key group participates in the
+    // ordering — the empty-least default has to match, and it is the default on BOTH sides only
+    // if the modifier is carried through rather than assumed. Needs the SPARSE projection: the
+    // bench wildcard covers only age/active/dept/city/amount/score, so on that one the route
+    // would decline for lack of a column and prove nothing.
+    assertOrderedDifferentialServedSparse("""
+        for $u in %s
+        let $k := $u.tier
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"tier": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void orderedOnSparseNumericAggregate() throws Exception {
+    // "bonus" is missing on ~30% of records: the aggregate column is sparse while the key is not.
+    assertOrderedDifferentialServedSparse("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        let $s := sum($u.bonus)
+        order by $s descending
+        return {"dept": $k, "bonus": $s}""".formatted(SRC));
+  }
+
+  @Test
+  void orderedTwoSpecs() throws Exception {
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $d := $u.dept, $c := $u.city
+        group by $d, $c
+        let $n := count($u)
+        order by $n descending, $d ascending
+        return {"dept": $d, "city": $c, "n": $n}""".formatted(SRC));
+  }
+
+  @Test
+  void preGroupLetVarAsAggregateArgument() throws Exception {
+    // `sum($a)` where $a is a PRE-group let bound to $u.amount. After the group-by $a is the
+    // grouped sequence of that field, so it denotes exactly sum($u.amount).
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $k := $u.dept, $a := $u.amount
+        group by $k
+        let $s := sum($a)
+        order by $s descending
+        return {"dept": $k, "total": $s}""".formatted(SRC));
+  }
+
+  @Test
+  void numericGroupKeyOrderedByCount() throws Exception {
+    // The NUMERIC_LONG group key through the widened detection — the combination the
+    // ClickBench queries need and neither half delivered alone.
+    assertOrderedDifferentialServed("""
+        for $u in %s
+        let $k := $u.age
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"age": $k, "count": $c}""".formatted(SRC));
+  }
+
+  // ---- shapes that must DECLINE, and still answer correctly ----
+
+  @Test
+  void orderByAnExpressionDeclines() throws Exception {
+    assertOrderedDifferential("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        order by count($u) * -1
+        return {"dept": $k, "n": count($u)}""".formatted(SRC));
+  }
+
+  @Test
+  void orderByAVariableTheReturnDoesNotEmitDeclines() throws Exception {
+    assertOrderedDifferential("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"dept": $k}""".formatted(SRC));
+  }
+
+  @Test
+  void postGroupNonAggregateLetDeclines() throws Exception {
+    assertOrderedDifferential("""
+        for $u in %s
+        let $k := $u.dept
+        group by $k
+        let $c := 42
+        order by $c descending
+        return {"dept": $k, "c": $c}""".formatted(SRC));
+  }
+
+  // ==================== order-sensitive harness ====================
+
+  /**
+   * Differential for {@code order by} shapes. {@link #normalize} SORTS its lines, which is right for
+   * a group-by (emission order is implementation-defined) and useless here — it would pass no matter
+   * what order the served path produced. This one compares the sequence as emitted.
+   *
+   * <p>
+   * Also asserts the projection ACTUALLY served, so a decline cannot masquerade as agreement: with
+   * both arms falling back to the interpreter the comparison is a tautology.
+   */
+  private void assertOrderedDifferentialServed(final String query) throws Exception {
+    final String interpreted = flatten(run(query, false));
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final String served = flatten(runWithProjection(query));
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore,
+        "the group-aggregate must be SERVED from the projection, else this asserts nothing: " + query);
+    assertEquals(interpreted, served, "ordered projection-served result differs for: " + query);
+  }
+
+  /** {@link #assertOrderedDifferentialServed} against the SPARSE/typed wildcard projection. */
+  private void assertOrderedDifferentialServedSparse(final String query) throws Exception {
+    final String interpreted = flatten(run(query, false));
+    final long servedBefore = SirixVectorizedExecutor.groupAggServedCount();
+    final String served = flatten(runWithSparseProjection(query));
+    assertTrue(SirixVectorizedExecutor.groupAggServedCount() > servedBefore,
+        "the group-aggregate must be SERVED from the sparse projection: " + query);
+    assertEquals(interpreted, served, "ordered sparse-projection result differs for: " + query);
+  }
+
+  /** Order-sensitive differential WITHOUT requiring a serve — for shapes expected to decline. */
+  private void assertOrderedDifferential(final String query) throws Exception {
+    final String interpreted = flatten(run(query, false));
+    final String vectorized = flatten(runWithProjection(query));
+    assertEquals(interpreted, vectorized, "ordered vectorized result differs for: " + query);
+  }
+
+  /** One record per line, in EMISSION order — whitespace only, never sorted. */
+  private static String flatten(final String s) {
+    return s.replace("} {", "}\n{")
+            .lines()
+            .map(String::strip)
+            .filter(l -> !l.isEmpty())
+            .reduce("", (a, b) -> a + "\n" + b);
+  }
+
   // ==================== harness ====================
 
   private void assertDifferential(final String query) throws Exception {
