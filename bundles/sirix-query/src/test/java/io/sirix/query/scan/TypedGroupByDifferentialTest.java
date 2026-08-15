@@ -1438,12 +1438,11 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
-  void notEqualPredicateStillDeclinesButAnswers() throws Exception {
-    // ClickBench writes this filter as `<> 0`. NE is not in the mask algebra yet, so the
-    // predicate is unrepresentable and the whole shape declines — correctly, and to the
-    // interpreter. Pinned so that implementing NE flips this to a serve visibly rather than
-    // silently.
-    assertOrderedDifferential("""
+  void notEqualPredicateIsServed() throws Exception {
+    // ClickBench writes this filter as `<> 0` — the most common predicate in the set. It used to
+    // decline all the way down: brackit's getComparisonOp did not map NE, so the predicate was
+    // unrepresentable and no tree reached sirix at all.
+    assertOrderedDifferentialServed("""
         for $u in %s
         where $u.amount != 0
         let $k := $u.dept
@@ -1451,6 +1450,37 @@ public final class TypedGroupByDifferentialTest {
         let $c := count($u)
         order by $c descending
         return {"dept": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void notEqualOverASparseFieldExcludesTheMissingRows() throws Exception {
+    // The semantic that makes NE its own operator rather than a negated equality. "bonus" is
+    // MISSING on ~30% of records; `$u.bonus != 0` must not match those, because the interpreter
+    // dereferences a missing field to the empty sequence and `where` reads that as false. A
+    // complement of the equality mask would match every one of them.
+    assertOrderedDifferentialServedSparse("""
+        for $u in %s
+        where $u.bonus != 0
+        let $k := $u.dept
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"dept": $k, "count": $c}""".formatted(SRC));
+  }
+
+  @Test
+  void notEqualOnAStringFieldAgrees() throws Exception {
+    // String NE has no PredicateNode variant yet (StrEq carries no operator), so this still
+    // declines — but it must keep ANSWERING correctly, and it flips to a serve the moment the
+    // node type lands.
+    assertOrderedDifferential("""
+        for $u in %s
+        where $u.dept != "Eng"
+        let $k := $u.city
+        group by $k
+        let $c := count($u)
+        order by $c descending
+        return {"city": $k, "count": $c}""".formatted(SRC));
   }
 
   @Test
