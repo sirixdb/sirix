@@ -1,4 +1,5 @@
 import net.ltgt.gradle.errorprone.CheckSeverity
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.jetbrains.kotlin.gradle.dsl.jvm.JvmTargetValidationMode
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 
@@ -98,6 +99,44 @@ subprojects {
     apply plugin: 'com.github.ben-manes.versions'
     // Shadow plugin applied selectively in subprojects that need it
     apply plugin: "com.diffplug.spotless"
+    apply plugin: 'jacoco'
+
+    jacoco {
+        // Needs to understand Java 25 class files; the plugin's bundled default lags the toolchain.
+        toolVersion = '0.8.13'
+    }
+
+    // Instrument only when coverage is actually going to be consumed. The agent rewrites every
+    // loaded class and adds a probe write per branch, which taxes every `gradlew test` run.
+    //
+    // The trigger is the TASK GRAPH, not just -Pcoverage: sonarqube.yml runs `gradlew build
+    // sonarqube` without any flag, and gating on the flag alone would have left Sonar silently
+    // reporting 0% coverage with no failing task to notice it. Enabling whenever a Jacoco report
+    // (or Sonar) is in the graph keeps CI honest and still leaves a bare `gradlew test`
+    // uninstrumented.
+    gradle.taskGraph.whenReady { graph ->
+        final boolean coverageWanted = project.hasProperty('coverage') || graph.allTasks.any {
+            it instanceof JacocoReport || it.name.toLowerCase().startsWith('sonar')
+        }
+        tasks.withType(Test).configureEach {
+            jacoco.enabled = coverageWanted
+        }
+    }
+
+    tasks.named('jacocoTestReport') {
+        dependsOn tasks.named('test')
+        reports {
+            xml.required = true
+            html.required = true
+        }
+        // The generated/vendored trees say nothing about this project's own coverage. Filtered
+        // lazily: resolving classDirectories.files here would flatten a live FileCollection into a
+        // plain file list, dropping its builtBy wiring to `classes` (and breaking the configuration
+        // cache) — which is what made the explicit dependsOn above necessary in the first place.
+        classDirectories.setFrom(sourceSets.main.output.classesDirs.asFileTree.matching {
+            exclude '**/generated/**'
+        })
+    }
 
     tasks.withType(KotlinJvmCompile).configureEach {
         jvmTargetValidationMode.set(JvmTargetValidationMode.WARNING)

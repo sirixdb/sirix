@@ -77,9 +77,6 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    */
   private static final ThreadLocal<NodeReferences> SINGLE_BIT_REFS = ThreadLocal.withInitial(NodeReferences::new);
 
-  /** Same chunked-bitmap nodeKey range cap as {@link HOTIndexWriter#MAX_NODE_KEY}. */
-  private static final long MAX_NODE_KEY = (1L << 48) - 1L;
-
   private final HOTLongKeySerializer keySerializer;
 
   /** Lazy reader for chunked reassembly. */
@@ -93,8 +90,8 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    */
-  private HOTLongIndexWriter(StorageEngineWriter storageEngineWriter, HOTLongKeySerializer keySerializer, IndexType indexType,
-      int indexNumber) {
+  private HOTLongIndexWriter(StorageEngineWriter storageEngineWriter, HOTLongKeySerializer keySerializer,
+      IndexType indexType, int indexNumber) {
     super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
 
@@ -116,14 +113,15 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * @param indexNumber the index number
    * @return a new HOTLongIndexWriter instance
    */
-  public static HOTLongIndexWriter create(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
+  public static HOTLongIndexWriter create(StorageEngineWriter storageEngineWriter, IndexType indexType,
+      int indexNumber) {
     return new HOTLongIndexWriter(storageEngineWriter, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
-   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH).
-   * Splits the input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into
-   * its {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
+   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH). Splits the
+   * input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into its
+   * {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
    */
   public NodeReferences index(long key, NodeReferences value, RBTreeReader.MoveCursor move) {
     requireNonNull(value);
@@ -138,14 +136,43 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     return value;
   }
 
+  /**
+   * Add a single nodeKey to {@code key}'s chunked bitmap.
+   *
+   * <p>
+   * Equivalent to {@link #index(long, NodeReferences, RBTreeReader.MoveCursor)} with a one-element
+   * {@link NodeReferences}, minus the {@code Roaring64Bitmap} allocation: the slot write is an
+   * OR-merge ({@link HOTLeafPage#mergeWithNodeRefs}), so a caller that only wants to ADD one
+   * reference never has to materialise — let alone read back — the references already stored under
+   * {@code key}.
+   * </p>
+   *
+   * @param key the logical index key (a path-class record)
+   * @param nodeKey the node key to add; must be in {@code [0, 2^48)}
+   */
+  public void indexNodeKey(long key, long nodeKey) {
+    addNodeKeyToChunk(key, nodeKey);
+  }
+
+  /**
+   * A loader that collects {@code (key, nodeKey)} pairs and materialises the whole index in one
+   * {@link HOTBulkBuilder} pass — the right shape for building an index over an already-shredded
+   * revision.
+   *
+   * <p>
+   * Only valid while the index tree is still empty ({@link #isEmptyTree()}): the loader
+   * <em>replaces</em> the root rather than merging into it. Callers that may run against a populated
+   * tree must check first and fall back to {@link #indexNodeKey(long, long)}.
+   * </p>
+   *
+   * @return a fresh bulk loader bound to this writer
+   */
+  public HOTLongBulkIndexLoader createBulkLoader() {
+    return new HOTLongBulkIndexLoader(this, keySerializer);
+  }
+
   private void addNodeKeyToChunk(long key, long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 
@@ -164,8 +191,18 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Reassemble all chunks of {@code key} into a single {@link NodeReferences}. See
    * {@link HOTIndexReader#get} for the algorithm; this is the primitive-long mirror.
+   *
+   * @param key the logical index key
+   * @param mode must be {@link SearchMode#EQUAL}; range modes go via the range cursors
+   * @return reassembled NodeReferences, or {@code null} if no chunks exist for {@code key}
+   * @throws IllegalArgumentException if {@code mode} is not {@link SearchMode#EQUAL} — same guard,
+   *         same reason as {@link HOTIndexReader#get}, which previously documented the mode as
+   *         advisory and silently ignored it
    */
-  public @Nullable NodeReferences get(long key, SearchMode mode) {
+  public @Nullable NodeReferences get(final long key, final SearchMode mode) {
+    // See HOTIndexWriter#get — one shared rule, enforced on every twin rather than on whichever one
+    // was edited last.
+    AbstractHOTIndexReader.requireEqualMode(mode);
     final byte[] keyBuf = KEY_BUFFER.get();
     final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
 
@@ -185,39 +222,11 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     if (chunkReader == null) {
       chunkReader = new HOTTrieReader(storageEngineWriter);
     }
-    Roaring64Bitmap merged = null;
+    // The sweep reads UNPINNED leaves under optimistic stamps — the shared helper validates each
+    // slot's copies against the cursor's leaf stamp before anything reaches the deserializer.
+    final Roaring64Bitmap merged;
     try (HOTRangeCursor cursor = chunkReader.range(rootRef, fromBytes, toBytes)) {
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, keyBuf, 0, prefixLen) != 0) {
-          cursor.advance();
-          continue;
-        }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          cursor.advance();
-          continue;
-        }
-        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-        if (chunkBitmap.isEmpty()) {
-          cursor.advance();
-          continue;
-        }
-        if (merged == null) {
-          merged = new Roaring64Bitmap();
-        }
-        final long high = ((long) chunkIdx) << 16;
-        final LongIterator bIt = chunkBitmap.getLongIterator();
-        while (bIt.hasNext()) {
-          merged.add(high | (bIt.next() & 0xFFFFL));
-        }
-        cursor.advance();
-      }
+      merged = NodeReferencesSerializer.mergeChunksInPrefixRange(cursor, keyBuf, prefixLen);
     }
     if (merged == null || merged.isEmpty()) {
       return null;
@@ -230,19 +239,15 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
    * {@link HOTIndexWriter#remove}.
    */
   public boolean remove(long key, long nodeKey) {
-    if (nodeKey < 0L) {
-      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
-    }
-    if (nodeKey > MAX_NODE_KEY) {
-      throw new IllegalArgumentException("nodeKey " + nodeKey
-          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
-    }
+    AbstractHOTIndexWriter.checkNodeKeyRange(nodeKey);
     final int chunkIdx = (int) (nodeKey >>> 16);
     final long bit16 = nodeKey & 0xFFFFL;
 
     final byte[] keyBuf = KEY_BUFFER.get();
     final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
-    final byte[] keySlice = compLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, compLen);
+    final byte[] keySlice = compLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, compLen);
 
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
     final HOTLeafPage leaf = navResult.leaf();

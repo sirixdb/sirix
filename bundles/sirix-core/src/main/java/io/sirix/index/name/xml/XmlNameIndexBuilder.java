@@ -4,9 +4,10 @@ import io.sirix.api.visitor.VisitResult;
 import io.sirix.node.immutable.xml.ImmutableElement;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
+import io.sirix.index.IndexBuildFinalizer;
 import io.sirix.index.name.NameIndexBuilder;
 
-final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor {
+final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor implements IndexBuildFinalizer {
   private final NameIndexBuilder builder;
 
   XmlNameIndexBuilder(final NameIndexBuilder builder) {
@@ -18,5 +19,10 @@ final class XmlNameIndexBuilder extends AbstractXmlNodeVisitor {
     final QNm name = node.getName();
 
     return builder.build(name, node);
+  }
+
+  @Override
+  public void finishIndexBuild() {
+    builder.finish();
   }
 }

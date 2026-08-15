@@ -5,6 +5,7 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.io.Reader;
 import io.sirix.page.RevisionRootPage;
@@ -41,25 +42,25 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Variant for pipelined async commits: bases the new page transaction on the given PENDING
    * (phase-1-complete, not yet hardened) uber page instead of {@code lastCommittedUberPage}, and
-   * skips the crash-recovery truncate check (the commit marker legitimately exists while the
-   * previous epoch hardens in the background). Pass {@code null} for the default behavior.
+   * skips the crash-recovery truncate check (the commit marker legitimately exists while the previous
+   * epoch hardens in the background). Pass {@code null} for the default behavior.
    */
   StorageEngineWriter createPageTransaction(int trxID, int revision, int i, Abort no, boolean isBoundToNodeTrx,
       UberPage pendingBaseUberPage);
 
   /**
-   * Remove a node-bound page write transaction from the session's map WITHOUT closing it — used
-   * by pipelined async commits, where the superseded page transaction is closed by the background
+   * Remove a node-bound page write transaction from the session's map WITHOUT closing it — used by
+   * pipelined async commits, where the superseded page transaction is closed by the background
    * hardening thread after the beacon write.
    */
   void detachNodePageWriteTransaction(int transactionID);
 
   /**
    * Pipelined async commits: register / resolve / clear the PENDING revision root — the
-   * phase-1-complete, canonical in-memory root of a revision whose hardening is still running in
-   * the background. Readers of the pending revision (only the successor epoch can reach it)
-   * resolve it from here, since neither the revisions-file record nor
-   * {@code lastCommittedUberPage} exist for it yet. Depth-1 pipeline ⇒ at most one pending entry.
+   * phase-1-complete, canonical in-memory root of a revision whose hardening is still running in the
+   * background. Readers of the pending revision (only the successor epoch can reach it) resolve it
+   * from here, since neither the revisions-file record nor {@code lastCommittedUberPage} exist for it
+   * yet. Depth-1 pipeline ⇒ at most one pending entry.
    */
   void putPendingRevisionRoot(int revision, RevisionRootPage rootPage);
 
@@ -79,9 +80,17 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeReadTransaction(int trxId);
 
-  void closePageReadTransaction(Integer trxId);
+  /**
+   * Drop a storage engine reader from the session's bookkeeping. The reader instance is passed so the
+   * entry is removed only if it is still mapped to exactly that instance.
+   */
+  void closePageReadTransaction(int trxId, StorageEngineReader storageEngineReader);
 
-  void closePageWriteTransaction(Integer transactionID);
+  /**
+   * Drop a storage engine writer that is not bound to a node transaction from the session's
+   * bookkeeping and release the write lock it holds.
+   */
+  void closePageWriteTransaction(int transactionID, StorageEngineWriter storageEngineWriter);
 
   /**
    * Get the revision epoch tracker for MVCC-aware eviction.

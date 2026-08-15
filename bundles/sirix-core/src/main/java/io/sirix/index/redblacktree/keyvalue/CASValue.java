@@ -83,10 +83,32 @@ public final class CASValue implements Comparable<CASValue> {
       return 1;
     }
 
-    Atomic thisAtomic = value.asType(type);
-    Atomic otherAtomic = other.value.asType(other.type);
+    final Atomic thisAtomic = asDeclaredType(value, type);
+    final Atomic otherAtomic = asDeclaredType(other.value, other.type);
 
     return ComparisonChain.start().compare(pathNodeKey, other.pathNodeKey).compare(thisAtomic, otherAtomic).result();
+  }
+
+  /**
+   * {@code value} as {@code type}, skipping the conversion when it already IS that type.
+   *
+   * <p>
+   * Not merely an optimization. brackit's instant atomics throw {@code BIDY0005} from
+   * {@link Atomic#asType} when the target is their OWN type, so converting an already-typed
+   * {@code xs:dateTime} is an error rather than a no-op. That went unnoticed while the index stored
+   * every value as a {@link io.brackit.query.atomic.Str} and this method was the only thing that ever
+   * typed it; once the builder began storing the converted value — so that the stored and probed
+   * sides share one shape — the unconditional cast started failing on the instant family.
+   * </p>
+   *
+   * @param value the value to view as {@code type}
+   * @param type the declared content type
+   * @return the typed value
+   */
+  private static Atomic asDeclaredType(final Atomic value, final Type type) {
+    return value.type() == type
+        ? value
+        : value.asType(type);
   }
 
   @Override

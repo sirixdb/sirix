@@ -40,21 +40,22 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * "contiguous 256/512-key run vanishes" miss seen on
  * {@code HOTMicrobenchmark.smallCombinedMicrobench}.
  *
- * <p>The HOT reader resolves a leaf, then acquires its guard in a separate step. A
- * guard-respecting evictor can close the leaf in that gap. The reader then observed
- * {@code acquireGuard() == false} and reported the key as <em>absent</em> (or iterated a
- * closed page) — but an evicted leaf is transient, not missing. The fix re-navigates and
- * reloads instead of concluding the key is gone.
+ * <p>
+ * The HOT reader resolves a leaf, then acquires its guard in a separate step. A guard-respecting
+ * evictor can close the leaf in that gap. The reader then observed {@code acquireGuard() == false}
+ * and reported the key as <em>absent</em> (or iterated a closed page) — but an evicted leaf is
+ * transient, not missing. The fix re-navigates and reloads instead of concluding the key is gone.
  *
- * <p>The miss is memory-pressure-gated: eviction only fires under pressure, and
+ * <p>
+ * The miss is memory-pressure-gated: eviction only fires under pressure, and
  * {@code FrameSlotAllocator.releaseSlot} keeps a freed slot's bytes intact, so a use-after-
  * eviction reads stale-but-valid data on an idle machine and corrupts only under load.
  *
- * <p>This test removes the timing dependence:
- * {@link FrameSlotAllocator#setPoisonOnReleaseForTesting} zero-fills every freed slot so any
- * use-after-eviction is deterministic, and a background thread evicts every unguarded cached
- * HOT leaf at maximum rate during readback. A correct reader re-resolves a transiently
- * evicted leaf from storage, so the scan must survive with zero key loss.
+ * <p>
+ * This test removes the timing dependence: {@link FrameSlotAllocator#setPoisonOnReleaseForTesting}
+ * zero-fills every freed slot so any use-after-eviction is deterministic, and a background thread
+ * evicts every unguarded cached HOT leaf at maximum rate during readback. A correct reader
+ * re-resolves a transiently evicted leaf from storage, so the scan must survive with zero key loss.
  */
 @DisplayName("HOT reader survives eviction racing the navigate-then-guard window")
 final class HOTLeafUseAfterCloseTest {
@@ -96,11 +97,10 @@ final class HOTLeafUseAfterCloseTest {
   void everyKeySurvivesReadbackUnderEviction() throws InterruptedException {
     final String prevStrictBinna = System.getProperty("hot.strict.binna");
     System.setProperty("hot.strict.binna", "true");
-    // Disable the O(total-entries) leaf-walk fallback: it masks a cursor that wrongly
-    // reports a key absent (turning a fast miss into an hours-long full-scan storm). With
-    // it off, a regression of the eviction-race bug surfaces as a fast, clean miss count.
-    final String prevFallback = System.getProperty("hot.cas.leftmostfallback.disable");
-    System.setProperty("hot.cas.leftmostfallback.disable", "true");
+    // The O(total-entries) leaf-walk fallback is opt-in (hot.cas.leftmostfallback.enable)
+    // and stays off here: it would mask a cursor that wrongly reports a key absent (turning
+    // a fast miss into an hours-long full-scan storm). A regression of the eviction-race bug
+    // surfaces as a fast, clean miss count.
     final AtomicBoolean stopEvictor = new AtomicBoolean(false);
     Thread evictor = null;
     try {
@@ -111,19 +111,18 @@ final class HOTLeafUseAfterCloseTest {
           final var trx = session.beginNodeTrx()) {
         final var ic = session.getWtxIndexController(trx.getRevisionNumber());
         final var pathToValue = Path.parse("/x/[]/v", PathParser.Type.JSON);
-        casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
         ic.createIndexes(Set.of(casIndexDef), trx);
-        final var writer = HOTIndexWriter.create(trx.getStorageEngineWriter(),
-            CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
+        final var writer = HOTIndexWriter.create(trx.getStorageEngineWriter(), CASKeySerializer.INSTANCE, IndexType.CAS,
+            casIndexDef.getID());
         final NodeReferences scratch = new NodeReferences();
 
         final int warmupBase = N + 1_000_000;
         for (int i = 0; i < 5_000; i++) {
           scratch.getNodeKeys().clear();
           scratch.getNodeKeys().add(warmupBase + i);
-          writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, PATH_NODE_KEY), scratch,
-              null);
+          writer.index(new CASValue(new Int32(warmupBase + i), Type.INR, PATH_NODE_KEY), scratch, null);
         }
         for (int i = 0; i < N; i++) {
           scratch.getNodeKeys().clear();
@@ -137,8 +136,8 @@ final class HOTLeafUseAfterCloseTest {
       final StringBuilder firstMisses = new StringBuilder();
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
           final var rtx = session.beginNodeReadOnlyTrx()) {
-        final var reader = HOTIndexReader.create(rtx.getStorageEngineReader(),
-            CASKeySerializer.INSTANCE, IndexType.CAS, casIndexDef.getID());
+        final var reader = HOTIndexReader.create(rtx.getStorageEngineReader(), CASKeySerializer.INSTANCE, IndexType.CAS,
+            casIndexDef.getID());
         final BufferManager bufferManager = rtx.getStorageEngineReader().getBufferManager();
 
         // Maximum-rate eviction concurrent with the scan, modelling severe memory pressure.
@@ -158,8 +157,7 @@ final class HOTLeafUseAfterCloseTest {
         hammer.start();
 
         for (int v = 0; v < N; v++) {
-          if (reader.get(new CASValue(new Int32(v), Type.INR, PATH_NODE_KEY), SearchMode.EQUAL)
-              == null) {
+          if (reader.get(new CASValue(new Int32(v), Type.INR, PATH_NODE_KEY), SearchMode.EQUAL) == null) {
             if (misses < 20) {
               if (firstMisses.length() > 0) {
                 firstMisses.append(',');
@@ -173,11 +171,10 @@ final class HOTLeafUseAfterCloseTest {
         hammer.join();
       }
 
-      System.out.println("[hot-use-after-close] readback under eviction: misses=" + misses + "/"
-          + N + " first20=[" + firstMisses + "]");
-      assertEquals(0, misses,
-          "readback under concurrent eviction lost " + misses + " keys — a HOT page was used"
-              + " after it was evicted/closed; first missing: [" + firstMisses + "]");
+      System.out.println("[hot-use-after-close] readback under eviction: misses=" + misses + "/" + N + " first20=["
+          + firstMisses + "]");
+      assertEquals(0, misses, "readback under concurrent eviction lost " + misses + " keys — a HOT page was used"
+          + " after it was evicted/closed; first missing: [" + firstMisses + "]");
     } finally {
       stopEvictor.set(true);
       if (evictor != null) {
@@ -192,20 +189,15 @@ final class HOTLeafUseAfterCloseTest {
       } else {
         System.setProperty("hot.strict.binna", prevStrictBinna);
       }
-      if (prevFallback == null) {
-        System.clearProperty("hot.cas.leftmostfallback.disable");
-      } else {
-        System.setProperty("hot.cas.leftmostfallback.disable", prevFallback);
-      }
     }
   }
 
   /**
    * Evict cached HOT leaves exactly as {@code ShardedPageCache.evictUnderPressure} does —
-   * guard-respecting, with the {@code isHot()} second-chance — but without the budget gate
-   * so it sheds at maximum rate. A guarded or recently-touched (hot) leaf is spared, so the
-   * reproduction exercises the genuine navigate-then-guard race that real memory pressure
-   * produces, not an unfaithfully harsh close of leaves the reader is actively using.
+   * guard-respecting, with the {@code isHot()} second-chance — but without the budget gate so it
+   * sheds at maximum rate. A guarded or recently-touched (hot) leaf is spared, so the reproduction
+   * exercises the genuine navigate-then-guard race that real memory pressure produces, not an
+   * unfaithfully harsh close of leaves the reader is actively using.
    */
   private static void evictUnguardedLeaves(final Cache<PageReference, HOTLeafPage> cache) {
     final var entries = new ArrayList<>(cache.asMap().entrySet());

@@ -126,8 +126,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Buffered output for page writes.
    *
-   * <p>Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write
-   * before the subsequent flush threshold check.
+   * <p>
+   * Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write before the
+   * subsequent flush threshold check.
    */
   private BytesOut<?> bufferBytes = Bytes.borrowElasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
 
@@ -157,16 +158,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean isClosed;
 
   /**
-   * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter
-   * once it becomes phantom-reachable. Used as the post-Java-9 replacement for the
-   * deprecated {@code finalize()} override.
+   * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter once it
+   * becomes phantom-reachable. Used as the post-Java-9 replacement for the deprecated
+   * {@code finalize()} override.
    */
   private static final java.lang.ref.Cleaner LEAK_CLEANER = java.lang.ref.Cleaner.create();
 
   /**
-   * State captured for leak diagnostics. Static class with no reference to the enclosing
-   * writer — capturing {@code this} would make the writer strongly reachable through the
-   * Cleaner queue and defeat the leak detection it implements.
+   * State captured for leak diagnostics. Static class with no reference to the enclosing writer —
+   * capturing {@code this} would make the writer strongly reachable through the Cleaner queue and
+   * defeat the leak detection it implements.
    */
   private static final class LeakDetectorState implements Runnable {
     final int trxId;
@@ -189,7 +190,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return;
       }
       final TransactionIntentLog log = logRef.get();
-      final int containerCount = log != null ? log.getList().size() : -1;
+      final int containerCount = log != null
+          ? log.getList().size()
+          : -1;
       LOGGER.warn(
           "NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
           trxId, writerIdentity, logIdentity, containerCount);
@@ -231,13 +234,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     int revisionNumber;
     PageContainer pageContainer;
 
-    IndexLogKeyToPageContainer(final IndexType indexType, final long recordPageKey,
-        final int indexNumber, final int revisionNumber, final PageContainer pageContainer) {
+    IndexLogKeyToPageContainer(final IndexType indexType, final long recordPageKey, final int indexNumber,
+        final int revisionNumber, final PageContainer pageContainer) {
       set(indexType, recordPageKey, indexNumber, revisionNumber, pageContainer);
     }
 
-    void set(final IndexType indexType, final long recordPageKey, final int indexNumber,
-        final int revisionNumber, final PageContainer pageContainer) {
+    void set(final IndexType indexType, final long recordPageKey, final int indexNumber, final int revisionNumber,
+        final PageContainer pageContainer) {
       this.indexType = indexType;
       this.recordPageKey = recordPageKey;
       this.indexNumber = indexNumber;
@@ -246,8 +249,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     void copyFrom(final IndexLogKeyToPageContainer other) {
-      set(other.indexType, other.recordPageKey, other.indexNumber,
-          other.revisionNumber, other.pageContainer);
+      set(other.indexType, other.recordPageKey, other.indexNumber, other.revisionNumber, other.pageContainer);
     }
   }
 
@@ -267,29 +269,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
   /**
-   * Most recent page container per {@link IndexType} (ordinal-indexed, lazily populated).
-   * The shared {@link #mostRecentPageContainer}/{@link #secondMostRecentPageContainer} pair
-   * thrashes when a commit interleaves streams of three or more index types (DOCUMENT +
-   * secondary indexes during shredding): every switch to another type evicts, so lookups
-   * fall through to the access-ordered {@link #pageContainerCache} probe (hashing plus LRU
-   * relink per hit). One slot per type keeps the hot page of EVERY stream one comparison
-   * away. PATH_SUMMARY keeps its dedicated {@link #mostRecentPathSummaryPageContainer}
-   * slot; its array entry stays unused.
+   * Most recent page container per {@link IndexType} (ordinal-indexed, lazily populated). The shared
+   * {@link #mostRecentPageContainer}/{@link #secondMostRecentPageContainer} pair thrashes when a
+   * commit interleaves streams of three or more index types (DOCUMENT + secondary indexes during
+   * shredding): every switch to another type evicts, so lookups fall through to the access-ordered
+   * {@link #pageContainerCache} probe (hashing plus LRU relink per hit). One slot per type keeps the
+   * hot page of EVERY stream one comparison away. PATH_SUMMARY keeps its dedicated
+   * {@link #mostRecentPathSummaryPageContainer} slot; its array entry stays unused.
    */
   private IndexLogKeyToPageContainer[] mostRecentByIndexType;
 
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
 
   /**
-   * Reusable lookup key for pageContainerCache to avoid allocating a new IndexLogKey on every
-   * cache probe. MUST NOT be passed to computeIfAbsent as the stored key — the map retains a
-   * reference, and subsequent mutations would corrupt it.
+   * Reusable lookup key for pageContainerCache to avoid allocating a new IndexLogKey on every cache
+   * probe. MUST NOT be passed to computeIfAbsent as the stored key — the map retains a reference, and
+   * subsequent mutations would corrupt it.
    */
   private final IndexLogKey lookupKey = new IndexLogKey(IndexType.DOCUMENT, -1, -1, -1);
 
   /**
-   * Optional binder for write-path singletons.
-   * When set, prepareRecordForModification uses factory singletons instead of allocating new nodes.
+   * Optional binder for write-path singletons. When set, prepareRecordForModification uses factory
+   * singletons instead of allocating new nodes.
    */
   private WriteSingletonBinder writeSingletonBinder;
 
@@ -320,8 +321,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    *        {@code false} otherwise
    */
   NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
-      final NodeStorageEngineReader storageEngineReader, final IndexController<?, ?> indexController, final int representRevision,
-      final boolean isBoundToNodeTrx) {
+      final NodeStorageEngineReader storageEngineReader, final IndexController<?, ?> indexController,
+      final int representRevision, final boolean isBoundToNodeTrx) {
     this.keyedTrieWriter = new KeyedTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
@@ -333,8 +334,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.isBoundToNodeTrx = isBoundToNodeTrx;
     // Immutable per-resource configuration, resolved once — the insert hot path only branches
     // on a final field.
-    this.insertFsstEnabled = storageEngineReader.getResourceSession().getResourceConfig()
-        .stringCompressionType == StringCompressionType.FSST;
+    this.insertFsstEnabled =
+        storageEngineReader.getResourceSession()
+                           .getResourceConfig().stringCompressionType == StringCompressionType.FSST;
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
@@ -360,8 +362,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // finalize() override; runs on a Cleaner thread (not the GC thread), no resurrection,
     // survives finalize() removal in future JDKs. close() flips the closed flag so the
     // detector skips the leak warning on properly-closed writers.
-    this.leakDetectorState = new LeakDetectorState(
-        storageEngineReader.getTrxId(), System.identityHashCode(this),
+    this.leakDetectorState = new LeakDetectorState(storageEngineReader.getTrxId(), System.identityHashCode(this),
         System.identityHashCode(log), log);
     LEAK_CLEANER.register(this, leakDetectorState);
   }
@@ -401,8 +402,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public DataRecord prepareRecordForModification(final long recordKey, final IndexType indexType,
-      final int index) {
+  public DataRecord prepareRecordForModification(final long recordKey, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
     requireNonNull(indexType);
@@ -459,18 +459,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final int offset = StorageEngineReader.recordPageOffset(recordKey);
       final var kvlComplete = (KeyValueLeafPage) completePage;
       final var slottedPage = kvlComplete.getSlottedPage();
-      final boolean slotPopulated = slottedPage != null
-          && PageLayout.isSlotPopulated(slottedPage, offset);
+      final boolean slotPopulated = slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset);
       final var slotData = completePage.getSlot(offset);
       final int populatedCount = slottedPage != null
-          ? PageLayout.getPopulatedCount(slottedPage) : -1;
+          ? PageLayout.getPopulatedCount(slottedPage)
+          : -1;
       throw new SirixIOException("Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType
-          + ") (index: " + index + ") (slotPopulated: " + slotPopulated
-          + ") (populatedCount: " + populatedCount
-          + ") (slotData: " + (slotData != null ? slotData.byteSize() + " bytes" : "null")
-          + ") (completePage.pageKey: " + completePage.getPageKey()
-          + ") (completePage.revision: " + completePage.getRevision()
-          + ") (modifiedPage.pageKey: " + modifiedPage.getPageKey() + ")");
+          + ") (index: " + index + ") (slotPopulated: " + slotPopulated + ") (populatedCount: " + populatedCount
+          + ") (slotData: " + (slotData != null
+              ? slotData.byteSize() + " bytes"
+              : "null")
+          + ") (completePage.pageKey: " + completePage.getPageKey() + ") (completePage.revision: "
+          + completePage.getRevision() + ") (modifiedPage.pageKey: " + modifiedPage.getPageKey() + ")");
     }
     record = oldRecord;
 
@@ -486,8 +486,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Fast-path variant for the DOCUMENT index type on the insert hot path.
-   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
+   * Fast-path variant for the DOCUMENT index type on the insert hot path. Skips assertNotClosed(),
+   * argument validation, and the IndexType switch in pageKey().
    */
   @SuppressWarnings("unchecked")
   @Override
@@ -535,17 +535,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public KeyValueLeafPage getAllocKvl() { return allocKvl; }
+  public KeyValueLeafPage getAllocKvl() {
+    return allocKvl;
+  }
 
   @Override
-  public int getAllocSlotOffset() { return allocSlotOffset; }
+  public int getAllocSlotOffset() {
+    return allocSlotOffset;
+  }
 
   @Override
-  public long getAllocNodeKey() { return allocNodeKey; }
+  public long getAllocNodeKey() {
+    return allocNodeKey;
+  }
 
   @Override
-  public DataRecord createRecord(final DataRecord record, final IndexType indexType,
-      final int index) {
+  public DataRecord createRecord(final DataRecord record, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
 
     // Allocate record key and increment record count.
@@ -611,8 +616,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (modified instanceof KeyValueLeafPage kvl) {
       if (record instanceof FlyweightNode fn) {
         final int offset = (int) (createdRecordKey
-            - ((createdRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT)
-               << Constants.NDP_NODE_COUNT_EXPONENT));
+            - ((createdRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
         kvl.serializeNewRecord(fn, createdRecordKey, offset);
       } else {
         kvl.setNewRecord(record);
@@ -649,15 +653,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new IllegalStateException("Node not found: " + recordKey);
     }
 
-    final Node delNode = new DeletedNode(
-        new NodeDelegate(node.getNodeKey(), -1, null, -1, storageEngineReader.getRevisionNumber(), (SirixDeweyID) null));
+    final Node delNode = new DeletedNode(new NodeDelegate(node.getNodeKey(), -1, null, -1,
+        storageEngineReader.getRevisionNumber(), (SirixDeweyID) null));
     cont.getModifiedAsKeyValuePage().setRecord(delNode);
     cont.getCompleteAsKeyValuePage().setRecord(delNode);
   }
 
   @Override
-  public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType,
-      final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -689,8 +692,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
-  private DataRecord getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
-      final long recordKey) {
+  private DataRecord getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page, final long recordKey) {
     final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
     final DataRecord cachedRecord = page.getRecord(recordOffset);
     if (cachedRecord != null) {
@@ -755,8 +757,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public void asyncFlush() {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
-      throw new SirixIOException(
-          "Transaction in terminal failure state from prior async commit error");
+      throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
     }
 
     // Backpressure: block if previous background flush still running
@@ -830,34 +831,32 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Sliding-window width of the background snapshot flush: how many KVL pages are
-   * deep-copied and pre-serialized in parallel before the sequential append pass writes
-   * and closes them. Two windows are in flight at once (double buffering), so the
-   * transient draw on the shared segment-allocator budget is bounded by
-   * {@code 2 × WINDOW} copies, each holding a pooled slotted segment (64&nbsp;KiB
-   * typical, up to 256&nbsp;KiB) plus its cached encoded form — roughly 35&nbsp;MB
-   * typical, ≈100&nbsp;MB worst case, per in-flight flush. The double buffering keeps
-   * the flush pool's workers serializing while this thread appends; widening the window
-   * past the pool's appetite only inflates the footprint.
+   * Sliding-window width of the background snapshot flush: how many KVL pages are deep-copied and
+   * pre-serialized in parallel before the sequential append pass writes and closes them. Two windows
+   * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
+   * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
+   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form — roughly 35&nbsp;MB
+   * typical, ≈100&nbsp;MB worst case, per in-flight flush. The double buffering keeps the flush
+   * pool's workers serializing while this thread appends; widening the window past the pool's
+   * appetite only inflates the footprint.
    */
   private static final int SNAPSHOT_FLUSH_WINDOW = 128;
 
   /**
-   * Background thread: write all KVL pages from the frozen snapshot to disk.
-   * Uses thread-local buffer and shadow PageReference — NEVER writes to real refs.
+   * Background thread: write all KVL pages from the frozen snapshot to disk. Uses thread-local buffer
+   * and shadow PageReference — NEVER writes to real refs.
    * <p>
-   * CRITICAL: Each KVL page is deep-copied before serialization. The serialization path
-   * mutates the page (addReferences → processEntries, FSST compression, string compression).
-   * Without the copy, the insert thread's concurrent deep-copy for CoW would race against
-   * these mutations, producing corrupted pages (e.g., zeroed headers, inconsistent slot data).
+   * CRITICAL: Each KVL page is deep-copied before serialization. The serialization path mutates the
+   * page (addReferences → processEntries, FSST compression, string compression). Without the copy,
+   * the insert thread's concurrent deep-copy for CoW would race against these mutations, producing
+   * corrupted pages (e.g., zeroed headers, inconsistent slot data).
    * <p>
-   * The flush proceeds in sliding windows: each window's pages are deep-copied and
-   * pre-serialized IN PARALLEL (the encode caches its output on the copy — the same
-   * mechanism the synchronous commit's {@code parallelSerializationOfKeyValuePages}
-   * relies on), then a sequential pass appends the cached bytes in snapshot order,
-   * records offsets and hashes, and closes the copies. A single-threaded flush cannot
-   * keep pace with the insert thread (serialization dominates the flush), which turned
-   * the {@code flushPermit} backpressure into a near-synchronous stall; parallel
+   * The flush proceeds in sliding windows: each window's pages are deep-copied and pre-serialized IN
+   * PARALLEL (the encode caches its output on the copy — the same mechanism the synchronous commit's
+   * {@code parallelSerializationOfKeyValuePages} relies on), then a sequential pass appends the
+   * cached bytes in snapshot order, records offsets and hashes, and closes the copies. A
+   * single-threaded flush cannot keep pace with the insert thread (serialization dominates the
+   * flush), which turned the {@code flushPermit} backpressure into a near-synchronous stall; parallel
    * pre-serialization restores the intended overlap.
    */
   private void executeSnapshotWrite() {
@@ -936,30 +935,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Dedicated pool for the background snapshot flush's parallel pre-serialization,
-   * shared JVM-wide by every resource's flushes (concurrent bulk imports divide it).
-   * Capped below the core count on purpose: the flush runs CONCURRENTLY with the insert
-   * thread, and letting it fan out across every core halves insert throughput through
-   * memory-bandwidth contention (the encode path streams 64&nbsp;KB segments through
-   * LZ4/RLE codecs). Two workers keep the flush ahead of the rotation cadence on small
-   * hosts while leaving the insert thread its core; larger hosts and multi-import
-   * services scale it via {@code -Dsirix.asyncFlush.parallelism} (clamped to
-   * ForkJoinPool's maximum of 32767 — an oversized value must degrade, not turn every
-   * write transaction into an ExceptionInInitializerError).
+   * Dedicated pool for the background snapshot flush's parallel pre-serialization, shared JVM-wide by
+   * every resource's flushes (concurrent bulk imports divide it). Capped below the core count on
+   * purpose: the flush runs CONCURRENTLY with the insert thread, and letting it fan out across every
+   * core halves insert throughput through memory-bandwidth contention (the encode path streams
+   * 64&nbsp;KB segments through LZ4/RLE codecs). Two workers keep the flush ahead of the rotation
+   * cadence on small hosts while leaving the insert thread its core; larger hosts and multi-import
+   * services scale it via {@code -Dsirix.asyncFlush.parallelism} (clamped to ForkJoinPool's maximum
+   * of 32767 — an oversized value must degrade, not turn every write transaction into an
+   * ExceptionInInitializerError).
    */
   private static final ForkJoinPool SNAPSHOT_FLUSH_POOL =
-      new ForkJoinPool(Math.min(32767, Math.max(1,
-          Integer.getInteger("sirix.asyncFlush.parallelism",
-              Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
+      new ForkJoinPool(Math.min(32767, Math.max(1, Integer.getInteger("sirix.asyncFlush.parallelism",
+          Math.min(2, Runtime.getRuntime().availableProcessors() - 1)))));
 
   /**
    * Kick off the parallel deep-copy + pre-serialize pass for the snapshot window starting at
-   * {@code base} (exclusive end {@code min(base + SNAPSHOT_FLUSH_WINDOW, size)}) on the
-   * dedicated flush pool. Each produced copy carries its encoded bytes in the page-local
-   * compressed cache, so the subsequent sequential append emits without re-encoding.
+   * {@code base} (exclusive end {@code min(base + SNAPSHOT_FLUSH_WINDOW, size)}) on the dedicated
+   * flush pool. Each produced copy carries its encoded bytes in the page-local compressed cache, so
+   * the subsequent sequential append emits without re-encoding.
    */
-  private CompletableFuture<Void> serializeSnapshotWindowAsync(final ResourceConfiguration config,
-      final int base, final int size, final KeyValueLeafPage[] window) {
+  private CompletableFuture<Void> serializeSnapshotWindowAsync(final ResourceConfiguration config, final int base,
+      final int size, final KeyValueLeafPage[] window) {
     final int end = Math.min(base + SNAPSHOT_FLUSH_WINDOW, size);
     // Parallel streams execute inside the pool that invokes the terminal operation, so
     // submitting the whole stream confines its splits to SNAPSHOT_FLUSH_POOL.
@@ -1024,9 +1021,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * {@code true} when serialization left overflow {@link PageReference}s on {@code page}
-   * whose disk keys are still unassigned — such a page's encoded form is only valid after
-   * the recursive commit writes its OverflowPages (#1076).
+   * {@code true} when serialization left overflow {@link PageReference}s on {@code page} whose disk
+   * keys are still unassigned — such a page's encoded form is only valid after the recursive commit
+   * writes its OverflowPages (#1076).
    */
   private static boolean hasUnresolvedOverflowReferences(final KeyValueLeafPage page) {
     for (final PageReference reference : page.getReferencesMap().values()) {
@@ -1049,8 +1046,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Invalidate all local container caches to prevent stale cache hits
-   * returning frozen-zone containers after snapshot.
+   * Invalidate all local container caches to prevent stale cache hits returning frozen-zone
+   * containers after snapshot.
    */
   private void clearLocalContainerCaches() {
     pageContainerCache.clear();
@@ -1061,10 +1058,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Invalidate every per-{@link IndexType} most-recent slot. Holder objects are kept
-   * allocated (zero-alloc steady state) — the {@code recordPageKey = -1} sentinel can
-   * never match a real lookup, and dropping the {@link PageContainer} reference prevents
-   * both stale hits and pinned garbage.
+   * Invalidate every per-{@link IndexType} most-recent slot. Holder objects are kept allocated
+   * (zero-alloc steady state) — the {@code recordPageKey = -1} sentinel can never match a real
+   * lookup, and dropping the {@link PageContainer} reference prevents both stale hits and pinned
+   * garbage.
    */
   private void clearMostRecentByIndexTypeSlots() {
     final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
@@ -1082,13 +1079,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Re-add structural pages to the fresh TIL after snapshot.
    * <p>
-   * After snapshot, the current TIL is empty. Structural pages (RevisionRootPage,
-   * PathSummaryPage, NamePage, etc.) are in the frozen snapshot. We re-add them
-   * to the current TIL so the insert thread can continue without CoW overhead
-   * for these frequently-accessed pages.
+   * After snapshot, the current TIL is empty. Structural pages (RevisionRootPage, PathSummaryPage,
+   * NamePage, etc.) are in the frozen snapshot. We re-add them to the current TIL so the insert
+   * thread can continue without CoW overhead for these frequently-accessed pages.
    * <p>
-   * IndirectPages in the trie are NOT re-added — they will be CoW'd on first
-   * access via prepareIndirectPage() if needed.
+   * IndirectPages in the trie are NOT re-added — they will be CoW'd on first access via
+   * prepareIndirectPage() if needed.
    */
   private void reAddStructuralPagesToTil() {
     // Re-add structural pages referenced by RevisionRootPage.
@@ -1103,8 +1099,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * If a page reference is in the frozen snapshot, re-add its container to the current TIL.
-   * This ensures the insert thread can continue modifying structural pages without CoW.
+   * If a page reference is in the frozen snapshot, re-add its container to the current TIL. This
+   * ensures the insert thread can continue modifying structural pages without CoW.
    */
   private void reAddPageIfFrozen(final PageReference ref) {
     if (ref != null && log.isFrozen(ref)) {
@@ -1116,8 +1112,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * Deep-copy a frozen PageContainer for Copy-on-Write. Both complete and modified KVL pages
-   * are deep-copied to ensure full independence from the frozen originals.
+   * Deep-copy a frozen PageContainer for Copy-on-Write. Both complete and modified KVL pages are
+   * deep-copied to ensure full independence from the frozen originals.
    *
    * @param container the frozen container to copy
    * @return a fully independent deep copy
@@ -1155,8 +1151,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // falls through to the no-op return below by design.
       final var sideMapPage = reference.getPage();
       if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
-        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage,
-                                      bufferBytes);
+        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
         reference.setPage(null);
         return;
       }
@@ -1167,11 +1162,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // without any error. (A Layer-3 resolution resets the logKey and assigns the disk key,
       // so a resolved stale copy never trips this guard.)
       if (reference.getLogKey() >= 0 && reference.getKey() == Constants.NULL_ID_LONG) {
-        throw new SirixIOException(
-            "Commit traversal hit an unresolvable stale page reference (logKey=" + reference.getLogKey()
-                + ", generation=" + reference.getActiveTilGeneration()
-                + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
-                + " serialize a dangling child pointer (data would silently be lost).");
+        throw new SirixIOException("Commit traversal hit an unresolvable stale page reference (logKey="
+            + reference.getLogKey() + ", generation=" + reference.getActiveTilGeneration()
+            + "): the referenced page is in no TIL layer and has no disk offset — refusing to"
+            + " serialize a dangling child pointer (data would silently be lost).");
       }
       return;
     }
@@ -1256,13 +1250,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // PIPELINING: Serialize pages WHILE previous fsync may still be running.
       // This overlaps CPU work (serialization) with IO work (fsync).
-      final long t0 = timing ? System.nanoTime() : 0;
+      final long t0 = timing
+          ? System.nanoTime()
+          : 0;
       // Must precede the serialization pass: pages need the revision's symbol-table id in hand
       // by the time their bytes are cached, and the pass below is the last point before that.
       buildRevisionFsstSymbolTable();
       parallelSerializationOfKeyValuePages();
 
-      final long t1 = timing ? System.nanoTime() : 0;
+      final long t1 = timing
+          ? System.nanoTime()
+          : 0;
       LOGGER.debug("TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
       LOGGER.debug("TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
@@ -1274,8 +1272,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storagePageReaderWriter.flushBufferedWrites(bufferBytes);
 
       if (timing) {
-        LOGGER.debug("Commit phase 1 r{}: serialize={}ms recursive={}ms", uberPage.getRevisionNumber(),
-            ms(t1 - t0), ms(System.nanoTime() - t1));
+        LOGGER.debug("Commit phase 1 r{}: serialize={}ms recursive={}ms", uberPage.getRevisionNumber(), ms(t1 - t0),
+            ms(System.nanoTime() - t1));
       }
       return uberPage;
     }
@@ -1288,11 +1286,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
 
-      final PageReference uberPageReference =
-          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
+      final PageReference uberPageReference = new PageReference().setDatabaseId(storageEngineReader.getDatabaseId())
+                                                                 .setResourceId(storageEngineReader.getResourceId());
       uberPageReference.setPage(uberPage);
 
-      final long t2 = timing ? System.nanoTime() : 0;
+      final long t2 = timing
+          ? System.nanoTime()
+          : 0;
 
       final int revision = uberPage.getRevisionNumber();
 
@@ -1312,7 +1312,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         indexController.getIndexes().clearDirty();
       }
 
-      final long t3 = timing ? System.nanoTime() : 0;
+      final long t3 = timing
+          ? System.nanoTime()
+          : 0;
 
       // CRITICAL crash-safety invariant (write-ahead property): all data pages AND the index
       // catalogue (above) MUST be durable BEFORE either uber-page beacon is written.
@@ -1325,7 +1327,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
 
-      final long t4 = timing ? System.nanoTime() : 0;
+      final long t4 = timing
+          ? System.nanoTime()
+          : 0;
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
@@ -1343,7 +1347,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
       clearMostRecentByIndexTypeSlots();
 
-      final long t5 = timing ? System.nanoTime() : 0;
+      final long t5 = timing
+          ? System.nanoTime()
+          : 0;
 
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
@@ -1353,8 +1359,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (timing) {
-        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms",
-            revision, ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
+        LOGGER.debug("Commit phase 2 r{}: indexDefs={}ms uberWrite={}ms tilClear={}ms total={}ms", revision,
+            ms(t3 - t2), ms(t4 - t3), ms(t5 - t4), ms(t5 - t2));
       }
     }
   }
@@ -1410,38 +1416,43 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       Integer.getInteger("sirix.commit.parallelSerializationThreshold", 4);
 
   /**
-   * How many string samples the commit-wide sweep gathers before it stops looking. Generous
-   * relative to {@link FSSTCompressor#MAX_SAMPLES_TO_ANALYZE} (which further filters by length),
-   * yet a fixed bound, so the sweep's cost never scales with commit size.
+   * How many string samples the commit-wide sweep gathers before it stops looking. Generous relative
+   * to {@link FSSTCompressor#MAX_SAMPLES_TO_ANALYZE} (which further filters by length), yet a fixed
+   * bound, so the sweep's cost never scales with commit size.
    */
   private static final int FSST_REVISION_SAMPLE_CAP = 1024;
 
-  /** The database type of this writer's resource; delegated so reader and writer share one derivation. */
+  /**
+   * The database type of this writer's resource; delegated so reader and writer share one derivation.
+   */
   private DatabaseType databaseTypeOfSession() {
     return storageEngineReader.databaseType();
   }
 
   /**
    * Build this revision's FSST symbol table — once, from strings pooled across the whole commit —
-   * store it as a record in the name dictionary's trie, and hand every document page the table
-   * plus its dictionary id before serialization begins.
+   * store it as a record in the name dictionary's trie, and hand every document page the table plus
+   * its dictionary id before serialization begins.
    *
-   * <p>This replaces the per-page build that {@code PageKind.serializePage} used to run, which
-   * failed in both directions at once: a full slot scan plus frequency analysis per page made
-   * ingest 18× slower, and a single page rarely holds the
-   * {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a table needs before it beats raw bytes,
-   * so the table was rejected on essentially every page anyway. Pooling inverts both: one build
-   * per commit, fed by more samples than any page could supply.
+   * <p>
+   * This replaces the per-page build that {@code PageKind.serializePage} used to run, which failed in
+   * both directions at once: a full slot scan plus frequency analysis per page made ingest 18×
+   * slower, and a single page rarely holds the {@link FSSTCompressor#MIN_SAMPLES_FOR_TABLE} strings a
+   * table needs before it beats raw bytes, so the table was rejected on essentially every page
+   * anyway. Pooling inverts both: one build per commit, fed by more samples than any page could
+   * supply.
    *
-   * <p>Handing the pages the table itself (not just the id) is what serialization needs —
-   * {@code compressStringValues} encodes against it, and the id is what
-   * {@code writeFsstSymbolTable} emits in place of the table's bytes. The table record is created
-   * <em>between</em> the sampling sweep and the hand-out sweep, because creating it mutates the
-   * transaction intent log this method iterates.
+   * <p>
+   * Handing the pages the table itself (not just the id) is what serialization needs —
+   * {@code compressStringValues} encodes against it, and the id is what {@code writeFsstSymbolTable}
+   * emits in place of the table's bytes. The table record is created <em>between</em> the sampling
+   * sweep and the hand-out sweep, because creating it mutates the transaction intent log this method
+   * iterates.
    *
-   * <p>When the samples are too few or compression would not pay, no table is stored and pages
-   * serialize their strings raw — which is also exactly what happens for resources whose
-   * configuration disables FSST.
+   * <p>
+   * When the samples are too few or compression would not pay, no table is stored and pages serialize
+   * their strings raw — which is also exactly what happens for resources whose configuration disables
+   * FSST.
    */
   private void buildRevisionFsstSymbolTable() {
     final var resourceConfig = getResourceSession().getResourceConfig();
@@ -1490,8 +1501,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final byte[] previousTable = insertFsstResolved && insertFsstTableId == previousId
           ? insertFsstTable
           : namePage.getFsstSymbolTable(previousId, databaseType, this);
-      if (previousTable != null
-          && FSSTCompressor.isCompressionBeneficial(samples, previousTable)) {
+      if (previousTable != null && FSSTCompressor.isCompressionBeneficial(samples, previousTable)) {
         if (LOGGER.isDebugEnabled()) {
           LOGGER.debug("FSST reusing table id {} ({}B)", previousId, previousTable.length);
         }
@@ -1501,11 +1511,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     final byte[] table = FSSTCompressor.buildSymbolTable(samples);
-    final boolean beneficial = table != null && table.length > 0
-        && FSSTCompressor.isCompressionBeneficial(samples, table);
+    final boolean beneficial =
+        table != null && table.length > 0 && FSSTCompressor.isCompressionBeneficial(samples, table);
     if (LOGGER.isDebugEnabled()) {
-      LOGGER.debug("FSST built table: {}B beneficial={}", table == null ? -1 : table.length,
-          beneficial);
+      LOGGER.debug("FSST built table: {}B beneficial={}", table == null
+          ? -1
+          : table.length, beneficial);
     }
     if (!beneficial) {
       return;
@@ -1519,9 +1530,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * The resource's current FSST symbol table, loaded once per transaction for insert-time
-   * encoding. {@code insertFsstResolved} distinguishes "not looked up yet" from "looked up,
-   * resource has none" so absence costs one lookup, not one per string.
+   * The resource's current FSST symbol table, loaded once per transaction for insert-time encoding.
+   * {@code insertFsstResolved} distinguishes "not looked up yet" from "looked up, resource has none"
+   * so absence costs one lookup, not one per string.
    */
   private boolean insertFsstResolved;
   private byte[] insertFsstTable;
@@ -1532,24 +1543,25 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final boolean insertFsstEnabled;
 
   /**
-   * Encode a string-carrying record against the resource's current symbol table as it is
-   * inserted, and hand its page the table at the same moment.
+   * Encode a string-carrying record against the resource's current symbol table as it is inserted,
+   * and hand its page the table at the same moment.
    *
-   * <p>This is where FSST's ingest cost belongs. Commit-time compression re-reads, re-encodes
-   * and rewrites every string of the commit after the fact — a full extra pass that made FSST
-   * slower end to end than the generic byte codec it was meant to beat. Encoding here rides
-   * work the insert already does (the value is in hand, the record is being serialized anyway),
-   * so the marginal cost is the encode itself; the commit pass then skips every slot that
-   * arrives already compressed. The first-ever commit still bootstraps through the commit-time
-   * path, because no table exists until it stores one.
+   * <p>
+   * This is where FSST's ingest cost belongs. Commit-time compression re-reads, re-encodes and
+   * rewrites every string of the commit after the fact — a full extra pass that made FSST slower end
+   * to end than the generic byte codec it was meant to beat. Encoding here rides work the insert
+   * already does (the value is in hand, the record is being serialized anyway), so the marginal cost
+   * is the encode itself; the commit pass then skips every slot that arrives already compressed. The
+   * first-ever commit still bootstraps through the commit-time path, because no table exists until it
+   * stores one.
    *
-   * <p>Tagging the page immediately — bytes and id together — keeps every in-transaction read
-   * correct (flyweight and record decodes resolve through the page) and makes the commit-time
-   * distribution skip the page ({@code carriesSymbolTable}), preserving the rule that a page
-   * binds to exactly one table for life.
+   * <p>
+   * Tagging the page immediately — bytes and id together — keeps every in-transaction read correct
+   * (flyweight and record decodes resolve through the page) and makes the commit-time distribution
+   * skip the page ({@code carriesSymbolTable}), preserving the rule that a page binds to exactly one
+   * table for life.
    */
-  private void maybeEncodeStringValueAtInsert(final DataRecord record,
-      final KeyValuePage<DataRecord> page) {
+  private void maybeEncodeStringValueAtInsert(final DataRecord record, final KeyValuePage<DataRecord> page) {
     if (!insertFsstEnabled) {
       return;
     }
@@ -1581,8 +1593,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public byte[] encodeStringValueForInsert(final KeyValueLeafPage page, final byte[] value,
-      final int off, final int len) {
+  public byte[] encodeStringValueForInsert(final KeyValueLeafPage page, final byte[] value, final int off,
+      final int len) {
     if (page == null || value == null || !insertFsstEnabled) {
       return null;
     }
@@ -1590,27 +1602,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * The shared insert-time encode core: encode {@code raw[off..off+len)} against the
-   * transaction's table if — and only if — the target page can legally hold the result.
+   * The shared insert-time encode core: encode {@code raw[off..off+len)} against the transaction's
+   * table if — and only if — the target page can legally hold the result.
    *
-   * <p>The table is a property of the PAGE the record lands on, not of the transaction: a page
-   * binds to exactly one table for life, and the record's bytes must be decodable through
-   * that binding. Three cases:
+   * <p>
+   * The table is a property of the PAGE the record lands on, not of the transaction: a page binds to
+   * exactly one table for life, and the record's bytes must be decodable through that binding. Three
+   * cases:
    * <ul>
    * <li>page bound to this transaction's table: encode.</li>
    * <li>page unbound: encode, then bind it (bytes and id together).</li>
-   * <li>page bound to a DIFFERENT table (a tail page from before a vocabulary-shift rebuild):
-   * leave the value raw. Encoding with the latest table would store bytes the page's
-   * persisted table id cannot decode — silent corruption after reload — and encoding with
-   * the page's own table would require resolving it here, for a case reuse makes rare.
-   * Raw is always correct; commit-time compression picks it up when the page's bytes are
-   * resolved, and never otherwise.</li>
+   * <li>page bound to a DIFFERENT table (a tail page from before a vocabulary-shift rebuild): leave
+   * the value raw. Encoding with the latest table would store bytes the page's persisted table id
+   * cannot decode — silent corruption after reload — and encoding with the page's own table would
+   * require resolving it here, for a case reuse makes rare. Raw is always correct; commit-time
+   * compression picks it up when the page's bytes are resolved, and never otherwise.</li>
    * </ul>
    *
    * @return the encoded bytes (strictly shorter than {@code len}), or {@code null} to store raw
    */
-  private byte[] encodeForInsert(final KeyValueLeafPage kvl, final byte[] raw, final int off,
-      final int len) {
+  private byte[] encodeForInsert(final KeyValueLeafPage kvl, final byte[] raw, final int off, final int len) {
     if (len < FSSTCompressor.MIN_COMPRESSION_SIZE) {
       return null;
     }
@@ -1699,8 +1710,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /**
    * Whether this page may still be given a symbol table: it can hold string-compressed records
-   * (document index) and is not already bound to a table. The single statement of the
-   * eligibility rule shared by the sampling sweep and the distribution sweep.
+   * (document index) and is not already bound to a table. The single statement of the eligibility
+   * rule shared by the sampling sweep and the distribution sweep.
    */
   private static boolean needsSymbolTable(final KeyValueLeafPage page) {
     return page.getIndexType() == IndexType.DOCUMENT && !carriesSymbolTable(page);
@@ -1709,14 +1720,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Whether this page is already bound to a symbol table — by bytes, by reference, or both.
    *
-   * <p>Such a page keeps that binding for life: its compressed slots were encoded against it and
-   * cannot be re-encoded in place, so both the revision build's sampling (its raw strings will be
-   * encoded against the old table, not the new one) and its distribution (see above) must pass
-   * the page over.
+   * <p>
+   * Such a page keeps that binding for life: its compressed slots were encoded against it and cannot
+   * be re-encoded in place, so both the revision build's sampling (its raw strings will be encoded
+   * against the old table, not the new one) and its distribution (see above) must pass the page over.
    */
   private static boolean carriesSymbolTable(final KeyValueLeafPage page) {
-    return page.getFsstSymbolTable() != null
-        || page.getFsstSymbolTableId() != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+    return page.getFsstSymbolTable() != null || page.getFsstSymbolTableId() != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
   }
 
   private void parallelSerializationOfKeyValuePages() {
@@ -1734,9 +1744,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     } else {
       // Parallel: stream-filter avoids materializing an intermediate ArrayList
       logList.parallelStream()
-          .map(PageContainer::getModified)
-          .filter(p -> p instanceof KeyValueLeafPage)
-          .forEach(page -> serializeKeyValuePage(resourceConfig, page));
+             .map(PageContainer::getModified)
+             .filter(p -> p instanceof KeyValueLeafPage)
+             .forEach(page -> serializeKeyValuePage(resourceConfig, page));
     }
   }
 
@@ -1767,13 +1777,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Create the commit marker, tolerating a marker that is already there.
    *
-   * <p>This runs at the head of EVERY commit, before any data is written. The previous
+   * <p>
+   * This runs at the head of EVERY commit, before any data is written. The previous
    * {@code while (!Files.exists(file)) Files.createFile(file)} paid a {@code stat} on top of the
-   * {@code create} — and the loop could only ever run twice, since {@code createFile} either
-   * succeeds or throws. Creating directly and treating "already exists" as success is the same
-   * outcome in one syscall, and it is also race-free: two callers no longer both observe "absent"
-   * and race into {@code createFile}, where the loser previously surfaced the
-   * {@link FileAlreadyExistsException} as a commit failure.
+   * {@code create} — and the loop could only ever run twice, since {@code createFile} either succeeds
+   * or throws. Creating directly and treating "already exists" as success is the same outcome in one
+   * syscall, and it is also race-free: two callers no longer both observe "absent" and race into
+   * {@code createFile}, where the loser previously surfaced the {@link FileAlreadyExistsException} as
+   * a commit failure.
    *
    * @param file the commit marker path
    */
@@ -1849,7 +1860,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
 
       if (!isBoundToNodeTrx) {
-        storageEngineReader.resourceSession.closePageWriteTransaction(storageEngineReader.getTrxId());
+        storageEngineReader.resourceSession.closePageWriteTransaction(storageEngineReader.getTrxId(), this);
       }
 
       // CRITICAL: Close storageEngineReader FIRST to release guards BEFORE TIL tries to close pages
@@ -1945,8 +1956,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return null;
   }
 
-  private PageContainer getPageContainer(final long recordPageKey, final int indexNumber,
-      final IndexType indexType) {
+  private PageContainer getPageContainer(final long recordPageKey, final int indexNumber, final IndexType indexType) {
     PageContainer pageContainer =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
     if (pageContainer != null) {
@@ -1954,20 +1964,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     final int revision = newRevisionRootPage.getRevision();
-    lookupKey.setIndexType(indexType).setRecordPageKey(recordPageKey)
-        .setIndexNumber(indexNumber).setRevisionNumber(revision);
+    lookupKey.setIndexType(indexType)
+             .setRecordPageKey(recordPageKey)
+             .setIndexNumber(indexNumber)
+             .setRevisionNumber(revision);
     final PageContainer cached = pageContainerCache.get(lookupKey);
     if (cached != null) {
       return cached;
     }
 
-    final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
+    final PageReference pageReference =
+        storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
     // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
     // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
     // the reader's getLeafPageReference would try to load them from disk with key=-1.
-    final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
-        getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
-        indexType, newRevisionRootPage);
+    final PageReference reference =
+        keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType), pageReference,
+            recordPageKey, indexNumber, indexType, newRevisionRootPage);
     final PageContainer resolved = log.get(reference);
 
     // NEVER cache a FROZEN container here (#1077): this read-path helper runs between an async
@@ -1983,8 +1996,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Nullable
-  private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey,
-      int indexNumber, int revisionNumber) {
+  private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey, int indexNumber,
+      int revisionNumber) {
     if (indexType == IndexType.PATH_SUMMARY) {
       return mostRecentPathSummaryPageContainer != null && mostRecentPathSummaryPageContainer.indexType == indexType
           && mostRecentPathSummaryPageContainer.indexNumber == indexNumber
@@ -1998,8 +2011,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (byType != null) {
       final IndexLogKeyToPageContainer slot = byType[indexType.ordinal()];
       if (slot != null && slot.recordPageKey == recordPageKey && slot.indexNumber == indexNumber
-          && slot.revisionNumber == revisionNumber && slot.indexType == indexType
-          && slot.pageContainer != null) {
+          && slot.revisionNumber == revisionNumber && slot.indexType == indexType && slot.pageContainer != null) {
         return slot.pageContainer;
       }
     }
@@ -2029,8 +2041,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  private PageContainer prepareRecordPage(final long recordPageKey, final int indexNumber,
-      final IndexType indexType) {
+  private PageContainer prepareRecordPage(final long recordPageKey, final int indexNumber, final IndexType indexType) {
     assert indexType != null;
     // Traditional KEYED_TRIE path (bit-decomposed).
     // HOT secondary indexes use dedicated HOT*IndexWriter/Reader implementations.
@@ -2052,11 +2063,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     final Function<IndexLogKey, PageContainer> fetchPageContainer = _ -> {
-      final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
+      final PageReference pageReference =
+          storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
-      final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType),
-          pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
+      final PageReference reference =
+          keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType), pageReference,
+              recordPageKey, indexNumber, indexType, newRevisionRootPage);
 
       var pageContainer = log.get(reference);
 
@@ -2079,16 +2092,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         final MemorySegmentAllocator allocator = Allocators.getInstance();
 
         final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType,
-            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),
-            getResourceSession().getResourceConfig().areDeweyIDsStored
+            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB), getResourceSession().getResourceConfig().areDeweyIDsStored
                 ? allocator.allocate(SIXTYFOUR_KB)
                 : null,
             false // Memory from allocator - release on close()
         );
 
         final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey, indexType,
-            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),
-            getResourceSession().getResourceConfig().areDeweyIDsStored
+            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
+            allocator.allocate(SIXTYFOUR_KB), getResourceSession().getResourceConfig().areDeweyIDsStored
                 ? allocator.allocate(SIXTYFOUR_KB)
                 : null,
             false // Memory from allocator - release on close()
@@ -2104,8 +2117,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
 
     final int revision = newRevisionRootPage.getRevision();
-    lookupKey.setIndexType(indexType).setRecordPageKey(recordPageKey)
-        .setIndexNumber(indexNumber).setRevisionNumber(revision);
+    lookupKey.setIndexType(indexType)
+             .setRecordPageKey(recordPageKey)
+             .setIndexNumber(indexNumber)
+             .setRevisionNumber(revision);
     var currPageContainer = pageContainerCache.get(lookupKey);
     if (currPageContainer == null) {
       currPageContainer = pageContainerCache.computeIfAbsent(
@@ -2113,13 +2128,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     if (indexType == IndexType.PATH_SUMMARY) {
-      mostRecentPathSummaryPageContainer.set(indexType, recordPageKey, indexNumber,
-          newRevisionRootPage.getRevision(), currPageContainer);
+      mostRecentPathSummaryPageContainer.set(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision(),
+          currPageContainer);
     } else {
       // Copy mostRecent into secondMostRecent BEFORE mutating mostRecent
       secondMostRecentPageContainer.copyFrom(mostRecentPageContainer);
-      mostRecentPageContainer.set(indexType, recordPageKey, indexNumber,
-          newRevisionRootPage.getRevision(), currPageContainer);
+      mostRecentPageContainer.set(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision(),
+          currPageContainer);
       final IndexLogKeyToPageContainer[] byType = mostRecentByIndexType;
       if (byType != null) {
         final int ordinal = indexType.ordinal();
@@ -2128,8 +2143,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           byTypeUpd = new IndexLogKeyToPageContainer(indexType, -1, -1, -1, null);
           byType[ordinal] = byTypeUpd;
         }
-        byTypeUpd.set(indexType, recordPageKey, indexNumber,
-            newRevisionRootPage.getRevision(), currPageContainer);
+        byTypeUpd.set(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision(), currPageContainer);
       }
     }
 
@@ -2318,8 +2332,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
-      final IndexType indexType, final int index) {
+  public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey, final IndexType indexType, final int index) {
     final PageContainer pc = getPageContainer(recordPageKey, index, indexType);
     if (pc != null) {
       final var modified = pc.getModified();
@@ -2331,8 +2344,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public StorageEngineWriter appendLogRecord(final PageReference reference,
-      final PageContainer pageContainer) {
+  public StorageEngineWriter appendLogRecord(final PageReference reference, final PageContainer pageContainer) {
     requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;
@@ -2352,9 +2364,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // the session's last-committed uber page already downgraded, the pages never discarded, and
     // the cache never cleared, because the throw jumps past clearCachesForDatabase.
     if (!storagePageReaderWriter.supportsTruncateTo()) {
-      throw new UnsupportedOperationException("Storage backend "
-          + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
-          + revision + " — rollback and crash recovery need a persistent StorageType.");
+      throw new UnsupportedOperationException(
+          "Storage backend " + storagePageReaderWriter.getClass().getSimpleName() + " cannot truncate to revision "
+              + revision + " — rollback and crash recovery need a persistent StorageType.");
     }
     // Rollback semantics: any buffered (uncommitted) page writes refer to the world being
     // truncated away — discard them before touching the files.
@@ -2429,10 +2441,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // The page-key comparison matters as much as the null check: a leftover guard on some OTHER
       // page would satisfy the old code and then protect the wrong page, which is the very thing
       // this guard exists to prevent.
-      reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT,
-                                           reader.pageKey(nodeKey, IndexType.DOCUMENT),
-                                           0,
-                                           reader.getRevisionNumber()));
+      reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, reader.pageKey(nodeKey, IndexType.DOCUMENT), 0,
+          reader.getRevisionNumber()));
       currentPage = reader.getCurrentPage();
     }
     // Re-check the page KEY, not just for null. getRecordPage returns null without touching the
@@ -2443,10 +2453,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // about to mutate are pinned, and they are not.
     final long expectedPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
     if (currentPage == null || currentPage.getPageKey() != expectedPageKey) {
-      throw new IllegalStateException(
-          "No page holds node " + nodeKey + " - cannot acquire guard (expected page "
-              + expectedPageKey + ", got "
-              + (currentPage == null ? "none" : Long.toString(currentPage.getPageKey())) + ")");
+      throw new IllegalStateException("No page holds node " + nodeKey + " - cannot acquire guard (expected page "
+          + expectedPageKey + ", got " + (currentPage == null
+              ? "none"
+              : Long.toString(currentPage.getPageKey()))
+          + ")");
     }
     return new PageGuard(currentPage);
   }

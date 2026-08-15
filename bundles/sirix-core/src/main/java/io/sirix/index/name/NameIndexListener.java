@@ -103,23 +103,24 @@ public final class NameIndexListener {
     }
   }
 
+  /**
+   * Add {@code nodeKey} to {@code name}'s posting list in the HOT backend.
+   *
+   * <p>
+   * A HOT slot write OR-merges the incoming bitmap into the stored one, so the references already
+   * recorded for {@code name} need neither be read back nor re-inserted — doing so cost one range
+   * scan plus one full trie descent per already-stored node key, making a bulk insert of k nodes
+   * sharing a name quadratic in k. (It also handed the live record straight to {@code addNodeKey},
+   * the in-place mutation the RBTree path above clones to avoid.)
+   * </p>
+   */
   private void handleInsertHOT(long nodeKey, QNm name) {
     assert hotWriter != null;
-    NodeReferences existingRefs = hotWriter.get(name, SearchMode.EQUAL);
-    if (existingRefs != null) {
-      setNodeReferencesHOT(nodeKey, existingRefs, name);
-    } else {
-      setNodeReferencesHOT(nodeKey, new NodeReferences(), name);
-    }
+    hotWriter.indexNodeKey(name, nodeKey);
   }
 
   private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final QNm name) {
     assert rbTreeWriter != null;
     rbTreeWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
-  }
-
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final QNm name) {
-    assert hotWriter != null;
-    hotWriter.index(name, references.addNodeKey(nodeKey), RBTreeReader.MoveCursor.NO_MOVE);
   }
 }

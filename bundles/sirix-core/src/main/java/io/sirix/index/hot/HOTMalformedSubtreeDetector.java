@@ -22,39 +22,45 @@ import java.util.Set;
  * docs/HOT_FORMAL_FOUNDATION.md} §8). Walks a HOT secondary-index trie top-down and returns the
  * <em>highest</em> malformed indirect pages — the roots of the maximal drifted subtrees.
  *
- * <p><b>What "malformed" means.</b> An indirect is malformed when it violates a structural
- * invariant in its own block. The predicates mirror {@code HOTInvariantValidator} (the executable
- * specification of the foundation document's §2 invariants); a production detector cannot depend
- * on that test-only class, so the per-indirect predicate logic is reproduced here:
+ * <p>
+ * <b>What "malformed" means.</b> An indirect is malformed when it violates a structural invariant
+ * in its own block. The predicates mirror {@code HOTInvariantValidator} (the executable
+ * specification of the foundation document's §2 invariants); a production detector cannot depend on
+ * that test-only class, so the per-indirect predicate logic is reproduced here:
  * <ul>
- *   <li><b>I3</b> — partial-key uniqueness: no two children share a stored partial.</li>
- *   <li><b>I4</b> — first-partial-zero: the smallest stored partial is {@code 0} (Binna's "first
- *       mask always zero" rule under sparse-path encoding).</li>
- *   <li><b>I5</b> — leaf-constancy: for every child {@code i} with a non-zero stored partial
- *       {@code p_i}, every key {@code K} in {@code subtree(child_i)} satisfies
- *       {@code (p_i & ~densePK(K, mask)) == 0}. I5 is the routing-soundness linchpin
- *       (foundation Theorem 2).</li>
- *   <li><b>I7</b> — partial keys strictly ascending (unsigned) across child slots.</li>
- *   <li><b>I8</b> — children ordered by ascending first-key of their subtree (range-scan
- *       correctness — {@code HOTRangeCursor} advances by child index).</li>
- *   <li><b>I11</b> — trie condition: each indirect child's most-significant discriminative bit is
- *       strictly less significant than this node's. I11 is cross-level; a violation on edge
- *       {@code (P, C)} is attributed to the <em>parent</em> {@code P}, because rebuilding
- *       {@code P}'s subtree (which contains both {@code P} and {@code C}) is what fixes it.</li>
+ * <li><b>I3</b> — partial-key uniqueness: no two children share a stored partial.</li>
+ * <li><b>I4</b> — first-partial-zero: the smallest stored partial is {@code 0} (Binna's "first mask
+ * always zero" rule under sparse-path encoding).</li>
+ * <li><b>I5</b> — leaf-constancy: for every child {@code i} with a non-zero stored partial
+ * {@code p_i}, every key {@code K} in {@code subtree(child_i)} satisfies
+ * {@code (p_i & ~densePK(K, mask)) == 0}. I5 is the routing-soundness linchpin (foundation Theorem
+ * 2).</li>
+ * <li><b>I7</b> — partial keys strictly ascending (unsigned) across child slots.</li>
+ * <li><b>I8</b> — children ordered by ascending first-key of their subtree (range-scan correctness
+ * — {@code HOTRangeCursor} advances by child index).</li>
+ * <li><b>I12</b> — subtree ranges disjoint: consecutive children's key ranges must not interleave
+ * (checked at their shared boundary; sound at detectAndHeal's fixed point).</li>
+ * <li><b>I11</b> — trie condition: each indirect child's most-significant discriminative bit is
+ * strictly less significant than this node's. I11 is cross-level; a violation on edge
+ * {@code (P, C)} is attributed to the <em>parent</em> {@code P}, because rebuilding {@code P}'s
+ * subtree (which contains both {@code P} and {@code C}) is what fixes it.</li>
  * </ul>
  *
- * <p><b>Highest-malformed semantics.</b> The walk is a pre-order DFS. When an indirect is found
+ * <p>
+ * <b>Highest-malformed semantics.</b> The walk is a pre-order DFS. When an indirect is found
  * malformed, its page is recorded and the walk does <em>not</em> descend into it: rebuilding the
  * highest malformed indirect with {@link HOTBulkBuilder} produces a canonical subtree (foundation
  * Theorem 1) and therefore subsumes every malformed descendant (Binna Lemma 3 — a subtree's
  * canonical form depends only on its own keys). The returned subtrees are pairwise non-nested.
  *
- * <p><b>Purity.</b> The detector reads only; it never mutates a page or performs I/O. Pages are
- * obtained through a caller-supplied {@link PageResolver} so the same detector serves a
- * commit-path writer (TIL-aware resolution) and a unit test (swizzled-page resolution).
+ * <p>
+ * <b>Purity.</b> The detector reads only; it never mutates a page or performs I/O. Pages are
+ * obtained through a caller-supplied {@link PageResolver} so the same detector serves a commit-path
+ * writer (TIL-aware resolution) and a unit test (swizzled-page resolution).
  *
- * <p><b>Cost.</b> One DFS per index. The I5 check walks each indirect's subtree keys; summed over
- * a root-to-leaf path a key is visited once per ancestor, and HOT's height is a small constant
+ * <p>
+ * <b>Cost.</b> One DFS per index. The I5 check walks each indirect's subtree keys; summed over a
+ * root-to-leaf path a key is visited once per ancestor, and HOT's height is a small constant
  * (height-optimized — {@code log_k |S|}), so the pass is {@code O(|S|)} per index.
  *
  * @author Johannes Lichtenberger
@@ -67,29 +73,31 @@ public final class HOTMalformedSubtreeDetector {
   private static final int MAX_DEPTH = 64;
 
   /**
-   * Resolves a {@link PageReference} to its in-memory {@link Page}. Returning {@code null} marks
-   * the reference as unresolvable; the detector then skips that branch rather than failing.
+   * Resolves a {@link PageReference} to its in-memory {@link Page}. Returning {@code null} marks the
+   * reference as unresolvable; the detector then skips that branch rather than failing.
    */
   @FunctionalInterface
   public interface PageResolver {
-    @Nullable Page resolve(PageReference reference);
+    @Nullable
+    Page resolve(PageReference reference);
   }
 
   /**
-   * A maximal malformed subtree: the indirect page that is the highest violating node of a
-   * drifted region. Rebuilding the subtree rooted here with {@link HOTBulkBuilder} repairs it.
+   * A maximal malformed subtree: the indirect page that is the highest violating node of a drifted
+   * region. Rebuilding the subtree rooted here with {@link HOTBulkBuilder} repairs it.
    *
-   * @param reference        the in-trie reference whose page is the malformed indirect (the
-   *                         copy-on-write splice point for a rebuild)
-   * @param indirectPageKey  the malformed indirect's page key
-   * @param invariant        the first violated invariant tag (diagnostic)
-   * @param detail           a human-readable description of the violation (diagnostic)
+   * @param reference the in-trie reference whose page is the malformed indirect (the copy-on-write
+   *        splice point for a rebuild)
+   * @param indirectPageKey the malformed indirect's page key
+   * @param invariant the first violated invariant tag (diagnostic)
+   * @param detail a human-readable description of the violation (diagnostic)
    */
-  public record MalformedSubtree(PageReference reference, long indirectPageKey, String invariant,
-                                 String detail) {}
+  public record MalformedSubtree(PageReference reference, long indirectPageKey, String invariant, String detail) {
+  }
 
   /** First violated invariant of an indirect's own block — {@code null} encodes "clean". */
-  private record Defect(String invariant, String detail) {}
+  private record Defect(String invariant, String detail) {
+  }
 
   private final PageResolver resolver;
   private final List<MalformedSubtree> malformed = new ArrayList<>();
@@ -102,11 +110,10 @@ public final class HOTMalformedSubtreeDetector {
   /**
    * Walk the HOT trie rooted at {@code rootReference} and return its highest malformed indirects.
    *
-   * @param rootReference the trie root; {@code null} (an unmaterialized index) yields an empty
-   *                      result
-   * @param resolver      resolves page references to in-memory pages
-   * @return the maximal malformed subtrees in pre-order; empty when the trie is canonical or has
-   *         no indirect pages (a single-leaf index cannot have a malformed <em>indirect</em>)
+   * @param rootReference the trie root; {@code null} (an unmaterialized index) yields an empty result
+   * @param resolver resolves page references to in-memory pages
+   * @return the maximal malformed subtrees in pre-order; empty when the trie is canonical or has no
+   *         indirect pages (a single-leaf index cannot have a malformed <em>indirect</em>)
    * @throws NullPointerException if {@code resolver} is {@code null}
    */
   public static List<MalformedSubtree> detect(final @Nullable PageReference rootReference,
@@ -127,8 +134,7 @@ public final class HOTMalformedSubtreeDetector {
   // Pre-order DFS — record a malformed indirect and stop; descend into clean ones.
   // ======================================================================
 
-  private void walk(final PageReference reference, final HOTIndirectPage indirect,
-      final int depth) {
+  private void walk(final PageReference reference, final HOTIndirectPage indirect, final int depth) {
     if (depth > MAX_DEPTH) {
       return;
     }
@@ -171,8 +177,7 @@ public final class HOTMalformedSubtreeDetector {
         for (int j = i + 1; j < n; j++) {
           if (partials[i] == partials[j]) {
             return new Defect("I3-partial-key-uniqueness",
-                "duplicate partial 0x" + Integer.toHexString(partials[i]) + " at children "
-                    + i + " and " + j);
+                "duplicate partial 0x" + Integer.toHexString(partials[i]) + " at children " + i + " and " + j);
           }
         }
       }
@@ -196,10 +201,8 @@ public final class HOTMalformedSubtreeDetector {
     if (partialsUsable) {
       for (int i = 1; i < n; i++) {
         if (Integer.compareUnsigned(partials[i], partials[i - 1]) <= 0) {
-          return new Defect("I7-partial-keys-sorted",
-              "partials not ascending at " + (i - 1) + "->" + i + ": 0x"
-                  + Integer.toHexString(partials[i - 1]) + " vs 0x"
-                  + Integer.toHexString(partials[i]));
+          return new Defect("I7-partial-keys-sorted", "partials not ascending at " + (i - 1) + "->" + i + ": 0x"
+              + Integer.toHexString(partials[i - 1]) + " vs 0x" + Integer.toHexString(partials[i]));
         }
       }
     }
@@ -216,16 +219,25 @@ public final class HOTMalformedSubtreeDetector {
         if (resolve(childReference) instanceof HOTIndirectPage childIndirect) {
           final int childMSB = childIndirect.getMostSignificantBitIndex();
           if (childMSB >= 0 && childMSB <= parentMSB) {
-            return new Defect("I11-trie-condition",
-                "child[" + i + "]=" + childIndirect.getPageKey() + " MSB=" + childMSB
-                    + " must be > parent MSB=" + parentMSB);
+            return new Defect("I11-trie-condition", "child[" + i + "]=" + childIndirect.getPageKey() + " MSB="
+                + childMSB + " must be > parent MSB=" + parentMSB);
           }
         }
       }
     }
 
-    // I8 — children ordered by ascending first-key of their subtree.
+    // I8 — children ordered by ascending first-key of their subtree — and I12, its strict form:
+    // consecutive children's key RANGES must not interleave. I8 alone compares first keys, so a
+    // child whose subtree also holds keys sorting after its successor's first key passes it; point
+    // lookups still route, but a range scan silently emits keys out of order. The check is local on
+    // purpose: a child's extremes are read off its leftmost/rightmost edge descents, which report
+    // the true extremes exactly when the child's own subtree is clean — and detectAndHeal re-runs
+    // this detector after every discharge until nothing is found, so a spurious pass against a
+    // still-malformed child cannot survive to that fixed point. At the fixed point the local
+    // condition implies full range-disjointness by induction over the height, at O(children x
+    // height) per node instead of the O(subtree) key walk the direct range computation would cost.
     byte[] previousFirstKey = null;
+    byte[] previousLastKey = null;
     for (int i = 0; i < n; i++) {
       final PageReference childReference = indirect.getChildReference(i);
       if (childReference == null) {
@@ -235,13 +247,19 @@ public final class HOTMalformedSubtreeDetector {
       if (firstKey == null) {
         continue;
       }
-      if (previousFirstKey != null
-          && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
+      if (previousFirstKey != null && Arrays.compareUnsigned(previousFirstKey, firstKey) >= 0) {
         return new Defect("I8-children-sorted-by-firstkey",
-            "child[" + i + "] firstKey " + hex(firstKey) + " <= a preceding child's firstKey "
-                + hex(previousFirstKey));
+            "child[" + i + "] firstKey " + hex(firstKey) + " <= a preceding child's firstKey " + hex(previousFirstKey));
+      }
+      if (previousLastKey != null && Arrays.compareUnsigned(previousLastKey, firstKey) >= 0) {
+        return new Defect("I12-subtree-ranges-disjoint", "child[" + i + "] starts at " + hex(firstKey)
+            + " but a preceding child's subtree spans up to " + hex(previousLastKey) + " — the subtrees interleave");
       }
       previousFirstKey = firstKey;
+      final byte[] lastKey = lastKeyOfSubtree(childReference);
+      if (lastKey != null) {
+        previousLastKey = lastKey;
+      }
     }
 
     // I5 — leaf-constancy. The expensive check (a subtree-wide key walk) runs last so a cheaper
@@ -258,13 +276,12 @@ public final class HOTMalformedSubtreeDetector {
         if (childReference == null) {
           continue;
         }
-        final byte[] failingKey =
-            findI5FailingKey(childReference, indirect, sparsePartial, 0, failingDensePK);
+        final byte[] failingKey = findI5FailingKey(childReference, indirect, sparsePartial, 0, failingDensePK);
         if (failingKey != null) {
           return new Defect("I5-leaf-constancy",
               "child[" + i + "] stored partial 0x" + Integer.toHexString(sparsePartial)
-                  + " is not a subset of dense PEXT 0x" + Integer.toHexString(failingDensePK[0])
-                  + " of subtree key " + hex(failingKey));
+                  + " is not a subset of dense PEXT 0x" + Integer.toHexString(failingDensePK[0]) + " of subtree key "
+                  + hex(failingKey));
         }
       }
     }
@@ -278,13 +295,12 @@ public final class HOTMalformedSubtreeDetector {
 
   /**
    * Find the first key in the subtree at {@code reference} whose dense partial key under
-   * {@code maskNode}'s mask fails the sparse-path subset condition for {@code sparsePartial}
-   * (i.e. {@code (sparsePartial & ~densePK) != 0}). Returns {@code null} when every key passes;
+   * {@code maskNode}'s mask fails the sparse-path subset condition for {@code sparsePartial} (i.e.
+   * {@code (sparsePartial & ~densePK) != 0}). Returns {@code null} when every key passes;
    * {@code failingDensePK[0]} receives the offending key's dense partial key.
    */
-  private byte @Nullable [] findI5FailingKey(final PageReference reference,
-      final HOTIndirectPage maskNode, final int sparsePartial, final int depth,
-      final int[] failingDensePK) {
+  private byte @Nullable [] findI5FailingKey(final PageReference reference, final HOTIndirectPage maskNode,
+      final int sparsePartial, final int depth, final int[] failingDensePK) {
     if (depth > MAX_DEPTH) {
       return null;
     }
@@ -312,8 +328,7 @@ public final class HOTMalformedSubtreeDetector {
         if (childReference == null) {
           continue;
         }
-        final byte[] failing =
-            findI5FailingKey(childReference, maskNode, sparsePartial, depth + 1, failingDensePK);
+        final byte[] failing = findI5FailingKey(childReference, maskNode, sparsePartial, depth + 1, failingDensePK);
         if (failing != null) {
           return failing;
         }
@@ -331,7 +346,9 @@ public final class HOTMalformedSubtreeDetector {
     for (int depth = 0; depth <= MAX_DEPTH; depth++) {
       final Page page = resolve(current);
       if (page instanceof HOTLeafPage leaf) {
-        return leaf.getEntryCount() == 0 ? null : leaf.getFirstKey();
+        return leaf.getEntryCount() == 0
+            ? null
+            : leaf.getFirstKey();
       }
       if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
         return null;
@@ -344,15 +361,45 @@ public final class HOTMalformedSubtreeDetector {
     return null;
   }
 
+  /**
+   * The last (lex-greatest) key of the subtree at {@code reference}, found by rightmost descent — the
+   * true maximum once the subtree is internally clean, which is all the I12 boundary check needs (see
+   * the comment there). Returns {@code null} for an empty or unresolvable subtree.
+   */
+  private byte @Nullable [] lastKeyOfSubtree(final PageReference reference) {
+    PageReference current = reference;
+    for (int depth = 0; depth <= MAX_DEPTH; depth++) {
+      final Page page = resolve(current);
+      if (page instanceof HOTLeafPage leaf) {
+        final int entryCount = leaf.getEntryCount();
+        return entryCount == 0
+            ? null
+            : leaf.getKey(entryCount - 1);
+      }
+      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
+        return null;
+      }
+      current = indirect.getChildReference(indirect.getNumChildren() - 1);
+      if (current == null) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   private @Nullable Page resolve(final @Nullable PageReference reference) {
     if (reference == null) {
       return null;
     }
     final Page page = resolver.resolve(reference);
-    return page != null && !page.isClosed() ? page : null;
+    return page != null && !page.isClosed()
+        ? page
+        : null;
   }
 
   private static String hex(final byte @Nullable [] bytes) {
-    return bytes == null ? "null" : HexFormat.of().formatHex(bytes);
+    return bytes == null
+        ? "null"
+        : HexFormat.of().formatHex(bytes);
   }
 }

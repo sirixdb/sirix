@@ -659,6 +659,35 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * caller must re-resolve the page via the cache (which may return a different slot or a cache miss
    * that triggers a reload) and retry the read.
    */
+  /**
+   * Sentinel for {@link #slotCoordinates(MemorySegment)}: the segment is not (or no longer) a live
+   * slot of this allocator — a heap-backed test segment, a pool-allocator segment, or a slot already
+   * released. Pages backed by such segments cannot be torn by slot reuse, so stamp validation for
+   * them is trivially true.
+   */
+  public static final long NO_SLOT_COORDINATES = -1L;
+
+  /**
+   * Locate the live slot backing {@code segment}, packed as {@code (classIdx << 32) | slotIdx}.
+   *
+   * <p>
+   * One concurrent-map probe; callers bind the result ONCE per page and thereafter read/validate the
+   * slot version with two plain array indexes — this lookup must never sit on a per-read hot path.
+   *
+   * @param segment a segment previously returned by {@link #allocate(long)}
+   * @return packed coordinates, or {@link #NO_SLOT_COORDINATES} when the segment is not a live slot
+   */
+  public long slotCoordinates(final MemorySegment segment) {
+    if (segment == null) {
+      return NO_SLOT_COORDINATES;
+    }
+    final Issued issued = liveByAddress.get(segment.address());
+    if (issued == null) {
+      return NO_SLOT_COORDINATES;
+    }
+    return (((long) issued.slot().classIndex()) << 32) | (issued.slot().slotIndex() & 0xFFFF_FFFFL);
+  }
+
   public long acquireVersion(final int classIdx, final int slotIdx) {
     return classes[classIdx].slotVersion.getAcquire(slotIdx);
   }

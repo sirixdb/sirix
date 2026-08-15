@@ -5,6 +5,7 @@ import io.brackit.query.jdm.Stream;
 import org.jspecify.annotations.Nullable;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import org.roaringbitmap.longlong.LongIterator;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.json.JsonItemFactory;
 
@@ -22,7 +23,7 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
 
   private final JsonNodeReadOnlyTrx rtx;
 
-  private Iterator<Long> nodeKeys;
+  private LongIterator nodeKeys;
 
   public SirixJsonItemKeyStream(final Iterator<NodeReferences> iter, final JsonDBCollection collection,
       final JsonNodeReadOnlyTrx rtx) {
@@ -49,7 +50,7 @@ public final class SirixJsonItemKeyStream implements Stream<Item> {
       if (!iter.hasNext()) {
         return null;
       }
-      nodeKeys = iter.next().getNodeKeys().iterator();
+      nodeKeys = iter.next().nodeKeyIterator();
     }
   }
 

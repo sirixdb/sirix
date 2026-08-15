@@ -14,6 +14,7 @@ import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.PathKeySerializer;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.io.filechannel.FileChannelReader;
+import io.sirix.node.LE;
 import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
@@ -590,24 +591,17 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-      if (leaf == null) {
-        return null;
-      }
-      final int idx = leaf.findEntry(keyBuf);
-      if (idx < 0) {
-        return null;
-      }
-      final byte[] value = leaf.getValue(idx);
-      if (value == null || value.length == 0) {
+      final byte[] value =
+          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readColumnSegmentSlot");
+      if (value == null) {
         return null;
       }
       final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
       if (inline != null) {
         return inline;
       }
-      final PageReference ref = leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      final PageReference ref =
+          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
         return null;
       }
@@ -796,34 +790,62 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
         HOTRangeCursor cursor = trieReader.range(rootRef, null, null)) {
+      // The walk reads UNPINNED leaves under optimistic stamps: each slot's read batch — key
+      // decode, value slice, capture copy — is validated before its outcome is committed to the
+      // collections; a torn batch re-evaluates the SAME slot on a refreshed leaf copy.
+      int tornRounds = 0;
       while (cursor.hasNext()) {
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int entryIdx = cursor.currentEntryIndex();
-        final long slotKey = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
-        final long rowGroupId = slotKey >>> 16;
-        final MemorySegment valueSlice = cursor.currentValueSlice();
-        final int valueSize = valueSlice == null
-            ? 0
-            : (int) valueSlice.byteSize();
-        // The leaf slots must be told apart from the two other blob families by KEY: the metadata
-        // (PIXM) blob at slot 0, and the fence chunk blobs at slotKey >= CHUNK_SLOT_BASE (2^42, far
-        // above any rowGroupId<<16). Both are skipped; tombstones are zero-length. The DESCRIPTOR slot
-        // (slotKind 0) is a hashed blob; SEGMENT slots (slotKind >= 1) are BARE (discriminator byte).
-        if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
-          cursor.advance();
+        long rowGroupId = 0;
+        RawBlobSlot descriptorSlot = null;
+        RawBlobSlot segmentSlot = null;
+        try {
+          final long slotKey = leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L;
+          rowGroupId = slotKey >>> 16;
+          final MemorySegment valueSlice = cursor.currentValueSlice();
+          final int valueSize = valueSlice == null
+              ? 0
+              : (int) valueSlice.byteSize();
+          if (valueSize > leaf.slotCapacity()) {
+            // A length no slot can hold must not drive the capture copies below: torn (validation
+            // fails — retried) or genuine corruption (it holds — the throw escapes).
+            throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
+          }
+          // The leaf slots must be told apart from the two other blob families by KEY: the metadata
+          // (PIXM) blob at slot 0, and the fence chunk blobs at slotKey >= CHUNK_SLOT_BASE (2^42, far
+          // above any rowGroupId<<16). Both are skipped; tombstones are zero-length. The DESCRIPTOR
+          // slot (slotKind 0) is a hashed blob; SEGMENT slots (slotKind >= 1) are BARE (discriminator
+          // byte).
+          if (valueSize != 0 && rowGroupId != 0 && slotKey < ProjectionIndexFences.CHUNK_SLOT_BASE) {
+            final int slotKind = (int) (slotKey & 0xFFFF);
+            if (slotKind == 0) {
+              descriptorSlot =
+                  captureDescriptorSlot(reader, leaf, valueSlice, valueSize, rowGroupId, slotKey, indexNumber);
+            } else if (segmentSlotsOut != null) {
+              segmentSlot = captureColumnSegmentSlot(reader, leaf, valueSlice, valueSize, rowGroupId, slotKind, slotKey,
+                  indexNumber);
+            }
+          }
+        } catch (RuntimeException e) {
+          if (cursor.validateLeaf()) {
+            throw e; // stable bytes — genuine corruption, not a torn read
+          }
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
-        final int slotKind = (int) (slotKey & 0xFFFF);
-        if (slotKind == 0) {
-          final RawBlobSlot desc =
-              captureDescriptorSlot(reader, leaf, valueSlice, valueSize, rowGroupId, slotKey, indexNumber);
-          if (descriptors.put(rowGroupId, desc) != null) {
+        if (!cursor.validateLeaf()) {
+          cursor.recoverTorn(++tornRounds);
+          continue;
+        }
+        tornRounds = 0;
+        if (descriptorSlot != null) {
+          if (descriptors.put(rowGroupId, descriptorSlot) != null) {
             throw new IllegalStateException(
                 "segment-slot leaf " + rowGroupId + " has two descriptor slots (indexNumber=" + indexNumber + ")");
           }
-        } else if (segmentSlotsOut != null) {
-          segmentSlotsOut.add(captureColumnSegmentSlot(reader, leaf, valueSlice, valueSize, rowGroupId, slotKind,
-              slotKey, indexNumber));
+        } else if (segmentSlot != null) {
+          segmentSlotsOut.add(segmentSlot);
         }
         cursor.advance();
       }
@@ -942,11 +964,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   private static RawBlobSlot captureDescriptorSlot(final StorageEngineReader reader, final HOTLeafPage leaf,
       final MemorySegment valueSlice, final int valueSize, final long rowGroupId, final long slotKey,
       final int indexNumber) {
-    if (valueSize < BLOB_MARKER_BYTES || valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 0) != BLOB_MAGIC) {
+    if (valueSize < BLOB_MARKER_BYTES || valueSlice.get(LE.INT, 0) != BLOB_MAGIC) {
       throw new IllegalStateException("segment-slot descriptor slot " + slotKey + " is not a blob" + " marker ("
           + valueSize + " bytes) — mixed storage layouts in one sub-tree (indexNumber=" + indexNumber + ")");
     }
-    final boolean inline = (valueSlice.get(ValueLayout.JAVA_INT_UNALIGNED, 5) & BLOB_INLINE_FLAG) != 0;
+    final boolean inline = (valueSlice.get(LE.INT, 5) & BLOB_INLINE_FLAG) != 0;
     if (inline) {
       final byte[] value = new byte[valueSize];
       MemorySegment.copy(valueSlice, ValueLayout.JAVA_BYTE, 0, value, 0, valueSize);
@@ -1539,40 +1561,90 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // better outcome for a store that must contain only 8-byte slot keys.
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
         HOTRangeCursor cursor = trieReader.range(rootRef, null, null)) {
+      // Optimistic-stamp discipline: all reads and capture copies for a slot happen first, the
+      // stamp is validated, and only then do the results reach the DirectoryWalk callbacks (whose
+      // effects cannot be retracted) or the unresolved-page early return. A torn batch
+      // re-evaluates the SAME slot on a refreshed leaf copy.
+      int tornRounds = 0;
       while (cursor.hasNext()) {
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int entryIndex = cursor.currentEntryIndex();
-        final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
-        final long rowGroupId = slotKey >>> 16;
-        // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
-        // need only their size plus a discriminator byte, and materializing a MemorySegment per
-        // slot made the walk's largest allocation a set of objects it immediately threw away.
-        // Every read below reuses this one handle. A malformed slot reports length -1, which the
-        // tombstone branch already covers.
-        final long valueRef = leaf.valueRef(entryIndex);
-        final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
-        // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
-        // documented on readAllRowGroupsFromColumnSegmentSlots.
-        if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
-          cursor.advance();
+        long rowGroupId = 0;
+        int slotKind = 0;
+        boolean skip = false;
+        boolean unresolved = false;
+        byte[] descriptor = null;
+        byte[] inlinePayload = null;
+        long segmentOffset = Constants.NULL_ID_LONG;
+        try {
+          final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
+          rowGroupId = slotKey >>> 16;
+          // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
+          // need only their size plus a discriminator byte, and materializing a MemorySegment per
+          // slot made the walk's largest allocation a set of objects it immediately threw away.
+          // Every read below reuses this one handle. A malformed slot reports length -1, which the
+          // tombstone branch already covers.
+          final long valueRef = leaf.valueRef(entryIndex);
+          final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
+          if (valueSize > leaf.slotCapacity()) {
+            // Never let a length no slot can hold size an allocation: torn (validation fails —
+            // retried) or genuine corruption (it holds — the throw escapes).
+            throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
+          }
+          // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
+          // documented on readAllRowGroupsFromColumnSegmentSlots.
+          if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
+            skip = true;
+          } else {
+            slotKind = (int) (slotKey & 0xFFFF);
+            if (slotKind == 0) {
+              descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
+              unresolved = descriptor == null;
+            } else {
+              final byte kind = leaf.refByteAt(valueRef, 0);
+              if (kind == SEG_KIND_INLINE) {
+                inlinePayload = new byte[valueSize - 1];
+                leaf.copyRefInto(valueRef, 1, inlinePayload, 0, valueSize - 1);
+              } else if (kind != SEG_KIND_REF) {
+                throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown"
+                    + " discriminator " + kind + " (indexNumber=" + indexNumber + ")");
+              } else {
+                segmentOffset = resolvedSegmentPageOffset(leaf, slotKey);
+                unresolved = segmentOffset == Constants.NULL_ID_LONG;
+              }
+            }
+          }
+        } catch (RuntimeException e) {
+          if (cursor.validateLeaf()) {
+            throw e; // stable bytes — genuine corruption, not a torn read
+          }
+          cursor.recoverTorn(++tornRounds);
           continue;
         }
-        final int slotKind = (int) (slotKey & 0xFFFF);
-        if (slotKind == 0) {
-          final byte[] descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
-          if (descriptor == null) {
+        if (!cursor.validateLeaf()) {
+          cursor.recoverTorn(++tornRounds);
+          continue;
+        }
+        tornRounds = 0;
+        if (!skip) {
+          if (unresolved) {
             return false;
           }
-          walk.beginRowGroup(rowGroupId, descriptor);
-        } else if (!captureDirectoryColumnSegmentSlot(leaf, valueRef, valueSize, slotKey, rowGroupId, slotKind - 1,
-            indexNumber, walk)) {
-          return false;
+          if (slotKind == 0) {
+            walk.beginRowGroup(rowGroupId, descriptor);
+          } else if (inlinePayload != null) {
+            walk.putInline(rowGroupId, slotKind - 1, inlinePayload);
+          } else {
+            walk.putOffset(rowGroupId, slotKind - 1, segmentOffset);
+          }
         }
         cursor.advance();
       }
     }
     return true;
   }
+
+
 
   /**
    * A descriptor slot's bytes during the directory walk. Unlike a segment, the descriptor IS read
@@ -1587,8 +1659,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // descriptor is well under BLOB_INLINE_MAX — copies EXACTLY ONCE, straight from the slot into
     // the array that is handed back. Reading the marker straight off the leaf avoids both the
     // slice object and materializing the marker+payload bytes only to copy the payload back out.
-    if (valueSize >= BLOB_MARKER_BYTES && leaf.refIntAt(valueRef, 0) == BLOB_MAGIC
-        && (leaf.refIntAt(valueRef, 5) & BLOB_INLINE_FLAG) != 0) {
+    if (valueSize >= BLOB_MARKER_BYTES && leaf.refIntLEAt(valueRef, 0) == BLOB_MAGIC
+        && (leaf.refIntLEAt(valueRef, 5) & BLOB_INLINE_FLAG) != 0) {
       return verifyInlineBlobFromSlot(leaf, valueRef, valueSize, slotKey);
     }
     final byte[] value = new byte[valueSize];
@@ -1613,46 +1685,22 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (leaf.refByteAt(valueRef, 4) != BLOB_VERSION) {
       throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
     }
-    final int len = leaf.refIntAt(valueRef, 5) & ~BLOB_INLINE_FLAG;
+    final int len = leaf.refIntLEAt(valueRef, 5) & ~BLOB_INLINE_FLAG;
     if (len < 0 || valueSize != BLOB_MARKER_BYTES + len) {
       throw new IllegalStateException("Inline blob at slot " + slotKey + " has inconsistent length (" + valueSize
           + " bytes, expected " + (BLOB_MARKER_BYTES + len) + ")");
     }
     final byte[] payload = new byte[len];
     leaf.copyRefInto(valueRef, BLOB_MARKER_BYTES, payload, 0, len);
-    if (ProjectionIndexColumnSegmentCodec.contentHash(payload) != leaf.refLongAt(valueRef, 9)) {
+    if (ProjectionIndexColumnSegmentCodec.contentHash(payload) != leaf.refLongLEAt(valueRef, 9)) {
       throw new IllegalStateException("Inline blob at slot " + slotKey + " failed hash verification");
     }
     return payload;
   }
 
-  /**
-   * One segment slot during the directory walk: an inline slot contributes its bytes, a referenced
-   * one only its durable offset (no page read — that is the point of the offset-lazy handle).
-   *
-   * @return {@code false} when a referenced slot's page is unresolved
-   */
-  private static boolean captureDirectoryColumnSegmentSlot(final HOTLeafPage leaf, final long valueRef,
-      final int valueSize, final long slotKey, final long rowGroupId, final int columnSegmentId, final int indexNumber,
-      final DirectoryWalk walk) {
-    final byte kind = leaf.refByteAt(valueRef, 0);
-    if (kind == SEG_KIND_INLINE) {
-      final byte[] payload = new byte[valueSize - 1];
-      leaf.copyRefInto(valueRef, 1, payload, 0, valueSize - 1);
-      walk.putInline(rowGroupId, columnSegmentId, payload);
-      return true;
-    }
-    if (kind != SEG_KIND_REF) {
-      throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown" + " discriminator "
-          + kind + " (indexNumber=" + indexNumber + ")");
-    }
-    final long offset = resolvedSegmentPageOffset(leaf, slotKey);
-    if (offset == Constants.NULL_ID_LONG) {
-      return false;
-    }
-    walk.putOffset(rowGroupId, columnSegmentId, offset);
-    return true;
-  }
+  // captureDirectoryColumnSegmentSlot was folded into collectRowGroupDirectorySlots: under
+  // optimistic stamps its DirectoryWalk side effects must not fire until the slot's read batch
+  // has validated, so the reads and the callbacks had to be split around the validation point.
 
   /** Durable offset of the page backing {@code slotKey}, or {@link Constants#NULL_ID_LONG}. */
   private static long resolvedSegmentPageOffset(final HOTLeafPage leaf, final long slotKey) {
@@ -1820,23 +1868,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-      if (leaf == null) {
-        return null;
-      }
-      final int idx = leaf.findEntry(keyBuf);
-      if (idx < 0) {
-        return null;
-      }
-      final byte[] value = leaf.getValue(idx);
-      if (value == null || value.length == 0) {
+      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readBlob");
+      if (value == null) {
         return null;
       }
       if (isInlineBlob(value)) {
         return verifyInlineBlob(value, slotKey);
       }
-      final PageReference ref = leaf.getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
+      final PageReference ref =
+          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
       if (ref == null) {
         return verifyBlob(value, null, slotKey);
       }
@@ -1911,6 +1951,49 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   // ==================== descriptor-layout internals ====================
+
+  /**
+   * Navigate to {@code slotKey}'s leaf and read its raw value under the optimistic-stamp protocol:
+   * the found/absent decision and the value copy are both validated before anything is derived from
+   * them, and a torn batch re-descends on freshly reloaded copies. Shared by the two reader-side slot
+   * reads, which differ only in how they interpret the bytes — restating this scaffolding per caller
+   * meant a fix to the validation discipline had to be applied twice, 1300 lines apart.
+   *
+   * <p>
+   * The leaf the value came from is NOT returned: {@code loadPage} installs every leaf it resolves as
+   * the reader's current leaf, so the caller reads it back with {@code trieReader.currentLeafPage()}
+   * and no per-read holder has to be allocated.
+   *
+   * @return the validated value bytes, or {@code null} when the slot is absent or tombstoned
+   */
+  private static byte @Nullable [] readValidatedSlotValue(final HOTTrieReader trieReader, final PageReference rootRef,
+      final long slotKey, final byte[] keyBuf, final String operation) {
+    for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+      if (leaf == null) {
+        return null;
+      }
+      final byte[] value;
+      try {
+        final int idx = leaf.findEntry(keyBuf);
+        value = idx < 0
+            ? null
+            : leaf.getValue(idx);
+      } catch (RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e; // stable bytes — genuine corruption, not a torn read
+        }
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        continue;
+      }
+      return value == null || value.length == 0
+          ? null
+          : value;
+    }
+    throw HOTTrieReader.stampRetriesExhausted(operation + "(slot " + slotKey + ")");
+  }
 
   /**
    * Shared navigation preamble of the reader-side descriptor-layout statics: serialize the slot key

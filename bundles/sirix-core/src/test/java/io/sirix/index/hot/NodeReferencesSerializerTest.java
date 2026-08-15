@@ -5,10 +5,17 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.cache.Allocators;
+import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.utils.OS;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
+import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -178,7 +185,7 @@ class NodeReferencesSerializerTest {
     assertEquals((byte) 0xFF, bytes65[0]); // Roaring format
   }
 
-  // ==================== mergePackedSingleBit fast path ====================
+  // ==================== packed-payload fixtures ====================
 
   private static byte[] packedOf(long... keys) {
     final NodeReferences refs = new NodeReferences();
@@ -200,40 +207,50 @@ class NodeReferencesSerializerTest {
     return NodeReferencesSerializer.serialize(a);
   }
 
+  /** Run the slot-based single-bit merge against a leaf holding {@code existing}. */
+  private static byte @Nullable [] mergeFromSlot(byte[] existing, byte[] newValue, int off, int len) {
+    final HOTLeafPage leaf = leafWithValue(existing);
+    try {
+      return NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0), newValue, off, len);
+    } finally {
+      leaf.close();
+    }
+  }
+
   @Test
-  void mergePackedSingleBit_insertsAbsentKey_byteIdenticalToSlowPath() {
+  void packedSingleBitMerge_insertsAbsentKey_byteIdenticalToSlowPath() {
     final byte[] existing = packedOf(10L, 30L, 50L);
     // Insert before-all, middle, and after-all positions.
     for (final long k : new long[] {5L, 20L, 40L, 60L}) {
       final byte[] nv = singleBit(k);
-      final byte[] fast = NodeReferencesSerializer.mergePackedSingleBit(existing, nv, 0, nv.length);
+      final byte[] fast = mergeFromSlot(existing, nv, 0, nv.length);
       assertArrayEquals(slowMerge(existing, nv, 0, nv.length), fast,
           "fast path must be byte-identical to slow path for key " + k);
     }
   }
 
   @Test
-  void mergePackedSingleBit_presentKey_returnsSameReferenceNoOp() {
+  void packedSingleBitMerge_presentKey_returnsSameReferenceNoOp() {
     final byte[] existing = packedOf(10L, 30L, 50L);
     final byte[] nv = singleBit(30L);
-    final byte[] fast = NodeReferencesSerializer.mergePackedSingleBit(existing, nv, 0, nv.length);
-    assertSame(existing, fast, "present key must be a no-op (same reference)");
+    final byte[] fast = mergeFromSlot(existing, nv, 0, nv.length);
+    assertSame(NodeReferencesSerializer.MERGE_UNCHANGED, fast, "present key must be a no-op");
     // Slow path leaves the set unchanged, so existing is already its own serialization.
     assertArrayEquals(slowMerge(existing, nv, 0, nv.length), existing);
   }
 
   @Test
-  void mergePackedSingleBit_honorsOffsetIntoNewBuffer() {
+  void packedSingleBitMerge_honorsOffsetIntoNewBuffer() {
     final byte[] existing = packedOf(100L, 200L);
     final byte[] one = singleBit(150L);
     final byte[] buf = new byte[3 + one.length + 4];
     System.arraycopy(one, 0, buf, 3, one.length);
-    final byte[] fast = NodeReferencesSerializer.mergePackedSingleBit(existing, buf, 3, one.length);
+    final byte[] fast = mergeFromSlot(existing, buf, 3, one.length);
     assertArrayEquals(slowMerge(existing, buf, 3, one.length), fast);
   }
 
   @Test
-  void mergePackedSingleBit_bailsWhenBucketWouldOverflowToRoaring() {
+  void packedSingleBitMerge_bailsWhenBucketWouldOverflowToRoaring() {
     final long[] keys = new long[64];
     for (int i = 0; i < 64; i++) {
       keys[i] = i;
@@ -241,11 +258,11 @@ class NodeReferencesSerializerTest {
     final byte[] existing = packedOf(keys); // exactly PACKED_THRESHOLD entries
     assertEquals(0x00, existing[0]);
     final byte[] nv = singleBit(1000L);
-    assertNull(NodeReferencesSerializer.mergePackedSingleBit(existing, nv, 0, nv.length));
+    assertNull(mergeFromSlot(existing, nv, 0, nv.length));
   }
 
   @Test
-  void mergePackedSingleBit_bailsOnRoaringExisting() {
+  void packedSingleBitMerge_bailsOnRoaringExisting() {
     final long[] keys = new long[65];
     for (int i = 0; i < 65; i++) {
       keys[i] = i;
@@ -253,51 +270,90 @@ class NodeReferencesSerializerTest {
     final byte[] existing = packedOf(keys); // 65 entries -> Roaring format
     assertEquals((byte) 0xFF, existing[0]);
     final byte[] nv = singleBit(1000L);
-    assertNull(NodeReferencesSerializer.mergePackedSingleBit(existing, nv, 0, nv.length));
+    assertNull(mergeFromSlot(existing, nv, 0, nv.length));
   }
 
   @Test
-  void mergePackedSingleBit_bailsWhenNewValueIsNotASinglePackedKey() {
+  void packedSingleBitMerge_bailsWhenNewValueIsNotASinglePackedKey() {
     final byte[] existing = packedOf(10L, 20L);
     final byte[] twoKeys = packedOf(5L, 6L);
-    assertNull(NodeReferencesSerializer.mergePackedSingleBit(existing, twoKeys, 0, twoKeys.length));
+    assertNull(mergeFromSlot(existing, twoKeys, 0, twoKeys.length));
     final byte[] tombstone = NodeReferencesSerializer.serialize(new NodeReferences());
-    assertNull(
-        NodeReferencesSerializer.mergePackedSingleBit(existing, tombstone, 0, tombstone.length));
+    assertNull(mergeFromSlot(existing, tombstone, 0, tombstone.length));
   }
 
   @Test
-  void mergePackedSingleBit_bailsOnTombstoneExisting() {
+  void packedSingleBitMerge_bailsOnTombstoneExisting() {
     // Precondition: callers handle tombstone-existing before the fast path. The method still
     // defensively bails (a tombstone is not PACKED_FORMAT), deferring to the slow path.
     final byte[] tombstone = NodeReferencesSerializer.serialize(new NodeReferences());
     final byte[] nv = singleBit(7L);
-    assertNull(NodeReferencesSerializer.mergePackedSingleBit(tombstone, nv, 0, nv.length));
+    assertNull(mergeFromSlot(tombstone, nv, 0, nv.length));
+  }
+
+  // ==================== mergePackedSingleBitFromSlot (slot-memory twin) ====================
+
+  /** A leaf holding {@code payload} under a single key; caller closes. */
+  private static HOTLeafPage leafWithValue(byte[] payload) {
+    if (!OS.isWindows()) {
+      Allocators.getInstance().init(64L * 1024 * 1024);
+    }
+    final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+    assertTrue(leaf.put("k".getBytes(StandardCharsets.UTF_8), payload));
+    return leaf;
   }
 
   @Test
-  void mergePackedSingleBit_differentialRandom() {
-    final Random rnd = new Random(0xC0FFEE);
-    for (int trial = 0; trial < 5000; trial++) {
-      // 1..63 entries: existing is genuinely packed (n==0 would be a tombstone, out of contract)
-      // and stays packed after one insert (<= PACKED_THRESHOLD).
+  void packedSingleBitMerge_fromSlot_matchesSlowPath_differentialRandom() {
+    final Random rnd = new Random(0x5107);
+    for (int trial = 0; trial < 500; trial++) {
       final int n = 1 + rnd.nextInt(63);
-      final java.util.TreeSet<Long> set = new java.util.TreeSet<>();
+      final TreeSet<Long> set = new TreeSet<>();
       while (set.size() < n) {
-        set.add((long) rnd.nextInt(1 << 16)); // chunk-local 16-bit values, as on the live path
+        set.add((long) rnd.nextInt(1 << 16));
       }
       final byte[] existing = packedOf(set.stream().mapToLong(Long::longValue).toArray());
       final long newKey = rnd.nextInt(1 << 16);
       final byte[] nv = singleBit(newKey);
-      final byte[] fast = NodeReferencesSerializer.mergePackedSingleBit(existing, nv, 0, nv.length);
-      final byte[] slow = slowMerge(existing, nv, 0, nv.length);
+      final HOTLeafPage leaf = leafWithValue(existing);
+      final byte[] fromSlot =
+          NodeReferencesSerializer.mergePackedSingleBitFromSlot(leaf, leaf.valueRef(0), nv, 0, nv.length);
       if (set.contains(newKey)) {
-        assertSame(existing, fast, "present key must be a no-op at trial " + trial);
-        assertArrayEquals(slow, existing);
+        assertSame(NodeReferencesSerializer.MERGE_UNCHANGED, fromSlot,
+            "present key must return the no-op sentinel at trial " + trial);
       } else {
-        assertArrayEquals(slow, fast, "absent key must match slow path at trial " + trial);
+        assertArrayEquals(slowMerge(existing, nv, 0, nv.length), fromSlot,
+            "absent key must match the slow path at trial " + trial);
       }
+      leaf.close();
     }
+  }
+
+  @Test
+  void packedSingleBitMerge_fromSlot_rejectsNonQualifyingShapes() {
+    // Roaring-format existing payload: > PACKED_THRESHOLD entries.
+    final NodeReferences big = new NodeReferences();
+    for (int i = 0; i < 100; i++) {
+      big.addNodeKey(i);
+    }
+    final byte[] nv = singleBit(7L);
+    final HOTLeafPage roaringLeaf = leafWithValue(NodeReferencesSerializer.serialize(big));
+    assertNull(
+        NodeReferencesSerializer.mergePackedSingleBitFromSlot(roaringLeaf, roaringLeaf.valueRef(0), nv, 0, nv.length));
+    roaringLeaf.close();
+
+    // Multi-entry new payload does not qualify as a single-bit merge.
+    final byte[] twoKeys = packedOf(1L, 2L);
+    final HOTLeafPage packedLeaf = leafWithValue(packedOf(10L, 30L));
+    assertNull(NodeReferencesSerializer.mergePackedSingleBitFromSlot(packedLeaf, packedLeaf.valueRef(0), twoKeys, 0,
+        twoKeys.length));
+    packedLeaf.close();
+
+    // Tombstone payloads: rejected by the merge, recognized by the slot-side tombstone probe.
+    final HOTLeafPage tombLeaf = leafWithValue(NodeReferencesSerializer.serialize(new NodeReferences()));
+    assertNull(NodeReferencesSerializer.mergePackedSingleBitFromSlot(tombLeaf, tombLeaf.valueRef(0), nv, 0, nv.length));
+    assertTrue(NodeReferencesSerializer.isTombstone(tombLeaf, tombLeaf.valueRef(0)));
+    tombLeaf.close();
   }
 }
 
