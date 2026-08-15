@@ -515,6 +515,64 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     }
   }
 
+
+  // ===== Per-type policy, declared ONCE =====
+  //
+  // These three facts about a content type were previously spelled out as four separate disjunction
+  // lists — isByteOrderPreserving, isNumericFamily, losesInformation's numeric test and truncates'
+  // lexical test — and the numeric set was written out twice, verbatim, in two of them. That is drift
+  // waiting to happen: adding a content type meant editing every list in the right way, and missing
+  // one is SILENT. Miss the byte-order list and every range query on the new type degrades to an
+  // O(index) scan; miss the lexical list and an exclusive bound past the string cap drops rows.
+  //
+  // One table instead, and a static check that every id declared above has an entry, so a new type
+  // that forgets its policy fails at class initialization rather than in a query months later.
+  // Encoding and decoding keep their own switches deliberately: both are per-KEY rather than
+  // per-query, and the switch over the id compiles to a tableswitch, which is why
+  // encodeAtomicOrderPreserving stopped re-walking Type#instanceOf in the first place.
+
+  /** Capped at {@link #MAX_STRING_VALUE_BYTES} by the string encoder, so long values share a key. */
+  private static final int LEXICAL = 1;
+
+  /** Encoded by a NARROWING numeric encoder, so distinct values can share a key. */
+  private static final int NUMERIC = 1 << 1;
+
+  /** Unsigned byte order over the encoded value IS the type's value order. */
+  private static final int BYTE_ORDERED = 1 << 2;
+
+  /** Indexed by type id. Index 6 is the burned id and is deliberately absent. */
+  private static final int[] POLICY = new int[TYPE_TIME + 1];
+
+  private static final short BURNED_TYPE_ID = 6;
+
+  static {
+    POLICY[TYPE_OTHER] = LEXICAL; // the string encoder, but lexical order is not its value order
+    POLICY[TYPE_STRING] = LEXICAL | BYTE_ORDERED;
+    POLICY[TYPE_BOOLEAN] = BYTE_ORDERED;
+    POLICY[TYPE_DOUBLE] = NUMERIC | BYTE_ORDERED;
+    POLICY[TYPE_FLOAT] = NUMERIC | BYTE_ORDERED;
+    POLICY[TYPE_INTEGER] = NUMERIC | BYTE_ORDERED;
+    POLICY[TYPE_DECIMAL] = NUMERIC | BYTE_ORDERED;
+    POLICY[TYPE_DATETIME] = BYTE_ORDERED;
+    POLICY[TYPE_DATE] = BYTE_ORDERED;
+    POLICY[TYPE_TIME] = BYTE_ORDERED;
+    for (short id = 0; id < POLICY.length; id++) {
+      if (id != BURNED_TYPE_ID && POLICY[id] == 0) {
+        throw new ExceptionInInitializerError("CAS key type id " + id + " has no policy entry");
+      }
+    }
+  }
+
+  /**
+   * The policy flags for {@code type}.
+   *
+   * @param type the index's content type
+   * @return the {@link #LEXICAL}/{@link #NUMERIC}/{@link #BYTE_ORDERED} mask
+   */
+  private static int policyOf(final Type type) {
+    return POLICY[getTypeId(type)];
+  }
+
   /**
    * Whether the serialized key's unsigned BYTE order is the type's own value order — i.e. whether a
    * bounded byte-range cursor may decide a range query for this content type at all.
@@ -547,9 +605,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
     if (type == null) {
       return false;
     }
-    final short id = getTypeId(type);
-    return id == TYPE_STRING || id == TYPE_BOOLEAN || id == TYPE_DOUBLE || id == TYPE_FLOAT || id == TYPE_INTEGER
-        || id == TYPE_DECIMAL || id == TYPE_DATETIME || id == TYPE_DATE || id == TYPE_TIME;
+    return (policyOf(type) & BYTE_ORDERED) != 0;
   }
 
   /**
@@ -699,7 +755,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
       return false;
     }
     final short id = getTypeId(requireNonNull(type, "type"));
-    if (id == TYPE_INTEGER || id == TYPE_DECIMAL || id == TYPE_DOUBLE || id == TYPE_FLOAT) {
+    if ((POLICY[id] & NUMERIC) != 0) {
       return narrowsNumeric(value, id);
     }
     return truncates(value, id);
@@ -719,8 +775,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
    * @return {@code true} for the integer, decimal, double and float families
    */
   public static boolean isNumericFamily(final Type type) {
-    final short id = getTypeId(requireNonNull(type, "type"));
-    return id == TYPE_INTEGER || id == TYPE_DECIMAL || id == TYPE_DOUBLE || id == TYPE_FLOAT;
+    return (policyOf(requireNonNull(type, "type")) & NUMERIC) != 0;
   }
 
   /**
@@ -748,7 +803,7 @@ public final class CASKeySerializer implements HOTKeySerializer<CASValue> {
   }
 
   private static boolean truncates(final Atomic value, final short id) {
-    if (id != TYPE_STRING && id != TYPE_OTHER) {
+    if ((POLICY[id] & LEXICAL) == 0) {
       return false;
     }
     final String str = value.stringValue();
