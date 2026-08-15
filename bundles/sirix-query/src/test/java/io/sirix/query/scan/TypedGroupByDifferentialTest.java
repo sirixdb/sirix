@@ -1468,6 +1468,11 @@ public final class TypedGroupByDifferentialTest {
         return {"dept": $k, "count": $c}""".formatted(SRC));
   }
 
+  // The JSON-null-vs-`!=` divergence is pinned by NotEqualNullGateTest, not here: the wildcard
+  // projection does not cover "nully", so a differential over it declines for an unrelated reason
+  // and both arms end up interpreted — agreement that proves nothing. Verified by re-introducing
+  // the defect and watching this file stay green.
+
   @Test
   void notEqualOnAStringFieldAgrees() throws Exception {
     // String NE has no PredicateNode variant yet (StrEq carries no operator), so this still
