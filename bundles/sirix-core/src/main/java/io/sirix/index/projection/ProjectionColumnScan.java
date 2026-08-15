@@ -111,6 +111,15 @@ public final class ProjectionColumnScan {
    * Conjunctive numeric-long aggregate — {@code acc = [count, sum, min, max]}, initialised by the
    * caller to {@code {0, 0, Long.MAX_VALUE, Long.MIN_VALUE}}. The aggregate column's presence is
    * ANDed before folding, exactly like the byte kernel.
+   *
+   * <p>
+   * Exact sum or DECLINE, parity with the byte kernel: {@code xs:integer} is arbitrary precision, so
+   * a total that wraps a {@code long} is a wrong answer rather than a fast one. This is a scalar
+   * walk, so the check is a per-value {@link Math#addExact} — exact, one never-taken branch — rather
+   * than the conservative pre-flight zone-map bound {@code ProjectionColumnSegmentFoldScan} needs for
+   * its lanewise fold.
+   *
+   * @throws ArithmeticException on overflow — callers treat it as a DECLINE
    */
   public static void conjunctiveAggregateNumeric(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
       final int numericColumn, final long[] acc, final ColumnSegmentFetcher fetcher) {
@@ -153,7 +162,7 @@ public final class ProjectionColumnScan {
           }
           final long v = values[rowIdx];
           count++;
-          sum += v;
+          sum = Math.addExact(sum, v);
           if (v < min)
             min = v;
           if (v > max)

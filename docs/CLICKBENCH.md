@@ -10,8 +10,8 @@ Two things are worth saying up front, because they frame every number below:
 * **SirixDB is not a column store.** ClickBench's reference systems persist columns; SirixDB
   persists a versioned tree in which every revision of every record stays queryable. The port exists
   to make that comparison measurable and honest, not flattering.
-* **The port found three real engine defects, all of them wrong answers rather than slow ones**,
-  all three fixed here. See [What the port found](#what-the-port-found).
+* **The port found four real engine defects, all of them wrong answers rather than slow ones**,
+  all four fixed here. See [What the port found](#what-the-port-found).
 
 ## Layout
 
@@ -153,7 +153,22 @@ it there makes the stage redundant rather than wrong. Regression test:
 `TypedGroupByDifferentialTest#aggregateOverANestedForOnAGroupedVariableStaysPerGroup`, which runs
 sum/avg/min/max/count/count-distinct and a two-key sparse-field case through both pipelines.
 
-A fourth, cosmetic difference is worth recording: brackit's serializer writes a bare `Atomic` with
+**4. The projection index wrapped the same sums, and it wins over the path that was fixed.**
+*(fixed)* Installing a projection over the ClickBench columns made `AVG(UserID)` return
+`3.607625737085349E13` where the truth is `5.7133174022015565E17` — the projection's fold has its own
+accumulators, and five of them added into a plain `long`. This is worse than defect 1 rather than a
+duplicate of it: `executeAggregate` consults the projection FIRST ("a maintained projection wins over
+the summary"), so installing an index turned the answer defect 1 had just fixed back into a wrong
+one. The SIMD fold kernel now takes a pre-flight bound from the per-row-group zone maps —
+`Σ rows_g × max(|min_g|, |max_g|)` — and declines when the total cannot fit, which keeps the check
+out of the lanewise loop entirely; the three scalar walks use `Math.addExact`, which sees every
+carry. A masked-accumulator cache hazard surfaced alongside it: `executeAggregate` cached partially
+filled accumulators under a func-less key, so a later `max` could have been served the fold identity
+`Long.MIN_VALUE`. Regression test:
+`VectorizedAggregateExactnessTest#sumAndAvgOverLargeIntegersStayExactWithAProjectionInstalled` — the
+existing exactness tests never installed a projection, which is exactly why this shipped.
+
+A fifth, cosmetic difference is worth recording: brackit's serializer writes a bare `Atomic` with
 `toString()` but quotes an `Atomic` that also implements `JsonItem`. A kernel that answered
 `min(EventDate)` with a plain `Str` therefore serialized `2013-07-02` where the interpreter
 serialized `"2013-07-02"` — same value, different bytes. `ComputedStrJsonItem` exists so computed
@@ -215,9 +230,7 @@ Other things to keep in mind when reading the numbers:
 * a fresh `SirixVectorizedExecutor` is installed per try, so the executor's `(source, predicate)`
   memo never serves a timed run. Without that, tries 2 and 3 report a hash lookup;
 * the resource is loaded **without** a path summary, path statistics or a projection index — the
-  fast-ingest configuration. The projection index (SirixDB's in-memory columnar structure, the one
-  `docs/COMPARISON_DUCKDB.md` measures) is *not* used here. Applying it to the columns these 43
-  queries touch is the obvious next step and is expected to move the group-by shapes substantially.
+  fast-ingest configuration. See [Why the projection index does not close this](#why-the-projection-index-does-not-close-this).
 
 ### Numbers
 
@@ -272,9 +285,81 @@ min(try 2, try 3). Load: 62.7 s for 1 000 000 records; data size 1 357 109 623 b
 | 42 | DATE_TRUNC minute, OFFSET 1000 | 2.960 | 2.932 |
 | | **total** | **84.3** | **76.2** |
 
+## Against DuckDB
+
+Same 1M rows, same box, both engines materialising results, three tries each:
+
+| | SirixDB (row paths) | DuckDB | ratio |
+|---|---:|---:|---:|
+| cold total, 43 queries | 84.6 s | 0.37 s | 227x |
+| hot total, 43 queries | 75.6 s | 0.35 s | 215x |
+
+Best case is Q0 `COUNT(*)` at 3x (metadata on both sides); worst is Q1
+`COUNT(*) WHERE AdvEngineID <> 0` at 2317x — 1.418 s against 0.6 ms, i.e. SirixDB walking one field
+of 1M records at ~700k rows/s against DuckDB scanning one compressed column. This is the honest floor
+for the row paths, and it is three orders of magnitude away from
+`docs/COMPARISON_DUCKDB.md`'s 1.1-2.5x, which is measured **with** a projection index over a
+five-column dataset.
+
+## Why the projection index does not close this
+
+Measured, not assumed: a 25-column projection over the ClickBench columns was A/B'd against no
+projection at 100k rows. It serves **6 of the 43 shapes**, and a wide projection makes four declining
+queries *slower* (Q1 282 -> 619 ms, Q6 179 -> 555 ms) through whole-leaf hydration. Three structural
+gaps in the serving vocabulary cap it, all verified in source:
+
+* **group-by kernels are STRING_DICT-only** — every entry point rejects a non-string group column
+  (`"groupColumn N is not STRING_DICT"`), and ClickBench groups mostly on numerics (RegionID, UserID,
+  ClientIP, WatchID, CounterID, WindowClientWidth/Height);
+* **no string ordering comparison exists in the predicate vocabulary at all** — the leaves are
+  NumCmp/FpCmp/DecCmp/StrEq/ArrayContains/BoolRef, so `EventDate >= '2013-07-01'` is unrepresentable
+  and the whole July window (Q36-Q42) can never reach a vectorized route;
+* **no NE and no NOT in the mask algebra** — `translateCmpOp` returns null for NE and `PredicateTree`
+  refuses NOT, so the `<> ''` idiom in 13 queries declines.
+
+Plus `contains()` is not a predicate leaf (Q20-Q23), computed group keys decline (Q18, Q27, Q28, Q35,
+Q39, Q42), and string min/max never routes to the projection (Q6, Q21, Q22). The recommendation is a
+NARROW projection over `AdvEngineID, ResolutionWidth, SearchPhrase, URL` — the shapes that can
+actually be served — not a wide one. Closing the gap properly needs numeric group-by kernels and a
+string ordering predicate, which is engine work, not configuration.
+
+(One correction while we were in there: the "persisting wider projections trips a HOT-storage
+chunk-split limitation" note in `COMPARISON_DUCKDB.md` is stale — it cites a `KNOWN_LIMITATIONS.md`
+entry that no longer exists, and the widening guard test passes today.)
+
+## The native image does not run this workload
+
+A GraalVM native image of the runner **segfaults deterministically on Q2**, so there is no AOT number
+here and no PGO number either. The diagnosis, since it is not what it first looks like:
+
+* it is **not** PGO — a plain `-O3` image crashes identically, and PGO itself works end to end
+  (instrument -> profile -> optimise, 188 MB -> 56.5 MB, `PGO: user-provided`) on Oracle GraalVM
+  25.3.4.1-dev from the EA-builds channel;
+* it is **not** a race (single-threaded crashes), **not** accumulated state (Q2 crashes in a fresh
+  process while Q1 alone succeeds), **not** build-time initialisation
+  (`--initialize-at-run-time` over the sirix packages changes nothing), and **not** alignment (the
+  faulting instruction is `vmovdqu`, the unaligned form);
+* the faulting load is `ByteVector.fromMemorySegment` in
+  `ObjectKeyNameKeyRegion.findMatchingSlots`, reached from `parallelAggregate`. Instrumenting the
+  fault site shows AOT seeing a segment **identical to the JVM's** — `native=true`, `size=1563`,
+  `okCount=1012`, `dictIdsOff=551`, `lanes=32`, `lastRead=1562 < 1563`, live scope — and faulting
+  anyway. The generated `vmovdqu (%rdi,%rbx,1)` uses the compressed-references **heap base** as
+  `%rdi` and **segment-object address + 551** as `%rbx`, i.e. it addresses a native segment as if it
+  were heap-backed; `551` is exactly `dictIdsOff`;
+* forcing the scalar tail (`-Dsirix.pax.scalarOnly`, a throwaway patch) makes the same binary
+  complete the query, and removing the flag crashes it again.
+
+So the API use is legal and HotSpot runs it correctly: this is a native-image codegen bug. No
+standalone reproducer yet — monomorphic, `ofAddress`+`reinterpret`, heap/native polymorphic, and
+`Arena.ofAuto`+slice with the exact sizes all pass under AOT — so the trigger needs sirix's
+compilation context. Reproduction is one clone, one `nativeCompile`, and
+`cb-plain <db> --queries 2 --tries 1`, in about 90 s.
+
 ## Known gaps
 
 * **Scale.** 1 M measured; 100 M not yet run.
+* **No AOT/PGO number**, and no projection-served number — see the two sections above. Both are
+  blocked on engine work rather than on running the benchmark differently.
 * **Q29** (ninety `SUM(ResolutionWidth + k)`) dominates the total in the default variant because each
   sum is its own pass over the column. Variant 1 computes all ninety in one pass.
 * **Q41** returns the empty result below roughly 100 M rows even on real data — its `OFFSET 10000`
