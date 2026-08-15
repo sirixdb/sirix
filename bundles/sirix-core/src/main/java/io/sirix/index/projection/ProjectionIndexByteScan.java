@@ -2902,10 +2902,27 @@ public final class ProjectionIndexByteScan {
               numericFlags, colMask);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
           evalBooleanBytes(payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          // This arm used to ignore p.op and always evaluate equality, which was harmless while EQ
+          // was the only string op and becomes a wrong answer the moment another one exists.
           evalStringEqBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET ->
+          if (p.op == ProjectionIndexScan.Op.NE) {
+            // Complement WITHIN the row group only: bits at and beyond rowCount must stay 0, and
+            // presence is ANDed in below, so a missing cell cannot survive the flip.
+            invertMaskRows(colMask, rowCount);
+          } else if (p.op != ProjectionIndexScan.Op.EQ) {
+            throw new IllegalStateException("STRING_DICT column supports EQ/NE only, got " + p.op);
+          }
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          if (p.op != ProjectionIndexScan.Op.EQ) {
+            // `!= lit` over a SET is not the complement of membership — the interpreter compares a
+            // SEQUENCE to a literal, which is an existential over the elements, so its negation is
+            // not "does not contain". Decline rather than answer a different question.
+            throw new IllegalStateException("STRING_SET column supports containment (EQ) only, got " + p.op);
+          }
           evalStringSetContainsBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
+        }
         default -> throw new IllegalStateException("Unknown column kind " + kind);
       }
       if (tailStart >= 0) {
@@ -2922,6 +2939,26 @@ public final class ProjectionIndexByteScan {
     return rowCount;
   }
 
+  /**
+   * Flip the first {@code rowCount} bits of {@code mask} in place, leaving every bit at or beyond
+   * {@code rowCount} clear.
+   *
+   * <p>
+   * The tail matters: masks are sized in whole 64-bit words, so the last word carries up to 63 bits
+   * that name no row. Complementing them would light rows that do not exist, and the callers AND
+   * these masks together — one stray bit survives into the answer.
+   */
+  private static void invertMaskRows(final long[] mask, final int rowCount) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int i = 0; i < stride; i++) {
+      mask[i] = ~mask[i];
+    }
+    final int tailBits = rowCount & 63;
+    if (tailBits != 0) {
+      mask[stride - 1] &= (1L << tailBits) - 1;
+    }
+  }
+
   /** Package-private: the SINGLE zone-skip authority, shared with the column kernels. */
   static boolean zoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
     return switch (p.op) {
@@ -2930,6 +2967,10 @@ public final class ProjectionIndexByteScan {
       case GE -> max < p.longLit;
       case LE -> min > p.longLit;
       case EQ -> p.longLit < min || p.longLit > max;
+      // A leaf can only be skipped for NE when EVERY value equals the literal, i.e. the zone
+      // collapses onto it. Common enough to be worth the test: a column that is constant 0 across a
+      // row group skips entirely for `!= 0`.
+      case NE -> min == max && min == p.longLit;
       // BETWEEN zone-skip: OR of the two single-bound zone-skip conditions.
       // Strictly no more pessimistic than two independent predicates — see
       // iter07-range-fusion-analysis.md for the semantics derivation.
@@ -3017,6 +3058,12 @@ public final class ProjectionIndexByteScan {
       case EQ -> {
         for (int k = 0; k < rowCount; k++)
           flags[k] = (scratch[k] == lit)
+              ? 1L
+              : 0L;
+      }
+      case NE -> {
+        for (int k = 0; k < rowCount; k++)
+          flags[k] = (scratch[k] != lit)
               ? 1L
               : 0L;
       }

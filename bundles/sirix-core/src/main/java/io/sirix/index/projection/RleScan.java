@@ -190,6 +190,7 @@ public final class RleScan {
       case GE -> value >= lit;
       case LE -> value <= lit;
       case EQ -> value == lit;
+      case NE -> value != lit;
       case BETWEEN_GT_LT -> value > lit && value < high;
       case BETWEEN_GT_LE -> value > lit && value <= high;
       case BETWEEN_GE_LT -> value >= lit && value < high;

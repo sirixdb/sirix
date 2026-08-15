@@ -809,6 +809,7 @@ public final class ProjectionColumnScan {
           case GE -> v >= lit;
           case LE -> v <= lit;
           case EQ -> v == lit;
+          case NE -> v != lit;
           case BETWEEN_GT_LT -> v > lit && v < high;
           case BETWEEN_GT_LE -> v > lit && v <= high;
           case BETWEEN_GE_LT -> v >= lit && v < high;

@@ -581,6 +581,7 @@ final class ProjectionColumnScanParityTest {
       case GE -> v >= p.longLit;
       case LE -> v <= p.longLit;
       case EQ -> v == p.longLit;
+      case NE -> v != p.longLit;
       case BETWEEN_GT_LT -> v > p.longLit && v < p.highLit;
       case BETWEEN_GT_LE -> v > p.longLit && v <= p.highLit;
       case BETWEEN_GE_LT -> v >= p.longLit && v < p.highLit;

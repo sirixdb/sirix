@@ -77,8 +77,22 @@ public final class ProjectionIndexScan {
       return new ColumnPredicate(column, Op.EQ, 0L, 0L, literal, null);
     }
 
+    /**
+     * {@code column != literal} on a BOOLEAN column. Folded to an equality against the complement
+     * rather than carried as an NE op: over a two-valued domain the two are identical for PRESENT
+     * cells, and presence is applied by the caller either way.
+     */
+    public static ColumnPredicate booleanNe(final int column, final boolean literal) {
+      return new ColumnPredicate(column, Op.EQ, 0L, 0L, !literal, null);
+    }
+
     public static ColumnPredicate stringEq(final int column, final byte[] literalUtf8) {
       return new ColumnPredicate(column, Op.EQ, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column != literal} on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringNe(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.NE, 0L, 0L, false, literalUtf8);
     }
 
     /**
@@ -112,6 +126,18 @@ public final class ProjectionIndexScan {
 
   public enum Op {
     GT, LT, GE, LE, EQ,
+    /**
+     * {@code v != lit}.
+     *
+     * <p>
+     * NOT the negation of {@link #EQ}: every leaf mask here is two-valued with <b>missing ⇒ false</b>,
+     * and {@code !EQ} would flip a missing cell to TRUE. In JSONiq a missing field dereferences to the
+     * empty sequence, {@code () != "x"} is the empty sequence, and a {@code where} treats that as false
+     * — so a record lacking the field must NOT match {@code != ""}, which is exactly what {@code !EQ}
+     * would get wrong. NE is therefore its own op, evaluated only over present cells, and never
+     * rewritten as a negation.
+     */
+    NE,
     /** Fused {@code lowLit < v < highLit}. */
     BETWEEN_GT_LT,
     /** Fused {@code lowLit < v <= highLit}. */
@@ -315,6 +341,12 @@ public final class ProjectionIndexScan {
             out[i >>> 6] |= 1L << (i & 63);
         }
       }
+      case NE -> {
+        for (int i = 0; i < rowCount; i++) {
+          if (col[i] != lit)
+            out[i >>> 6] |= 1L << (i & 63);
+        }
+      }
       case BETWEEN_GT_LT -> {
         for (int i = 0; i < rowCount; i++) {
           final long v = col[i];
@@ -364,6 +396,13 @@ public final class ProjectionIndexScan {
 
   private static void evalStringEq(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p, final int rowCount,
       final long[] out) {
+    // Op-aware: this used to assume equality because EQ was the only string op, which would make a
+    // NE predicate silently answer the EQ question. The byte kernel had the same assumption.
+    final boolean wantEqual = switch (p.op) {
+      case EQ -> true;
+      case NE -> false;
+      default -> throw new IllegalStateException("STRING_DICT column supports EQ/NE only, got " + p.op);
+    };
     final byte[][] dict = leaf.stringDictionary(p.column);
     // Find the dict-id corresponding to the literal; -1 if absent →
     // leaf has no matching rows.
@@ -374,11 +413,20 @@ public final class ProjectionIndexScan {
         break;
       }
     }
-    if (targetDictId < 0)
+    if (targetDictId < 0) {
+      if (wantEqual) {
+        return;
+      }
+      // The literal is absent from this leaf's dictionary, so EVERY present row differs from it.
+      // Presence is ANDed in by the caller, so setting all rows here cannot resurrect a missing one.
+      for (int i = 0; i < rowCount; i++) {
+        out[i >>> 6] |= 1L << (i & 63);
+      }
       return;
+    }
     final int[] ids = leaf.stringDictIdColumn(p.column);
     for (int i = 0; i < rowCount; i++) {
-      if (ids[i] == targetDictId)
+      if ((ids[i] == targetDictId) == wantEqual)
         out[i >>> 6] |= 1L << (i & 63);
     }
   }
@@ -443,6 +491,9 @@ public final class ProjectionIndexScan {
       case GE -> max < p.longLit;
       case LE -> min > p.longLit;
       case EQ -> p.longLit < min || p.longLit > max;
+      // Skippable only when the whole zone collapses onto the literal, so every value equals it and
+      // NE is false for the entire row group. See ProjectionIndexByteScan#zoneSkip.
+      case NE -> min == max && min == p.longLit;
       // BETWEEN zone-skip: OR of the two independent zone-skip
       // conditions. Strictly no more pessimistic than running each
       // bound as a separate predicate. See iter07-range-fusion-analysis.md.
