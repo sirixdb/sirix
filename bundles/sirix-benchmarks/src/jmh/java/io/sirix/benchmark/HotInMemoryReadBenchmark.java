@@ -143,13 +143,13 @@ import static io.brackit.query.util.path.Path.parse;
  *
  * <p>
  * <b>The 64-entry row is a miss row for {@link #pointGet} ONLY</b>, and the second column is the
- * trap. {@code maxEntries=64} builds {@code highestOneBit(64/8) = 8} sets of
- * {@link HOTLookupCache} WAYS, i.e. 64 slots, and {@link #HOT_KEY_COUNT} is 32 — so the
- * whole hot set stays resident and 66.1 ns is a HIT measurement, statistically indistinguishable
- * from the 66.8 ns above it, as the numbers themselves show. Making {@code pointGetHotKeys} miss
- * needs a table smaller than its working set, which the constructor floors at one 8-way set; a
- * separate row would have to state both the size and the key count to mean anything. Do not read
- * this column as the cost of a miss on a hot key.
+ * trap. {@code maxEntries=64} builds {@code highestOneBit(64/8) = 8} sets of {@link HOTLookupCache}
+ * WAYS, i.e. 64 slots, and {@link #HOT_KEY_COUNT} is 32 — so the whole hot set stays resident and
+ * 66.1 ns is a HIT measurement, statistically indistinguishable from the 66.8 ns above it, as the
+ * numbers themselves show. Making {@code pointGetHotKeys} miss needs a table smaller than its
+ * working set, which the constructor floors at one 8-way set; a separate row would have to state
+ * both the size and the key count to mean anything. Do not read this column as the cost of a miss
+ * on a hot key.
  * </p>
  */
 @BenchmarkMode(Mode.AverageTime)
@@ -326,9 +326,9 @@ public class HotInMemoryReadBenchmark {
    * HIT-path measurement at EVERY cache size the table in the class javadoc lists — including the
    * 64-entry row, which is a miss row for {@code pointGet} alone. Its working set is
    * {@link #HOT_KEY_COUNT} keys against a table the constructor never builds smaller than one
-   * {@code WAYS}-way set, so the whole set stays resident; turning this stage into a miss
-   * measurement takes a table smaller than {@link #HOT_KEY_COUNT}, not merely one below the corpus
-   * size. See the class javadoc for the sizing of all stages at once.
+   * {@code WAYS}-way set, so the whole set stays resident; turning this stage into a miss measurement
+   * takes a table smaller than {@link #HOT_KEY_COUNT}, not merely one below the corpus size. See the
+   * class javadoc for the sizing of all stages at once.
    * </p>
    */
   @Benchmark
