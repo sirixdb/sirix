@@ -141,32 +141,20 @@ walk does not stop at the grouping, so the inner pipeline's source resolved back
 whole document — and the source gate, whose entire job is to prove a scan reads the resource it
 claims, was handed a `SourceRef` that named the right document for the wrong extent.
 
-The fix is `RegroupedSourceGuardStage`: a Sirix optimizer stage, running before the Sirix-side
-detectors, that tracks which variables an enclosing `group by` has rebound and replaces the claim's
-source with `SourceRef.unknown()` when a pipeline scans one of them. `acceptsSource(UNKNOWN)` is
-`false`, so both pipeline strategies decline and the generic interpreter — which reads the grouped
-binding — answers. It lives in SirixDB rather than only in brackit deliberately: the backend that
-would serve the wrong answer is the one that declines to, and the fix ships without a brackit
-release. The root-cause fix still belongs in
-`VectorizedGroupByDetection#resolveSourceRef` (patch in the commit message of this change); landing
-it there makes the stage redundant rather than wrong. Regression test:
-`TypedGroupByDifferentialTest#aggregateOverANestedForOnAGroupedVariableStaysPerGroup`, which runs
-sum/avg/min/max/count/count-distinct and a two-key sparse-field case through both pipelines.
+The fix is upstream, in brackit's `VectorizedGroupByDetection`: a second pass over the annotated AST
+withdraws any claim whose scan source is a variable an enclosing `group by` has rebound, replacing it
+with `SourceRef.unknown()` — which every compile-time gate already fails closed on, so the query
+falls back to the generic pipeline that reads the grouped binding. Written as a separate pass rather
+than another parameter threaded through `resolveSourceRef`, so the resolution itself and the
+200-line `tryAnnotate` stay untouched. Merged as
+[brackit#117](https://github.com/sirixdb/brackit/pull/117).
 
-**4. The projection index wrapped the same sums, and it wins over the path that was fixed.**
-*(fixed)* Installing a projection over the ClickBench columns made `AVG(UserID)` return
-`3.607625737085349E13` where the truth is `5.7133174022015565E17` — the projection's fold has its own
-accumulators, and five of them added into a plain `long`. This is worse than defect 1 rather than a
-duplicate of it: `executeAggregate` consults the projection FIRST ("a maintained projection wins over
-the summary"), so installing an index turned the answer defect 1 had just fixed back into a wrong
-one. The SIMD fold kernel now takes a pre-flight bound from the per-row-group zone maps —
-`Σ rows_g × max(|min_g|, |max_g|)` — and declines when the total cannot fit, which keeps the check
-out of the lanewise loop entirely; the three scalar walks use `Math.addExact`, which sees every
-carry. A masked-accumulator cache hazard surfaced alongside it: `executeAggregate` cached partially
-filled accumulators under a func-less key, so a later `max` could have been served the fold identity
-`Long.MIN_VALUE`. Regression test:
-`VectorizedAggregateExactnessTest#sumAndAvgOverLargeIntegersStayExactWithAProjectionInstalled` — the
-existing exactness tests never installed a projection, which is exactly why this shipped.
+SirixDB carried a backend-side guard for the same shape while that was in flight
+(`RegroupedSourceGuardStage`). It was removed once the published snapshot carried the upstream fix
+and the differential passed with the stage disabled — one fix in one place beats two. Regression
+test: `TypedGroupByDifferentialTest#aggregateOverANestedForOnAGroupedVariableStaysPerGroup`, which
+runs sum/avg/min/max/count/count-distinct and a two-key sparse-field case through both pipelines and
+so catches a regression from either side.
 
 A fifth, cosmetic difference is worth recording: brackit's serializer writes a bare `Atomic` with
 `toString()` but quotes an `Atomic` that also implements `JsonItem`. A kernel that answered
