@@ -12,6 +12,7 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
@@ -88,7 +89,14 @@ public final class CASIndexListener {
       }
       case DELETE -> {
         if (paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey)) {
-          CASValue casValue = new CASValue(value, this.type, pathNodeKey);
+          // Converted exactly as insert() converts, because the two must build the SAME key or the
+          // delete misses the entry it is meant to remove. A value that does not convert was never
+          // indexed, so there is nothing to remove and skipping is right.
+          final Atomic typedValue = toTypedOrNull(value, nodeKey);
+          if (typedValue == null) {
+            return;
+          }
+          final CASValue casValue = new CASValue(typedValue, this.type, pathNodeKey);
           if (useHOT) {
             assert hotWriter != null;
             hotWriter.remove(casValue, nodeKey);
@@ -103,17 +111,37 @@ public final class CASIndexListener {
     }
   }
 
-  private void insert(final long nodeKey, final long pathNodeKey, final Str value) throws SirixIOException {
-    boolean isOfType = false;
-    try {
-      AtomicUtil.toType(value, type);
-      isOfType = true;
-    } catch (final SirixRuntimeException e) {
-      logger.debug("Value '{}' is not of type {}, skipping CAS index insert for node {}", value, type, nodeKey, e);
+  /**
+   * {@code value} as the index's content type, or {@code null} when it is not of that type.
+   *
+   * <p>
+   * The conversion is KEPT rather than discarded, so the stored key is built from the same shape the
+   * query side probes with — see {@code CASIndexBuilder#process} for the three bugs the two-shape
+   * arrangement produced.
+   * </p>
+   *
+   * @param value the node's lexical value
+   * @param nodeKey the node, for the diagnostic only
+   * @return the typed value, or {@code null} to skip this node
+   */
+  private @Nullable Atomic toTypedOrNull(final Str value, final long nodeKey) {
+    if (type == Type.STR) {
+      return value;
     }
+    try {
+      return AtomicUtil.toType(value, type);
+    } catch (final SirixRuntimeException e) {
+      logger.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", value, type, nodeKey, e);
+      return null;
+    }
+  }
+
+  private void insert(final long nodeKey, final long pathNodeKey, final Str value) throws SirixIOException {
+    final Atomic typedValue = toTypedOrNull(value, nodeKey);
+    final boolean isOfType = typedValue != null;
 
     if (isOfType) {
-      final CASValue indexValue = new CASValue(value, type, pathNodeKey);
+      final CASValue indexValue = new CASValue(typedValue, type, pathNodeKey);
       if (useHOT) {
         insertHOT(nodeKey, indexValue);
       } else {

@@ -22,6 +22,7 @@ import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
@@ -110,10 +111,19 @@ public final class CASIndexBuilder {
           case null, default -> throw new IllegalStateException("Value not supported.");
         };
 
+        // KEEP the conversion, do not merely validate with it. Storing the raw Str while the query
+        // side casts its probe to the content type gave the serializer TWO shapes for one logical
+        // value, and every reconciliation it grew for that was a bug: xs:boolean read a Str through
+        // effective-boolean-value and mapped true and false onto one key, xs:float parsed the Str as
+        // a double while the probe narrowed through float, and an out-of-range xs:integer saturated
+        // on this side while the probe wrapped. One shape per type makes that class of defect
+        // unrepresentable rather than fixed case by case.
+        Atomic typedValue = strValue;
         boolean isOfType = false;
         try {
-          if (type != Type.STR)
-            AtomicUtil.toType(strValue, type);
+          if (type != Type.STR) {
+            typedValue = AtomicUtil.toType(strValue, type);
+          }
           isOfType = true;
         } catch (final SirixRuntimeException e) {
           LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}", strValue, type,
@@ -121,7 +131,7 @@ public final class CASIndexBuilder {
         }
 
         if (isOfType) {
-          final CASValue value = new CASValue(strValue, type, pathNodeKey);
+          final CASValue value = new CASValue(typedValue, type, pathNodeKey);
           if (useHOT) {
             processHOT(node, value);
           } else {
