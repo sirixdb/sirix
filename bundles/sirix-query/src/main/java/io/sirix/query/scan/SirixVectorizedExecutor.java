@@ -714,6 +714,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.StrEq ignored -> {
       }
+      // NOT equality-shaped, despite the name. Per the JSONiq spec a JSON null SATISFIES
+      // `f ne "x"` ("foo" ne null => true), while the kernels read a null as missing and answer
+      // false — so serving it over a null-bearing column silently drops those rows. Collecting the
+      // field is what makes acceptsPredicate decline; leaving it out is a wrong answer.
+      case PredicateNode.StrNe n -> out.add(n.field());
       // Equality-shaped, like StrEq: no ordering, so nothing to collect.
       case PredicateNode.ArrayContains ignored -> {
       }
@@ -4628,6 +4633,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                         .append(dc.value().toPlainString())
                                         .append(';');
       case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
+      // 'E', not 'S' — same reason the ArrayContains key below is distinct. `f = "x"` and
+      // `f != "x"` share a field and a literal, so reusing the tag would let one answer the
+      // other out of the filter-count memo, the group-by count cache and the compiled-class cache.
+      case PredicateNode.StrNe sn -> sb.append('E').append(sn.field()).append(':').append(sn.value()).append(';');
       // A DISTINCT key from StrEq on purpose: the two ask different questions of the same field
       // and value, so sharing a memo entry would answer one with the other's count.
       case PredicateNode.ArrayContains ac ->
@@ -4700,6 +4709,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * array holds rather than one value.
      */
     static final byte OP_ARRAY_CONTAINS = 10;
+    /**
+     * String inequality. A code of its OWN, never {@link #OP_STR_EQ} with a comparison operator beside
+     * it: thirteen sites test {@code op == OP_STR_EQ} positively, and each would answer the equality
+     * question for an inequality leaf. {@code cmpOp} stays 0 for string leaves.
+     */
+    static final byte OP_STR_NE = 11;
 
     /**
      * Whether any node is an {@link #OP_ARRAY_CONTAINS}. The column-batched evaluator and the bytecode
@@ -5026,6 +5041,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         fields.add(se.field());
         strs.add(se.value());
       }
+      case PredicateNode.StrNe sn -> {
+        // BOTH, like StrEq. Registering the field without the literal leaves indexOf(strLits, …)
+        // at -1 in flatten, and the evaluator then indexes strLiterals[-1].
+        fields.add(sn.field());
+        strs.add(sn.value());
+      }
       case PredicateNode.ArrayContains ac -> {
         fields.add(ac.field());
         strs.add(ac.value());
@@ -5090,6 +5111,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ops.set(myIdx, CompiledPredicate.OP_STR_EQ);
         fieldIdx.set(myIdx, indexOf(fieldNames, se.field()));
         strIdx.set(myIdx, indexOf(strLits, se.value()));
+      }
+      case PredicateNode.StrNe sn -> {
+        // cmpOp deliberately left 0: string leaves carry their operator in the OP code, not beside
+        // it, because every existing `op == OP_STR_EQ` test would otherwise accept this node.
+        ops.set(myIdx, CompiledPredicate.OP_STR_NE);
+        fieldIdx.set(myIdx, indexOf(fieldNames, sn.field()));
+        strIdx.set(myIdx, indexOf(strLits, sn.value()));
       }
       case PredicateNode.ArrayContains ac -> {
         ops.set(myIdx, CompiledPredicate.OP_ARRAY_CONTAINS);
@@ -6280,8 +6308,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (int i = 0; i < cc; i++)
           stack[stackTop++] = cp.children[cs + i];
       } else if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP
-          || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF
-          || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
+          || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_STR_NE
+          || op == CompiledPredicate.OP_BOOL_REF || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
         leaves[predicateLeafCount++] = n;
       } else {
         // OR / NOT / ALWAYS_* / anything else — can't represent as a
@@ -6353,6 +6381,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_NE -> {
+          // STRING_DICT only, and deliberately NOT STRING_SET: `!= lit` over a set is not the
+          // complement of membership. Comparing a SEQUENCE to a literal is existential over the
+          // elements, so its negation is "no element equals lit", which is a different question
+          // from "the value differs". The kernels enforce the same rule and would throw.
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return null;
           }
@@ -6471,6 +6508,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case CompiledPredicate.OP_STR_EQ -> {
           pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
         }
+        case CompiledPredicate.OP_STR_NE -> {
+          pred = ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
+        }
         case CompiledPredicate.OP_ARRAY_CONTAINS -> {
           // Carried as an ordinary string-EQ predicate: the mask evaluator dispatches on the
           // COLUMN's shape, and a slice with per-row counts is a set, so the same literal runs the
@@ -6538,7 +6578,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return true;
     }
     if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP
-        || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF) {
+        || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_STR_NE
+        || op == CompiledPredicate.OP_BOOL_REF) {
       if (leaves.size() >= ProjectionIndexScan.PredicateTree.MAX_LEAVES) {
         return false;
       }
@@ -8187,6 +8228,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return false;
         return cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
       }
+      case CompiledPredicate.OP_STR_NE: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // NOT `!OP_STR_EQ`. The kind guard is the missing-field semantics: a record without a
+        // string there fails the comparison rather than passing its negation. (A JSON null also
+        // lands here, and DOES satisfy `ne` per the spec — which is why acceptsPredicate declines
+        // this predicate over a null-bearing column instead of letting it reach this line.)
+        if (scratch.fieldKind[fi] != 3)
+          return false;
+        return !cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
+      }
       case CompiledPredicate.OP_BOOL_REF: {
         final int fi = cp.fieldIdx[nodeIdx];
         if (scratch.fieldKind[fi] != 2)
@@ -9168,6 +9219,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             continue;
           final String v = vals[i];
           if (v == lit || (v != null && v.length() == litLen && lit.equals(v))) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_STR_NE: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final byte[] pk = batch.presentKind[fi];
+        final String[] vals = batch.strCols[fi];
+        final int litLen = lit.length();
+        for (int i = 0; i < size; i++) {
+          // `continue`, not a set bit: a row without a string here does NOT satisfy `!=`. This is
+          // the same guard the equality arm uses, and it is why the operator cannot be implemented
+          // by complementing that arm's mask.
+          if (pk[i] != 3)
+            continue;
+          final String v = vals[i];
+          if (!(v == lit || (v != null && v.length() == litLen && lit.equals(v)))) {
             out[i >>> 6] |= 1L << (i & 63);
           }
         }
@@ -11969,7 +12039,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_LE -> v <= t;
       case OP_EQ -> v == t;
       case OP_NE -> v != t;
-      default -> true;
+      // Fail closed. `default -> true` matched EVERY row for an operator this switch did not know,
+      // so an op-code divergence between the repos became an over-count rather than an error.
+      default -> throw new IllegalStateException("unsupported comparison op: " + op);
     };
   }
 
@@ -11992,7 +12064,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_LE -> c <= 0;
       case OP_EQ -> c == 0;
       case OP_NE -> c != 0;
-      default -> true;
+      // Fail closed — see scalarEval.
+      default -> throw new IllegalStateException("unsupported comparison op: " + op);
     };
   }
 
