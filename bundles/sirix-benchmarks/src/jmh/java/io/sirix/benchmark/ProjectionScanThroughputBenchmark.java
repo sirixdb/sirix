@@ -28,6 +28,7 @@ package io.sirix.benchmark;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexScan;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -45,6 +46,7 @@ import org.openjdk.jmh.infra.Blackhole;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -102,6 +104,12 @@ public class ProjectionScanThroughputBenchmark {
   private ProjectionIndexScan.ColumnPredicate[] none;
   /** Reused across invocations so the group-by arm times the scan, not map allocation/resize. */
   private Object2LongOpenHashMap<String> deptGroups;
+  /** Numeric group-by arms over the age column: hash accumulator, dense accumulator, base. */
+  private Long2LongOpenHashMap ageGroups;
+  private long[] ageDenseCounts;
+  private long ageBase;
+  /** Missing-field sink; the synthetic corpus is dense, so it never advances. */
+  private final long[] missingSink = new long[1];
 
   @Setup(Level.Trial)
   public void setUp() {
@@ -134,12 +142,25 @@ public class ProjectionScanThroughputBenchmark {
     none = new ProjectionIndexScan.ColumnPredicate[0];
     // Pre-sized past the DEPTS cardinality so it never resizes during a run.
     deptGroups = new Object2LongOpenHashMap<>(2 * DEPTS.length);
+    ageGroups = new Long2LongOpenHashMap(1024);
+    ageGroups.defaultReturnValue(0L);
+    // The dense accumulator is sized from the zone-map union exactly as the executor's driver
+    // sizes it — 48 age values here, so 384 bytes, comfortably L1-resident.
+    final long[] range = new long[3];
+    if (!ProjectionIndexByteScan.numericZoneUnion(leaves, 0, range)) {
+      throw new IllegalStateException("age column has no zone-map range — the dense arm cannot be measured");
+    }
+    ageBase = range[0];
+    ageDenseCounts = new long[(int) (range[1] - range[0]) + 1];
   }
 
-  /** Clear the reused group-by accumulator between invocations, outside the measured region. */
+  /** Clear the reused group-by accumulators between invocations, outside the measured region. */
   @Setup(Level.Invocation)
   public void resetGroups() {
     deptGroups.clear();
+    ageGroups.clear();
+    Arrays.fill(ageDenseCounts, 0L);
+    missingSink[0] = 0L;
   }
 
   /** Single-bound numeric filter — the SuperWord-vectorised compare kernel. */
@@ -173,5 +194,28 @@ public class ProjectionScanThroughputBenchmark {
   public int groupByDeptCount() {
     ProjectionIndexByteScan.conjunctiveCountByGroup(leaves, none, 2, deptGroups);
     return deptGroups.size();
+  }
+
+  /**
+   * Dense NUMERIC_LONG group-by-count over the age column: one 8-byte load and one array
+   * increment per row. Relative to {@link #groupByDeptCount} this deletes the per-leaf dict
+   * prefix-sum, the {@code String} cache, the FNV-1a intern and the hash probe.
+   *
+   * <p>
+   * {@code groupByDeptCount} is the CONTROL arm and both live in the same fork so they interleave:
+   * this box drops to a seventh of its clock at 100 °C, and comparing arms across runs has already
+   * ranked a faster one slower. Report min-of-iteration, never the mean.
+   */
+  @Benchmark
+  public long groupByAgeNumericDense() {
+    ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(leaves, none, 0, ageBase, ageDenseCounts, missingSink);
+    return ageDenseCounts[0];
+  }
+
+  /** Hash arm of the same group-by: primitive-keyed {@code addTo}, no boxing and no interning. */
+  @Benchmark
+  public int groupByAgeNumericHash() {
+    ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(leaves, none, 0, ageGroups, missingSink);
+    return ageGroups.size();
   }
 }
