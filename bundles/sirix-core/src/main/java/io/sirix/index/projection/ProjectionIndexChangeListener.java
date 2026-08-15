@@ -161,6 +161,15 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   private @Nullable Long2LongOpenHashMap resolvedRecordMemo;
 
+  /**
+   * NodeKeys proven to be ARRAY-LIKE record-set root instances. A record's own walk crosses its root
+   * instance every time and can never memoize it in {@link #resolvedRecordMemo} — the record there is
+   * the CHILD, not the root — so without this set every record notification pays a second raw record
+   * read just to re-derive "the parent is the array". Bounded by {@link #MEMO_CAP}; in the common
+   * single-array case it holds exactly one key.
+   */
+  private @Nullable LongOpenHashSet arrayRootInstances;
+
   /** Scratch for the walked ancestor chain (memoized on resolution). */
   private long[] walkChain = new long[32];
 
@@ -392,18 +401,27 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    *         {@link #UNRESOLVED})
    */
   private long resolveRecordKey(final long nodeKey, final NodeKind kind, long parentKey, final long pathNodeKey) {
-    if (pathNodeKey > 0 && rootPcrs.contains(pathNodeKey)) {
-      if (isArrayLike(kind)) {
-        // The record SET's array instance itself appeared or disappeared —
-        // no row of its own. Its records are attributed individually: an
-        // insert notifies the array BEFORE its records (pre-order), a
-        // delete notifies the records BEFORE the array (post-order), so
-        // every row lands in the dirty set through its own notification.
-        return NOT_UNDER_RECORD_SET;
-      }
-      // A single-record root (fused object at the root path) IS the record.
-      return nodeKey;
+    final boolean atRootPcr = pathNodeKey > 0 && rootPcrs.contains(pathNodeKey);
+    if (atRootPcr && isArrayLike(kind)) {
+      // The record SET's array instance itself appeared or disappeared —
+      // no row of its own. Its records are attributed individually: an
+      // insert notifies the array BEFORE its records (pre-order), a
+      // delete notifies the records BEFORE the array (post-order), so
+      // every row lands in the dirty set through its own notification.
+      return NOT_UNDER_RECORD_SET;
     }
+    // NOTE: `atRootPcr` alone must NOT be read as "this node IS the record". An INSERT notifies each
+    // new node TWICE, and the first notification carries the pathNodeKey the cursor stood on — the
+    // enclosing record's, i.e. the ROOT pcr — because the field's own path node does not exist yet:
+    //
+    // node=6004 kind=OBJECT_NAMED_BOOLEAN pcr=1(root) then node=6004 ... pcr=3(/[]/active)
+    //
+    // Taking the shortcut on that first notification made a FIELD its own record, and the extractor
+    // then built an ALL-MISSING row for it — one surplus row per field, indistinguishable downstream
+    // from a record whose indexed fields are genuinely absent, and so a phantom null group in every
+    // group-by. The ancestor walk is authoritative because it reads the stored parent chain rather
+    // than a notification-supplied pcr; the shortcut survives only for the case the walk cannot
+    // express — a single-record root, whose parent lies OUTSIDE the record set.
     if (resolvedRecordMemo == null) {
       resolvedRecordMemo = new Long2LongOpenHashMap();
       resolvedRecordMemo.defaultReturnValue(MEMO_MISS);
@@ -424,6 +442,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     walkChain[chainLength++] = nodeKey;
     for (int depth = 0; depth < MAX_ANCESTOR_WALK; depth++) {
       if (parentKey <= 0) {
+        if (atRootPcr) {
+          // Nothing encloses this node and it stands at the root path itself: a single-record root
+          // (a fused object at the root path) IS the record. This is the ONLY reading of the
+          // notified pcr the walk cannot reach on its own, and it is safe precisely because the walk
+          // already proved there is no enclosing record — a field misreported at the root pcr always
+          // resolves above instead.
+          if (resolvedRecordMemo.size() < MEMO_CAP) {
+            resolvedRecordMemo.put(nodeKey, nodeKey);
+          }
+          return nodeKey;
+        }
         // Reached the document root without crossing a record-set root:
         // the change cannot affect any indexed row. (Deleting a container
         // ABOVE the record set is covered by the post-order notifications
@@ -431,6 +460,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         // every record can still be an ancestor OF the record set, and its
         // descendants' walks must not inherit this verdict.
         return NOT_UNDER_RECORD_SET;
+      }
+      if (arrayRootInstances != null && arrayRootInstances.contains(parentKey)) {
+        // Known array-like root instance — the record is the element we came from.
+        memoizeChain(chainLength, childKey);
+        return childKey;
       }
       final long ancestorMemo = resolvedRecordMemo.get(parentKey);
       if (ancestorMemo != MEMO_MISS) {
@@ -446,9 +480,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
         // Crossed the root: under an array-like root the record is the
         // element we came from; a non-array root IS the record.
-        final long recordKey = isArrayLike(parent.getKind())
+        final boolean arrayRoot = isArrayLike(parent.getKind());
+        final long recordKey = arrayRoot
             ? childKey
             : parentKey;
+        if (arrayRoot) {
+          if (arrayRootInstances == null) {
+            arrayRootInstances = new LongOpenHashSet();
+          }
+          if (arrayRootInstances.size() < MEMO_CAP) {
+            arrayRootInstances.add(parentKey);
+          }
+        }
         memoizeChain(chainLength, recordKey);
         if (recordKey == parentKey && resolvedRecordMemo.size() < MEMO_CAP) {
           resolvedRecordMemo.put(recordKey, recordKey);
