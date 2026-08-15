@@ -4998,6 +4998,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> c >= 0;
       case OP_LE -> c <= 0;
       case OP_EQ -> c == 0;
+      case OP_NE -> c != 0;
       default -> false;
     };
   }
@@ -6858,6 +6859,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> ProjectionIndexScan.Op.GE;
       case OP_LE -> ProjectionIndexScan.Op.LE;
       case OP_EQ -> ProjectionIndexScan.Op.EQ;
+      case OP_NE -> ProjectionIndexScan.Op.NE;
       default -> null;
     };
   }
@@ -8843,6 +8845,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OP_GE -> lv >= lit;
         case OP_LE -> lv <= lit;
         case OP_EQ -> lv == lit;
+        case OP_NE -> lv != lit;
         default -> false;
       };
     }
@@ -11952,6 +11955,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> v >= t;
       case OP_LE -> v <= t;
       case OP_EQ -> v == t;
+      case OP_NE -> v != t;
       default -> true;
     };
   }
@@ -11974,6 +11978,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> c >= 0;
       case OP_LE -> c <= 0;
       case OP_EQ -> c == 0;
+      case OP_NE -> c != 0;
       default -> true;
     };
   }
@@ -12255,6 +12260,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int OP_GE = 3;
   private static final int OP_LE = 4;
   private static final int OP_EQ = 5;
+  /**
+   * {@code !=}. Its own code, never a negation of {@link #OP_EQ}: over a MISSING field the
+   * interpreter yields the empty sequence, which a filter reads as false, whereas a negated equality
+   * would read as true.
+   */
+  private static final int OP_NE = 6;
 
   // Zone-map pre-check outcomes — lets the scan skip a tag range or shortcut
   // the count without iterating values.
@@ -17537,6 +17548,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "ge" -> OP_GE;
       case "le" -> OP_LE;
       case "eq" -> OP_EQ;
+      case "ne" -> OP_NE;
       default -> 0;
     };
   }
@@ -17552,6 +17564,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> VectorizedPredicate.ComparisonOp.GE;
       case OP_LE -> VectorizedPredicate.ComparisonOp.LE;
       case OP_EQ -> VectorizedPredicate.ComparisonOp.EQ;
+      case OP_NE -> VectorizedPredicate.ComparisonOp.NE;
       default -> throw new IllegalStateException("bad cmpOp " + op);
     };
   }
@@ -17567,6 +17580,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> VectorOperators.GE;
       case OP_LE -> VectorOperators.LE;
       case OP_EQ -> VectorOperators.EQ;
+      case OP_NE -> VectorOperators.NE;
       default -> null;
     };
   }
@@ -18298,7 +18312,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_LT -> code.ifge(skip);
       case OP_GE -> code.iflt(skip);
       case OP_LE -> code.ifgt(skip);
+      // Skip the row when the comparison says EQUAL, i.e. when `!=` does not hold.
       case OP_EQ -> code.ifne(skip);
+      case OP_NE -> code.ifeq(skip);
       default -> throw new IllegalStateException("bad cmpOp " + cmpOp);
     }
   }
