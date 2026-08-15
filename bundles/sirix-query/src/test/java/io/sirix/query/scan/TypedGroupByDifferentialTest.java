@@ -59,66 +59,7 @@ public final class TypedGroupByDifferentialTest {
     for (int i = 0; i < N; i++) {
       if (i > 0)
         sb.append(',');
-      final String dept = DEPTS[rng.nextInt(DEPTS.length)];
-      final String city = CITIES[rng.nextInt(CITIES.length)];
-      final int age = 18 + rng.nextInt(8);
-      final double score = (rng.nextInt(7) + 1) / 2.0; // 0.5 .. 3.5 — non-integral doubles
-      final boolean active = rng.nextBoolean();
-      sb.append("{\"id\":")
-        .append(i)
-        .append(",\"dept\":\"")
-        .append(dept)
-        .append("\",\"city\":\"")
-        .append(city)
-        .append("\",\"age\":")
-        .append(age)
-        .append(",\"score\":")
-        .append(score)
-        .append(",\"active\":")
-        .append(active)
-        // "amount" hashes NEGATIVE (like "active") — regression coverage for the
-        // nameKey-sentinel family ('< 0' treated legitimate negative hashes as missing).
-        .append(",\"amount\":")
-        .append(rng.nextInt(1000));
-      // ---- adversarial sparse / typed fields ----
-      // "bonus": numeric, MISSING on ~30% of records.
-      if (i % 10 < 7) {
-        sb.append(",\"bonus\":").append(rng.nextInt(1000));
-      }
-      // "tier": string group key, MISSING on ~third of records.
-      if (i % 3 != 0) {
-        sb.append(",\"tier\":\"").append(TIERS[rng.nextInt(TIERS.length)]).append('"');
-      }
-      // "region": a SECOND sparse string group key, present on ~half the records
-      // with sparsity DISJOINT from tier — a both-sparse multi-key combination
-      // (tier, region) anchored neither field densely.
-      if (i % 2 == 1) {
-        sb.append(",\"region\":\"").append(CITIES[rng.nextInt(CITIES.length)]).append("-r\"");
-      }
-      // "flag": boolean, MISSING on half the records.
-      if (i % 2 == 0) {
-        sb.append(",\"flag\":").append(rng.nextBoolean());
-      }
-      // "nully": present-but-NULL on some records, a string on others, missing on the rest.
-      if (i % 5 == 0) {
-        sb.append(",\"nully\":null");
-      } else if (i % 5 < 3) {
-        sb.append(",\"nully\":\"n").append(i % 4).append('"');
-      }
-      // "mixed": NUMBER on some records, STRING on others — a projection column
-      // cannot represent both kinds; it must fail closed to the typed kernel.
-      if (i % 2 == 0) {
-        sb.append(",\"mixed\":").append(i % 7);
-      } else {
-        sb.append(",\"mixed\":\"m").append(i % 7).append('"');
-      }
-      // "rating": the famous mixed int/double column — 3 on half the rows, 3.7-style on the rest.
-      if (i % 2 == 0) {
-        sb.append(",\"rating\":").append(1 + rng.nextInt(5));
-      } else {
-        sb.append(",\"rating\":").append(1 + rng.nextInt(5)).append('.').append(1 + rng.nextInt(9));
-      }
-      sb.append('}');
+      appendRecord(sb, rng, i);
     }
     sb.append(']');
 
@@ -128,8 +69,81 @@ public final class TypedGroupByDifferentialTest {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb + "')").evaluate(ctx);
     }
 
-    // Second resource via the REST-path shredder: fractional values become
-    // genuine DOUBLES (JsonNumber), not BigDecimals.
+    setUpSecondResource();
+  }
+
+  /**
+   * One record of the main corpus: dense typed fields plus the adversarial sparse / mixed-type ones
+   * the kernels have to fail closed on.
+   */
+  private static void appendRecord(final StringBuilder sb, final Random rng, final int i) {
+    final String dept = DEPTS[rng.nextInt(DEPTS.length)];
+    final String city = CITIES[rng.nextInt(CITIES.length)];
+    final int age = 18 + rng.nextInt(8);
+    final double score = (rng.nextInt(7) + 1) / 2.0; // 0.5 .. 3.5 — non-integral doubles
+    final boolean active = rng.nextBoolean();
+    sb.append("{\"id\":")
+      .append(i)
+      .append(",\"dept\":\"")
+      .append(dept)
+      .append("\",\"city\":\"")
+      .append(city)
+      .append("\",\"age\":")
+      .append(age)
+      .append(",\"score\":")
+      .append(score)
+      .append(",\"active\":")
+      .append(active)
+      // "amount" hashes NEGATIVE (like "active") — regression coverage for the
+      // nameKey-sentinel family ('< 0' treated legitimate negative hashes as missing).
+      .append(",\"amount\":")
+      .append(rng.nextInt(1000));
+    // ---- adversarial sparse / typed fields ----
+    // "bonus": numeric, MISSING on ~30% of records.
+    if (i % 10 < 7) {
+      sb.append(",\"bonus\":").append(rng.nextInt(1000));
+    }
+    // "tier": string group key, MISSING on ~third of records.
+    if (i % 3 != 0) {
+      sb.append(",\"tier\":\"").append(TIERS[rng.nextInt(TIERS.length)]).append('"');
+    }
+    // "region": a SECOND sparse string group key, present on ~half the records
+    // with sparsity DISJOINT from tier — a both-sparse multi-key combination
+    // (tier, region) anchored neither field densely.
+    if (i % 2 == 1) {
+      sb.append(",\"region\":\"").append(CITIES[rng.nextInt(CITIES.length)]).append("-r\"");
+    }
+    // "flag": boolean, MISSING on half the records.
+    if (i % 2 == 0) {
+      sb.append(",\"flag\":").append(rng.nextBoolean());
+    }
+    // "nully": present-but-NULL on some records, a string on others, missing on the rest.
+    if (i % 5 == 0) {
+      sb.append(",\"nully\":null");
+    } else if (i % 5 < 3) {
+      sb.append(",\"nully\":\"n").append(i % 4).append('"');
+    }
+    // "mixed": NUMBER on some records, STRING on others — a projection column
+    // cannot represent both kinds; it must fail closed to the typed kernel.
+    if (i % 2 == 0) {
+      sb.append(",\"mixed\":").append(i % 7);
+    } else {
+      sb.append(",\"mixed\":\"m").append(i % 7).append('"');
+    }
+    // "rating": the famous mixed int/double column — 3 on half the rows, 3.7-style on the rest.
+    if (i % 2 == 0) {
+      sb.append(",\"rating\":").append(1 + rng.nextInt(5));
+    } else {
+      sb.append(",\"rating\":").append(1 + rng.nextInt(5)).append('.').append(1 + rng.nextInt(9));
+    }
+    sb.append('}');
+  }
+
+  /**
+   * Second resource via the REST-path shredder: fractional values become genuine DOUBLES
+   * (JsonNumber), not BigDecimals.
+   */
+  private void setUpSecondResource() throws Exception {
     final Random rng2 = new Random(11);
     final StringBuilder sb2 = new StringBuilder(N * 64);
     sb2.append('[');
