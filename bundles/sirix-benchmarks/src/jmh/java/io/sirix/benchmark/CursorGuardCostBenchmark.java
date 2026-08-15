@@ -28,6 +28,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.TearDown;
+import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 
 import java.nio.file.Files;
@@ -119,6 +120,14 @@ import java.util.concurrent.TimeUnit;
     "--add-opens", "java.base/java.nio=ALL-UNNAMED"})
 @State(Scope.Benchmark)
 public class CursorGuardCostBenchmark {
+
+  /**
+   * Readers hammering ONE page. Matched to the core count of the box this was measured on (4):
+   * oversubscribing measures the scheduler rather than the protocol, and the protocol is the question.
+   * Raise it on a bigger machine — the gap this is looking for widens with the number of cores that
+   * have to invalidate a shared line.
+   */
+  private static final int CONTENDED_THREADS = 4;
 
   /** Records per {@link KeyValueLeafPage}; a key and key+PAGE_SPAN are always on different pages. */
   private static final int PAGE_SPAN = 1 << Constants.NDP_NODE_COUNT_EXPONENT;
@@ -265,8 +274,47 @@ public class CursorGuardCostBenchmark {
   @Benchmark
   public boolean stampReadValidate() {
     final KeyValueLeafPage p = page;
+    final long binding = p.readStampBinding();
     final long stamp = p.readStamp();
-    return p.validateStamp(stamp);
+    return p.validateStamp(binding, stamp);
+  }
+
+  /**
+   * The same guard pair under CONTENTION, which is the case the whole de-pinning rests on.
+   *
+   * <p>
+   * The uncontended pair above is close to a wash against its stamp counterpart, so it cannot decide
+   * anything on its own. A guard is a STORE to a line every reader of the page shares — the atomic
+   * RMW inside a monitor — so it invalidates that line in every other core and the pair serializes.
+   * A stamp read is a plain acquire-load that dirties nothing, so readers of one hot page do not
+   * contend at all. If the de-pinning is worth doing, the difference shows up HERE and only here.
+   * </p>
+   *
+   * @return the acquire result, so nothing folds away
+   */
+  @Benchmark
+  @Threads(CONTENDED_THREADS)
+  public boolean guardAcquireReleaseContended() {
+    final KeyValueLeafPage p = page;
+    final boolean acquired = p.tryAcquireGuard();
+    if (acquired) {
+      p.releaseGuard();
+    }
+    return acquired;
+  }
+
+  /**
+   * The stamp equivalent under the same contention. Same page, same thread count, no shared store.
+   *
+   * @return whether the stamp validated, so nothing folds away
+   */
+  @Benchmark
+  @Threads(CONTENDED_THREADS)
+  public boolean stampReadValidateContended() {
+    final KeyValueLeafPage p = page;
+    final long binding = p.readStampBinding();
+    final long stamp = p.readStamp();
+    return p.validateStamp(binding, stamp);
   }
 
   /**
