@@ -6,7 +6,8 @@ import io.brackit.query.jdm.json.JsonItem;
 /**
  * A JSON string value that a fast path computed rather than read from a node.
  *
- * <p>Why this exists rather than a plain {@link Str}: brackit's serializer distinguishes the two.
+ * <p>
+ * Why this exists rather than a plain {@link Str}: brackit's serializer distinguishes the two.
  * Inside a sequence it writes a bare {@code Atomic} with {@code toString()} but routes an
  * {@code Atomic} that is also a {@link JsonItem} through its JSON writer, which quotes it. Every
  * string a query reads out of a SirixDB resource arrives as {@link AtomicStrJsonDBItem} — a
@@ -15,8 +16,9 @@ import io.brackit.query.jdm.json.JsonItem;
  * value would be right and the output still different, which is precisely what the differential
  * suites exist to prevent.
  *
- * <p>Unlike {@link AtomicStrJsonDBItem} this carries no node identity, because a computed extremum
- * has none: it is a value, not a position in a document.
+ * <p>
+ * Unlike {@link AtomicStrJsonDBItem} this carries no node identity, because a computed extremum has
+ * none: it is a value, not a position in a document.
  */
 public final class ComputedStrJsonItem extends Str implements JsonItem {
 

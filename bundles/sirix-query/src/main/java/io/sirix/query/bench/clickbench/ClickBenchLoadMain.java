@@ -33,24 +33,28 @@ import java.util.stream.Stream;
  * <pre>
  *   ClickBenchLoadMain &lt;dbDir&gt; &lt;source&gt;
  * </pre>
+ * 
  * where {@code source} is any spelling {@link ClickBenchSource} accepts — a JSON array file, a
  * JSON-lines file (both optionally gzipped), or {@code generate:<rows>[:seed]} for the offline
  * synthetic dataset.
  *
- * <p>Tunables, all system properties, defaulted to the fast-ingest configuration the other scale
+ * <p>
+ * Tunables, all system properties, defaulted to the fast-ingest configuration the other scale
  * benchmarks in this package use:
  * <ul>
- *   <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
- *   <li>{@code -Dsirix.autoCommit.nodes} (default 131072) — auto-commit window in nodes;</li>
- *   <li>{@code -DbuildPathSummary} (default false), {@code -DbuildPathStatistics} (default false),
- *       {@code -DhashType} (default NONE) — structures the analytical queries do not need;</li>
- *   <li>{@code -Dclickbench.validate} (default true) — post-load type check of the first record.</li>
+ * <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
+ * <li>{@code -Dsirix.autoCommit.nodes} (default 131072) — auto-commit window in nodes;</li>
+ * <li>{@code -DbuildPathSummary} (default false), {@code -DbuildPathStatistics} (default false),
+ * {@code -DhashType} (default NONE) — structures the analytical queries do not need;</li>
+ * <li>{@code -Dclickbench.validate} (default true) — post-load type check of the first record.</li>
  * </ul>
  *
- * <p>The validation is not ceremony: the official {@code hits.json.gz} is produced by ClickHouse,
- * whose {@code JSONEachRow} format quotes 64-bit integers by default. A quoted {@code UserID} shreds
- * as a string node, and then Q19/Q40/Q41 quietly return nothing while every other query still looks
- * plausible. Failing the load is the only way that does not turn into a wrong benchmark result.
+ * <p>
+ * The validation is not ceremony: the official {@code hits.json.gz} is produced by ClickHouse,
+ * whose {@code JSONEachRow} format quotes 64-bit integers by default. A quoted {@code UserID}
+ * shreds as a string node, and then Q19/Q40/Q41 quietly return nothing while every other query
+ * still looks plausible. Failing the load is the only way that does not turn into a wrong benchmark
+ * result.
  */
 public final class ClickBenchLoadMain {
 
@@ -76,21 +80,19 @@ public final class ClickBenchLoadMain {
     final Path dbDir = Path.of(args[0]);
     final String source = args[1];
 
-    final long offheap =
-        Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
+    final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     final var allocator = Allocators.getInstance();
     allocator.init(offheap);
 
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "131072"));
     final boolean pathSummary = Boolean.parseBoolean(System.getProperty("buildPathSummary", "false"));
-    final boolean pathStatistics =
-        Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
+    final boolean pathStatistics = Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
     final HashType hashType = HashType.fromString(System.getProperty("hashType", "NONE"));
 
     Files.createDirectories(dbDir);
     System.out.printf("# ClickBench load: db=%s source=%s%n", dbDir, source);
-    System.out.printf("# offheap=%d MB autoCommit=%d pathSummary=%s pathStatistics=%s hash=%s%n",
-                      offheap / (1L << 20), autoCommit, pathSummary, pathStatistics, hashType);
+    System.out.printf("# offheap=%d MB autoCommit=%d pathSummary=%s pathStatistics=%s hash=%s%n", offheap / (1L << 20),
+        autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
     try (var store = BasicJsonDBStore.newBuilder()
@@ -100,8 +102,7 @@ public final class ClickBenchLoadMain {
                                      .buildPathStatistics(pathStatistics)
                                      .hashType(hashType)
                                      .build()) {
-      try (Reader src = ClickBenchSource.open(source);
-           JsonReader jsonReader = new JsonReader(src)) {
+      try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
         // ClickBench records nest no deeper than one object, but gson's default nesting limit is
         // conservative and the array wrapper adds a level.
         store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonReader);
@@ -130,10 +131,10 @@ public final class ClickBenchLoadMain {
    */
   private static void validate(final Path dbDir) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final String query = ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE,
-                                                  "subsequence(for $h in $hits[] return $h, 1, 1)");
+          "subsequence(for $h in $hits[] return $h, 1, 1)");
       final Sequence result = new Query(chain, query).execute(ctx);
       final StringWriter out = new StringWriter();
       try (PrintWriter pw = new PrintWriter(out)) {
@@ -158,7 +159,7 @@ public final class ClickBenchLoadMain {
         final JsonElement value = record.get(column);
         if (value != null && value.isJsonPrimitive() && !((JsonPrimitive) value).isNumber()) {
           problems.add(column + " is not a JSON number (" + value
-                           + ") — 64-bit ids must not be quoted, or Q19/Q40/Q41 silently return nothing");
+              + ") — 64-bit ids must not be quoted, or Q19/Q40/Q41 silently return nothing");
         }
       }
       for (final String column : DATE_COLUMNS) {
@@ -168,11 +169,9 @@ public final class ClickBenchLoadMain {
         }
       }
       if (!problems.isEmpty()) {
-        throw new IllegalStateException("ClickBench encoding validation failed:\n  "
-                                            + String.join("\n  ", problems));
+        throw new IllegalStateException("ClickBench encoding validation failed:\n  " + String.join("\n  ", problems));
       }
-      System.out.printf("# validation OK: %d columns, exact 64-bit ids, ISO-8601 dates%n",
-                        record.size());
+      System.out.printf("# validation OK: %d columns, exact 64-bit ids, ISO-8601 dates%n", record.size());
     }
   }
 

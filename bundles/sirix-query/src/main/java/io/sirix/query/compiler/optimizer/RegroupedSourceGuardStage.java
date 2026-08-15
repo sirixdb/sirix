@@ -16,7 +16,8 @@ import java.util.Set;
  * Withdraws a vectorized claim whose scan source is a variable that a {@code group by} has already
  * rebound.
  *
- * <p>A {@code group by} rebinds every non-grouping variable of its FLWOR to the <em>sequence of that
+ * <p>
+ * A {@code group by} rebinds every non-grouping variable of its FLWOR to the <em>sequence of that
  * group's values</em>. Brackit's detection walker resolves a scan source by following the variable
  * to its binding clause, and that walk does not stop at the grouping — so for
  *
@@ -32,7 +33,8 @@ import java.util.Set;
  * looks like an ordinary per-group aggregate, and {@code count($h)} (which needs no field, so no
  * inner pipeline) stays correct, which is what makes the wrong ones hard to notice.
  *
- * <p>This stage restores the invariant the source gate is built on — a {@link SourceRef} names the
+ * <p>
+ * This stage restores the invariant the source gate is built on — a {@link SourceRef} names the
  * document a scan will actually read — by replacing such a claim's source with
  * {@link SourceRef#unknown()}. Both pipeline strategies gate on that ref
  * ({@code acceptsSource(UNKNOWN)} is {@code false}), so the pipeline falls back to the generic
@@ -41,7 +43,8 @@ import java.util.Set;
  * and the enclosing group-by pipeline is annotated before the grouping, where its own source is
  * exactly what it says it is.
  *
- * <p>The root cause is in brackit's {@code VectorizedGroupByDetection#resolveSourceRef}; fixing it
+ * <p>
+ * The root cause is in brackit's {@code VectorizedGroupByDetection#resolveSourceRef}; fixing it
  * there makes this stage redundant rather than wrong, so it stays as the backend's own guard: the
  * engine that would serve the wrong answer is the one that declines to.
  */
@@ -59,9 +62,9 @@ public final class RegroupedSourceGuardStage implements Stage {
   }
 
   /**
-   * @param node          the subtree to walk
+   * @param node the subtree to walk
    * @param regroupedVars variables an enclosing {@code group by} has rebound
-   * @param chainVars     variables bound so far by the current pipeline's own clauses
+   * @param chainVars variables bound so far by the current pipeline's own clauses
    */
   private void guard(final AST node, final Set<Object> regroupedVars, final List<Object> chainVars) {
     if (node.getType() == XQ.PipeExpr && !regroupedVars.isEmpty()) {

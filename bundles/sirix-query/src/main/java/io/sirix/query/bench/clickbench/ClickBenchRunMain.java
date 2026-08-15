@@ -36,8 +36,8 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Runs the 43 ClickBench queries against a loaded SirixDB resource under the ClickBench protocol and
- * emits the output the ClickBench harness expects.
+ * Runs the 43 ClickBench queries against a loaded SirixDB resource under the ClickBench protocol
+ * and emits the output the ClickBench harness expects.
  *
  * <pre>
  *   ClickBenchRunMain &lt;dbDir&gt; [--tries N] [--queries 0,3,7-12] [--variant N]
@@ -45,17 +45,17 @@ import java.util.Set;
  *                     [--reuse-executor] [--comment TEXT]
  * </pre>
  *
- * <h2>What is measured</h2>
- * Each query runs {@code --tries} times (ClickBench uses 3: try 1 is the cold run, the best of tries
- * 2 and 3 is the hot run) and every result is fully serialized, so no engine-side laziness can hide
- * work. By default a <em>fresh</em> {@link SirixVectorizedExecutor} is installed for every try: the
- * executor memoizes aggregate and group-by results by (source path, predicate), and a memo hit would
- * report a hash lookup as the hot runtime. The store, its page caches and the OS page cache stay
- * shared across tries, which is exactly what a hot run is supposed to measure. Pass
- * {@code --reuse-executor} to measure the memoized behaviour instead.
+ * <h2>What is measured</h2> Each query runs {@code --tries} times (ClickBench uses 3: try 1 is the
+ * cold run, the best of tries 2 and 3 is the hot run) and every result is fully serialized, so no
+ * engine-side laziness can hide work. By default a <em>fresh</em> {@link SirixVectorizedExecutor}
+ * is installed for every try: the executor memoizes aggregate and group-by results by (source path,
+ * predicate), and a memo hit would report a hash lookup as the hot runtime. The store, its page
+ * caches and the OS page cache stay shared across tries, which is exactly what a hot run is
+ * supposed to measure. Pass {@code --reuse-executor} to measure the memoized behaviour instead.
  *
- * <p>{@code --dump DIR} writes each query's result to {@code DIR/qNN.jsonl}, one JSON array per
- * result row, for the differential check against DuckDB
+ * <p>
+ * {@code --dump DIR} writes each query's result to {@code DIR/qNN.jsonl}, one JSON array per result
+ * row, for the differential check against DuckDB
  * ({@code bundles/sirix-query/bench/clickbench/compare-results.py}).
  */
 public final class ClickBenchRunMain {
@@ -69,8 +69,8 @@ public final class ClickBenchRunMain {
   public static void main(final String[] args) throws Exception {
     if (args.length < 1) {
       System.err.println("Usage: ClickBenchRunMain <dbDir> [--tries N] [--queries 0,3,7-12] "
-                             + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
-                             + "[--load-time SECONDS] [--reuse-executor] [--comment TEXT]");
+          + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
+          + "[--load-time SECONDS] [--reuse-executor] [--comment TEXT]");
       System.exit(2);
       return;
     }
@@ -98,8 +98,8 @@ public final class ClickBenchRunMain {
         case "--queries" -> selected = parseSelection(requireValue(args, ++i, "--queries"));
         // A file, not a literal: the gradle wrapper task splits its argument string on whitespace,
         // and every interesting JSONiq body has spaces in it.
-        case "--query-file" -> adHoc =
-            Files.readString(Path.of(requireValue(args, ++i, "--query-file")), StandardCharsets.UTF_8);
+        case "--query-file" ->
+          adHoc = Files.readString(Path.of(requireValue(args, ++i, "--query-file")), StandardCharsets.UTF_8);
         case "--reuse-executor" -> reuseExecutor = true;
         default -> throw new IllegalArgumentException("unknown option: " + args[i]);
       }
@@ -114,35 +114,32 @@ public final class ClickBenchRunMain {
       Files.createDirectories(dumpDir);
     }
 
-    final long offheap =
-        Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
+    final long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes", String.valueOf(24L << 30)));
     Allocators.getInstance().init(offheap);
 
     // The differential's second leg runs the interpreter, and it only really runs the interpreter if
     // the harness ALSO keeps its hands off: installing an executor explicitly overrides the
     // store-resolved auto-wiring that -Dsirix.query.autoVectorize=false switches off, so honouring
     // the kill switch here is what makes "fast path vs interpreter" an actual comparison.
-    final boolean fastPaths =
-        !"false".equalsIgnoreCase(System.getProperty("sirix.query.autoVectorize", "true"));
+    final boolean fastPaths = !"false".equalsIgnoreCase(System.getProperty("sirix.query.autoVectorize", "true"));
 
     final double[][] timings = new double[QUERY_COUNT][tries];
     for (final double[] row : timings) {
       Arrays.fill(row, Double.NaN);
     }
 
-    System.out.printf("# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s%n",
-                      dbDir, tries, variant, threads, !reuseExecutor, fastPaths);
+    System.out.printf("# ClickBench run: db=%s tries=%d variant=%d threads=%d freshExecutor=%s fastPaths=%s%n", dbDir,
+        tries, variant, threads, !reuseExecutor, fastPaths);
 
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
-         var ctx = SirixQueryContext.createWithJsonStore(store);
-         var chain = SirixCompileChain.createWithJsonStore(store)) {
+        var ctx = SirixQueryContext.createWithJsonStore(store);
+        var chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup(ClickBenchSchema.DATABASE);
       if (collection == null) {
-        throw new IllegalStateException("no database '" + ClickBenchSchema.DATABASE + "' under " + dbDir
-                                            + " — run ClickBenchLoadMain first");
+        throw new IllegalStateException(
+            "no database '" + ClickBenchSchema.DATABASE + "' under " + dbDir + " — run ClickBenchLoadMain first");
       }
-      final JsonResourceSession session =
-          collection.getDatabase().beginResourceSession(ClickBenchSchema.RESOURCE);
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession(ClickBenchSchema.RESOURCE);
       final int revision = session.getMostRecentRevisionNumber();
 
       SirixVectorizedExecutor shared = null;
@@ -182,8 +179,8 @@ public final class ClickBenchRunMain {
           if (selected != null && !selected.contains(query.index())) {
             continue;
           }
-          final String text = ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE,
-                                                     query.jsoniq(variant));
+          final String text =
+              ClickBenchQueries.wrap(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, query.jsoniq(variant));
           String note = "";
           long rows = -1L;
           for (int t = 0; t < tries; t++) {
@@ -209,9 +206,11 @@ public final class ClickBenchRunMain {
               }
             }
           }
-          System.out.printf("%-4d | %10s | %10s | %10s | %s%n", query.index(),
-                            format(timings[query.index()][0]), format(hot(timings[query.index()])),
-                            rows < 0 ? "-" : Long.toString(rows), note);
+          System.out.printf("%-4d | %10s | %10s | %10s | %s%n", query.index(), format(timings[query.index()][0]),
+              format(hot(timings[query.index()])), rows < 0
+                  ? "-"
+                  : Long.toString(rows),
+              note);
         }
       } finally {
         if (shared != null) {
@@ -281,8 +280,8 @@ public final class ClickBenchRunMain {
   }
 
   /** Executes and fully materializes the result, which is what the timing has to include. */
-  private static String execute(final SirixCompileChain chain, final SirixQueryContext ctx,
-      final String queryText) throws IOException {
+  private static String execute(final SirixCompileChain chain, final SirixQueryContext ctx, final String queryText)
+      throws IOException {
     final Sequence result = new Query(chain, queryText).execute(ctx);
     final StringWriter out = new StringWriter(1 << 12);
     try (PrintWriter pw = new PrintWriter(out)) {
@@ -292,13 +291,12 @@ public final class ClickBenchRunMain {
   }
 
   /**
-   * Writes one canonical JSON array per result row, which is the form
-   * {@code compare-results.py} diffs against DuckDB's.
+   * Writes one canonical JSON array per result row, which is the form {@code compare-results.py}
+   * diffs against DuckDB's.
    *
    * @return the number of rows written
    */
-  private static long dump(final Path dumpDir, final int index, final String serialized)
-      throws IOException {
+  private static long dump(final Path dumpDir, final int index, final String serialized) throws IOException {
     final Path file = dumpDir.resolve(String.format("q%02d.jsonl", index));
     if (serialized.isBlank()) {
       // The empty sequence: a query whose HAVING or OFFSET selected nothing. An empty file is the
@@ -308,7 +306,7 @@ public final class ClickBenchRunMain {
     }
     long rows = 0;
     try (BufferedWriter writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
-         JsonReader reader = new JsonReader(new StringReader(serialized))) {
+        JsonReader reader = new JsonReader(new StringReader(serialized))) {
       // brackit serializes a sequence as whitespace-separated values, which is exactly what a
       // lenient reader consumes one value at a time.
       reader.setStrictness(Strictness.LENIENT);
@@ -346,8 +344,8 @@ public final class ClickBenchRunMain {
 
   /**
    * Renders one cell the way {@code duckdb_reference.py}'s {@code canon()} does: integers exactly
-   * (JSON's single number type still carries all 64 bits as digits), fractional values rounded to
-   * six significant digits so the two engines' differing last ULPs do not read as wrong answers.
+   * (JSON's single number type still carries all 64 bits as digits), fractional values rounded to six
+   * significant digits so the two engines' differing last ULPs do not read as wrong answers.
    */
   private static JsonElement canonicalCell(final JsonElement cell) {
     if (cell == null || !cell.isJsonPrimitive() || !cell.getAsJsonPrimitive().isNumber()) {
@@ -380,7 +378,9 @@ public final class ClickBenchRunMain {
   }
 
   private static String format(final double seconds) {
-    return Double.isNaN(seconds) ? "FAILED" : String.format(Locale.ROOT, "%.3f", seconds);
+    return Double.isNaN(seconds)
+        ? "FAILED"
+        : String.format(Locale.ROOT, "%.3f", seconds);
   }
 
   /** One ClickBench result line: {@code [1.234, 5.678, 9.012],} with {@code null} for failures. */
@@ -390,7 +390,9 @@ public final class ClickBenchRunMain {
       if (i > 0) {
         sb.append(", ");
       }
-      sb.append(Double.isNaN(tries[i]) ? "null" : String.format(Locale.ROOT, "%.3f", tries[i]));
+      sb.append(Double.isNaN(tries[i])
+          ? "null"
+          : String.format(Locale.ROOT, "%.3f", tries[i]));
     }
     return sb.append("],").toString();
   }
@@ -400,7 +402,9 @@ public final class ClickBenchRunMain {
       return "(no message)";
     }
     final int newline = message.indexOf('\n');
-    return newline < 0 ? message : message.substring(0, newline);
+    return newline < 0
+        ? message
+        : message.substring(0, newline);
   }
 
   /** Writes the ClickBench {@code results/YYYYMMDD/<machine>.json} payload. */

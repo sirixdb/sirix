@@ -38,7 +38,9 @@ public final class ClickBenchGenerateMain {
     if (rows <= 0) {
       throw new IllegalArgumentException("row count must be positive: " + rows);
     }
-    final long seed = args.length > 2 ? Long.parseLong(args[2]) : 42L;
+    final long seed = args.length > 2
+        ? Long.parseLong(args[2])
+        : 42L;
     final Path parent = out.toAbsolutePath().getParent();
     if (parent != null) {
       Files.createDirectories(parent);
@@ -48,11 +50,11 @@ public final class ClickBenchGenerateMain {
     final char[] buffer = new char[BUFFER_CHARS];
     long chars = 0;
     try (OutputStream fileOut = Files.newOutputStream(out);
-         OutputStream sink = out.getFileName().toString().endsWith(".gz")
-             ? new GZIPOutputStream(fileOut, 1 << 16)
-             : fileOut;
-         Writer writer = new BufferedWriter(new OutputStreamWriter(sink, StandardCharsets.UTF_8), BUFFER_CHARS);
-         Reader source = new ClickBenchHitsGenerator(0L, rows, seed)) {
+        OutputStream sink = out.getFileName().toString().endsWith(".gz")
+            ? new GZIPOutputStream(fileOut, 1 << 16)
+            : fileOut;
+        Writer writer = new BufferedWriter(new OutputStreamWriter(sink, StandardCharsets.UTF_8), BUFFER_CHARS);
+        Reader source = new ClickBenchHitsGenerator(0L, rows, seed)) {
       int read;
       while ((read = source.read(buffer, 0, buffer.length)) != -1) {
         writer.write(buffer, 0, read);
@@ -60,7 +62,7 @@ public final class ClickBenchGenerateMain {
       }
     }
     final double seconds = (System.nanoTime() - start) / 1e9;
-    System.out.printf("# generated %,d rows (%,d chars, %,d bytes on disk) in %.3f s (%,.0f rows/s)%n",
-                      rows, chars, Files.size(out), seconds, rows / Math.max(seconds, 1e-9));
+    System.out.printf("# generated %,d rows (%,d chars, %,d bytes on disk) in %.3f s (%,.0f rows/s)%n", rows, chars,
+        Files.size(out), seconds, rows / Math.max(seconds, 1e-9));
   }
 }

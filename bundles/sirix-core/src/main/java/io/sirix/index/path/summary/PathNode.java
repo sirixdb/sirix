@@ -23,10 +23,11 @@ import static io.sirix.utils.Preconditions.checkArgument;
 /**
  * Path node in the {@link PathSummaryReader}.
  *
- * <p>Self-contained: holds all structural and name state directly as inline fields
- * (formerly held by {@code NodeDelegate} / {@code StructNodeDelegate} / {@code NameNodeDelegate}).
- * Each PathNode is one heap object instead of three; structural reads are a single load
- * instead of two pointer chases.
+ * <p>
+ * Self-contained: holds all structural and name state directly as inline fields (formerly held by
+ * {@code NodeDelegate} / {@code StructNodeDelegate} / {@code NameNodeDelegate}). Each PathNode is
+ * one heap object instead of three; structural reads are a single load instead of two pointer
+ * chases.
  *
  * @author Johannes Lichtenberger
  */
@@ -84,27 +85,25 @@ public final class PathNode implements StructNode, NameNode {
 
   /**
    * Per-path value statistics — populated only when the owning resource has
-   * {@code ResourceConfiguration.withPathStatistics == true}. Maintained at commit
-   * time via recordValue / removeValue hooks in {@link PathSummaryWriter}; read at
-   * query time for the aggregate-short-circuit path in the vectorized executor.
+   * {@code ResourceConfiguration.withPathStatistics == true}. Maintained at commit time via
+   * recordValue / removeValue hooks in {@link PathSummaryWriter}; read at query time for the
+   * aggregate-short-circuit path in the vectorized executor.
    *
-   * <p>Lazily allocated — a PathNode that has never seen a value carries a single
-   * {@code null} reference instead of 11 zero-init fields + lazy HLL/bitmap.
+   * <p>
+   * Lazily allocated — a PathNode that has never seen a value carries a single {@code null} reference
+   * instead of 11 zero-init fields + lazy HLL/bitmap.
    */
   private @Nullable PathStats stats;
 
   /**
-   * Constructor — all structural and name state passed as primitives. The path-summary
-   * factories own the construction; deserialization in {@link io.sirix.node.NodeKind}
-   * uses this constructor directly.
+   * Constructor — all structural and name state passed as primitives. The path-summary factories own
+   * the construction; deserialization in {@link io.sirix.node.NodeKind} uses this constructor
+   * directly.
    */
-  public PathNode(final QNm name, final NodeKind kind, final int references, final int level,
-      final long nodeKey, final long parentKey,
-      final int previousRevision, final int lastModifiedRevision,
-      final @Nullable SirixDeweyID deweyID,
-      final long firstChildKey, final long lastChildKey,
-      final long rightSiblingKey, final long leftSiblingKey,
-      final long childCount, final long descendantCount,
+  public PathNode(final QNm name, final NodeKind kind, final int references, final int level, final long nodeKey,
+      final long parentKey, final int previousRevision, final int lastModifiedRevision,
+      final @Nullable SirixDeweyID deweyID, final long firstChildKey, final long lastChildKey,
+      final long rightSiblingKey, final long leftSiblingKey, final long childCount, final long descendantCount,
       final int uriKey, final int prefixKey, final int localNameKey, final long pathNodeKey) {
     assert parentKey >= NULL_NODE_KEY;
     checkArgument(references >= 0, "references must be >= 0!");
@@ -519,35 +518,31 @@ public final class PathNode implements StructNode, NameNode {
     if (!(obj instanceof PathNode other)) {
       return false;
     }
-    return nodeKey == other.nodeKey
-        && typeKey == other.typeKey
-        && parentKey == other.parentKey
-        && prefixKey == other.prefixKey
-        && localNameKey == other.localNameKey
-        && uriKey == other.uriKey
+    return nodeKey == other.nodeKey && typeKey == other.typeKey && parentKey == other.parentKey
+        && prefixKey == other.prefixKey && localNameKey == other.localNameKey && uriKey == other.uriKey
         && pathNodeKey == other.pathNodeKey;
   }
 
   @Override
   public String toString() {
     return ToStringHelper.of(this)
-        .add("nodeKey", nodeKey)
-        .add("parentKey", parentKey)
-        .add("typeKey", typeKey)
-        .add("firstChild", firstChildKey)
-        .add("lastChild", lastChildKey)
-        .add("leftSib", leftSiblingKey)
-        .add("rightSib", rightSiblingKey)
-        .add("childCount", childCount)
-        .add("descendantCount", descendantCount)
-        .add("uriKey", uriKey)
-        .add("prefixKey", prefixKey)
-        .add("localNameKey", localNameKey)
-        .add("pathNodeKey", pathNodeKey)
-        .add("references", references)
-        .add("kind", kind)
-        .add("level", level)
-        .toString();
+                         .add("nodeKey", nodeKey)
+                         .add("parentKey", parentKey)
+                         .add("typeKey", typeKey)
+                         .add("firstChild", firstChildKey)
+                         .add("lastChild", lastChildKey)
+                         .add("leftSib", leftSiblingKey)
+                         .add("rightSib", rightSiblingKey)
+                         .add("childCount", childCount)
+                         .add("descendantCount", descendantCount)
+                         .add("uriKey", uriKey)
+                         .add("prefixKey", prefixKey)
+                         .add("localNameKey", localNameKey)
+                         .add("pathNodeKey", pathNodeKey)
+                         .add("references", references)
+                         .add("kind", kind)
+                         .add("level", level)
+                         .toString();
   }
 
   // =====================================================================
@@ -569,9 +564,10 @@ public final class PathNode implements StructNode, NameNode {
   /**
    * Remove a non-integral numeric observation.
    *
-   * <p>Marks the sum untrusted rather than subtracting: floating-point addition is not invertible,
-   * so {@code (a + x) - x} is not {@code a} in general and a maintained double sum drifts. Readers
-   * fall back to the scan for this path until the statistics are rebuilt.
+   * <p>
+   * Marks the sum untrusted rather than subtracting: floating-point addition is not invertible, so
+   * {@code (a + x) - x} is not {@code a} in general and a maintained double sum drifts. Readers fall
+   * back to the scan for this path until the statistics are rebuilt.
    */
   void removeDoubleValue(final double value) {
     final PathStats s = stats;
@@ -594,18 +590,20 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Whether every numeric observation folded in so far was an integer-TYPED value, which is the
-   * only case {@code sum} may be served for — see {@link PathStats#sumFraction}.
+   * Whether every numeric observation folded in so far was an integer-TYPED value, which is the only
+   * case {@code sum} may be served for — see {@link PathStats#sumFraction}.
    *
-   * <p>No accessor exposes the exact double sum ({@code sum + sumFraction}) on purpose. It would be
-   * a trap rather than a spare: that accumulator is MORE exact than the left-to-right addition a
-   * scan performs, so serving it would answer a query differently from the generic pipeline while
-   * looking arithmetically superior — a divergence, not an improvement.
+   * <p>
+   * No accessor exposes the exact double sum ({@code sum + sumFraction}) on purpose. It would be a
+   * trap rather than a spare: that accumulator is MORE exact than the left-to-right addition a scan
+   * performs, so serving it would answer a query differently from the generic pipeline while looking
+   * arithmetically superior — a divergence, not an improvement.
    *
-   * <p>The {@code sumFraction} test is redundant with {@code !doubleTyped} today, since the only
-   * writer of a remainder is {@code DeferredStats.addDouble}, which sets the flag in the same
-   * breath. It is kept because the two travel through {@code applyDeferredStats} as SEPARATE
-   * merges, so a future path that folds in a remainder without the flag stays safe by default.
+   * <p>
+   * The {@code sumFraction} test is redundant with {@code !doubleTyped} today, since the only writer
+   * of a remainder is {@code DeferredStats.addDouble}, which sets the flag in the same breath. It is
+   * kept because the two travel through {@code applyDeferredStats} as SEPARATE merges, so a future
+   * path that folds in a remainder without the flag stays safe by default.
    */
   public boolean isStatsSumIntegral() {
     final PathStats s = stats;
@@ -613,14 +611,15 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Folds {@code delta} into {@link PathStats#sum}, marking the sum untrustworthy instead of
-   * wrapping when the accumulator would overflow.
+   * Folds {@code delta} into {@link PathStats#sum}, marking the sum untrustworthy instead of wrapping
+   * when the accumulator would overflow.
    *
-   * <p>{@code xs:integer} is arbitrary precision but the accumulator is a {@code long}, so a column
-   * of 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID}) overflows it after a few
-   * dozen values and every summary-served {@code sum}/{@code avg} would silently be the true total
-   * modulo 2^64. Same doctrine as {@link PathStats#sumDirty}'s other setters: the honest move is to
-   * record that the aggregate can no longer be reproduced and let the query fall back to the scan.
+   * <p>
+   * {@code xs:integer} is arbitrary precision but the accumulator is a {@code long}, so a column of
+   * 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID}) overflows it after a few dozen
+   * values and every summary-served {@code sum}/{@code avg} would silently be the true total modulo
+   * 2^64. Same doctrine as {@link PathStats#sumDirty}'s other setters: the honest move is to record
+   * that the aggregate can no longer be reproduced and let the query fall back to the scan.
    */
   private static void addToSum(final PathStats s, final long delta) {
     final long updated = s.sum + delta;
@@ -649,8 +648,8 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Record a byte-sequence value observation (string path). The caller's array is
-   * cloned on min/max update so later mutations don't corrupt the bound.
+   * Record a byte-sequence value observation (string path). The caller's array is cloned on min/max
+   * update so later mutations don't corrupt the bound.
    */
   void recordBytesValue(final byte[] value) {
     final PathStats s = getOrCreateStats();
@@ -669,7 +668,9 @@ public final class PathNode implements StructNode, NameNode {
 
   /** Record a boolean value (treated as 0/1 in numeric aggregates). */
   void recordBooleanValue(final boolean value) {
-    recordLongValue(value ? 1L : 0L);
+    recordLongValue(value
+        ? 1L
+        : 0L);
   }
 
   /** Record a null value observation. */
@@ -678,10 +679,9 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Decrement value-count / sum on delete. If the deleted value matches the current
-   * min or max bound, mark it dirty — the bound is possibly loose, reader rebounds on
-   * demand. HLL is never decremented; estimate drifts upward on heavy deletion until a
-   * rebuild runs.
+   * Decrement value-count / sum on delete. If the deleted value matches the current min or max bound,
+   * mark it dirty — the bound is possibly loose, reader rebounds on demand. HLL is never decremented;
+   * estimate drifts upward on heavy deletion until a rebuild runs.
    */
   void removeLongValue(final long value) {
     final PathStats s = stats;
@@ -717,7 +717,9 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   void removeBooleanValue(final boolean value) {
-    removeLongValue(value ? 1L : 0L);
+    removeLongValue(value
+        ? 1L
+        : 0L);
   }
 
   void removeNullValue() {
@@ -756,9 +758,10 @@ public final class PathNode implements StructNode, NameNode {
   /**
    * Mark the VALUE aggregates untrusted while leaving the count intact.
    *
-   * <p>For an observation that cannot be accumulated — NaN, an infinity — the record still counted,
-   * so disabling {@code count} as well (which {@link #markStatsStale()} does) would give up more
-   * than the situation costs.
+   * <p>
+   * For an observation that cannot be accumulated — NaN, an infinity — the record still counted, so
+   * disabling {@code count} as well (which {@link #markStatsStale()} does) would give up more than
+   * the situation costs.
    */
   public void markValueStatsUntrusted() {
     final PathStats s = getOrCreateStats();
@@ -785,12 +788,10 @@ public final class PathNode implements StructNode, NameNode {
   void mergeBytesStats(final long count, final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes) {
     final PathStats s = getOrCreateStats();
     s.count += count;
-    if (minBytes != null
-        && (s.minBytes == null || Arrays.compareUnsigned(minBytes, s.minBytes) < 0)) {
+    if (minBytes != null && (s.minBytes == null || Arrays.compareUnsigned(minBytes, s.minBytes) < 0)) {
       s.minBytes = minBytes.clone();
     }
-    if (maxBytes != null
-        && (s.maxBytes == null || Arrays.compareUnsigned(maxBytes, s.maxBytes) > 0)) {
+    if (maxBytes != null && (s.maxBytes == null || Arrays.compareUnsigned(maxBytes, s.maxBytes) > 0)) {
       s.maxBytes = maxBytes.clone();
     }
   }
@@ -823,8 +824,8 @@ public final class PathNode implements StructNode, NameNode {
   }
 
   /**
-   * Merge the set of {@code leafPageKeys} into this PathNode's presence bitmap.
-   * Lazily allocates the bitmap on first call.
+   * Merge the set of {@code leafPageKeys} into this PathNode's presence bitmap. Lazily allocates the
+   * bitmap on first call.
    */
   void mergePageKeys(final IntSet leafPageKeys) {
     if (leafPageKeys == null || leafPageKeys.isEmpty()) {
@@ -853,12 +854,16 @@ public final class PathNode implements StructNode, NameNode {
 
   public @Nullable RoaringBitmap getPageKeys() {
     final PathStats s = stats;
-    return s == null ? null : s.pageKeys;
+    return s == null
+        ? null
+        : s.pageKeys;
   }
 
   public int @Nullable [] getPageKeysArray() {
     final PathStats s = stats;
-    return (s == null || s.pageKeys == null) ? null : s.pageKeys.toArray();
+    return (s == null || s.pageKeys == null)
+        ? null
+        : s.pageKeys.toArray();
   }
 
   // =====================================================================
@@ -875,42 +880,58 @@ public final class PathNode implements StructNode, NameNode {
 
   public long getStatsValueCount() {
     final PathStats s = stats;
-    return s == null ? 0L : s.count;
+    return s == null
+        ? 0L
+        : s.count;
   }
 
   public long getStatsNullCount() {
     final PathStats s = stats;
-    return s == null ? 0L : s.nullCount;
+    return s == null
+        ? 0L
+        : s.nullCount;
   }
 
   public long getStatsSum() {
     final PathStats s = stats;
-    return s == null ? 0L : s.sum;
+    return s == null
+        ? 0L
+        : s.sum;
   }
 
   public long getStatsMin() {
     final PathStats s = stats;
-    return s == null ? Long.MAX_VALUE : s.min;
+    return s == null
+        ? Long.MAX_VALUE
+        : s.min;
   }
 
   public long getStatsMax() {
     final PathStats s = stats;
-    return s == null ? Long.MIN_VALUE : s.max;
+    return s == null
+        ? Long.MIN_VALUE
+        : s.max;
   }
 
   public byte @Nullable [] getStatsMinBytes() {
     final PathStats s = stats;
-    return s == null ? null : s.minBytes;
+    return s == null
+        ? null
+        : s.minBytes;
   }
 
   public byte @Nullable [] getStatsMaxBytes() {
     final PathStats s = stats;
-    return s == null ? null : s.maxBytes;
+    return s == null
+        ? null
+        : s.maxBytes;
   }
 
   public @Nullable HyperLogLogSketch getHllSketch() {
     final PathStats s = stats;
-    return s == null ? null : s.hll;
+    return s == null
+        ? null
+        : s.hll;
   }
 
   public boolean isStatsMinDirty() {

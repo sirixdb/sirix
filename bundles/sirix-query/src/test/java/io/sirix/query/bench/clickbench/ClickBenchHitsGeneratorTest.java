@@ -24,8 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Guards the properties the ClickBench port depends on: the generated stream is JSON in the exact
- * shape {@link ClickBenchSchema} declares, it is reproducible and shardable, the literals Q19/Q40/Q41
- * select actually occur, and 64-bit ids survive the round trip through JSON text as exact digits.
+ * shape {@link ClickBenchSchema} declares, it is reproducible and shardable, the literals
+ * Q19/Q40/Q41 select actually occur, and 64-bit ids survive the round trip through JSON text as
+ * exact digits.
  */
 final class ClickBenchHitsGeneratorTest {
 
@@ -85,12 +86,12 @@ final class ClickBenchHitsGeneratorTest {
           case DATE -> {
             assertTrue(value.isString(), where + " must be a JSON string");
             assertTrue(ISO_DATE.matcher(value.getAsString()).matches(),
-                       where + " must be YYYY-MM-DD: " + value.getAsString());
+                where + " must be YYYY-MM-DD: " + value.getAsString());
           }
           case DATETIME -> {
             assertTrue(value.isString(), where + " must be a JSON string");
             assertTrue(ISO_DATE_TIME.matcher(value.getAsString()).matches(),
-                       where + " must be YYYY-MM-DDTHH:MM:SS: " + value.getAsString());
+                where + " must be YYYY-MM-DDTHH:MM:SS: " + value.getAsString());
           }
         }
       }
@@ -153,13 +154,14 @@ final class ClickBenchHitsGeneratorTest {
     for (int i = 0; i < records.size(); i++) {
       final JsonObject record = records.get(i).getAsJsonObject();
       final String eventDate = record.get("EventDate").getAsString();
-      assertTrue(eventDate.compareTo(ClickBenchHitsGenerator.FIRST_EVENT_DATE) >= 0
-                     && eventDate.compareTo(ClickBenchHitsGenerator.LAST_EVENT_DATE) <= 0,
-                 "EventDate outside the generated month in record " + i + ": " + eventDate);
+      assertTrue(
+          eventDate.compareTo(ClickBenchHitsGenerator.FIRST_EVENT_DATE) >= 0
+              && eventDate.compareTo(ClickBenchHitsGenerator.LAST_EVENT_DATE) <= 0,
+          "EventDate outside the generated month in record " + i + ": " + eventDate);
       for (final String column : List.of("EventTime", "ClientEventTime", "LocalEventTime")) {
         final String timestamp = record.get(column).getAsString();
-        assertEquals(eventDate, timestamp.substring(0, 10), column + " day differs from EventDate in "
-            + "record " + i + ": " + timestamp);
+        assertEquals(eventDate, timestamp.substring(0, 10),
+            column + " day differs from EventDate in " + "record " + i + ": " + timestamp);
       }
     }
   }
@@ -171,7 +173,7 @@ final class ClickBenchHitsGeneratorTest {
     final JsonArray records = parse(text);
 
     assertFalse(text.contains("e+") || text.contains("E+") || text.contains("e-") || text.contains("E-"),
-                "the output must not contain scientific notation");
+        "the output must not contain scientific notation");
     boolean sawWideValue = false;
     for (int i = 0; i < records.size(); i++) {
       final JsonObject record = records.get(i).getAsJsonObject();
@@ -181,10 +183,9 @@ final class ClickBenchHitsGeneratorTest {
         }
         final long value = record.get(column).getAsLong();
         final String digits = Long.toString(value);
-        assertEquals(digits, record.get(column).getAsString(),
-                     column + " lost its exact digits in record " + i);
+        assertEquals(digits, record.get(column).getAsString(), column + " lost its exact digits in record " + i);
         assertTrue(text.contains("\"" + column + "\":" + digits),
-                   column + " digits " + digits + " are not in the emitted text of record " + i);
+            column + " digits " + digits + " are not in the emitted text of record " + i);
         sawWideValue |= digits.length() >= 18;
       }
     }

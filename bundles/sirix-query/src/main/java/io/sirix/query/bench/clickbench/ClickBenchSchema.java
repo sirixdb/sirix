@@ -12,32 +12,31 @@ import java.util.Objects;
  * <a href="https://github.com/ClickHouse/ClickBench">ClickBench</a> {@code create.sql}, in that
  * file's order, together with the JSON shape each of them takes in the SirixDB port.
  *
- * <h2>JSON encoding contract</h2>
- * The port stores one JSON object per hit with all 105 columns always present, in create.sql order,
- * and the whole dataset as a single JSON array. JSON has no date type and only one number type, so
- * the mapping is fixed as follows and every producer (the parquet export, {@link
- * ClickBenchHitsGenerator}) and every consumer (the queries, the DuckDB reference) has to agree on
- * it:
+ * <h2>JSON encoding contract</h2> The port stores one JSON object per hit with all 105 columns
+ * always present, in create.sql order, and the whole dataset as a single JSON array. JSON has no
+ * date type and only one number type, so the mapping is fixed as follows and every producer (the
+ * parquet export, {@link ClickBenchHitsGenerator}) and every consumer (the queries, the DuckDB
+ * reference) has to agree on it:
  * <ul>
- *   <li>{@code SMALLINT} / {@code INTEGER} / {@code BIGINT} become unquoted JSON numbers with exact
- *       {@code int64} digits — never quoted, never floats, never scientific notation. Quoting them
- *       is the failure mode that matters: a quoted {@code UserID} shreds as a string node and Q19,
- *       Q40 and Q41 then silently return nothing.</li>
- *   <li>{@code TEXT} / {@code VARCHAR(255)} / {@code CHAR} become JSON strings; the ClickBench data
- *       uses {@code ""} for absent text, never {@code null}.</li>
- *   <li>{@code DATE} becomes a {@code "YYYY-MM-DD"} string.</li>
- *   <li>{@code TIMESTAMP} becomes a {@code "YYYY-MM-DDTHH:MM:SS"} string (ISO-8601, {@code 'T'}
- *       separator, second resolution, no timezone). ISO-8601 orders lexicographically, so
- *       {@code ORDER BY EventTime} and the {@code EventDate} range predicates are plain string
- *       comparisons and {@code DATE_TRUNC('minute', EventTime)} is {@code substring(t, 1, 16)}.</li>
+ * <li>{@code SMALLINT} / {@code INTEGER} / {@code BIGINT} become unquoted JSON numbers with exact
+ * {@code int64} digits — never quoted, never floats, never scientific notation. Quoting them is the
+ * failure mode that matters: a quoted {@code UserID} shreds as a string node and Q19, Q40 and Q41
+ * then silently return nothing.</li>
+ * <li>{@code TEXT} / {@code VARCHAR(255)} / {@code CHAR} become JSON strings; the ClickBench data
+ * uses {@code ""} for absent text, never {@code null}.</li>
+ * <li>{@code DATE} becomes a {@code "YYYY-MM-DD"} string.</li>
+ * <li>{@code TIMESTAMP} becomes a {@code "YYYY-MM-DDTHH:MM:SS"} string (ISO-8601, {@code 'T'}
+ * separator, second resolution, no timezone). ISO-8601 orders lexicographically, so
+ * {@code ORDER BY EventTime} and the {@code EventDate} range predicates are plain string
+ * comparisons and {@code DATE_TRUNC('minute', EventTime)} is {@code substring(t, 1, 16)}.</li>
  * </ul>
  *
- * <h2>DuckDB reference side</h2>
- * {@link #duckdbType(String)} and {@link #duckdbColumnSpecJson()} hand out the create.sql type text
- * so the reference implementation can build a {@code read_json(..., columns = {...})} spec from this
- * class rather than from a second, hand-maintained copy of the schema. Reading the JSON with an
- * explicit column spec is what keeps DuckDB from inferring {@code DOUBLE} for a 64-bit id column,
- * which would round {@code UserID} and make the two engines disagree.
+ * <h2>DuckDB reference side</h2> {@link #duckdbType(String)} and {@link #duckdbColumnSpecJson()}
+ * hand out the create.sql type text so the reference implementation can build a
+ * {@code read_json(..., columns = {...})} spec from this class rather than from a second,
+ * hand-maintained copy of the schema. Reading the JSON with an explicit column spec is what keeps
+ * DuckDB from inferring {@code DOUBLE} for a 64-bit id column, which would round {@code UserID} and
+ * make the two engines disagree.
  */
 public final class ClickBenchSchema {
 
@@ -76,116 +75,33 @@ public final class ClickBenchSchema {
   private static final int EXPECTED_COLUMN_COUNT = 105;
 
   /**
-   * {@code {name, DuckDB type}} pairs in create.sql order — the single source of truth from which
-   * the column list, both type maps and the DuckDB column spec are derived.
+   * {@code {name, DuckDB type}} pairs in create.sql order — the single source of truth from which the
+   * column list, both type maps and the DuckDB column spec are derived.
    */
-  private static final String[] COLUMN_TABLE = {
-      "WatchID",               BIGINT,
-      "JavaEnable",            SMALLINT,
-      "Title",                 TEXT,
-      "GoodEvent",             SMALLINT,
-      "EventTime",             TIMESTAMP,
-      "EventDate",             DATE,
-      "CounterID",             INTEGER,
-      "ClientIP",              INTEGER,
-      "RegionID",              INTEGER,
-      "UserID",                BIGINT,
-      "CounterClass",          SMALLINT,
-      "OS",                    SMALLINT,
-      "UserAgent",             SMALLINT,
-      "URL",                   TEXT,
-      "Referer",               TEXT,
-      "IsRefresh",             SMALLINT,
-      "RefererCategoryID",     SMALLINT,
-      "RefererRegionID",       INTEGER,
-      "URLCategoryID",         SMALLINT,
-      "URLRegionID",           INTEGER,
-      "ResolutionWidth",       SMALLINT,
-      "ResolutionHeight",      SMALLINT,
-      "ResolutionDepth",       SMALLINT,
-      "FlashMajor",            SMALLINT,
-      "FlashMinor",            SMALLINT,
-      "FlashMinor2",           TEXT,
-      "NetMajor",              SMALLINT,
-      "NetMinor",              SMALLINT,
-      "UserAgentMajor",        SMALLINT,
-      "UserAgentMinor",        VARCHAR_255,
-      "CookieEnable",          SMALLINT,
-      "JavascriptEnable",      SMALLINT,
-      "IsMobile",              SMALLINT,
-      "MobilePhone",           SMALLINT,
-      "MobilePhoneModel",      TEXT,
-      "Params",                TEXT,
-      "IPNetworkID",           INTEGER,
-      "TraficSourceID",        SMALLINT,
-      "SearchEngineID",        SMALLINT,
-      "SearchPhrase",          TEXT,
-      "AdvEngineID",           SMALLINT,
-      "IsArtifical",           SMALLINT,
-      "WindowClientWidth",     SMALLINT,
-      "WindowClientHeight",    SMALLINT,
-      "ClientTimeZone",        SMALLINT,
-      "ClientEventTime",       TIMESTAMP,
-      "SilverlightVersion1",   SMALLINT,
-      "SilverlightVersion2",   SMALLINT,
-      "SilverlightVersion3",   INTEGER,
-      "SilverlightVersion4",   SMALLINT,
-      "PageCharset",           TEXT,
-      "CodeVersion",           INTEGER,
-      "IsLink",                SMALLINT,
-      "IsDownload",            SMALLINT,
-      "IsNotBounce",           SMALLINT,
-      "FUniqID",               BIGINT,
-      "OriginalURL",           TEXT,
-      "HID",                   INTEGER,
-      "IsOldCounter",          SMALLINT,
-      "IsEvent",               SMALLINT,
-      "IsParameter",           SMALLINT,
-      "DontCountHits",         SMALLINT,
-      "WithHash",              SMALLINT,
-      "HitColor",              CHAR,
-      "LocalEventTime",        TIMESTAMP,
-      "Age",                   SMALLINT,
-      "Sex",                   SMALLINT,
-      "Income",                SMALLINT,
-      "Interests",             SMALLINT,
-      "Robotness",             SMALLINT,
-      "RemoteIP",              INTEGER,
-      "WindowName",            INTEGER,
-      "OpenerName",            INTEGER,
-      "HistoryLength",         SMALLINT,
-      "BrowserLanguage",       TEXT,
-      "BrowserCountry",        TEXT,
-      "SocialNetwork",         TEXT,
-      "SocialAction",          TEXT,
-      "HTTPError",             SMALLINT,
-      "SendTiming",            INTEGER,
-      "DNSTiming",             INTEGER,
-      "ConnectTiming",         INTEGER,
-      "ResponseStartTiming",   INTEGER,
-      "ResponseEndTiming",     INTEGER,
-      "FetchTiming",           INTEGER,
-      "SocialSourceNetworkID", SMALLINT,
-      "SocialSourcePage",      TEXT,
-      "ParamPrice",            BIGINT,
-      "ParamOrderID",          TEXT,
-      "ParamCurrency",         TEXT,
-      "ParamCurrencyID",       SMALLINT,
-      "OpenstatServiceName",   TEXT,
-      "OpenstatCampaignID",    TEXT,
-      "OpenstatAdID",          TEXT,
-      "OpenstatSourceID",      TEXT,
-      "UTMSource",             TEXT,
-      "UTMMedium",             TEXT,
-      "UTMCampaign",           TEXT,
-      "UTMContent",            TEXT,
-      "UTMTerm",               TEXT,
-      "FromTag",               TEXT,
-      "HasGCLID",              SMALLINT,
-      "RefererHash",           BIGINT,
-      "URLHash",               BIGINT,
-      "CLID",                  INTEGER,
-  };
+  private static final String[] COLUMN_TABLE = {"WatchID", BIGINT, "JavaEnable", SMALLINT, "Title", TEXT, "GoodEvent",
+      SMALLINT, "EventTime", TIMESTAMP, "EventDate", DATE, "CounterID", INTEGER, "ClientIP", INTEGER, "RegionID",
+      INTEGER, "UserID", BIGINT, "CounterClass", SMALLINT, "OS", SMALLINT, "UserAgent", SMALLINT, "URL", TEXT,
+      "Referer", TEXT, "IsRefresh", SMALLINT, "RefererCategoryID", SMALLINT, "RefererRegionID", INTEGER,
+      "URLCategoryID", SMALLINT, "URLRegionID", INTEGER, "ResolutionWidth", SMALLINT, "ResolutionHeight", SMALLINT,
+      "ResolutionDepth", SMALLINT, "FlashMajor", SMALLINT, "FlashMinor", SMALLINT, "FlashMinor2", TEXT, "NetMajor",
+      SMALLINT, "NetMinor", SMALLINT, "UserAgentMajor", SMALLINT, "UserAgentMinor", VARCHAR_255, "CookieEnable",
+      SMALLINT, "JavascriptEnable", SMALLINT, "IsMobile", SMALLINT, "MobilePhone", SMALLINT, "MobilePhoneModel", TEXT,
+      "Params", TEXT, "IPNetworkID", INTEGER, "TraficSourceID", SMALLINT, "SearchEngineID", SMALLINT, "SearchPhrase",
+      TEXT, "AdvEngineID", SMALLINT, "IsArtifical", SMALLINT, "WindowClientWidth", SMALLINT, "WindowClientHeight",
+      SMALLINT, "ClientTimeZone", SMALLINT, "ClientEventTime", TIMESTAMP, "SilverlightVersion1", SMALLINT,
+      "SilverlightVersion2", SMALLINT, "SilverlightVersion3", INTEGER, "SilverlightVersion4", SMALLINT, "PageCharset",
+      TEXT, "CodeVersion", INTEGER, "IsLink", SMALLINT, "IsDownload", SMALLINT, "IsNotBounce", SMALLINT, "FUniqID",
+      BIGINT, "OriginalURL", TEXT, "HID", INTEGER, "IsOldCounter", SMALLINT, "IsEvent", SMALLINT, "IsParameter",
+      SMALLINT, "DontCountHits", SMALLINT, "WithHash", SMALLINT, "HitColor", CHAR, "LocalEventTime", TIMESTAMP, "Age",
+      SMALLINT, "Sex", SMALLINT, "Income", SMALLINT, "Interests", SMALLINT, "Robotness", SMALLINT, "RemoteIP", INTEGER,
+      "WindowName", INTEGER, "OpenerName", INTEGER, "HistoryLength", SMALLINT, "BrowserLanguage", TEXT,
+      "BrowserCountry", TEXT, "SocialNetwork", TEXT, "SocialAction", TEXT, "HTTPError", SMALLINT, "SendTiming", INTEGER,
+      "DNSTiming", INTEGER, "ConnectTiming", INTEGER, "ResponseStartTiming", INTEGER, "ResponseEndTiming", INTEGER,
+      "FetchTiming", INTEGER, "SocialSourceNetworkID", SMALLINT, "SocialSourcePage", TEXT, "ParamPrice", BIGINT,
+      "ParamOrderID", TEXT, "ParamCurrency", TEXT, "ParamCurrencyID", SMALLINT, "OpenstatServiceName", TEXT,
+      "OpenstatCampaignID", TEXT, "OpenstatAdID", TEXT, "OpenstatSourceID", TEXT, "UTMSource", TEXT, "UTMMedium", TEXT,
+      "UTMCampaign", TEXT, "UTMContent", TEXT, "UTMTerm", TEXT, "FromTag", TEXT, "HasGCLID", SMALLINT, "RefererHash",
+      BIGINT, "URLHash", BIGINT, "CLID", INTEGER,};
 
   /** All 105 column names in create.sql order. */
   public static final List<String> COLUMNS;
@@ -196,8 +112,8 @@ public final class ClickBenchSchema {
 
   static {
     if (COLUMN_TABLE.length % 2 != 0) {
-      throw new IllegalStateException("COLUMN_TABLE must hold {name, type} pairs, got "
-                                          + COLUMN_TABLE.length + " entries");
+      throw new IllegalStateException(
+          "COLUMN_TABLE must hold {name, type} pairs, got " + COLUMN_TABLE.length + " entries");
     }
     final int columnCount = COLUMN_TABLE.length / 2;
     final List<String> names = new ArrayList<>(columnCount);
@@ -221,8 +137,7 @@ public final class ClickBenchSchema {
     }
     spec.append('}');
     if (names.size() != EXPECTED_COLUMN_COUNT) {
-      throw new IllegalStateException("expected " + EXPECTED_COLUMN_COUNT + " ClickBench columns, got "
-                                          + names.size());
+      throw new IllegalStateException("expected " + EXPECTED_COLUMN_COUNT + " ClickBench columns, got " + names.size());
     }
     COLUMNS = List.copyOf(names);
     DUCKDB_TYPE_BY_COLUMN = Collections.unmodifiableMap(duckdbTypes);
@@ -284,8 +199,7 @@ public final class ClickBenchSchema {
       case TEXT, VARCHAR_255, CHAR -> ColumnType.STRING;
       case DATE -> ColumnType.DATE;
       case TIMESTAMP -> ColumnType.DATETIME;
-      default -> throw new IllegalStateException("column " + column + " has an unmapped SQL type: "
-                                                     + duckdbType);
+      default -> throw new IllegalStateException("column " + column + " has an unmapped SQL type: " + duckdbType);
     };
   }
 
