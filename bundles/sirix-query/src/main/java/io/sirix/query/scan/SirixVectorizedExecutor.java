@@ -1383,7 +1383,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return tryProjectionAggregate(sourcePath, field, predicateOrNull, ProjectionColumnSegmentFoldScan.AGG_ALL);
   }
 
+  /**
+   * Projection-served {@code [count, sum, min, max]}, or {@code null} when no projection can answer.
+   *
+   * <p>
+   * The single place the aggregate kernels' exactness DECLINE lands. Every numeric-long kernel behind
+   * this route (the SIMD fold kernel's pre-flight zone-map bound, the scalar slice and byte kernels'
+   * {@code Math.addExact}, and {@link #mergeLongAgg}'s chunk merge) signals "this sum cannot be
+   * served in a long" by throwing {@link ArithmeticException} — {@code xs:integer} is arbitrary
+   * precision and the generic pipeline promotes to exact decimal, so declining is the only correct
+   * answer and it must not surface as a query error. Both callers wrap this in
+   * {@code catch (Exception) -> QueryException}, so without this catch a 64-bit id column would fail
+   * the query outright the moment a projection covering it existed.
+   *
+   * <p>
+   * The whole-leaf byte path is not retried after an overflow decline: it is the same fold over the
+   * same values, and reaching it would materialize every leaf first.
+   */
   private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull, final int aggMask) {
+    try {
+      final long[] served = projectionAggregateOrNull(sourcePath, field, predicateOrNull, aggMask);
+      if (served != null) {
+        PROJECTION_AGGREGATES_SERVED.increment();
+      }
+      return served;
+    } catch (final ArithmeticException overflow) {
+      PROJECTION_AGGREGATE_OVERFLOW_DECLINES.increment();
+      return null;
+    }
+  }
+
+  /**
+   * Projection aggregates answered from a projection index, and the exactness declines — a route that
+   * silently declines is indistinguishable from one that works, since the fallback returns the same
+   * (correct) answer, so these are what lets a test assert which of the two happened.
+   */
+  private static final LongAdder PROJECTION_AGGREGATES_SERVED = new LongAdder();
+
+  private static final LongAdder PROJECTION_AGGREGATE_OVERFLOW_DECLINES = new LongAdder();
+
+  /** Long-aggregates served from a projection index since the last reset. */
+  public static long projectionAggregatesServed() {
+    return PROJECTION_AGGREGATES_SERVED.sum();
+  }
+
+  /** Projection long-aggregates declined because the sum could not be exact in a long. */
+  public static long projectionAggregateOverflowDeclines() {
+    return PROJECTION_AGGREGATE_OVERFLOW_DECLINES.sum();
+  }
+
+  /**
+   * Reset {@link #projectionAggregatesServed()} and {@link #projectionAggregateOverflowDeclines()}.
+   */
+  public static void resetProjectionAggregateCounters() {
+    PROJECTION_AGGREGATES_SERVED.reset();
+    PROJECTION_AGGREGATE_OVERFLOW_DECLINES.reset();
+  }
+
+  private long[] projectionAggregateOrNull(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull, final int aggMask) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null)
@@ -1473,18 +1531,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads.subList(from, to), preds, col, acc);
         perThread[idx] = acc;
       });
-      final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
-      for (final long[] a : perThread) {
-        if (a == null || a[0] == 0)
-          continue;
-        merged[0] += a[0];
-        merged[1] += a[1];
-        if (a[2] < merged[2])
-          merged[2] = a[2];
-        if (a[3] > merged[3])
-          merged[3] = a[3];
-      }
-      return merged;
+      // Shared with the slice/fold dispatch so the sum lane's exact merge cannot drift between them.
+      return mergeLongAgg(perThread);
     } catch (final IllegalStateException ise) {
       return null;
     }
@@ -1617,14 +1665,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return mergeLongAgg(perThread);
   }
 
-  /** Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators. */
+  /**
+   * Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators.
+   *
+   * <p>
+   * The sum lane merges with {@link Math#addExact}: each chunk's own total is proven to fit (by the
+   * fold kernel's zone-map bound, or exactly by the scalar kernels), but two chunks that each fit can
+   * still cross {@link Long#MAX_VALUE} together — without this the guard would end exactly where the
+   * parallel dispatch begins. Callers treat the exception as a DECLINE.
+   *
+   * @throws ArithmeticException when the merged sum leaves the signed 64-bit range
+   */
   private static long[] mergeLongAgg(final long[][] perThread) {
     final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
     for (final long[] a : perThread) {
       if (a == null || a[0] == 0)
         continue;
       merged[0] += a[0];
-      merged[1] += a[1];
+      merged[1] = Math.addExact(merged[1], a[1]);
       if (a[2] < merged[2])
         merged[2] = a[2];
       if (a[3] > merged[3])
@@ -9510,9 +9568,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
         // no typed redo can be needed when it answers).
-        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
+        final int aggMask = aggMaskFor(func);
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMask);
         if (projected != null) {
-          stats = aggregateCache.putIfAbsent(cacheKey, projected);
+          // Only a FULL accumulator may enter the cache: it is keyed by (source, field) with no
+          // func, and a masked one is an answer to THIS func alone — its unrequested slots keep the
+          // fold identities (Long.MAX_VALUE / Long.MIN_VALUE) and its sum lane is exactness-gated
+          // only when SUM was asked for. Serving those to the next aggregate over the same column
+          // would hand out a non-answer.
+          if (aggMask == ProjectionColumnSegmentFoldScan.AGG_ALL) {
+            stats = aggregateCache.putIfAbsent(cacheKey, projected);
+          }
           if (stats == null)
             stats = projected;
         } else {

@@ -1,8 +1,11 @@
 package io.sirix.query;
 
 import io.brackit.query.Query;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.JsonTestHelper;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,6 +17,7 @@ import java.math.BigInteger;
 import java.math.MathContext;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Exactness of the vectorized value aggregates, for the two shapes the ClickBench port ran into.
@@ -42,10 +46,14 @@ public final class VectorizedAggregateExactnessTest {
   @BeforeEach
   public void setUp() {
     JsonTestHelper.deleteEverything();
+    ProjectionIndexRegistry.clear();
+    SequentialPipelineStrategy.setVectorizedExecutor(null);
   }
 
   @AfterEach
   public void tearDown() {
+    ProjectionIndexRegistry.clear();
+    SequentialPipelineStrategy.setVectorizedExecutor(null);
     JsonTestHelper.deleteEverything();
   }
 
@@ -80,6 +88,59 @@ public final class VectorizedAggregateExactnessTest {
           run(chain, ctx, "min(for $r in jn:doc('agg-db','records.jn')[] return $r.id)"));
       assertEquals(Long.toString(max(BIG_IDS)),
           run(chain, ctx, "max(for $r in jn:doc('agg-db','records.jn')[] return $r.id)"));
+    }
+  }
+
+  /**
+   * The same exactness, with a PROJECTION INDEX installed over the big-integer column.
+   *
+   * <p>
+   * A maintained projection is consulted BEFORE the path summary and before any scan, so an installed
+   * one does not merely add a faster route — it REPLACES the answer. Its aggregate kernels had their
+   * own bare {@code sum += v}, in a SIMD fold where no per-add carry is visible, so installing an
+   * index over {@code UserID} turned the exact avg the scan path had just been taught to produce back
+   * into the wrapped one (5.7e17 → 3.6e13). Nothing in the suite installed a projection while
+   * checking exactness, which is the gap that let it ship.
+   */
+  @Test
+  public void sumAndAvgOverLargeIntegersStayExactWithAProjectionInstalled() throws Exception {
+    BigInteger expectedSum = BigInteger.ZERO;
+    for (final long id : BIG_IDS) {
+      expectedSum = expectedSum.add(BigInteger.valueOf(id));
+    }
+    assertEquals(1, expectedSum.compareTo(BigInteger.valueOf(Long.MAX_VALUE)),
+        "the fixture must overflow a long accumulator, otherwise it proves nothing");
+
+    try (final BasicJsonDBStore store = newStore();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, "jn:store('agg-proj-db','records.jn','" + document() + "')").evaluate(ctx);
+      final String install = "let $doc := jn:doc('agg-proj-db','records.jn')"
+          + " let $i := jn:create-projection-index($doc, '/[]', ('/[]/id'), ('long'))" + " return sdb:commit($doc)";
+      new Query(chain, install).evaluate(ctx);
+
+      SirixVectorizedExecutor.resetProjectionAggregateCounters();
+      assertEquals(expectedSum.toString(),
+          run(chain, ctx, "sum(for $r in jn:doc('agg-proj-db','records.jn')[] return $r.id)"),
+          "sum over 64-bit ids must not wrap when a projection covers the column");
+      final BigDecimal expectedAvg =
+          new BigDecimal(expectedSum).divide(BigDecimal.valueOf(BIG_IDS.length), MathContext.DECIMAL128)
+                                     .stripTrailingZeros();
+      assertEquals(expectedAvg,
+          new BigDecimal(
+              run(chain, ctx, "avg(for $r in jn:doc('agg-proj-db','records.jn')[] return $r.id)")).stripTrailingZeros(),
+          "avg over 64-bit ids must not wrap when a projection covers the column");
+      assertEquals(Long.toString(min(BIG_IDS)),
+          run(chain, ctx, "min(for $r in jn:doc('agg-proj-db','records.jn')[] return $r.id)"));
+      assertEquals(Long.toString(max(BIG_IDS)),
+          run(chain, ctx, "max(for $r in jn:doc('agg-proj-db','records.jn')[] return $r.id)"));
+
+      // Non-vacuity: a route that declines is indistinguishable from one that never ran, because
+      // the fallback returns the same (correct) answer. The decline counter is what tells them
+      // apart — without it this test would still pass if the projection silently stopped covering
+      // the column, and would then prove nothing about the kernels.
+      assertTrue(SirixVectorizedExecutor.projectionAggregateOverflowDeclines() > 0,
+          "the projection never reached its aggregate kernels — the exactness gate was not exercised");
     }
   }
 

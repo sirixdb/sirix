@@ -550,6 +550,19 @@ public final class ProjectionIndexByteScan {
    * {@code predicates}, folds the column value into {@code acc} = {@code [count, sum, min, max]}. The
    * column sweep is a straight {@code long[rowCount]} read per leaf — memory-bandwidth bound, the
    * same shape a column store executes.
+   *
+   * <p>
+   * Exact sum or DECLINE, the same contract as {@link #conjunctiveAggregateByGroup}:
+   * {@code xs:integer} is arbitrary precision and the interpreter promotes an overflowing total to
+   * exact decimal, so a wrapped {@code long} would be a silently wrong answer (a column of 1e18-scale
+   * ids wraps after a few dozen rows). The check is a per-value {@link Math#addExact} rather than the
+   * pre-flight zone-map bound the SIMD fold kernel uses: this is a SCALAR walk, where an exact add
+   * costs one never-taken branch and — unlike a lanewise fold — can see every carry, so it declines
+   * only on a real overflow instead of on a conservative bound. (The zone map is reachable here too,
+   * but only per leaf as {@code evaluateRowGroupMask} resolves it, and the payloads arrive as an
+   * {@link Iterable} this method must not walk twice.)
+   *
+   * @throws ArithmeticException on overflow — callers treat it as a DECLINE
    */
   public static void conjunctiveAggregateNumeric(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
@@ -597,7 +610,7 @@ public final class ProjectionIndexByteScan {
           for (int i = 0; i < 64; i++) {
             final long v = getLongLE(payload, base + (rowBase + i) * 8);
             count++;
-            sum += v;
+            sum = Math.addExact(sum, v);
             if (v < min)
               min = v;
             if (v > max)
@@ -613,7 +626,7 @@ public final class ProjectionIndexByteScan {
             break;
           final long v = getLongLE(payload, base + rowIdx * 8);
           count++;
-          sum += v;
+          sum = Math.addExact(sum, v);
           if (v < min)
             min = v;
           if (v > max)
