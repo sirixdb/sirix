@@ -113,6 +113,25 @@ final class CASKeySerializerEdgeCaseTest {
   final class Floats {
 
     @Test
+    @DisplayName("a probe arriving as xs:double still lands on the xs:float key")
+    void anUncastProbeStillLandsOnTheDeclaredTypesKey() {
+      // ScanCASIndex casts its probe, but CASIndex builds a CASValue from whatever atomic the filter
+      // happens to hold, so a Dbl CAN reach an xs:float index uncast. This pins that it still meets
+      // the stored Flt.
+      //
+      // What makes it hold is the encoder's own `roundToFloat` narrowing, not any coercion of the
+      // atomic: both sides reach encodeNumericOrderPreserving and both are put through (float). That
+      // was measured rather than assumed — an explicit asDeclaredType coercion at the serialize()
+      // boundary was tried here and REVERTED, because removing it left this test green. It would only
+      // earn its place if the per-type lexical fallbacks were deleted, and they cannot be until a
+      // value that is not of the index's type has an explicit outcome instead of falling back to
+      // 0/false. 1.1 is the probe because it is inexact either way: (double) 1.1f is
+      // 1.100000023841858.
+      assertArrayEquals(key(new Flt(1.1f), Type.FLO), key(new Dbl(1.1d), Type.FLO),
+          "an xs:double probe against an xs:float index must land on the float key");
+    }
+
+    @Test
     @DisplayName("the stored lexical form and the typed probe agree on a non-dyadic value")
     void bothSidesAgree() {
       // 1.1 is the case that mattered: the stored Str took Double.parseDouble("1.1") = 1.1d while the
