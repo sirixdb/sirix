@@ -208,11 +208,27 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     void addLong(final long v) {
       kind = 1;
       count++;
-      sum += v;
+      addToSum(v);
       if (v < min) min = v;
       if (v > max) max = v;
       if (hll == null) hll = new HyperLogLogSketch();
       hll.add(v);
+    }
+
+    /**
+     * Folds {@code delta} into {@link #sum}, marking the value statistics untrusted instead of
+     * wrapping when this accumulator would overflow. A column of 64-bit ids overflows a long after a
+     * few dozen values, and a wrapped total served as {@code sum}/{@code avg} is silently the true
+     * total modulo 2^64 — the same bargain NaN makes above: record that it cannot be reproduced and
+     * let the query fall back to the scan.
+     */
+    void addToSum(final long delta) {
+      final long updated = sum + delta;
+      if (((sum ^ updated) & (delta ^ updated)) < 0) {
+        valueStatsUntrusted = true;
+        return;
+      }
+      sum = updated;
     }
 
     /**
@@ -235,7 +251,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         return;
       }
       final double integral = v < 0 ? Math.ceil(v) : Math.floor(v);
-      sum += (long) integral;
+      addToSum((long) integral);
       sumFraction += v - integral;
       final long lower = (long) Math.floor(v);
       final long upper = (long) Math.ceil(v);
