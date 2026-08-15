@@ -612,11 +612,30 @@ public final class PathNode implements StructNode, NameNode {
     return s == null || (s.sumFraction == 0.0d && !s.doubleTyped);
   }
 
+  /**
+   * Folds {@code delta} into {@link PathStats#sum}, marking the sum untrustworthy instead of
+   * wrapping when the accumulator would overflow.
+   *
+   * <p>{@code xs:integer} is arbitrary precision but the accumulator is a {@code long}, so a column
+   * of 64-bit ids (hashes, snowflake ids, ClickBench's {@code UserID}) overflows it after a few
+   * dozen values and every summary-served {@code sum}/{@code avg} would silently be the true total
+   * modulo 2^64. Same doctrine as {@link PathStats#sumDirty}'s other setters: the honest move is to
+   * record that the aggregate can no longer be reproduced and let the query fall back to the scan.
+   */
+  private static void addToSum(final PathStats s, final long delta) {
+    final long updated = s.sum + delta;
+    if (((s.sum ^ updated) & (delta ^ updated)) < 0) {
+      s.sumDirty = true;
+      return;
+    }
+    s.sum = updated;
+  }
+
   /** Record a long value observation (numeric path). */
   void recordLongValue(final long value) {
     final PathStats s = getOrCreateStats();
     s.count++;
-    s.sum += value;
+    addToSum(s, value);
     if (value < s.min) {
       s.min = value;
     }
@@ -672,7 +691,7 @@ public final class PathNode implements StructNode, NameNode {
     if (s.count > 0) {
       s.count--;
     }
-    s.sum -= value;
+    addToSum(s, -value);
     if (value == s.min) {
       s.minDirty = true;
     }
@@ -715,7 +734,7 @@ public final class PathNode implements StructNode, NameNode {
   void mergeLongStats(final long count, final long sum, final long min, final long max) {
     final PathStats s = getOrCreateStats();
     s.count += count;
-    s.sum += sum;
+    addToSum(s, sum);
     if (min < s.min) {
       s.min = min;
     }

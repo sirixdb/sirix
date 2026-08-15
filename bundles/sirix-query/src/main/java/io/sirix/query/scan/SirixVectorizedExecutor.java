@@ -24,6 +24,7 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.util.simd.VectorizedPredicate;
+import io.sirix.query.json.ComputedStrJsonItem;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -2176,6 +2177,76 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The typed grouping scan shared by {@link #typedGroupByCount} and the count-distinct redo: returns
    * composite-encoded group keys → counts.
    */
+  /**
+   * {@code fn:min} / {@code fn:max} over a field whose values are strings.
+   *
+   * <p>The numeric kernels skip non-numeric values, so a string column reaches their "no numeric
+   * value contributed" branch. That branch used to be terminal — every {@code min(EventDate)}-shaped
+   * query died with an internal error even though the interpreter answers it — but string extrema
+   * are perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by codepoint,
+   * which is what {@link String#compareTo} implements for the values a JSON document can hold.
+   *
+   * <p>The distinct values come from the typed group-key kernel, which already carries this file's
+   * page-boundary, sparse-anchor and FSST-decoding guards; taking the extremum over the distinct
+   * values equals taking it over all of them. The cost is a hash map of the column's distinct
+   * values, i.e. the same memory {@code count(distinct-values(...))} already pays, which is the
+   * right trade against declining a shape the caller cannot fall back from
+   * ({@code VectorizedGroupByExpr#requireSupported} turns a {@code null} into an error rather than
+   * into a generic-pipeline retry).
+   *
+   * @param sourcePath       the scan source
+   * @param predicateOrNull  an optional predicate restricting the rows
+   * @param field            the aggregated field
+   * @param func             {@code "min"} or {@code "max"}; anything else declines
+   * @return the extremum, or {@code null} when this is not a pure-string column and the caller must
+   *         keep failing loudly (mixed types, JSON nulls, booleans, or an aggregate other than
+   *         min/max, where XQuery's own semantics are an error rather than a value)
+   */
+  private Sequence stringMinMaxOrNull(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String field, final String func) throws Exception {
+    final boolean min = "min".equals(func);
+    if (!min && !"max".equals(func)) {
+      return null;
+    }
+    final Object2LongOpenHashMap<String> groups =
+        typedGroupKeyCounts(sourcePath, predicateOrNull, new String[] { field });
+    String best = null;
+    for (final String encoded : groups.keySet()) {
+      if (encoded.isEmpty()) {
+        return null;
+      }
+      final char tag = encoded.charAt(0);
+      if (tag == 'm') {
+        // Records that do not carry the field contribute no item to the aggregated sequence.
+        continue;
+      }
+      if (tag != 's') {
+        // A null, boolean, or mixed-type column: fn:min's own semantics are a type error or a
+        // collation question this kernel must not answer.
+        return null;
+      }
+      final int colon = encoded.indexOf(':', 1);
+      if (colon < 0) {
+        return null;
+      }
+      final int length = Integer.parseInt(encoded.substring(1, colon));
+      final int end = colon + 1 + length;
+      if (end != encoded.length()) {
+        // Single group field: the value must run to the end of the key.
+        return null;
+      }
+      final String value = encoded.substring(colon + 1, end);
+      if (best == null || (min
+          ? value.compareTo(best) < 0
+          : value.compareTo(best) > 0)) {
+        best = value;
+      }
+    }
+    return best == null
+        ? null
+        : new ComputedStrJsonItem(best);
+  }
+
   private Object2LongOpenHashMap<String> typedGroupKeyCounts(final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields) throws Exception {
     final PredicateNode effective = predicateOrNull == null
@@ -3967,8 +4038,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       merged.merge(a);
     }
     if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
-      // Matching rows carried the aggregate field, but never as a number —
-      // the interpreter applies string/error semantics here. Fail loudly.
+      // Matching rows carried the aggregate field, but never as a number. min/max over a
+      // string column is well defined (fn:min/fn:max order xs:string by codepoint) and the
+      // interpreter answers it, so serve it rather than failing; sum/avg over strings really
+      // is a type error, and a mixed-type column stays loud.
+      final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, predicate, aggField, func);
+      if (stringExtreme != null) {
+        return stringExtreme;
+      }
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
           "Vectorized %s over field '%s': matching records hold no numeric values — "
               + "string/boolean/null aggregation is not supported by the vectorized executor",
@@ -9338,8 +9415,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (stats == null && dblStats == null) {
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
-        final boolean[] nonIntegral = new boolean[1];
-        final long[] fresh = parallelAggregate(field, targetPathNodeKey, nonIntegral);
+        // [0] non-integral value seen, [1] the long sum lane overflowed.
+        final boolean[] flags = new boolean[2];
+        final long[] fresh = parallelAggregate(field, targetPathNodeKey, flags);
+        final boolean nonIntegralOrOverflowed =
+            flags[0] || (flags[1] && ("sum".equals(func) || "avg".equals(func)));
         // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every
         // record carrying the field, regardless of the value's type. The
         // numeric accumulator's count only covers numbers (a count over a
@@ -9349,25 +9429,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return new Int64(fresh[4]);
         }
         // Value aggregates over a field that EXISTS but never yielded a
-        // numeric value (pure string/boolean/null column): the interpreter
-        // applies string/error semantics the numeric kernels cannot
-        // reproduce — fail LOUDLY instead of fabricating 0/empty.
-        if (!nonIntegral[0] && fresh[0] == 0 && fresh[4] > 0) {
+        // numeric value (pure string/boolean/null column). min/max over a
+        // string column is well defined and the interpreter answers it, so
+        // serve it here too; everything else the numeric kernels cannot
+        // reproduce fails LOUDLY instead of fabricating 0/empty.
+        if (!nonIntegralOrOverflowed && fresh[0] == 0 && fresh[4] > 0) {
+          final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, null, field, func);
+          if (stringExtreme != null) {
+            return stringExtreme;
+          }
           throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
               "Vectorized %s over field '%s': the field exists but holds no numeric values — "
                   + "string/boolean/null aggregation is not supported by the vectorized executor",
               func, field);
         }
-        if (nonIntegral[0]) {
-          // The column carries non-integral numbers — long accumulation TRUNCATES
-          // (sum over a half-double column measured 14% short). Redo with a
+        if (nonIntegralOrOverflowed) {
+          // Either the column carries non-integral numbers — long accumulation TRUNCATES
+          // (sum over a half-double column measured 14% short) — or the long sum lane would
+          // have wrapped (a 64-bit id column overflows within a few dozen rows). Redo with a
           // typed re-walk: decimal rows accumulate EXACTLY (the interpreter
           // sums xs:decimal exactly and divides via Dec#div), double rows in
-          // double space.
+          // double space, and the long lane escalates to BigDecimal on overflow.
           final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
           dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
           if (dblStats == null)
             dblStats = mfresh;
+        } else if (flags[1]) {
+          // min/max are still exact when the sum lane wrapped, so this call is answered from
+          // `fresh` — but the entry must NOT reach the cache, which is keyed by (source, field)
+          // and would then serve its bogus sum to a later sum/avg over the same column.
+          stats = fresh;
         } else {
           stats = aggregateCache.putIfAbsent(cacheKey, fresh);
           if (stats == null)
@@ -10655,13 +10746,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     double dblMin = Double.MAX_VALUE;
     double dblMax = -Double.MAX_VALUE;
 
+    /**
+     * Carry for {@link #longSum} once it would overflow; {@code null} while the primitive
+     * accumulator still holds the whole total.
+     *
+     * <p>{@code xs:integer} is arbitrary precision, and brackit's own
+     * {@code AbstractNumeric#addLong} escalates to {@link BigDecimal} on overflow. A column of
+     * 64-bit ids — ClickBench sums {@code UserID}, whose values run to 1.1e18 — overflows a long
+     * accumulator after a few dozen rows and the wrapped total is silently wrong, so the kernel has
+     * to escalate too. The check costs one branch that never mispredicts in the common case.
+     */
+    BigDecimal longSumCarry;
+
     void addLong(final long v) {
       longCount++;
-      longSum += v;
+      final long sum = longSum + v;
+      if (((longSum ^ sum) & (v ^ sum)) < 0) {
+        carryLong(longSum, v);
+      } else {
+        longSum = sum;
+      }
       if (v < longMin)
         longMin = v;
       if (v > longMax)
         longMax = v;
+    }
+
+    /** Moves an about-to-overflow running total into the exact carry and restarts the fast lane. */
+    private void carryLong(final long accumulated, final long addend) {
+      longSumCarry = (longSumCarry == null
+          ? BigDecimal.ZERO
+          : longSumCarry).add(BigDecimal.valueOf(accumulated)).add(BigDecimal.valueOf(addend));
+      longSum = 0L;
+    }
+
+    /** The long lane's exact total, including anything already escalated. */
+    private BigDecimal longTotal() {
+      final BigDecimal fast = BigDecimal.valueOf(longSum);
+      return longSumCarry == null
+          ? fast
+          : longSumCarry.add(fast);
     }
 
     void addDecimal(final BigDecimal v) {
@@ -10686,7 +10810,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (o == null)
         return;
       longCount += o.longCount;
-      longSum += o.longSum;
+      final long merged = longSum + o.longSum;
+      if (((longSum ^ merged) & (o.longSum ^ merged)) < 0) {
+        carryLong(longSum, o.longSum);
+      } else {
+        longSum = merged;
+      }
+      if (o.longSumCarry != null) {
+        longSumCarry = (longSumCarry == null
+            ? BigDecimal.ZERO
+            : longSumCarry).add(o.longSumCarry);
+      }
       if (o.longMin < longMin)
         longMin = o.longMin;
       if (o.longMax > longMax)
@@ -10719,7 +10853,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblCount == 0) {
         // Decimal-exact path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
-        final BigDecimal sum = decSum.add(BigDecimal.valueOf(longSum));
+        final BigDecimal sum = decSum.add(longTotal());
         final BigDecimal min = minBd(decMin, longCount > 0
             ? BigDecimal.valueOf(longMin)
             : null);
@@ -10736,7 +10870,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       // Double-bearing column — interpreter promotion makes the whole
       // aggregate xs:double.
-      final double sum = dblSum + (double) longSum + decSum.doubleValue();
+      final double sum = dblSum + longTotal().doubleValue() + decSum.doubleValue();
       double min = dblMin;
       double max = dblMax;
       if (longCount > 0) {
@@ -10843,7 +10977,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return merged;
   }
 
-  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] nonIntegralOut)
+  /**
+   * Adds {@code v} into the long accumulator {@code acc[1]}, flagging {@code flagsOut[1]} instead of
+   * wrapping when the running total would overflow.
+   *
+   * <p>{@code xs:integer} is arbitrary precision. A column of 64-bit ids overflows a long
+   * accumulator after a few dozen rows — ClickBench Q3 averages {@code UserID}, whose values run to
+   * 1.1e18 — and the wrapped total is a silently wrong answer, not a fast one. The flag routes the
+   * caller to the exact {@link MixedAgg} redo.
+   */
+  private static void accumulateChecked(final long[] acc, final long v, final boolean[] flagsOut) {
+    final long sum = acc[1] + v;
+    if (((acc[1] ^ sum) & (v ^ sum)) < 0) {
+      flagsOut[1] = true;
+    } else {
+      acc[1] = sum;
+    }
+  }
+
+  /**
+   * @param flagsOut {@code [0]} the column carried a non-integral number, {@code [1]} the long sum
+   *                 lane is not authoritative because it would have overflowed; either one means the
+   *                 caller must redo value aggregates through the exact accumulator
+   */
+  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] flagsOut)
       throws Exception {
     final int fieldKey = resolveFieldKey(field);
     // -1 = MISSING sentinel only — negative hashes are legitimate nameKeys.
@@ -10922,7 +11079,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final MemorySegment payloadBytes = kv.getNumberRegionPayload();
               if (NumberRegionSimd.aggregateRange(payloadBytes, hdr, start, end, simdAggOut)) {
                 acc[0] += tagN;
-                acc[1] += simdAggOut[0];
+                // The kernel sums a whole page in long lanes, so its own total can wrap before we
+                // ever see it. tagN values bounded by max(|min|,|max|) bound the page sum; when that
+                // bound clears the long range the page sum is trustworthy, otherwise the exact redo
+                // takes over.
+                final double pageBound = (double) tagN
+                    * Math.max(Math.abs((double) simdAggOut[1]), Math.abs((double) simdAggOut[2]));
+                if (pageBound >= 9.0e18) {
+                  flagsOut[1] = true;
+                } else {
+                  accumulateChecked(acc, simdAggOut[0], flagsOut);
+                }
                 if (simdAggOut[1] < acc[2])
                   acc[2] = simdAggOut[1];
                 if (simdAggOut[2] > acc[3])
@@ -10939,7 +11106,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     ? deltaVals[idx]
                     : NumberRegion.decodeValueAt(payload, hdr, idx);
                 acc[0]++;
-                acc[1] += v;
+                accumulateChecked(acc, v, flagsOut);
                 if (v < acc[2])
                   acc[2] = v;
                 if (v > acc[3])
@@ -10978,7 +11145,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (n == null)
                 continue;
               if (isNonIntegralNumber(n))
-                nonIntegralOut[0] = true;
+                flagsOut[0] = true;
               v = n.longValue();
             }
           } else {
@@ -10995,11 +11162,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (n == null)
               continue;
             if (isNonIntegralNumber(n))
-              nonIntegralOut[0] = true;
+              flagsOut[0] = true;
             v = n.longValue();
           }
           acc[0]++;
-          acc[1] += v;
+          accumulateChecked(acc, v, flagsOut);
           if (v < acc[2])
             acc[2] = v;
           if (v > acc[3])
@@ -11011,7 +11178,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE, visited = 0;
     for (long[] a : perThread) {
       count += a[0];
-      sum += a[1];
+      final long merged = sum + a[1];
+      if (((sum ^ merged) & (a[1] ^ merged)) < 0) {
+        flagsOut[1] = true;
+      } else {
+        sum = merged;
+      }
       visited += a[4];
       if (a[0] > 0) {
         if (a[2] < min)

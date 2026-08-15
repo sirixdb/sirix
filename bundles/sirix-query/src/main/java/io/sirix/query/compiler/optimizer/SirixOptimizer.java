@@ -110,6 +110,11 @@ public class SirixOptimizer extends TopDownOptimizer {
     // unregistered queries still go through Volcano (the original behavior).
     // getStages().add(new VectorizedDetectionStage());
     // getStages().add(new VectorizedRoutingStage());
+    // 9a. Withdraw any claim whose scan source is a variable an enclosing `group by` has
+    // rebound: brackit's walker resolves such a source back through the pre-group binding to
+    // the whole document, which answers every group with the GLOBAL fold. Must run BEFORE the
+    // Sirix-side detectors below, so they never build on a source that is not what it says.
+    getStages().add(new RegroupedSourceGuardStage());
     // 9b. Sirix-side per-group aggregate detection (P5b stage 7a): annotates the
     // group-by-with-aggregates pipe shape Brackit's walker doesn't cover; consumed by
     // SirixPipelineStrategy. Runs AFTER Brackit's VectorizedGroupByDetection (parent

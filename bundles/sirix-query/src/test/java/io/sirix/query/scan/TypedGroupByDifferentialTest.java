@@ -653,11 +653,43 @@ public final class TypedGroupByDifferentialTest {
   }
 
   @Test
-  void stringMinMaxAggregatesFailLoud() {
-    // min/max over a STRING field use string comparison in the interpreter —
-    // the numeric kernels cannot reproduce it. Historically this silently
-    // returned 0; it must now fail LOUDLY (never fabricate a value).
-    for (final String fn : new String[] { "min", "max", "sum", "avg" }) {
+  void aggregateOverANestedForOnAGroupedVariableStaysPerGroup() throws Exception {
+    // The grouped variable binds to the sequence of THIS group's tuples, so an aggregate over a
+    // nested `for` on it must fold that group and nothing else. The detector used to claim the inner
+    // FLWOR and trace its source variable back through the enclosing `for` to the whole document,
+    // which answered every group with the GLOBAL fold — silently, and only for the shapes where the
+    // aggregate reads a field (count($g) was unaffected, which is what made it hard to notice).
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"s\": sum(for $x in $u return $x.age)}");
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"a\": avg(for $x in $u return $x.age)}");
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"m\": min(for $x in $u return $x.age), "
+        + "\"x\": max(for $x in $u return $x.age)}");
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"u\": count(distinct-values(for $x in $u return $x.age))}");
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"n\": count(for $x in $u return $x.age)}");
+    // Two grouping keys, and a nested for over a SPARSE field.
+    assertDifferential("for $u in " + SRC + " let $d := $u.dept, $c := $u.city group by $d, $c "
+        + "return {\"d\": $d, \"c\": $c, \"s\": sum(for $x in $u return $x.bonus)}");
+  }
+
+  @Test
+  void stringMinMaxAggregatesMatchTheInterpreter() throws Exception {
+    // min/max over a STRING field are well defined — fn:min/fn:max order xs:string by codepoint —
+    // and the interpreter answers them, so the fast path has to produce the same answer rather than
+    // fail. (It used to fail loudly here, which made ClickBench Q6's MIN(EventDate)/MAX(EventDate)
+    // unrunnable in the default configuration.)
+    assertDifferential("min(for $u in " + SRC + " return $u.dept)");
+    assertDifferential("max(for $u in " + SRC + " return $u.dept)");
+  }
+
+  @Test
+  void stringSumAndAvgAggregatesFailLoud() {
+    // sum/avg over a STRING field are a type error in the interpreter too, so the numeric kernels
+    // must never fabricate a value for them — they stay loud.
+    for (final String fn : new String[] { "sum", "avg" }) {
       final var ex = org.junit.jupiter.api.Assertions.assertThrows(Exception.class,
           () -> run(fn + "(for $u in " + SRC + " return $u.dept)", true), fn);
       final String msg = String.valueOf(ex.getMessage());
