@@ -3298,6 +3298,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   private volatile long stampCoordinates = STAMP_COORDINATES_UNBOUND;
 
   /**
+   * Monotonic counter identifying the CURRENT binding, bumped every time {@link #stampCoordinates}
+   * could come to name a different slot.
+   *
+   * <p>
+   * The piece that makes a stamp self-describing without packing two quantities into one
+   * {@code long}. A slot version is meaningless on its own — it is a sequence private to one slot,
+   * and two slots can carry equal values at the same moment — so a reader must prove it is validating
+   * against the SAME binding it read under. It carries this alongside the stamp and hands both back;
+   * a rebind in between changes the generation and the read is retried. Monotonic rather than a flag
+   * so that a rebind back to the same slot is still detected. {@code volatile}: written under the
+   * segment swap, read by every validating reader.
+   * </p>
+   */
+  private volatile long stampBindingGeneration;
+
+  /**
    * Segment whose ADDRESS identifies the allocator slot, when that is not {@link #slottedPage} itself
    * — a zero-copy deserialized page takes its slotted region as a MID-BUFFER SLICE, and the allocator
    * keys its live-slot map by the address it handed out. Binding from a slice misses and degrades
@@ -3331,22 +3347,53 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   void setStampBaseSegment(final @Nullable MemorySegment base) {
     this.stampBaseSegment = base;
     this.stampCoordinates = STAMP_COORDINATES_UNBOUND;
+    // Changing the base changes which slot the next bind resolves to, so it is a rebind like any
+    // other and must invalidate outstanding stamps.
+    this.stampBindingGeneration++;
+  }
+
+  /**
+   * The binding this page's stamps are currently issued against — snapshot it BEFORE
+   * {@link #readStamp()} and hand both back to {@link #validateStamp(long, long)}.
+   *
+   * <p>
+   * A stamp alone cannot be validated, and that is not an API wart but the shape of the problem. A
+   * stamp is a per-SLOT sequence number, so it only means anything paired with the slot it came from;
+   * two slots' counters are unrelated and can hold equal values at the same instant. Validating a
+   * stamp against whatever slot the page happens to be bound to NOW therefore compares a version to a
+   * counter that never produced it, and can return {@code true} by coincidence — a reader certifying
+   * bytes from one allocation against another's sequence. Carrying the binding in the reader's own
+   * frame costs one extra {@code long} on the stack and makes that impossible: any rebind between
+   * snapshot and validation changes the generation, so validation fails and the read is retried.
+   * </p>
+   *
+   * @return the current binding generation
+   */
+  public long readStampBinding() {
+    return stampBindingGeneration;
   }
 
   /**
    * Snapshot this page's read stamp. Protocol (seqlock, reader side):
    *
    * <pre>{@code
+   * long binding = page.readStampBinding();   // the slot generation the stamp will belong to
    * long stamp = page.readStamp();            // odd => closed/teardown in progress: re-resolve
    * ... any number of reads of page content ...
-   * if (!page.validateStamp(stamp)) retry;    // the slot was reclaimed mid-read: re-resolve, redo
+   * if (!page.validateStamp(binding, stamp)) retry;   // torn or rebound: re-resolve, redo
    * }</pre>
    *
    * A validated stamp proves every read since the snapshot saw stable bytes — one validation covers
    * an arbitrary batch of reads, so a cursor may snapshot once per {@code moveTo} and validate at the
    * end of a whole accessor rather than per field.
    *
-   * @return the stamp to hand back to {@link #validateStamp}
+   * <p>
+   * Reading the binding FIRST is what makes the pair safe. A rebind landing between the two reads
+   * bumps the generation, so the stamp is validated against a binding that no longer matches and the
+   * reader retries — conservative in the only direction that is safe.
+   * </p>
+   *
+   * @return the stamp to hand back to {@link #validateStamp(long, long)}
    */
   public long readStamp() {
     long coordinates = stampCoordinates;
@@ -3379,10 +3426,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   /**
    * Whether every read since {@code stamp} was taken saw stable bytes.
    *
+   * @param bindingAtRead the value {@link #readStampBinding()} returned before the stamp was taken
    * @param stamp a value previously returned by {@link #readStamp()}
    * @return {@code true} iff reads under {@code stamp} are trustworthy
    */
-  public boolean validateStamp(final long stamp) {
+  public boolean validateStamp(final long bindingAtRead, final long stamp) {
+    // FIRST, and for both stamp kinds. The binding is what makes a stamp interpretable at all: if the
+    // page has been re-bound since it was taken, the stamp belongs to a slot this page no longer
+    // reads, and the version check below would compare it against an unrelated counter. This also
+    // covers the segment swap itself, so the UNBACKED branch is not a special case — a page that
+    // swapped from unbacked to frame-backed, or the reverse, changes generation like any other.
+    if (stampBindingGeneration != bindingAtRead) {
+      return false;
+    }
     if (stamp == STAMP_UNBACKED) {
       // Unbacked memory has no slot version to consult; detecting a close between snapshot and
       // validation is the strongest check available, and all the non-frame allocators need — their
@@ -3466,6 +3522,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     stampCoordinates = STAMP_COORDINATES_UNBOUND;
     slottedPage = segment;
     stampCoordinates = STAMP_COORDINATES_UNBOUND;
+    // LAST, so that a reader which already loaded the new generation cannot then observe the OLD
+    // coordinates: everything above is ordered before this volatile store, and a reader compares
+    // generations after its own reads. A stamp taken before the swap carries the old generation and
+    // can no longer validate.
+    stampBindingGeneration++;
   }
 
   // Leak detection lives in LeakDetectorState above (registered with LEAK_CLEANER in

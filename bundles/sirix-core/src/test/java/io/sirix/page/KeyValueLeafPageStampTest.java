@@ -70,9 +70,10 @@ final class KeyValueLeafPageStampTest {
   void anUndisturbedStampValidates() {
     page.setSlot(new byte[] {1, 2, 3, 4}, 0);
 
+    final long binding = page.readStampBinding();
     final long stamp = page.readStamp();
 
-    assertTrue(page.validateStamp(stamp), "nothing moved, so the read was stable");
+    assertTrue(page.validateStamp(binding, stamp), "nothing moved, so the read was stable");
   }
 
   @Test
@@ -88,16 +89,53 @@ final class KeyValueLeafPageStampTest {
   @DisplayName("a stamp taken before close does not validate after it")
   void closingInvalidatesAnOutstandingStamp() {
     page.setSlot(new byte[] {1, 2, 3, 4}, 0);
+    final long binding = page.readStampBinding();
     final long stamp = page.readStamp();
-    assertTrue(page.validateStamp(stamp), "precondition: the stamp is good while the page is live");
+    assertTrue(page.validateStamp(binding, stamp), "precondition: the stamp is good while the page is live");
 
     page.close();
 
     // This is the whole point of the protocol. A reader that had already snapshotted this stamp and
     // was about to read the segment must be told to re-resolve rather than read freed memory — which
     // is what the page guard used to prevent by keeping the page alive instead.
-    assertFalse(page.validateStamp(stamp), "the page was closed under the reader");
+    assertFalse(page.validateStamp(binding, stamp), "the page was closed under the reader");
     page = null; // tearDown must not close it twice
+  }
+
+  @Test
+  @DisplayName("a stamp does not survive the page being re-bound to another segment")
+  void rebindingInvalidatesAnOutstandingStamp() {
+    // The hole a bare `validateStamp(stamp)` cannot close. A stamp is a per-SLOT sequence number, so
+    // once the page is bound elsewhere the stamp names a counter this page no longer reads, and
+    // validating it against the NEW slot compares two unrelated sequences.
+    //
+    // WHAT THIS PROVES, precisely, because the distinction cost a wrong claim once already: the
+    // re-bind is what matters, not the swap. Immediately after a swap `stampCoordinates` is UNBOUND
+    // and validateStamp already rejects on that alone — deleting the generation check does NOT fail
+    // that case. It is the readStamp() below, which re-binds the coordinates to the NEW slot, that
+    // leaves the old stamp facing a live and unrelated counter. Deleting the generation check does
+    // not reliably fail THIS case either: without it the answer depends on whether the two slots'
+    // versions happen to coincide, which is exactly the coincidence the check exists to rule out and
+    // exactly why it cannot be pinned by a deterministic assertion. This test pins the GUARANTEE;
+    // the mutation argument for it is that a passing run must not depend on two counters differing.
+    page.setSlot(new byte[] {1, 2, 3, 4}, 0);
+    final long binding = page.readStampBinding();
+    final long stamp = page.readStamp();
+    assertTrue(page.validateStamp(binding, stamp), "precondition: good before the rebind");
+
+    // Force a segment swap: fill past the initial capacity so the page must grow.
+    final byte[] filler = new byte[512];
+    for (int slot = 1; slot < 200; slot++) {
+      page.setSlot(filler, slot);
+    }
+    assertNotEquals(binding, page.readStampBinding(), "growing the page must re-bind it");
+
+    // Re-bind the coordinates onto the new slot, as any concurrent reader's first stamp would.
+    final long afterBinding = page.readStampBinding();
+    final long afterStamp = page.readStamp();
+    assertTrue(page.validateStamp(afterBinding, afterStamp), "the new binding is usable");
+
+    assertFalse(page.validateStamp(binding, stamp), "a stamp from the previous binding must not validate");
   }
 
   @Test
@@ -105,9 +143,10 @@ final class KeyValueLeafPageStampTest {
   void aClosedPageIssuesNoUsableStamp() {
     page.close();
 
+    final long binding = page.readStampBinding();
     final long stamp = page.readStamp();
 
-    assertFalse(page.validateStamp(stamp), "a stamp taken from a closed page can never be trusted");
+    assertFalse(page.validateStamp(binding, stamp), "a stamp taken from a closed page can never be trusted");
     page = null;
   }
 }
