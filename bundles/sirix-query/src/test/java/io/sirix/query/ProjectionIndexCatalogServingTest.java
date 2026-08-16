@@ -1731,6 +1731,258 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void stringSortedScansServeAndMatchTheGenericPipeline() throws IOException {
+    // String ORDER BY keys (gap 1b widened to STRING_DICT) + `return $r.field` (gap 1c).
+    // The corpus plants the collation adversary pair U+FF01 (3-byte UTF-8, high UTF-16
+    // unit) vs U+10400 (4-byte UTF-8, surrogate pair): raw unsigned UTF-8 order and the
+    // interpreter's UTF-16 order DISAGREE on it, so a comparator missing the decoded
+    // fallback fails the differential — descending puts the pair at the FRONT of the
+    // window. Duplicate names prove document-order stability; the "" phrase exercises
+    // the empty string as an order value and as an NE literal.
+    query("""
+          jn:store('json-path1','strsort.jn','[
+            {"name": "delta",   "age": 1, "phrase": "x"},
+            {"name": "alpha",   "age": 2, "phrase": ""},
+            {"name": "charlie", "age": 3, "phrase": "y"},
+            {"name": "alpha",   "age": 2, "phrase": "z"},
+            {"name": "！",  "age": 5, "phrase": "w"},
+            {"name": "𐐀", "age": 2, "phrase": "v"},
+            {"name": "bravo",   "age": 7, "phrase": "q"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','strsort.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/name', '/[]/age', '/[]/phrase'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','strsort.jn')\n";
+    final String[] queries = {
+        // full ascending window over one string key
+        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r, 1, 7)",
+        // DESCENDING: the collation adversaries are the top-2 — untested by ClickBench
+        "subsequence(" + src + "for $r in $doc[] order by $r.name descending return $r, 1, 3)",
+        // fn:contains predicate + string key (the Q23 shape; the predsSliceable widening)
+        "subsequence(" + src
+            + "for $r in $doc[] where contains($r.name, \"a\") order by $r.name return $r, 1, 5)",
+        // NE '' predicate + return-field projection (the Q24 shape)
+        "subsequence(" + src
+            + "for $r in $doc[] where $r.phrase != \"\" order by $r.name return $r.phrase, 1, 6)",
+        // two string keys; the alpha tie resolves on phrase "" vs "z" (the Q26 shape)
+        "subsequence(" + src + "for $r in $doc[] order by $r.name, $r.phrase return $r, 1, 7)",
+        // numeric first key, string second key: the age-2 plateau orders by name
+        "subsequence(" + src + "for $r in $doc[] order by $r.age, $r.name return $r, 1, 5)",
+        // return-field equal to the order key (the Q25 shape)
+        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.name, 1, 4)"};
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("strsort.jn");
+      final String[] generic = new String[queries.length];
+      for (int i = 0; i < queries.length; i++) {
+        generic[i] = evaluateQuery(chain, ctx, queries[i]);
+      }
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        for (int i = 0; i < queries.length; i++) {
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
+              "string sorted-scan parity, query " + i);
+        }
+        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "every string sorted-scan query must be SERVED from the projection");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void sortedScanReturnFieldGuardsTheSubsequenceWindow() throws IOException {
+    // fn:subsequence counts ITEMS, not rows: a top-K winner whose return field is
+    // MISSING yields empty and shifts the window into rows the scan never fetched.
+    // The expr must fail LOUD into the generic fallback there — a silent skip returns
+    // row K+1's value as item K. Unbounded scans may skip empties (exact semantics).
+    query("""
+          jn:store('json-path1','strsort4.jn','[
+            {"age": 2, "name": "b", "phrase": "p"},
+            {"age": 1, "name": "a"},
+            {"age": 3, "name": "c", "phrase": "r"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','strsort4.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/name', '/[]/age', '/[]/phrase'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','strsort4.jn')\n";
+    final String windowHasMissing =
+        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.phrase, 1, 2)";
+    final String unboundedSkips = src + "for $r in $doc[] order by $r.age return $r.phrase";
+    final String windowClean =
+        "subsequence(" + src + "for $r in $doc[] order by $r.name descending return $r.phrase, 1, 2)";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("strsort4.jn");
+      final String genericMissing = evaluateQuery(chain, ctx, windowHasMissing);
+      final String genericUnbounded = evaluateQuery(chain, ctx, unboundedSkips);
+      final String genericClean = evaluateQuery(chain, ctx, windowClean);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        final long failedBefore = SirixVectorizedExecutor.sortedScanFailedCount();
+        Assertions.assertEquals(genericMissing, evaluateQuery(chain, ctx, windowHasMissing),
+            "missing-field window must still answer correctly (via fallback)");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "a window containing a missing return field must NOT serve");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanFailedCount() - failedBefore,
+            "the miss must take the loud-fail path, not a silent decline");
+        servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(genericUnbounded, evaluateQuery(chain, ctx, unboundedSkips),
+            "unbounded return-field scan must skip empty derefs exactly");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "the unbounded return-field scan must be SERVED");
+        servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(genericClean, evaluateQuery(chain, ctx, windowClean),
+            "a clean window over the same corpus must serve");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "the guard must fire only when the window actually contains a miss");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void stringSortedScanDeclinesOnMissingOrderCells() throws IOException {
+    // A matched row without the string order key can only be placed by the interpreter
+    // (empty-least semantics) — the scan must return null, never invent a position.
+    query("""
+          jn:store('json-path1','strsort3.jn','[
+            {"name": "x", "v": 1},
+            {"v": 2}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','strsort3.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/name', '/[]/v'),
+              ('string', 'long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String q = "subsequence(let $doc := jn:doc('json-path1','strsort3.jn')\n"
+        + "for $r in $doc[] order by $r.name return $r, 1, 2)";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("strsort3.jn");
+      final String generic = evaluateQuery(chain, ctx, q);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, q),
+            "missing string order cell must fall back with an identical answer");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "a corpus with a missing string order cell must DECLINE");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void multiLeafStringSortedScansMatchTheGenericPipeline() throws IOException {
+    // 2500 rows = 3 leaves: the same string interns to DIFFERENT dict ids per leaf, so
+    // packed (leaf,dictId) heap keys for equal values differ as longs and MUST compare
+    // equal through entry bytes, then fall to the document-order rank — cross-leaf
+    // stability differentially proven with the parallel collector engaged.
+    final StringBuilder big = new StringBuilder(120_000).append('[');
+    for (int i = 0; i < 2500; i++) {
+      if (i > 0) {
+        big.append(',');
+      }
+      big.append("{\"name\":\"N").append(i % 5).append("\",\"val\":").append(i).append('}');
+    }
+    big.append(']');
+    query("jn:store('json-path1','strsort2.jn','" + big + "')");
+    query("""
+          let $doc := jn:doc('json-path1','strsort2.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/name', '/[]/val'),
+              ('string', 'long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','strsort2.jn')\n";
+    final String[] queries = {
+        // 30 winners, all name "N0", straddling leaves — pure rank-tiebreak territory
+        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r, 1, 30)",
+        "subsequence(" + src
+            + "for $r in $doc[] order by $r.name descending, $r.val descending return $r, 1, 15)",
+        // string NE predicate + two keys through the sliced path
+        "subsequence(" + src
+            + "for $r in $doc[] where $r.name != \"N3\" order by $r.name, $r.val return $r, 1, 20)",
+        // numeric return field under a string order key
+        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.val, 1, 25)"};
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("strsort2.jn");
+      final String[] generic = new String[queries.length];
+      for (int i = 0; i < queries.length; i++) {
+        generic[i] = evaluateQuery(chain, ctx, queries[i]);
+      }
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 4);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        for (int i = 0; i < queries.length; i++) {
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
+              "multi-leaf string sorted-scan parity, query " + i);
+        }
+        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "every multi-leaf string sorted-scan query must be SERVED");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void multiKeySortedScansServeAndMatchTheGenericPipeline() throws IOException {
     // Gap item 1b: N order-by keys with per-key direction. Ties on the primary key
     // exercise the secondary key; exact ties on BOTH keys exercise document-order

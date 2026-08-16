@@ -334,6 +334,13 @@ public final class ProjectionColumnScan {
     final long[][] keySlices = store.recordKeys(fetcher);
     final Scratch s = SCRATCH.get();
     final int keyCount = sortColumns.length;
+    // A string key's heap value is the PACKED (leaf << 32) | dictId — never comparable as a
+    // long (the same value in two leaves packs differently), so every comparison resolves the
+    // entry bytes through sortCols. Numeric keys stay raw longs.
+    final boolean[] stringKey = new boolean[keyCount];
+    for (int kk = 0; kk < keyCount; kk++) {
+      stringKey[kk] = store.columnKind(sortColumns[kk]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    }
     for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
       final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
       if (rowCount <= 0) {
@@ -396,6 +403,13 @@ public final class ProjectionColumnScan {
     final long[][] keySlices = store.recordKeys(fetcher);
     final Scratch s = SCRATCH.get();
     final int keyCount = sortColumns.length;
+    // A string key's heap value is the PACKED (leaf << 32) | dictId — never comparable as a
+    // long (the same value in two leaves packs differently), so every comparison resolves the
+    // entry bytes through sortCols. Numeric keys stay raw longs.
+    final boolean[] stringKey = new boolean[keyCount];
+    for (int kk = 0; kk < keyCount; kk++) {
+      stringKey[kk] = store.columnKind(sortColumns[kk]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT;
+    }
     // Heap of the K best rows: tuples row-major beside keys and document-order ranks, root =
     // worst kept. The rank is the stable-sort tiebreak, so bounded selection and the full
     // stable sort agree exactly.
@@ -410,7 +424,10 @@ public final class ProjectionColumnScan {
       if (leafRows <= 0) {
         continue;
       }
-      if (size == k && leafZonePrunable(sortCols, leaf, leafRows, descending[0], heapTuple)) {
+      // NEVER zone-prune on a string first key: ColumnSlice.min()/max() of a STRING_DICT
+      // column are dict IDS, meaningless for value order — pruning on them drops matching
+      // leaves silently (the exact hazard the STR_* predicate ops were split off to avoid).
+      if (size == k && !stringKey[0] && leafZonePrunable(sortCols, leaf, leafRows, descending[0], heapTuple)) {
         rank += leafRows; // ranks only order rows WITHIN the kept set; skipped rows never enter
         continue;
       }
@@ -441,7 +458,9 @@ public final class ProjectionColumnScan {
             return null; // a matching row without an order key — the interpreter places it
           }
           for (int kk = 0; kk < keyCount; kk++) {
-            candidate[kk] = sortCols[kk][leaf].numericValues()[rowIdx];
+            candidate[kk] = stringKey[kk]
+                ? (long) leaf << 32 | sortCols[kk][leaf].stringDictIds()[rowIdx]
+                : sortCols[kk][leaf].numericValues()[rowIdx];
           }
           final long rowRank = rank + rowIdx;
           if (size < k) {
@@ -451,14 +470,15 @@ public final class ProjectionColumnScan {
             heapRank[slot] = rowRank;
             if (size == k) {
               for (int i = (k >>> 1) - 1; i >= 0; i--) {
-                siftDownWorst(heapTuple, heapKey, heapRank, i, k, keyCount, descending);
+                siftDownWorst(heapTuple, heapKey, heapRank, i, k, keyCount, descending, sortCols, stringKey);
               }
             }
-          } else if (compareCandidate(candidate, rowRank, heapTuple, heapRank, 0, keyCount, descending) < 0) {
+          } else if (compareCandidate(candidate, rowRank, heapTuple, heapRank, 0, keyCount, descending, sortCols,
+              stringKey) < 0) {
             System.arraycopy(candidate, 0, heapTuple, 0, keyCount);
             heapKey[0] = keys[rowIdx];
             heapRank[0] = rowRank;
-            siftDownWorst(heapTuple, heapKey, heapRank, 0, k, keyCount, descending);
+            siftDownWorst(heapTuple, heapKey, heapRank, 0, k, keyCount, descending, sortCols, stringKey);
           }
         }
       }
@@ -470,7 +490,8 @@ public final class ProjectionColumnScan {
     for (int i = 0; i < kept; i++) {
       order[i] = i;
     }
-    IntArrays.mergeSort(order, (a, b) -> compareHeapRows(heapTuple, heapRank, a, b, keyCount, descending));
+    IntArrays.mergeSort(order,
+        (a, b) -> compareHeapRows(heapTuple, heapRank, a, b, keyCount, descending, sortCols, stringKey));
     final long[] out = new long[kept];
     for (int i = 0; i < kept; i++) {
       out[i] = heapKey[order[i]];
@@ -505,12 +526,35 @@ public final class ProjectionColumnScan {
         : first.min() > worstFirstKey;
   }
 
+  /** One key-position comparison: raw longs for a numeric key; for a string key both values are
+   * packed {@code (leaf, dictId)} refs whose ENTRY BYTES resolve through {@code sortCols} and
+   * compare under the interpreter's collation (unsigned UTF-8, decoded compareTo on any 4-byte
+   * lead — the same gate every dict kernel uses). */
+  private static int compareKeyAt(final long a, final long b, final int k, final boolean[] stringKey,
+      final ColumnSlice[][] sortCols) {
+    if (!stringKey[k]) {
+      return Long.compare(a, b);
+    }
+    if (a == b) {
+      return 0; // same leaf, same dict id — same value, no byte walk needed
+    }
+    final byte[] ea = sortCols[k][(int) (a >>> 32)].stringDict()[(int) a];
+    final byte[] eb = sortCols[k][(int) (b >>> 32)].stringDict()[(int) b];
+    if (ProjectionIndexScan.hasFourByteUtf8(ea, 0, ea.length)
+        || ProjectionIndexScan.hasFourByteUtf8(eb, 0, eb.length)) {
+      return new String(ea, java.nio.charset.StandardCharsets.UTF_8)
+          .compareTo(new String(eb, java.nio.charset.StandardCharsets.UTF_8));
+    }
+    return Arrays.compareUnsigned(ea, eb);
+  }
+
   /** Compare a candidate row against heap slot {@code slot} under the sort's total order. */
   private static int compareCandidate(final long[] candidate, final long candidateRank, final long[] heapTuple,
-      final long[] heapRank, final int slot, final int keyCount, final boolean[] descending) {
+      final long[] heapRank, final int slot, final int keyCount, final boolean[] descending,
+      final ColumnSlice[][] sortCols, final boolean[] stringKey) {
     final int base = slot * keyCount;
     for (int k = 0; k < keyCount; k++) {
-      final int cmp = Long.compare(candidate[k], heapTuple[base + k]);
+      final int cmp = compareKeyAt(candidate[k], heapTuple[base + k], k, stringKey, sortCols);
       if (cmp != 0) {
         return descending[k]
             ? -cmp
@@ -522,11 +566,11 @@ public final class ProjectionColumnScan {
 
   /** Compare two heap slots under the sort's total order (per-key direction, rank tiebreak). */
   private static int compareHeapRows(final long[] heapTuple, final long[] heapRank, final int a, final int b,
-      final int keyCount, final boolean[] descending) {
+      final int keyCount, final boolean[] descending, final ColumnSlice[][] sortCols, final boolean[] stringKey) {
     final int ba = a * keyCount;
     final int bb = b * keyCount;
     for (int k = 0; k < keyCount; k++) {
-      final int cmp = Long.compare(heapTuple[ba + k], heapTuple[bb + k]);
+      final int cmp = compareKeyAt(heapTuple[ba + k], heapTuple[bb + k], k, stringKey, sortCols);
       if (cmp != 0) {
         return descending[k]
             ? -cmp
@@ -538,16 +582,18 @@ public final class ProjectionColumnScan {
 
   /** Max-heap sift-down (root = WORST kept row) over the parallel heap arrays. */
   private static void siftDownWorst(final long[] heapTuple, final long[] heapKey, final long[] heapRank,
-      final int start, final int size, final int keyCount, final boolean[] descending) {
+      final int start, final int size, final int keyCount, final boolean[] descending,
+      final ColumnSlice[][] sortCols, final boolean[] stringKey) {
     int i = start;
     final int half = size >>> 1;
     while (i < half) {
       int child = (i << 1) + 1;
       final int right = child + 1;
-      if (right < size && compareHeapRows(heapTuple, heapRank, right, child, keyCount, descending) > 0) {
+      if (right < size
+          && compareHeapRows(heapTuple, heapRank, right, child, keyCount, descending, sortCols, stringKey) > 0) {
         child = right;
       }
-      if (compareHeapRows(heapTuple, heapRank, child, i, keyCount, descending) <= 0) {
+      if (compareHeapRows(heapTuple, heapRank, child, i, keyCount, descending, sortCols, stringKey) <= 0) {
         return;
       }
       swapHeapRows(heapTuple, heapKey, heapRank, i, child, keyCount);
@@ -572,7 +618,7 @@ public final class ProjectionColumnScan {
     heapRank[b] = tmp;
   }
 
-  /** Resolve + validate the order columns: NUMERIC_LONG slices, one per key. */
+  /** Resolve + validate the order columns: NUMERIC_LONG or STRING_DICT slices, one per key. */
   private static ColumnSlice[][] resolveSortColumns(final ProjectionColumnStore store, final int[] sortColumns,
       final ColumnSegmentFetcher fetcher) {
     if (sortColumns == null || sortColumns.length < 1) {
@@ -580,8 +626,10 @@ public final class ProjectionColumnScan {
     }
     final ColumnSlice[][] cols = new ColumnSlice[sortColumns.length][];
     for (int k = 0; k < sortColumns.length; k++) {
-      if (store.columnKind(sortColumns[k]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-        throw new IllegalStateException("sortColumn " + sortColumns[k] + " is not NUMERIC_LONG");
+      final byte kind = store.columnKind(sortColumns[k]);
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+          && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("sortColumn " + sortColumns[k] + " is not NUMERIC_LONG or STRING_DICT");
       }
       cols[k] = store.column(sortColumns[k], fetcher);
     }

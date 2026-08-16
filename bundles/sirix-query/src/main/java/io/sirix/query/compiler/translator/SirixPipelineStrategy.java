@@ -53,13 +53,15 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       // Gap 3: a sole-consumer fn:subsequence over this pipe caps how many sorted rows
       // can ever be pulled — the executor then heap-selects top-K instead of full-sorting.
       final Long topK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+      final String returnField =
+          (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
       if (sortSourcePath != null && orderFields != null && descending != null && orderFields.length == descending.length
           && acceptsOrRuntimeCheckable(sortExecutor, sortSourceRef)) {
         return new SirixSortedScanExpr(sortExecutor, sortSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields, descending, topK == null
                 ? -1L
                 : topK,
-            sortExecutor.boundDatabaseName(), runtimeRef(sortSourceRef), generic);
+            returnField, sortExecutor.boundDatabaseName(), runtimeRef(sortSourceRef), generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
