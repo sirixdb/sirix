@@ -288,6 +288,18 @@ tasks.register('nativeImageSmokeTest', Test) {
     maxHeapSize = '4g'
 }
 
+// PGO instrumentation crashes GraalVM's register allocator (25.0.3 and 25.0.4:
+// "mismatched definition: r10|QWORD != r10|QWORD[.]") while compiling the FFM UPCALL stub that
+// jline's terminal provider registers (an int->void signal handler) — the only upcall in the
+// dependency graph. The benchmark mains never touch a terminal, so the instrumented image simply
+// builds without jline; the final --pgo build keeps the full classpath (profiles are keyed by
+// method, missing entries are neutral).
+if (project.hasProperty('pgo-instrument') && !project.hasProperty('pgo-keep-jline')) {
+    configurations.matching { it.name == 'nativeImageClasspath' }.configureEach {
+        exclude group: 'org.jline'
+    }
+}
+
 // GraalVM Native Image Configuration
 graalvmNative {
     registerTestBinary("smokeTest") {
@@ -407,6 +419,11 @@ graalvmNative {
             // Step 3: Build optimized binary: ./gradlew :sirix-query:nativeCompile -Ppgo=default.iprof
             if (project.hasProperty('pgo-instrument')) {
                 buildArgs.add('--pgo-instrument')
+                // Graal 25.0.3 crashes with "mismatched definition: r10|QWORD != r10|QWORD[.]"
+                // (a register-allocator assertion) when instrumenting under -march=native.
+                // The PROFILE does not need native codegen — only the final --pgo build does,
+                // and iprof profiles are march-agnostic. Last -march wins.
+                buildArgs.add('-march=compatibility')
             }
             if (project.hasProperty('pgo')) {
                 buildArgs.add("--pgo=${project.findProperty('pgo')}")
