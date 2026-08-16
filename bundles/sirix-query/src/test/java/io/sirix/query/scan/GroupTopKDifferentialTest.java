@@ -362,6 +362,80 @@ public final class GroupTopKDifferentialTest {
 
   // ---- harness --------------------------------------------------------------------------------
 
+  // ---- HAVING, strlen operands, cast-avg ordering (the Q27 shape) -----------------------------
+
+  @Test
+  void havingCountThresholdSweep() throws Exception {
+    // ~2003 rows over 7 k7 groups (~286 each): thresholds that pass all, some, none; both
+    // operand orders; ops beyond >. A group failing HAVING must never occupy a window slot.
+    for (final String h : new String[] {"$c > 100", "$c > 280", "$c > 100000", "$c >= 287", "$c < 287",
+        "300 > $c", "$c != 286"}) {
+      assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k7 group by $k "
+          + "let $c := count($u) where " + h + " order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
+    }
+  }
+
+  @Test
+  void havingOnStringKeyAndTheMissingKeyGroup() throws Exception {
+    // String-key arm; and the null-key group (missing tier, ~1/3 of rows) is the LARGEST —
+    // a threshold only IT passes proves the missing-group offer is filtered symmetrically.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "let $c := count($u) where $c >= 400 order by $c descending return {\"d\": $d, \"c\": $c}, 1, 4)");
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $t := $u.tier group by $t "
+        + "let $c := count($u) where $c > 500 order by $c descending return {\"t\": $t, \"c\": $c}, 1, 4)");
+  }
+
+  @Test
+  void havingOverANonCountAggregateDeclines() throws Exception {
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertOrderedDifferential("subsequence(for $u in " + SRC + " let $k := $u.k7 group by $k "
+        + "let $s := sum($u.amount) where $s > 1000 order by $s descending "
+        + "return {\"k\": $k, \"s\": $s}, 1, 5)", false);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "HAVING over a non-count aggregate must DECLINE to the interpreter");
+  }
+
+  @Test
+  void strlenOperandFoldsCodepointsAndZeroForMissing() throws Exception {
+    // nick is ABSENT for the whole Ops dept and carries the U+FF01 (1 codepoint, 3 UTF-8
+    // bytes) / U+10400 (1 codepoint, 4 bytes) salts: byte-count-as-length inflates both,
+    // and fn:string-length(()) is 0 — SKIPPING missing rows (instead of folding 0) shifts
+    // every average and count.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := $u.k7, $len := string-length($u.name) group by $k "
+        + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
+        + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
+        + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
+        + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
+    // min/max over the strlen operand read the same lanes the ordering trusts.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"k\": $k, \"lo\": min($len), \"hi\": max($len), \"c\": $c}, 1, 4)");
+  }
+
+  @Test
+  void orderByCastAvgTiesWhereDoublesCollapse() throws Exception {
+    // bk groups 2 and 1 have exact avgs 4.5e14+0.02 vs +0.01 — DISTINCT exactly, EQUAL as
+    // doubles. Ordering by xs:double(avg) must treat them as a TIE (first-appearance:
+    // bk=2 first); the exact-fraction comparator orders them and diverges. The plain-avg
+    // ordering test elsewhere pins the opposite direction.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.bk group by $k "
+        + "let $a := xs:double(avg($u.big)) order by $a ascending return {\"k\": $k, \"a\": $a}, 1, 3)");
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.bk group by $k "
+        + "let $a := xs:double(avg($u.big)) order by $a descending return {\"k\": $k, \"a\": $a}, 1, 3)");
+  }
+
+  @Test
+  void q27ShapeAllThreePiecesCompose() throws Exception {
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " where $u.name != \"\" let $k := $u.k7, $len := string-length($u.name) group by $k "
+        + "let $c := count($u) where $c > 100 let $l := xs:double(avg($len)) order by $l descending "
+        + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 25)");
+  }
+
   // ---- conditional keys (the Q39 CASE WHEN shape) ---------------------------------------------
 
   @Test

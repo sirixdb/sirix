@@ -71,6 +71,8 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] keyCondFields;
   private final long[] keyCondLits;
   private final String[] keyCondElse;
+  /** HAVING over the group count ({@code long[]{op, literal}}), or {@code null}. */
+  private final long[] having;
   /** Concat-emitted key entries: literal prefix/suffix decoration per annotated position. */
   private final int[] decorPos;
   private final String[] decorPrefix;
@@ -87,8 +89,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final int[] decorPos,
-      final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final long[] having,
+      final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
       final String[] constEntryNames, final long[] constEntryValues, final SourceRef runtimeSourceRef,
       final Expr genericFallback) {
     this.executor = executor;
@@ -106,6 +108,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.keyCondFields = keyCondFields;
     this.keyCondLits = keyCondLits;
     this.keyCondElse = keyCondElse;
+    this.having = having;
     this.decorPos = decorPos;
     this.decorPrefix = decorPrefix;
     this.decorSuffix = decorSuffix;
@@ -145,7 +148,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     if (executor.canExecute(ctx)) {
       final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
           predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse);
+          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, having);
       if (served != null) {
         if (orderIndexes == null || served.ordered()) {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to

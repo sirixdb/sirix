@@ -10420,8 +10420,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String field = i < aggFields.length
           ? aggFields[i]
           : null;
-      if (field == null) {
-        continue; // count(*)-shaped entry: no column read at all
+      if (field == null || field.startsWith("len:")) {
+        // count(*): no column read. strlen operands: the whole-column magnitude bound would
+        // read the DICT column's descriptor as numeric — the per-row addExact still guards.
+        continue;
       }
       final int at = distinctFields.indexOf(field);
       if (at >= 0 && !needed[at]) {
@@ -10446,7 +10448,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse) {
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final long[] having) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -10479,8 +10481,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       for (final String f : aggFields) {
-        if (f != null && !required.contains(f)) {
-          required.add(f);
+        final String raw = rawAggField(f);
+        if (raw != null && !required.contains(raw)) {
+          required.add(raw);
         }
       }
       final ProjectionIndexRegistry.Handle handle =
@@ -10613,10 +10616,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       final int[] aggCols = new int[distinctFields.size()];
+      boolean anyStrlenAgg = false;
       for (int i = 0; i < aggCols.length; i++) {
-        final int col = handle.columnOf(distinctFields.get(i));
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+        final String df = distinctFields.get(i);
+        final boolean strlen = df.startsWith("len:");
+        final int col = handle.columnOf(rawAggField(df));
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        if (strlen) {
+          // string-length over a dict column: codepoint counts fold as the numeric operand.
+          // The sparse gate above is ALSO the null gate — string-length(null) raises where
+          // the kernel would fold 0.
+          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+          anyStrlenAgg = true;
+        } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher)) {
           return null;
         }
         aggCols[i] = col;
@@ -10640,6 +10657,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       final int cdBlock = cdBlockIdx;
       final int[] aggColsFlat = aggColsAll;
+      final boolean[] aggStrlenFlat = new boolean[aggColsFlat.length];
+      for (int i = 0; i < aggCols.length; i++) {
+        aggStrlenFlat[i] = distinctFields.get(i).startsWith("len:");
+      }
       final ProjectionIndexScan.ColumnPredicate[] preds;
       ProjectionIndexScan.PredicateTree predTree = null;
       if (cp == null) {
@@ -10692,6 +10713,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (anyKeyTransform && orderPlan == null) {
         return null; // transformed keys serve only through the flat composite route
       }
+      // HAVING filters candidate groups BEFORE selection — only the plan-driven flat routes
+      // carry the filter at their offer sites; the legacy emission arms would drop it.
+      if (having != null && orderPlan == null) {
+        return null;
+      }
+      // strlen operands fold in the NUMERIC single-key flat kernel only (v1) — every other
+      // arm would read the dict column's id lanes as values.
+      if (anyStrlenAgg && (!numericSingleKey || anyKeyTransform || orderPlan == null)) {
+        return null;
+      }
       // Deferred string extrema serve on the single-string-key flat arm ONLY (v1): pass 2 needs
       // pass 1's group identity (key-entry FNV) plus a bounded winner roster the linear match
       // stays cheap for. An order spec ON the deferred entry already nulled the plan above.
@@ -10725,11 +10756,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       if (packedStringKey) {
         return packedSubstringGroupAggregate(rowGroupPayloads, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
-            aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit);
+            aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit,
+            having);
       }
       if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
-            outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock, tree);
+            outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock, tree, having, anyStrlenAgg
+                ? aggStrlenFlat
+                : null);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -10829,11 +10863,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             for (int i = 0; i < keys.length; i++) {
               if (keys[i] != 0L) {
                 final int base = i * slotWidth;
+                if (orderPlan.hasCastAvg()) {
+                  orderPlan.writeCastAvgLanes(slots, base);
+                }
+                if (having != null && !havingPasses(slots, base, having)) {
+                  continue;
+                }
                 sel.offer(slots, base, true, into.auxAtBase(base), null);
               }
             }
             if (into.hasZeroKey()) {
-              sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+              if (orderPlan.hasCastAvg()) {
+                orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+              }
+              if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+                sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+              }
             }
             partSelectors[part] = sel;
           });
@@ -10932,6 +10977,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, k);
           for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : mergedMulti.object2ObjectEntrySet()) {
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(e.getValue(), 0);
+            }
+            if (having != null && !havingPasses(e.getValue(), 0, having)) {
+              continue;
+            }
             sel.offer(e.getValue(), 0, true, 0L, e.getKey());
           }
           sel.sortInPlace();
@@ -11056,11 +11107,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           for (int i = 0; i < keys.length; i++) {
             if (keys[i] != 0L) {
               final int base = i * slotWidth;
+              if (orderPlan.hasCastAvg()) {
+                orderPlan.writeCastAvgLanes(slots, base);
+              }
+              if (having != null && !havingPasses(slots, base, having)) {
+                continue;
+              }
               sel.offer(slots, base, true, into.auxAtBase(base), null);
             }
           }
           if (into.hasZeroKey()) {
-            sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+            }
+            if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+              sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+            }
           }
           partSelectors[part] = sel;
         });
@@ -11089,7 +11151,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         if (missingMergedFlat[0] > 0) {
-          finalSel.offer(missingMergedFlat, 0, false, 0L, null);
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(missingMergedFlat, 0);
+          }
+          if (having == null || havingPasses(missingMergedFlat, 0, having)) {
+            finalSel.offer(missingMergedFlat, 0, false, 0L, null);
+          }
         }
         finalSel.sortInPlace();
         // Winner strings: resolve (leaf, dictId) source refs, caching the column base per leaf.
@@ -11334,10 +11401,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] aggCols = new int[distinctFields.size()];
+      boolean anyStrlenAgg = false;
       for (int i = 0; i < aggCols.length; i++) {
-        final int col = handle.columnOf(distinctFields.get(i));
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+        final String df = distinctFields.get(i);
+        final boolean strlen = df.startsWith("len:");
+        final int col = handle.columnOf(rawAggField(df));
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        if (strlen) {
+          // string-length over a dict column: codepoint counts fold as the numeric operand.
+          // The sparse gate above is ALSO the null gate — string-length(null) raises where
+          // the kernel would fold 0.
+          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+          anyStrlenAgg = true;
+        } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher)) {
           return null;
         }
         aggCols[i] = col;
@@ -11455,7 +11536,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
       final int groupCol, final int subStart, final int subLen, final int[] aggCols, final String[] keyNames,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
-      final int eff, final int chunkSize, final GroupOrderPlan orderPlan, final long limit) {
+      final int eff, final int chunkSize, final GroupOrderPlan orderPlan, final long limit, final long[] having) {
     if (orderPlan == null) {
       return null;
     }
@@ -11511,6 +11592,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (keys[i] != 0L) {
           // The key lane carries the PACK — ORD_KEY compares it, and lexicographic order over
           // validated windows IS numeric order over packs.
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(slots, i * slotWidth);
+          }
+          if (having != null && !havingPasses(slots, i * slotWidth, having)) {
+            continue;
+          }
           sel.offer(slots, i * slotWidth, true, keys[i], null);
         }
       }
@@ -11568,7 +11655,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int eff, final int chunkSize, final GroupOrderPlan orderPlan,
-      final long limit, final int cdBlockIdx, final ProjectionIndexScan.PredicateTree predTree) {
+      final long limit, final int cdBlockIdx, final ProjectionIndexScan.PredicateTree predTree, final long[] having,
+      final boolean[] aggStrlen) {
     final int rowGroupCount = rowGroupPayloads.size();
     if (orderPlan != null) {
       // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
@@ -11613,7 +11701,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             cdBlockIdx >= 0
                 ? cdBudgets[idx]
                 : null,
-            predTree);
+            predTree, aggStrlen);
         tables[idx] = local;
         perThreadMissing[idx] = missing;
       });
@@ -11674,11 +11762,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] slots = into.slotsArray();
         for (int i = 0; i < keys.length; i++) {
           if (keys[i] != 0L) {
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(slots, i * slotWidth);
+            }
+            if (having != null && !havingPasses(slots, i * slotWidth, having)) {
+              continue;
+            }
             sel.offer(slots, i * slotWidth, true, keys[i], null);
           }
         }
         if (into.hasZeroKey()) {
-          sel.offer(into.zeroSlot(), 0, true, 0L, null);
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+          }
+          if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+            sel.offer(into.zeroSlot(), 0, true, 0L, null);
+          }
         }
         partSelectors[part] = sel;
       });
@@ -11708,7 +11807,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       if (missingMerged[0] > 0) {
-        finalSel.offer(missingMerged, 0, false, 0L, null);
+        if (orderPlan.hasCastAvg()) {
+          orderPlan.writeCastAvgLanes(missingMerged, 0);
+        }
+        if (having == null || havingPasses(missingMerged, 0, having)) {
+          finalSel.offer(missingMerged, 0, false, 0L, null);
+        }
       }
       finalSel.sortInPlace();
       final ArrayList<Item> out = new ArrayList<>(finalSel.size());
@@ -12591,6 +12695,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     /** COUNT(DISTINCT): the merged set size in its block's sum lane — never empty, 0 for a group
      * whose operand was always missing (fn:count semantics, not avg's empty). */
     static final int ORD_COUNT_DISTINCT = 6;
+    /**
+     * {@code order by xs:double(avg(f))}: the interpreter sorts the CAST value, so two exact
+     * averages that round to the same double are a TIE (ordinal-resolved) — the exact fraction
+     * comparator would order them and diverge. The cast double (brackit's exact composition:
+     * scale-18 HALF_EVEN decimal, then {@code BigDecimal#doubleValue}) is precomputed into the
+     * entry's UNUSED min lane after the partition merge ({@link #writeCastAvgLanes}) —
+     * resolvable only when no min/max entry shares the block, which resolve() verifies.
+     */
+    static final int ORD_AVG_DBL = 7;
 
     final int[] kinds;
     final int[] aggBase;
@@ -12633,11 +12746,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (j >= funcs.length) {
             return null;
           }
-          final String func = funcs[j];
+          String func = funcs[j];
+          boolean castAvg = false;
           if (!func.equals(baseFunc(func))) {
-            // Ordering BY a cast entry would need the comparator to round exactly as the
-            // interpreter's xs:double does — decline until that is built.
-            return null;
+            if (!"dbl:avg".equals(func)) {
+              // Other cast entries would need their own rounding replication — decline.
+              return null;
+            }
+            // xs:double(avg(f)) orders on the CAST value via a precomputed lane — the entry's
+            // min lane, which must not be a real min/max of the same field elsewhere.
+            for (int other = 0; other < funcs.length; other++) {
+              final String ob = baseFunc(funcs[other]);
+              if (other != j && ("min".equals(ob) || "max".equals(ob))
+                  && aggFields[j].equals(aggFields[other])) {
+                return null;
+              }
+            }
+            castAvg = true;
+            func = "avg";
           }
           if ("count".equals(func)) {
             kinds[i] = ORD_COUNT;
@@ -12657,7 +12783,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               case "sum" -> kinds[i] = ORD_SUM;
               case "min" -> kinds[i] = ORD_MIN;
               case "max" -> kinds[i] = ORD_MAX;
-              case "avg" -> kinds[i] = ORD_AVG;
+              case "avg" -> kinds[i] = castAvg
+                  ? ORD_AVG_DBL
+                  : ORD_AVG;
               default -> {
                 return null;
               }
@@ -12707,7 +12835,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final int base = aggBase[i];
             presentA = arrA[baseA + base] > 0;
             presentB = arrB[baseB + base] > 0;
-            if (presentA && presentB && kind != ORD_AVG) {
+            if (presentA && presentB && kind != ORD_AVG && kind != ORD_AVG_DBL) {
               final int off = kind == ORD_SUM
                   ? 1
                   : kind == ORD_MIN
@@ -12736,7 +12864,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int res = kind == ORD_AVG
             ? compareFraction(arrA[baseA + aggBase[i] + 1], arrA[baseA + aggBase[i]], arrB[baseB + aggBase[i] + 1],
                 arrB[baseB + aggBase[i]])
-            : Long.compare(valA, valB);
+            : kind == ORD_AVG_DBL
+                ? Double.compare(Double.longBitsToDouble(arrA[baseA + aggBase[i] + 2]),
+                    Double.longBitsToDouble(arrB[baseB + aggBase[i] + 2]))
+                : Long.compare(valA, valB);
         if (res != 0) {
           return asc[i]
               ? res
@@ -12759,6 +12890,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return Long.compare(h1, h2);
       }
       return Long.compareUnsigned(l1, l2);
+    }
+
+    boolean hasCastAvg() {
+      for (final int kind : kinds) {
+        if (kind == ORD_AVG_DBL) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /** Stamp every ORD_AVG_DBL entry's cast double into its (verified-unused) min lane — called
+     * once per group AFTER the partition merge, before the group is offered to a selector. */
+    void writeCastAvgLanes(final long[] acc, final int base) {
+      for (int i = 0; i < kinds.length; i++) {
+        if (kinds[i] == ORD_AVG_DBL) {
+          final int b = base + aggBase[i];
+          if (acc[b] > 0) {
+            acc[b + 2] = Double.doubleToRawLongBits(castAvgDouble(acc[b + 1], acc[b]));
+          }
+        }
+      }
+    }
+
+    /** Brackit's exact {@code xs:double(sum div count)} composition: an exact division is an
+     * {@code Int64} (plain long-to-double), otherwise a scale-18 HALF_EVEN decimal whose
+     * {@code BigDecimal#doubleValue} the DBL cast takes — replicated digit-for-digit. */
+    static double castAvgDouble(final long sum, final long count) {
+      if (sum % count == 0) {
+        return (double) (sum / count);
+      }
+      return new BigDecimal(sum).divide(new BigDecimal(count), 18, RoundingMode.HALF_EVEN).doubleValue();
     }
   }
 
@@ -13012,6 +13175,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               ? castToDouble(stat)
               : stat;
     }
+  }
+
+  /** HAVING over the group COUNT (acc lane 0) — op encoding per the detection stage's
+   * {@code GROUP_AGG_HAVING}: 0 {@code >}, 1 {@code >=}, 2 {@code <}, 3 {@code <=}, 4 {@code =},
+   * 5 {@code !=}. Applied at every offer site, so a filtered group never occupies a window slot. */
+  private static boolean havingPasses(final long[] acc, final int base, final long[] having) {
+    final long count = acc[base];
+    final long lit = having[1];
+    return switch ((int) having[0]) {
+      case 0 -> count > lit;
+      case 1 -> count >= lit;
+      case 2 -> count < lit;
+      case 3 -> count <= lit;
+      case 4 -> count == lit;
+      default -> count != lit;
+    };
+  }
+
+  /** Strips the {@code len:} operand prefix a detection-level {@code string-length(...)} let
+   * adds — the raw field name, for column resolution and coverage checks. */
+  private static String rawAggField(final String field) {
+    return field != null && field.startsWith("len:")
+        ? field.substring(4)
+        : field;
   }
 
   /** Strips the {@code dbl:} cast prefix a detection-level {@code xs:double(...)} wrap adds. */
