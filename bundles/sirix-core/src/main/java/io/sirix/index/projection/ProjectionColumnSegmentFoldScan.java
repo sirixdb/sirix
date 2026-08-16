@@ -810,6 +810,10 @@ public final class ProjectionColumnSegmentFoldScan {
       } else if (insn == PredicateTree.OP_AND) {
         depth--;
         canMatch[depth - 1] = canMatch[depth - 1] && canMatch[depth];
+      } else if (insn == PredicateTree.OP_NOT) {
+        // A dead child (zone-skipped, all-missing) matches NO row, so its negation matches
+        // EVERY row — and a live child's negation is unknown. Either way the subtree can match.
+        canMatch[depth - 1] = true;
       } else {
         depth--;
         canMatch[depth - 1] = canMatch[depth - 1] || canMatch[depth];
@@ -854,6 +858,17 @@ public final class ProjectionColumnSegmentFoldScan {
         final long[] b = s.stack[depth];
         for (int w = 0; w < words; w++) {
           a[w] &= b[w];
+        }
+      } else if (insn == PredicateTree.OP_NOT) {
+        // Complement within the block's valid rows: the trailing partial word must stay
+        // zero past `rows` — downstream folds popcount raw words.
+        final long[] a = s.stack[depth - 1];
+        for (int w = 0; w < words; w++) {
+          a[w] = ~a[w];
+        }
+        final int tail = rows & 63;
+        if (tail != 0) {
+          a[words - 1] &= (1L << tail) - 1;
         }
       } else {
         depth--;

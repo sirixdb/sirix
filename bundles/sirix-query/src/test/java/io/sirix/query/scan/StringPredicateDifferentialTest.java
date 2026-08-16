@@ -181,6 +181,39 @@ public final class StringPredicateDifferentialTest {
         "$u.date ge \"2013-07-01\" and $u.date le \"2013-07-31\" and contains($u.url, \"google\")");
   }
 
+  // ---- negation (OP_NOT in the mask algebra) --------------------------------------------------
+
+  @Test
+  void notContainsSelectivitySweep() throws Exception {
+    assertGroupServedDifferential("not(contains($u.url, \"example\"))"); // excludes the common mass
+    assertGroupServedDifferential("not(contains($u.url, \"google\"))");
+    assertGroupServedDifferential("not(contains($u.url, \"zanzibar\"))"); // excludes one row
+    assertGroupServedDifferential("not(contains($u.url, \"xyzzy\"))"); // excludes nothing
+  }
+
+  @Test
+  void notContainsOverSparseFieldIsTrueOnMissing() throws Exception {
+    // THE truth-table flip negation exists for: contains over a MISSING tier is false, so
+    // its negation must ADMIT the ~20% of rows without the field. An implementation that
+    // ANDs presence back in after the complement drops exactly those rows.
+    assertGroupServedDifferential("not(contains($u.tier, \"t\"))");
+    assertGroupServedDifferential("not(contains($u.tier, \"t1\"))");
+  }
+
+  @Test
+  void notComposesWithConjunctionDisjunctionAndItself() throws Exception {
+    // The Q22 shape: a positive contains AND a negated contains AND an inequality.
+    assertGroupServedDifferential(
+        "contains($u.url, \"google\") and not(contains($u.url, \"www.\")) and $u.tier != \"\"");
+    // De Morgan probe: NOT over a disjunction.
+    assertGroupServedDifferential("not(contains($u.url, \"google\") or contains($u.url, \"example\"))");
+    // Double negation collapses to the original truth table, missing rows included.
+    assertGroupServedDifferential("not(not(contains($u.tier, \"t1\")))");
+    // NOT over an ordering leaf and over a numeric comparison.
+    assertGroupServedDifferential("not($u.date lt \"2013-07-15\")");
+    assertGroupServedDifferential("not($u.id ge 900) and contains($u.url, \"example\")");
+  }
+
   // ---- harness --------------------------------------------------------------------------------
 
   /**
