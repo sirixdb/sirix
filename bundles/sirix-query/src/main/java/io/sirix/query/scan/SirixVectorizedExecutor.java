@@ -12347,6 +12347,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[][] cdBudgets = cdBlockIdx >= 0
           ? new long[eff][]
           : null;
+      int partitions = 1;
+      while (partitions < Math.min(eff, 32)) {
+        partitions <<= 1;
+      }
+      final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+      final int partitionsF = partitions;
+      final int[][][] partIdx = new int[eff][][];
       // SLICED arm: resolve every column ONCE on the calling thread — the slice arrays are
       // immutable and shared, and letting the fan-out race the first fill would multiply the
       // segment I/O by the worker count.
@@ -12416,6 +12423,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               predTree, aggStrlen);
         }
         tables[idx] = local;
+        partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
         perThreadMissing[idx] = missing;
       });
       if (cdBudgets != null) {
@@ -12452,18 +12460,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return new ServedGroups(new ItemSequence(), true);
       }
-      int partitions = 1;
-      while (partitions < Math.min(eff, 32)) {
-        partitions <<= 1;
-      }
-      final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
       final int slotWidth = 2 + 4 * aggCols.length;
       final long perPartitionEstimate = Math.max(16, scanned / partitions);
       final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
       parallel(partitions, part -> {
         final NumericGroupAggTable into =
             new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate));
-        NumericGroupAggTable.mergePartition(tables, part, shift, into);
+        NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
         if (cdMaps != null) {
           // Partition-wise union of the per-thread distinct sets, then the EXACT size lands in
           // the block's sum lane — selection and emission read a plain slot from here on.
