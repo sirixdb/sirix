@@ -158,6 +158,15 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final String[] keyCondFields =
+        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_FIELDS);
+    final long[] keyCondLits = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_LITS);
+    final String[] keyCondElse = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_ELSE);
+    if (keyCondElse != null && (keyCondFields == null || keyCondLits == null
+        || keyCondElse.length != groupFields.length || keyCondFields.length != 2 * groupFields.length
+        || keyCondLits.length != 2 * groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
     final int[] decorPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_POS);
     final String[] decorPrefix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_PREFIX);
     final String[] decorSuffix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_SUFFIX);
@@ -178,8 +187,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
-        runtimeRef(sourceRef), generic);
+        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, decorPos, decorPrefix, decorSuffix,
+        constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
   }
 
   /**
