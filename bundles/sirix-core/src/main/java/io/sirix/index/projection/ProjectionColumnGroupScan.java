@@ -396,7 +396,7 @@ public final class ProjectionColumnGroupScan {
         if (range[0] > range[1]) {
           continue; // all-missing leaf
         }
-        final long mag = Math.max(Math.abs(range[0]), Math.abs(range[1]));
+        final long mag = Math.max(Math.absExact(range[0]), Math.absExact(range[1]));
         bound = Math.addExact(bound, Math.multiplyExact((long) store.rowCount(leaf), mag));
       }
     }
