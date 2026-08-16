@@ -248,12 +248,26 @@ public final class MMFileReader extends AbstractReader {
    * ({@code StorageEngineReader.prefetchRecordPages}): a cold point/scan query's winner
    * materialization demand-faults each slotted leaf's span serially without it.
    */
+  /** Fixed advisory span per prefetched reference: covers most slotted leaves (~10-60 KiB)
+   * without reading the length header — a header read FAULTS on the calling thread, and a
+   * serial fault chain there is exactly what the consumer's parallel lanes would have
+   * overlapped (measured +62 ms on a 179-record cold point lookup at full clocks). */
+  private static final long PREFETCH_SPAN_BYTES = Long.getLong("sirix.mm.prefetchSpan", 64 * 1024L);
+
   @Override
   public void prefetch(final PageReference[] references, final int count) {
     if (MADVISE_HANDLE == null || count <= 0) {
       return;
     }
-    willNeedSpans(references, Math.min(count, references.length));
+    // Single pass, zero faults on the caller: WILLNEED a fixed span at each offset and let
+    // the kernel readahead run while the consumer's own (parallel) reads catch up.
+    final int n = Math.min(count, references.length);
+    for (int i = 0; i < n; i++) {
+      final PageReference ref = references[i];
+      if (ref != null && ref.getKey() >= 0) {
+        adviseWillNeed(ref.getKey(), PREFETCH_SPAN_BYTES);
+      }
+    }
   }
 
   @Override
