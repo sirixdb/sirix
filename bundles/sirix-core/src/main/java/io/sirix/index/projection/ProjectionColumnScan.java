@@ -177,6 +177,66 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * {@link #conjunctiveAggregateNumeric} with a 128-BIT SUM — the overflow fallback's sliced
+   * form (64-bit id columns; the interpreter promotes to big-integer arithmetic). {@code acc}
+   * layout: {@code [count, sumHi, sumLo(unsigned), min, max]}; carry-exact, associative merge.
+   */
+  public static void conjunctiveAggregateNumeric128(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final int numericColumn, final long[] acc, final int fromRowGroup,
+      final int toRowGroup, final ColumnSegmentFetcher fetcher) {
+    checkPredicates(store, predicates);
+    if (store.columnKind(numericColumn) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      throw new IllegalStateException("aggregate column " + numericColumn + " is not NUMERIC_LONG");
+    }
+    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
+    final ColumnSlice[] aggCol = store.column(numericColumn, fetcher);
+    final Scratch s = SCRATCH.get();
+    for (int leaf = fromRowGroup; leaf < toRowGroup; leaf++) {
+      final int rowCount = evaluateMask(predicates, cols, leaf, store.rowCount(leaf), s.mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final ColumnSlice agg = aggCol[leaf];
+      final long[] values = agg.numericValues();
+      final long[] presence = agg.presenceWords();
+      final int stride = (rowCount + 63) >>> 6;
+      long count = acc[0];
+      long sumHi = acc[1];
+      long sumLo = acc[2];
+      long min = acc[3];
+      long max = acc[4];
+      for (int w = 0; w < stride; w++) {
+        long word = s.mask[w] & presence[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long v = values[rowIdx];
+          count++;
+          final long lo = sumLo + v;
+          sumHi += (v >> 63) + (((sumLo & v) | ((sumLo | v) & ~lo)) >>> 63);
+          sumLo = lo;
+          if (v < min) {
+            min = v;
+          }
+          if (v > max) {
+            max = v;
+          }
+        }
+      }
+      acc[0] = count;
+      acc[1] = sumHi;
+      acc[2] = sumLo;
+      acc[3] = min;
+      acc[4] = max;
+    }
+  }
+
+  /**
    * Conjunctive numeric-double aggregate — {@code acc = [count, sum, min, max]} as doubles,
    * initialised to {@code {0, 0, +Inf, -Inf}}. Min/max use {@code Double.compare} total order (parity
    * with the interpreter's comparator, {@code -0.0 < 0.0}); the kernel sum is diagnostic only —
