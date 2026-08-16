@@ -106,6 +106,12 @@ public final class GroupAggregateDetectionStage implements Stage {
    * either and the generic pipeline raises identically.
    */
   public static final String GROUP_AGG_KEY_SUBSTR = "SIRIX_GROUP_AGG_KEY_SUBSTR";
+  /** {@code int[]} / {@code String[]} / {@code long[]}: record positions, field names and integer
+   * literals of CONSTANT key entries ({@code group by $one, $k} with {@code $one := 1}) — they
+   * partition nothing, and the serving expression splices them back into each record. */
+  public static final String GROUP_AGG_CONST_ENTRY_POS = "SIRIX_GROUP_AGG_CONST_ENTRY_POS";
+  public static final String GROUP_AGG_CONST_ENTRY_NAMES = "SIRIX_GROUP_AGG_CONST_ENTRY_NAMES";
+  public static final String GROUP_AGG_CONST_ENTRY_VALUES = "SIRIX_GROUP_AGG_CONST_ENTRY_VALUES";
 
   /** Mirrors the kernel's packed-key bound (ProjectionIndexByteScan.MAX_GROUP_COLUMNS). */
   private static final int MAX_GROUP_KEYS = 5;
@@ -171,6 +177,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String[] subField = new String[1];
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
+    final List<Long> constLetVals = new ArrayList<>();
     final List<QNm> groupSpecVars = new ArrayList<>();
     // POST-group aggregate lets: `group by $k let $c := count($r)`. After the group-by, brackit
     // binds the loop var to the GROUPED sequence (the GroupBy node's AggregateSpec/SequenceAgg),
@@ -246,8 +253,13 @@ public final class GroupAggregateDetectionStage implements Stage {
               letSubstr.add(null);
             } else if (bound.getType() == XQ.Int) {
               // A literal binding: a CONSTANT group key candidate (`let $g := 1`). Only a
-              // group-by spec may consume it — an aggregate or record entry over it declines.
+              // group-by spec (and the record entry echoing it) may consume it.
+              final long lit = intValue(bound);
+              if (lit == Long.MIN_VALUE) {
+                return;
+              }
               constLetVars.add(letVar);
+              constLetVals.add(lit);
             } else {
               final ShiftedDeref shifted = shiftedDeref(bound, loopVar);
               if (shifted != null) {
@@ -351,7 +363,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (!hasGroupBy || current == null || current.getChildCount() < 1) {
       return;
     }
-    if (!constMode && (keyCount < 1 || keyCount > MAX_GROUP_KEYS || !constKeySpecs.isEmpty())) {
+    if (!constMode && (keyCount < 1 || keyCount > MAX_GROUP_KEYS)) {
       return;
     }
     if (constMode && !orderVars.isEmpty()) {
@@ -371,9 +383,10 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (pipeExpr.getProperty(SOURCE_PATH) == null) {
       return;
     }
+    final int keyTotal = keyCount + constKeySpecs.size();
     final AST returnExpr = current.getChild(0);
     if (returnExpr == null || returnExpr.getType() != XQ.ObjectConstructor
-        || returnExpr.getChildCount() < keyCount + 1) {
+        || returnExpr.getChildCount() < keyTotal + 1) {
       return;
     }
     // The first keyCount entries must be the group keys — one VariableRef per group var,
@@ -383,37 +396,61 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String[] groupFields = new String[keyCount];
     final long[] keyOffsets = new long[keyCount];
     final int[] keySubstr = new int[2 * keyCount];
+    final QNm[] realKeyVars = new QNm[keyCount];
+    final List<Integer> constEntryPos = new ArrayList<>();
+    final List<String> constEntryNames = new ArrayList<>();
+    final List<Long> constEntryVals = new ArrayList<>();
     boolean anyKeyTransform = false;
     final Set<String> seenNames = new HashSet<>();
     final Set<QNm> seenGroupVars = new HashSet<>();
-    for (int i = 0; i < keyCount; i++) {
+    final Set<QNm> seenConstVars = new HashSet<>();
+    int realIdx = 0;
+    for (int i = 0; i < keyTotal; i++) {
       final AST keyEntry = returnExpr.getChild(i);
       final String keyName = kvName(keyEntry);
       if (keyName == null || !seenNames.add(keyName)) {
         return;
       }
       final AST keyValue = keyEntry.getChild(1);
-      if (keyValue.getType() != XQ.VariableRef || !(keyValue.getValue() instanceof QNm keyVar)
-          || !groupSpecVars.contains(keyVar) || !seenGroupVars.add(keyVar)) {
+      if (keyValue.getType() != XQ.VariableRef || !(keyValue.getValue() instanceof QNm keyVar)) {
+        return;
+      }
+      if (constKeySpecs.contains(keyVar)) {
+        // A CONSTANT key entry: it partitions nothing — the expression splices the literal
+        // back into every served record at this position.
+        if (!seenConstVars.add(keyVar)) {
+          return;
+        }
+        constEntryPos.add(i);
+        constEntryNames.add(keyName);
+        constEntryVals.add(constLetVals.get(constLetVars.indexOf(keyVar)));
+        continue;
+      }
+      if (!groupSpecVars.contains(keyVar) || !seenGroupVars.add(keyVar)) {
         return;
       }
       final int letIdx = letVars.indexOf(keyVar);
       if (letIdx < 0) {
         return;
       }
-      keyNames[i] = keyName;
-      groupFields[i] = letFields.get(letIdx);
-      keyOffsets[i] = letOffsets.get(letIdx);
+      realKeyVars[realIdx] = keyVar;
+      keyNames[realIdx] = keyName;
+      groupFields[realIdx] = letFields.get(letIdx);
+      keyOffsets[realIdx] = letOffsets.get(letIdx);
       final int[] sub = letSubstr.get(letIdx);
-      keySubstr[2 * i] = sub == null
+      keySubstr[2 * realIdx] = sub == null
           ? -1
           : sub[0];
-      keySubstr[2 * i + 1] = sub == null
+      keySubstr[2 * realIdx + 1] = sub == null
           ? -1
           : sub[1];
-      anyKeyTransform |= keyOffsets[i] != 0L || sub != null;
+      anyKeyTransform |= keyOffsets[realIdx] != 0L || sub != null;
+      realIdx++;
     }
-    final int aggCount = returnExpr.getChildCount() - keyCount;
+    if (realIdx != keyCount || constEntryPos.size() != constKeySpecs.size()) {
+      return; // some spec var was never emitted — the record does not echo the grouping
+    }
+    final int aggCount = returnExpr.getChildCount() - keyTotal;
     final String[] funcs = new String[aggCount];
     final String[] fields = new String[aggCount];
     final String[] outNames = new String[aggCount];
@@ -423,7 +460,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     final List<QNm> emittedPostGroupVars = new ArrayList<>();
     final List<Integer> emittedPostGroupAt = new ArrayList<>();
     for (int i = 0; i < aggCount; i++) {
-      final AST entry = returnExpr.getChild(keyCount + i);
+      final AST entry = returnExpr.getChild(keyTotal + i);
       final String name = kvName(entry);
       if (name == null || !seenNames.add(name)) {
         return;
@@ -463,7 +500,13 @@ public final class GroupAggregateDetectionStage implements Stage {
     for (int i = 0; i < orderCount; i++) {
       final QNm orderVar = orderVars.get(i);
       int at = -1;
-      final int keyAt = indexOfKeyEntry(returnExpr, keyCount, orderVar);
+      int keyAt = -1;
+      for (int r = 0; r < keyCount; r++) {
+        if (orderVar.equals(realKeyVars[r])) {
+          keyAt = r;
+          break;
+        }
+      }
       if (keyAt >= 0) {
         at = keyAt;
       } else {
@@ -494,6 +537,17 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_KEY_OFFSETS, keyOffsets);
       pipeExpr.setProperty(GROUP_AGG_KEY_SUBSTR, keySubstr);
     }
+    if (!constEntryPos.isEmpty()) {
+      final int[] posArr = new int[constEntryPos.size()];
+      final long[] valArr = new long[constEntryPos.size()];
+      for (int i = 0; i < posArr.length; i++) {
+        posArr[i] = constEntryPos.get(i);
+        valArr[i] = constEntryVals.get(i);
+      }
+      pipeExpr.setProperty(GROUP_AGG_CONST_ENTRY_POS, posArr);
+      pipeExpr.setProperty(GROUP_AGG_CONST_ENTRY_NAMES, constEntryNames.toArray(new String[0]));
+      pipeExpr.setProperty(GROUP_AGG_CONST_ENTRY_VALUES, valArr);
+    }
     pipeExpr.setProperty(GROUP_AGG_FUNCS, funcs);
     pipeExpr.setProperty(GROUP_AGG_FIELDS, fields);
     pipeExpr.setProperty(GROUP_AGG_OUT_NAMES, outNames);
@@ -502,19 +556,6 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_ORDER_ASC, orderAscending);
       pipeExpr.setProperty(GROUP_AGG_ORDER_EMPTY_LEAST, orderEmptyLeastFlags);
     }
-  }
-
-  /**
-   * Index of the KEY entry bound to {@code var}, or {@code -1}. Keys occupy entries 0..keyCount-1.
-   */
-  private static int indexOfKeyEntry(final AST returnExpr, final int keyCount, final QNm var) {
-    for (int i = 0; i < keyCount; i++) {
-      final AST value = returnExpr.getChild(i).getChild(1);
-      if (value.getType() == XQ.VariableRef && var.equals(value.getValue())) {
-        return i;
-      }
-    }
-    return -1;
   }
 
   /** A servable aggregate: {@code field} is {@code null} for {@code count}; {@code offset} is the
