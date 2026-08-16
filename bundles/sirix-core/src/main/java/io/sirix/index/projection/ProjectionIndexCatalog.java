@@ -17,8 +17,11 @@ import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveAction;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -674,18 +677,95 @@ public final class ProjectionIndexCatalog {
   public static Supplier<List<byte[]>> rowGroupMaterializer(final JsonResourceSession session, final int revision,
       final int defId, final int rowGroupCount) {
     return () -> {
-      try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
-        final List<byte[]> persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
-            matRtx.getStorageEngineReader(), defId, rowGroupCount);
-        if (persisted.size() < rowGroupCount) {
-          throw new IllegalStateException("Projection definition #" + defId + " truncated during " + "materialization: "
-              + persisted.size() + " < " + rowGroupCount);
-        }
-        return persisted.size() == rowGroupCount
-            ? persisted
-            : new ArrayList<>(persisted.subList(0, rowGroupCount));
+      final List<byte[]> persisted = materializeRowGroups(session, revision, defId, rowGroupCount);
+      if (persisted.size() < rowGroupCount) {
+        throw new IllegalStateException("Projection definition #" + defId + " truncated during " + "materialization: "
+            + persisted.size() + " < " + rowGroupCount);
       }
+      return persisted.size() == rowGroupCount
+          ? persisted
+          : new ArrayList<>(persisted.subList(0, rowGroupCount));
     };
+  }
+
+  /** Above this many row groups the slot walk partitions across per-thread readers. */
+  private static final int PARALLEL_MATERIALIZE_MIN = 128;
+
+  /**
+   * One projection materialization. The slot WALK is the cold-start whale — the range cursor
+   * force-decodes every trie page it passes, serially — so for large stores it partitions the
+   * contiguous row-group id space across ForkJoin workers, each on its OWN read transaction
+   * (concurrent read trxs are supported; decoded pages land in the shared buffer manager, so
+   * boundary pages decoded twice cost duplicate work, never correctness). Batch resolution and
+   * assembly (phases 3-5) then run exactly as the serial path does.
+   */
+  private static List<byte[]> materializeRowGroups(final JsonResourceSession session, final int revision,
+      final int defId, final int rowGroupCount) {
+    final int workers = Math.min(Runtime.getRuntime().availableProcessors(),
+        Math.max(1, rowGroupCount / 64));
+    final long t0 = DIAG
+        ? System.nanoTime()
+        : 0L;
+    if (rowGroupCount < PARALLEL_MATERIALIZE_MIN || workers <= 1) {
+      try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
+        return ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(matRtx.getStorageEngineReader(), defId,
+            rowGroupCount);
+      }
+    }
+    @SuppressWarnings("unchecked")
+    final Long2ObjectRBTreeMap<ProjectionIndexHOTStorage.RawBlobSlot>[] descParts = new Long2ObjectRBTreeMap[workers];
+    @SuppressWarnings("unchecked")
+    final ArrayList<ProjectionIndexHOTStorage.RawBlobSlot>[] segParts = new ArrayList[workers];
+    final int chunk = (rowGroupCount + workers - 1) / workers;
+    ForkJoinPool.commonPool().invoke(new RecursiveAction() {
+      @Override
+      protected void compute() {
+        final RecursiveAction[] subs = new RecursiveAction[workers];
+        for (int w = 0; w < workers; w++) {
+          final int idx = w;
+          final long lo = 1L + (long) w * chunk;
+          final long hi = Math.min(lo + chunk - 1, rowGroupCount);
+          subs[w] = new RecursiveAction() {
+            @Override
+            protected void compute() {
+              final Long2ObjectRBTreeMap<ProjectionIndexHOTStorage.RawBlobSlot> desc = new Long2ObjectRBTreeMap<>();
+              final ArrayList<ProjectionIndexHOTStorage.RawBlobSlot> segs = new ArrayList<>();
+              try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+                ProjectionIndexHOTStorage.collectSlotsRange(rtx.getStorageEngineReader(), defId, rowGroupCount, lo, hi,
+                    desc, segs);
+              }
+              descParts[idx] = desc;
+              segParts[idx] = segs;
+            }
+          };
+        }
+        invokeAll(subs);
+      }
+    });
+    final Long2ObjectRBTreeMap<ProjectionIndexHOTStorage.RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
+    final ArrayList<ProjectionIndexHOTStorage.RawBlobSlot> segmentSlots = new ArrayList<>();
+    for (int w = 0; w < workers; w++) {
+      if (descParts[w] != null) {
+        descriptors.putAll(descParts[w]); // disjoint id ranges — no overwrite possible
+      }
+      if (segParts[w] != null) {
+        segmentSlots.addAll(segParts[w]);
+      }
+    }
+    final long t1 = DIAG
+        ? System.nanoTime()
+        : 0L;
+    final ProjectionIndexHOTStorage.RawBlobSlot[] descArr =
+        ProjectionIndexHOTStorage.drainOrderedDescriptors(descriptors, rowGroupCount, defId);
+    try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
+      final List<byte[]> out = ProjectionIndexHOTStorage.assembleRowGroupsFromSlots(matRtx.getStorageEngineReader(),
+          defId, rowGroupCount, descArr, segmentSlots);
+      if (DIAG) {
+        System.err.println("[cat] parallel materialize: walk=" + (t1 - t0) / 1_000_000 + "ms assemble="
+            + (System.nanoTime() - t1) / 1_000_000 + "ms workers=" + workers + " rowGroups=" + rowGroupCount);
+      }
+      return out;
+    }
   }
 
   /** Reader-based decode core — also serves uncommitted (writer) reads. */
