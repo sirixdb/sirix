@@ -204,24 +204,7 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration) {
     if (MADVISE_HANDLE != null && references.length >= 8) {
-      for (final PageReference ref : references) {
-        if (ref != null && ref.getKey() >= 0) {
-          adviseWillNeed(ref.getKey(), LAYOUT_INT.byteSize());
-        }
-      }
-      for (final PageReference ref : references) {
-        if (ref == null || ref.getKey() < 0) {
-          continue;
-        }
-        final long key = ref.getKey();
-        if (key + LAYOUT_INT.byteSize() > dataFileSegment.byteSize()) {
-          continue; // the read below reports the corruption attributably
-        }
-        final int dataLength = dataFileSegment.get(LAYOUT_INT, key);
-        if (dataLength > 0 && dataLength <= dataFileSegment.byteSize()) {
-          adviseWillNeed(key + LAYOUT_INT.byteSize(), dataLength);
-        }
-      }
+      willNeedSpans(references, references.length);
     }
     final Page[] pages = new Page[references.length];
     for (int i = 0; i < references.length; i++) {
@@ -230,6 +213,54 @@ public final class MMFileReader extends AbstractReader {
       }
     }
     return pages;
+  }
+
+  /** The two WILLNEED passes: every length-header page first, then every full span. */
+  private void willNeedSpans(final PageReference[] references, final int count) {
+    for (int i = 0; i < count; i++) {
+      final PageReference ref = references[i];
+      if (ref != null && ref.getKey() >= 0) {
+        adviseWillNeed(ref.getKey(), LAYOUT_INT.byteSize());
+      }
+    }
+    for (int i = 0; i < count; i++) {
+      final PageReference ref = references[i];
+      if (ref == null || ref.getKey() < 0) {
+        continue;
+      }
+      final long key = ref.getKey();
+      if (key + LAYOUT_INT.byteSize() > dataFileSegment.byteSize()) {
+        continue; // the read below reports the corruption attributably
+      }
+      final int dataLength = dataFileSegment.get(LAYOUT_INT, key);
+      if (dataLength > 0 && dataLength <= dataFileSegment.byteSize()) {
+        adviseWillNeed(key + LAYOUT_INT.byteSize(), dataLength);
+      }
+    }
+  }
+
+  /** Per-batch cap for {@link #prefetch}: the one-build A/B hatch — {@code 0} disables every
+   * downstream prefetch consumer including its reference-resolution work. */
+  private static final int PREFETCH_BATCH = Integer.getInteger("sirix.mm.prefetchBatch", 128);
+
+  /**
+   * Advisory WILLNEED over the referenced spans — arms the DORMANT record-page prefetch seam
+   * ({@code StorageEngineReader.prefetchRecordPages}): a cold point/scan query's winner
+   * materialization demand-faults each slotted leaf's span serially without it.
+   */
+  @Override
+  public void prefetch(final PageReference[] references, final int count) {
+    if (MADVISE_HANDLE == null || count <= 0) {
+      return;
+    }
+    willNeedSpans(references, Math.min(count, references.length));
+  }
+
+  @Override
+  public int preferredPrefetchBatch() {
+    return MADVISE_HANDLE == null
+        ? 0
+        : PREFETCH_BATCH;
   }
 
   /**

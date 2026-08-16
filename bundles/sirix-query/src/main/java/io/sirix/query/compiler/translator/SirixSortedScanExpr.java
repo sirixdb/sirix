@@ -81,6 +81,9 @@ public final class SirixSortedScanExpr implements Expr {
             (JsonDBCollection) sirixCtx.getJsonItemStore().lookup(databaseName);
         if (collection != null) {
           try {
+            // One coordinator-side readahead pass covers both arms: madvise is a property of
+            // the SHARED mapping, not of the issuing reader, so the lanes benefit too.
+            executor.prefetchWinnerRecordPages(keys);
             final Item[] slots = new Item[keys.length];
             if (keys.length >= PARALLEL_MATERIALIZE_MIN) {
               // Each record materialization decodes the record's WHOLE slotted page on first
