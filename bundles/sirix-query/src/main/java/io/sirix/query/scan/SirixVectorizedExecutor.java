@@ -11163,6 +11163,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long[][] cdBudgets = cdBlock >= 0
               ? new long[eff][]
               : null;
+          int partitions = 1;
+          while (partitions < Math.min(eff, 32)) {
+            partitions <<= 1;
+          }
+          final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+          final int partitionsF = partitions;
+          final int[][][] partIdx = new int[eff][][];
           // SLICED arm: resolve every column ONCE on the calling thread (workers share the
           // immutable slice arrays); key kinds captured for the kernel's component dispatch.
           final ProjectionColumnStore.ColumnSlice[][] cPredCols;
@@ -11239,6 +11246,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes);
             }
             tables[idx] = local;
+            partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
           });
           if (transformDecline != null && transformDecline[0] != 0) {
             // A matching row hit a transform the interpreter RAISES on (missing operand or a
@@ -11263,18 +11271,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             GROUP_AGG_SERVED.increment();
             return new ServedGroups(new ItemSequence(), true);
           }
-          int partitions = 1;
-          while (partitions < Math.min(eff, 32)) {
-            partitions <<= 1;
-          }
-          final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
           final int slotWidth = 2 + 4 * aggColsFlat.length;
           final long perPartitionEstimate = Math.max(16, scanned / partitions);
           final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
           parallel(partitions, part -> {
             final NumericGroupAggTable into =
                 new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
-            NumericGroupAggTable.mergePartition(tables, part, shift, into);
+            NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
             if (cdMaps != null) {
               mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
             }
@@ -11499,6 +11502,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[][] cdBudgets = cdBlock >= 0
             ? new long[eff][]
             : null;
+        int partitions = 1;
+        while (partitions < Math.min(eff, 32)) {
+          partitions <<= 1;
+        }
+        final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+        final int partitionsF = partitions;
+        final int[][][] partIdx = new int[eff][][];
         parallel(eff, idx -> {
           final int from = idx * chunkSize;
           final int to = Math.min(from + chunkSize, rowGroupCount);
@@ -11538,6 +11548,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 tree, regexKey, regexRepl, regexDecline, strlenInFlat);
           }
           tables[idx] = local;
+          partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
           flatMissing[idx] = missing;
         });
         if (regexDecline != null && regexDecline[0] != 0) {
@@ -11578,18 +11589,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           return new ServedGroups(new ItemSequence(), true);
         }
-        int partitions = 1;
-        while (partitions < Math.min(eff, 32)) {
-          partitions <<= 1;
-        }
-        final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
         final int slotWidth = 2 + 4 * aggColsFlat.length;
         final long perPartitionEstimate = Math.max(16, scanned / partitions);
         final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
         parallel(partitions, part -> {
           final NumericGroupAggTable into =
               new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
-          NumericGroupAggTable.mergePartition(tables, part, shift, into);
+          NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
           if (cdMaps != null) {
             mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
           }
@@ -12195,6 +12201,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       pGroupCol = null;
       pAggCols = null;
     }
+    int partitions = 1;
+    while (partitions < Math.min(eff, 32)) {
+      partitions <<= 1;
+    }
+    final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+    final int partitionsF = partitions;
+    final int[][][] partIdx = new int[eff][][];
     final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
     final long[] decline = new long[1];
     parallel(eff, idx -> {
@@ -12212,6 +12225,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
       }
       tables[idx] = local;
+      partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
     });
     if (decline[0] != 0) {
       return null;
@@ -12226,11 +12240,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       GROUP_AGG_SERVED.increment();
       return new ServedGroups(new ItemSequence(), true);
     }
-    int partitions = 1;
-    while (partitions < Math.min(eff, 32)) {
-      partitions <<= 1;
-    }
-    final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
     final int slotWidth = 2 + 4 * aggCols.length;
     final long perPartitionEstimate = Math.max(16, scanned / partitions);
     final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
@@ -12238,7 +12247,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     parallel(partitions, part -> {
       final NumericGroupAggTable into =
           new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
-      NumericGroupAggTable.mergePartition(tables, part, shift, into);
+      NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
       partTables[part] = into;
       final int candidates = into.sizeIncludingZero();
       if (candidates == 0) {
