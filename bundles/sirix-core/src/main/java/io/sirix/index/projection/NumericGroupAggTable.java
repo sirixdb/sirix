@@ -268,6 +268,70 @@ public final class NumericGroupAggTable {
    * discipline the row fold enforces; the caller treats the {@link ArithmeticException} as a
    * decline.
    */
+  /**
+   * Bucket indexes of every live key, grouped by partition — built by the SCAN worker that owns
+   * this table (already parallel, so the wall cost is zero) so the partition merge walks
+   * straight to its keys instead of rescanning every source's full bucket array once per
+   * partition (P× the loads, each key re-mixed P times — measured 13% of hot suite CPU).
+   */
+  public int[][] buildPartitionIndex(final int partitions, final int shift) {
+    final int[] counts = new int[partitions];
+    final long[] k = keys;
+    for (int i = 0; i < k.length; i++) {
+      if (k[i] != 0L) {
+        counts[shift < 64
+            ? (int) (HashCommon.mix(k[i]) >>> shift)
+            : 0]++;
+      }
+    }
+    final int[][] out = new int[partitions][];
+    for (int p = 0; p < partitions; p++) {
+      out[p] = new int[counts[p]];
+      counts[p] = 0;
+    }
+    for (int i = 0; i < k.length; i++) {
+      if (k[i] != 0L) {
+        final int p = shift < 64
+            ? (int) (HashCommon.mix(k[i]) >>> shift)
+            : 0;
+        out[p][counts[p]++] = i;
+      }
+    }
+    return out;
+  }
+
+  /** {@link #mergePartition} over pre-built {@link #buildPartitionIndex} indexes — identical
+   * merge semantics (first-arrival aux, zero group to partition 0), none of the rescans. */
+  public static void mergePartitionIndexed(final NumericGroupAggTable[] sources, final int[][][] index,
+      final int partition, final NumericGroupAggTable into) {
+    final int slotWidth = into.slotWidth;
+    for (int s = 0; s < sources.length; s++) {
+      final NumericGroupAggTable src = sources[s];
+      if (src == null || index[s] == null) {
+        continue;
+      }
+      final long[] keys = src.keys;
+      final long[] slots = src.slots;
+      final long[] srcAux = src.aux;
+      for (final int i : index[s][partition]) {
+        final int srcBase = i * slotWidth;
+        final int dstBase = into.acquire(keys[i], slots[srcBase + 1]);
+        if (srcAux != null && into.slots[dstBase] == 0L) {
+          into.setAuxAtBase(dstBase, srcAux[i]);
+        }
+        mergeBlock(into.slots, dstBase, slots, srcBase, slotWidth);
+      }
+      if (partition == 0 && src.hasZeroKey) {
+        final boolean fresh = !into.hasZeroKey;
+        final long[] dst = into.acquireZero(src.zeroSlot[1]);
+        if (fresh && src.aux != null) {
+          into.zeroAux = src.zeroAux;
+        }
+        mergeBlockIntoAcc(dst, src.zeroSlot, slotWidth);
+      }
+    }
+  }
+
   public static void mergePartition(final NumericGroupAggTable[] sources, final int partition, final int shift,
       final NumericGroupAggTable into) {
     final int slotWidth = into.slotWidth;
