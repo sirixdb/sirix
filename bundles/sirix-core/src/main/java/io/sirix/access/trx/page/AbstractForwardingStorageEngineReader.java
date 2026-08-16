@@ -249,6 +249,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
+  public void prefetchPageSpans(final PageReference[] references, final int count) {
+    delegate().prefetchPageSpans(references, count);
+  }
+
+  @Override
   public OverflowPage[] readSideOverflowPageBatch(long[] offsets) {
     // Forward so the delegate's coalescing override (not the interface's per-offset default
     // over THIS forwarder) serves the batch.

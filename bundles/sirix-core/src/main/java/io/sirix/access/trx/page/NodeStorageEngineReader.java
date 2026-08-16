@@ -1475,6 +1475,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  public void prefetchPageSpans(final PageReference[] references, final int count) {
+    if (recordPagePrefetchBatch != 0 && trxIntentLog == null) {
+      pageReader.prefetch(references, count);
+    }
+  }
+
+  @Override
   public int recordPagePrefetchBatch() {
     // A write transaction reads through its intent log, so prefetchRecordPages below is an
     // unconditional no-op for it — advertising the backend's batch would make callers size
