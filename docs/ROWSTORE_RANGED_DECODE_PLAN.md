@@ -376,3 +376,34 @@ where they conflict.
   bytes; per-codec round-trip identity proven separately); proven-unreachable flag combos are
   recorded with the writer-version they were proven against and re-proven when activation
   predicates change.
+
+---
+
+# NO-COMPAT SIMPLIFICATION (BINDING — supersedes conflicting text above)
+
+There are NO existing deployed databases. The format break is clean, per the established
+precedent (V0 resources REJECTED at open; benchmark corpora re-ingested — see
+binary-encoding-v1-break):
+
+- **D8 is replaced**: bump the page binaryVersion; the CHUNKED body becomes THE body format.
+  The monolith deserializer path is DELETED, not kept alongside — one write path, one read
+  path, no flag dispatch on the hot path. Old resources fail at open with the existing
+  version fence; no page-level flag needed, no chunkedBodiesWritten config bit (A5 collapses
+  into the version bump).
+- **Corner-case classes REMOVED**: mixed-format fragment chains (all fragments share the
+  format by construction), old-reader-meets-new-page mid-query paths, the per-page FSST
+  eligibility split of A2 (all pages carry the prefix fsstDictId; the probe contract
+  extension in A2 STANDS — it is required regardless).
+- **I4 restates** as: any pre-bump resource fails AT OPEN with an attributable version error
+  (one test), and the bounded probe on a pre-bump file fails the same way. The mixed-chain
+  arm of I2 is dropped; I2 keeps the N-fragment combine arm (fragments still combine — they
+  are just all chunked).
+- **Ledger + generator shrink accordingly**; the 8,800-combination sweep loses the format-
+  version axis and gains nothing — recompute the cross-product in the implementing commit.
+- **Corpora**: db-1m-proj and every benchmark resource re-ingest after the bump; the 43/43
+  byte-identical bar is then re-established against freshly generated reference dumps from
+  the GENERIC pipeline (never against old-format dumps).
+- Everything else — entry-space chunking (D1), META section (D2), C=4KiB (D3), no dict (D4),
+  sticky codec election (D5), two-level XXH3 (D6), FSST prefix hoist (D7), chunk-granular
+  lazy expansion with poison-fill gate enforcement (D9/A3), bulk META predictors (D10),
+  Lemma A per A1, I1 full-segment equality per A4 — stands unchanged.
