@@ -641,6 +641,17 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
+     * Whether whole-leaf payloads are ALREADY in memory (eager handle, or a prior consumer
+     * hydrated the lazy handle). Regime probe for slice-vs-payload route choices: once the
+     * leaves are cached, a contiguous byte-kernel scan beats scattered slice reads — the sliced
+     * routes exist to avoid the materialization, not to replace the warm scan. Racy by design
+     * (a stale {@code null} just serves one more query from slices).
+     */
+    public boolean payloadsMaterialized() {
+      return rowGroupPayloads != null;
+    }
+
+    /**
      * Whole raw leaves of an ALREADY-materialized handle (eager handles, or a lazy handle a prior
      * consumer already hydrated). Does NO I/O and never needs a session-bound source.
      *
