@@ -103,9 +103,12 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
+import io.brackit.query.util.Regex;
+
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.util.regex.Pattern;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -10448,7 +10451,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final long[] having) {
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] having) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -10568,6 +10572,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         groupCols[g] = col;
       }
       final int groupCol = groupCols[0];
+      // REGEX key (Q28): single STRING key only, grouping on the TRANSFORMED string. Brackit's
+      // REPLACE mode with no flags appends the pattern verbatim and substitutes with Matcher
+      // semantics, so ONE probe through brackit's own Regex validates pattern + replacement
+      // (an invalid one raises at query time — decline, the generic pipeline raises it), and
+      // a precompiled java Pattern applies byte-identically. A zero-length-matching pattern
+      // is FORX0003 — the interpreter raises per call, so it declines too.
+      Pattern keyRegex = null;
+      String keyRegexReplacement = null;
+      if (keyRegexPattern != null && keyRegexPattern.length == keyCount && keyRegexPattern[0] != null) {
+        if (keyCount != 1 || numericSingleKey
+            || handle.columnKindOf(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return null;
+        }
+        try {
+          Regex.match(Regex.Mode.REPLACE, "probe", keyRegexPattern[0], keyRegexRepl[0], null);
+        } catch (final QueryException e) {
+          return null;
+        }
+        keyRegex = Pattern.compile(keyRegexPattern[0], Pattern.UNIX_LINES);
+        if (keyRegex.matcher("").find()) {
+          return null;
+        }
+        keyRegexReplacement = keyRegexRepl[0];
+      }
       // DEFERRED STRING AGGREGATES: min/max over a STRING_DICT column, servable when the entry
       // appears ONLY in the emission record (never in an order spec — those decline via plan
       // resolution). Winners are selected by the numeric pass first; a second focused scan then
@@ -10718,9 +10746,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (having != null && orderPlan == null) {
         return null;
       }
-      // strlen operands fold in the NUMERIC single-key flat kernel only (v1) — every other
-      // arm would read the dict column's id lanes as values.
-      if (anyStrlenAgg && (!numericSingleKey || anyKeyTransform || orderPlan == null)) {
+      if (keyRegex != null && orderPlan == null) {
+        return null; // the legacy string emission path has no transform lane
+      }
+      // strlen operands fold in the numeric and string single-key flat kernels (v1) — the
+      // composite/packed arms would read the dict column's id lanes as values.
+      final boolean stringFlatRoute = keyCount == 1 && !numericSingleKey && !anyKeyTransform && !packedStringKey;
+      if (anyStrlenAgg
+          && (orderPlan == null || !((numericSingleKey && !anyKeyTransform) || stringFlatRoute))) {
         return null;
       }
       // Deferred string extrema serve on the single-string-key flat arm ONLY (v1): pass 2 needs
@@ -11013,6 +11046,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int cdBase = cdBlock >= 0
             ? 2 + 4 * cdBlock
             : -1;
+        final Pattern regexKey = keyRegex;
+        final String regexRepl = keyRegexReplacement;
+        final long[] regexDecline = keyRegex != null
+            ? new long[1]
+            : null;
+        final boolean[] strlenInFlat = anyStrlenAgg
+            ? aggStrlenFlat
+            : null;
         final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
         final long[][] flatMissing = new long[eff][];
         @SuppressWarnings("unchecked")
@@ -11048,10 +11089,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               cdBlock >= 0
                   ? cdBudgets[idx]
                   : null,
-              tree);
+              tree, regexKey, regexRepl, regexDecline, strlenInFlat);
           tables[idx] = local;
           flatMissing[idx] = missing;
         });
+        if (regexDecline != null && regexDecline[0] != 0) {
+          // A matched row MISSING the key field: fn:replace over the empty sequence is "",
+          // a REAL group key — not the null-key group the kernel's missing arm feeds.
+          return null;
+        }
         if (cdBudgets != null) {
           for (final long[] b : cdBudgets) {
             if (b != null && b[1] != 0) {
@@ -11184,7 +11230,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
               }
               winnerSlotOf[i] = hashCount;
-              hashScratch[hashCount++] = ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
+              hashScratch[hashCount++] = regexKey != null
+                  ? ProjectionIndexByteScan.utf8Hash(regexKey.matcher(
+                      ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId))
+                      .replaceAll(regexRepl).getBytes(StandardCharsets.UTF_8))
+                  : ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
             } else {
               winnerSlotOf[i] = -1; // resolved to the missing slot below
               missingWinner = true;
@@ -11210,7 +11260,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               return;
             final String[][] best = new String[deferredColsArr.length][slotsTotal];
             ProjectionIndexByteScan.stringAggForWinnerGroups(rowGroupPayloads.subList(from, to), preds, tree, groupCol,
-                deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best);
+                deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
             perThreadBest[idx] = best;
           });
           deferredBest = new String[deferredColsArr.length][slotsTotal];
@@ -11246,7 +11296,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (columnBase < 0) {
               columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
             }
-            key = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+            final String source = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+            key = regexKey != null
+                ? regexKey.matcher(source).replaceAll(regexRepl)
+                : source;
           } else {
             key = null;
           }

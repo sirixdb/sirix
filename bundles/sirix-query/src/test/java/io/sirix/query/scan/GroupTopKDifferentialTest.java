@@ -362,6 +362,41 @@ public final class GroupTopKDifferentialTest {
 
   // ---- harness --------------------------------------------------------------------------------
 
+  // ---- regex keys (the Q28 REGEXP_REPLACE shape) ----------------------------------------------
+
+  @Test
+  void regexKeyGroupsOnTheTransformedString() throws Exception {
+    // name n0..n400 → first digit: 401 sources merge into 10 transformed groups — grouping
+    // on the RAW value over-partitions and every count differs.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := replace($u.name, \"^n(.).*$\", \"$1\") group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
+  }
+
+  @Test
+  void q28ShapeRegexHavingStrlenCastAvgAndDeferredMin() throws Exception {
+    // The full Q28 composition: regex key + HAVING + strlen operand + cast-avg ordering +
+    // a deferred string extremum whose pass-2 row matching must hash the TRANSFORMED key.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " where $u.name != \"\" "
+        + "let $k := replace($u.name, \"^n(.).*$\", \"$1\"), $len := string-length($u.nick) group by $k "
+        + "let $c := count($u) where $c > 100 let $l := xs:double(avg($len)) order by $l descending "
+        + "return {\"k\": $k, \"l\": $l, \"c\": $c, \"m\": min($u.dept)}, 1, 25)");
+  }
+
+  @Test
+  void regexKeyOverAMissingFieldFallsBack() throws Exception {
+    // nick is absent for the whole Ops dept: fn:replace over the empty sequence is "" — a
+    // REAL group key the kernel's missing-key arm must not absorb. The serve declines
+    // mid-scan and the interpreter answers; agreement is the contract.
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertOrderedDifferential("subsequence(for $u in " + SRC
+        + " let $k := replace($u.nick, \"^m(.).*$\", \"$1\") group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)", false);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "a regex key over a field with missing rows must DECLINE to the interpreter");
+  }
+
   // ---- HAVING, strlen operands, cast-avg ordering (the Q27 shape) -----------------------------
 
   @Test

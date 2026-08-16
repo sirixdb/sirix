@@ -158,6 +158,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final String[] keyRegexPattern =
+        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_REGEX_PATTERN);
+    final String[] keyRegexRepl = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_REGEX_REPL);
+    if (keyRegexPattern != null && (keyRegexRepl == null || keyRegexPattern.length != groupFields.length
+        || keyRegexRepl.length != groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
     final long[] having = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_HAVING);
     if (having != null && having.length != 2) {
       return generic; // not an annotation this strategy wrote
@@ -191,8 +198,9 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, having, decorPos, decorPrefix, decorSuffix,
-        constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
+        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, having,
+        decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef),
+        generic);
   }
 
   /**
