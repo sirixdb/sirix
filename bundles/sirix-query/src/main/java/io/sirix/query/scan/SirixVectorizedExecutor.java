@@ -10893,7 +10893,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // only the group/aggregate/predicate columns' decoded slices instead of assembling every
       // leaf. The escape hatch flips the whole route back for A/B timing in one build.
       final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
-      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && tree == null && !anyStrlenAgg
+      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && tree == null
           && predsSliceable(groupStore, preds) && allColumnsSliceable(groupStore, groupCols)
           && allColumnsSliceable(groupStore, aggColsFlat);
       final List<byte[]> rowGroupPayloads = groupSliced
@@ -10983,11 +10983,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
       // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
-      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null;
-      // Arms not yet ported to slices materialize here (the sliced gate above skipped it for
-      // the numeric flat arm, which never touches payloads).
+      final boolean numericSlicedArm =
+          groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null && !anyStrlenAgg;
+      // The string flat arm slices too (regex + strlen + distinct included); deferred string
+      // extrema keep whole-leaf — pass 2's winner matching scans payloads.
+      final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null && !anyDeferred;
+      // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
+      // the flat arms, which never touch payloads).
       final List<byte[]> armPayloads;
-      if (groupSliced && !numericSlicedArm) {
+      if (groupSliced && !numericSlicedArm && !stringSlicedArm) {
         armPayloads = leafPayloadsOrNull(handle);
         if (armPayloads == null) {
           return null;
@@ -11267,6 +11271,34 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final boolean[] strlenInFlat = anyStrlenAgg
             ? aggStrlenFlat
             : null;
+        // SLICED arm: resolve every column ONCE on the calling thread — workers share the
+        // immutable slice arrays; racing the first fill would multiply the segment I/O.
+        final ProjectionColumnStore.ColumnSlice[][] sPredCols;
+        final ProjectionColumnStore.ColumnSlice[] sGroupCol;
+        final ProjectionColumnStore.ColumnSlice[][] sAggCols;
+        if (stringSlicedArm) {
+          final ProjectionColumnStore.ColumnSegmentFetcher sFetcher = columnFetcher();
+          if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+          }
+          sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher);
+          sGroupCol = groupStore.column(groupCol, sFetcher);
+          sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+          for (int a = 0; a < aggColsFlat.length; a++) {
+            final int expected = strlenInFlat != null && strlenInFlat[a]
+                ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+            if (groupStore.columnKind(aggColsFlat[a]) != expected) {
+              throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " kind mismatch (expected "
+                  + expected + ")");
+            }
+            sAggCols[a] = groupStore.column(aggColsFlat[a], sFetcher);
+          }
+        } else {
+          sPredCols = null;
+          sGroupCol = null;
+          sAggCols = null;
+        }
         final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
         final long[][] flatMissing = new long[eff][];
         @SuppressWarnings("unchecked")
@@ -11292,17 +11324,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             cdMissingSets[idx] = new LongOpenHashSet();
             cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
           }
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(from, to), preds,
-              groupCol, aggColsFlat, local, missing, from, cdBlock, cdBlock >= 0
-                  ? cdMaps[idx]
-                  : null,
-              cdBlock >= 0
-                  ? cdMissingSets[idx]
-                  : null,
-              cdBlock >= 0
-                  ? cdBudgets[idx]
-                  : null,
-              tree, regexKey, regexRepl, regexDecline, strlenInFlat);
+          if (stringSlicedArm) {
+            ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, sGroupCol, sAggCols,
+                strlenInFlat, from, to, local, missing, cdBlock, cdBlock >= 0
+                    ? cdMaps[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdMissingSets[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                regexKey, regexRepl, regexDecline);
+          } else {
+            ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(from, to), preds,
+                groupCol, aggColsFlat, local, missing, from, cdBlock, cdBlock >= 0
+                    ? cdMaps[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdMissingSets[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                tree, regexKey, regexRepl, regexDecline, strlenInFlat);
+          }
           tables[idx] = local;
           flatMissing[idx] = missing;
         });
@@ -11339,6 +11385,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         if (scanned == 0 && missingMergedFlat[0] == 0) {
           GROUP_AGG_SERVED.increment();
+          if (stringSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
           return new ServedGroups(new ItemSequence(), true);
         }
         int partitions = 1;
@@ -11396,6 +11445,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int k = (int) Math.min(limit, winnerCount);
         if (k == 0) {
           GROUP_AGG_SERVED.increment();
+          if (stringSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
           return new ServedGroups(new ItemSequence(), true);
         }
         final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
@@ -11504,12 +11556,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int dictId = (int) (src & 0xFFFFF);
-            final byte[] payload = armPayloads.get(leaf);
-            int columnBase = leafColumnBase[leaf];
-            if (columnBase < 0) {
-              columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+            final String source;
+            if (stringSlicedArm) {
+              source = new String(sGroupCol[leaf].stringDict()[dictId], StandardCharsets.UTF_8);
+            } else {
+              final byte[] payload = armPayloads.get(leaf);
+              int columnBase = leafColumnBase[leaf];
+              if (columnBase < 0) {
+                columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+              }
+              source = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
             }
-            final String source = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
             key = regexKey != null
                 ? regexKey.matcher(source).replaceAll(regexRepl)
                 : source;
@@ -11529,6 +11586,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               cdBase, deferredAgg, deferredVals));
         }
         GROUP_AGG_SERVED.increment();
+        if (stringSlicedArm) {
+          GROUP_AGG_SLICED_SERVED.increment();
+        }
         if (cdBlock >= 0) {
           GROUP_DISTINCT_SERVED.increment();
         }

@@ -59,6 +59,7 @@ test {
     useJUnitPlatform()
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
     systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
+    systemProperty "sirix.projDiag", System.getProperty("sirix.projDiag")
     
     // Async-profiler support
     def profilerPath = System.getenv("ASYNC_PROFILER")
