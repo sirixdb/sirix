@@ -1030,6 +1030,75 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void compositeTopKGroupAggregatesServeFromColumnSlices() throws IOException {
+    // Unit 4 twin: the COMPOSITE flat arm (Q11 shape — numeric + string 2-key, COUNT(DISTINCT),
+    // ordered + capped) must serve from column slices. The record missing `model` exercises the
+    // MISSING-component sentinel as part of the composite identity (not a side group), and the
+    // winner re-read materializes key parts from slices, not payloads.
+    query("""
+          jn:store('json-path1','slicedcomp.jn','[
+            {"phone": 1, "model": "A", "uid": 10},
+            {"phone": 1, "model": "A", "uid": 11},
+            {"phone": 1, "model": "B", "uid": 10},
+            {"phone": 2, "model": "A", "uid": 12},
+            {"phone": 1, "uid": 13},
+            {"phone": 1, "model": "A", "uid": 10},
+            {"phone": 2, "model": "A", "uid": 14}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','slicedcomp.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/phone', '/[]/model', '/[]/uid'),
+              ('long', 'string', 'long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    final String topKQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','slicedcomp.jn')[]
+            let $p := $r.phone, $m := $r.model
+            group by $p, $m
+            let $u := count(distinct-values($r.uid))
+            order by $u descending
+            return {"p": $p, "m": $m, "u": $u, "n": count($r)}, 1, 3)
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("slicedcomp.jn");
+      final String generic = evaluateQuery(chain, ctx, topKQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final String served = evaluateQuery(chain, ctx, topKQuery);
+        Assertions.assertEquals(generic, served,
+            "sliced-served composite top-K grouping must match the generic pipeline exactly");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "the composite group-aggregate query must be SERVED from the projection");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the COLUMN-SLICE composite kernel specifically must have served it");
+        // (1,A): uids {10,11} u=2 n=3; (1,B): {10} u=1 n=1; (2,A): {12,14} u=2 n=2;
+        // (1,missing): {13} u=1 n=1. Count-distinct desc, first-appearance tiebreak:
+        // (1,A) u=2, (2,A) u=2, then (1,B) u=1 (seen before the missing-model group).
+        Assertions.assertEquals("{\"p\":1,\"m\":\"A\",\"u\":2,\"n\":3}"
+            + " {\"p\":2,\"m\":\"A\",\"u\":2,\"n\":2}" + " {\"p\":1,\"m\":\"B\",\"u\":1,\"n\":1}", served);
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void multiKeyGroupAggregatesServeAndMatchTheGenericPipeline() throws IOException {
     // Gap item 1a: N group keys. Fixture exercises every composite-missing combination
     // (both present / missing city / missing dept / missing both), plus a filtered

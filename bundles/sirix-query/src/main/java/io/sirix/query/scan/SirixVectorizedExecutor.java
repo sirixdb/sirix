@@ -11067,10 +11067,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // The LEGACY string emission arm (no order plan) slices too — by construction it is the
       // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
       final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null;
+      // Composite flat arm (unit 4): multi-key and transformed keys, CD and all three key
+      // transforms included — condition columns are gated NUMERIC_LONG upstream.
+      final boolean compositeSlicedArm = groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null;
       // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
       // the flat arms, which never touch payloads).
       final List<byte[]> armPayloads;
-      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced) {
+      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced && !compositeSlicedArm) {
         armPayloads = leafPayloadsOrNull(handle);
         if (armPayloads == null) {
           return null;
@@ -11123,6 +11126,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long[][] cdBudgets = cdBlock >= 0
               ? new long[eff][]
               : null;
+          // SLICED arm: resolve every column ONCE on the calling thread (workers share the
+          // immutable slice arrays); key kinds captured for the kernel's component dispatch.
+          final ProjectionColumnStore.ColumnSlice[][] cPredCols;
+          final ProjectionColumnStore.ColumnSlice[][] cKeyCols;
+          final byte[] cKeyKinds;
+          final ProjectionColumnStore.ColumnSlice[][] cAggCols;
+          final ProjectionColumnStore.ColumnSlice[][] cCondCols;
+          if (compositeSlicedArm) {
+            final ProjectionColumnStore.ColumnSegmentFetcher cFetcher = columnFetcher();
+            cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher);
+            cKeyCols = new ProjectionColumnStore.ColumnSlice[keyCount][];
+            cKeyKinds = new byte[keyCount];
+            for (int k = 0; k < keyCount; k++) {
+              cKeyKinds[k] = groupStore.columnKind(groupCols[k]);
+              cKeyCols[k] = groupStore.column(groupCols[k], cFetcher);
+            }
+            cAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+            for (int a = 0; a < aggColsFlat.length; a++) {
+              if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+                throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+              }
+              cAggCols[a] = groupStore.column(aggColsFlat[a], cFetcher);
+            }
+            if (keyCondCols != null) {
+              cCondCols = new ProjectionColumnStore.ColumnSlice[2 * keyCount][];
+              for (int c2 = 0; c2 < 2 * keyCount; c2++) {
+                if (keyCondCols[c2] >= 0) {
+                  cCondCols[c2] = groupStore.column(keyCondCols[c2], cFetcher);
+                }
+              }
+            } else {
+              cCondCols = null;
+            }
+          } else {
+            cPredCols = null;
+            cKeyCols = null;
+            cKeyKinds = null;
+            cAggCols = null;
+            cCondCols = null;
+          }
           parallel(eff, idx -> {
             final int from = idx * chunkSize;
             final int to = Math.min(from + chunkSize, rowGroupCount);
@@ -11134,14 +11177,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               cdMaps[idx] = new Long2ObjectOpenHashMap<>();
               cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
             }
-            ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(from, to), preds,
-                groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
-                    ? cdMaps[idx]
-                    : null,
-                cdBlock >= 0
-                    ? cdBudgets[idx]
-                    : null,
-                keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes);
+            if (compositeSlicedArm) {
+              ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, cKeyCols,
+                  cKeyKinds, cAggCols, from, to, local, cdBlock, cdBlock >= 0
+                      ? cdMaps[idx]
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  keyOffsets, keySubstr, transformDecline, keyCondCols, cCondCols, keyCondLits, keyCondElseBytes);
+            } else {
+              ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(from, to), preds,
+                  groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
+                      ? cdMaps[idx]
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes);
+            }
             tables[idx] = local;
           });
           if (transformDecline != null && transformDecline[0] != 0) {
@@ -11245,17 +11299,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int rowIdx = (int) (src & 0xFFFFF);
-            final byte[] payload = armPayloads.get(leaf);
-            int[] offs = offsetsByLeaf[leaf];
-            if (offs == null) {
-              offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
+            if (compositeSlicedArm) {
+              ProjectionColumnGroupScan.readRowKeyPartsSliced(cKeyCols, cKeyKinds, cCondCols, leaf, rowIdx, strParts,
+                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keyCondElse);
+            } else {
+              final byte[] payload = armPayloads.get(leaf);
+              int[] offs = offsetsByLeaf[leaf];
+              if (offs == null) {
+                offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
+              }
+              ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx,
+                  strParts, longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keyCondElse);
             }
-            ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
-                longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keyCondElse);
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
                 aggFields, outNames, distinctFields, cdBase));
           }
           GROUP_AGG_SERVED.increment();
+          if (compositeSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
           if (cdBlock >= 0) {
             GROUP_DISTINCT_SERVED.increment();
           }

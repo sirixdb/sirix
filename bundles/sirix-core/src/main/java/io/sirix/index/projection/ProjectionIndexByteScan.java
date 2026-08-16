@@ -1829,6 +1829,9 @@ public final class ProjectionIndexByteScan {
    */
   /** Composite missing-component sentinel — part of the key identity, shared with the sliced kernels. */
   static final long MISSING_COMPONENT_HASH = 0x9E3779B97F4A7C15L;
+  /** FNV-1a chain seed/prime — shared so the sliced composite kernel cannot drift. */
+  static final long FNV_SEED = 0xcbf29ce484222325L;
+  static final long FNV_PRIME = 0x100000001b3L;
 
   static long validRowsMask(final int w, final int stride, final int rowCount) {
     final int lastBits = rowCount & 63;
