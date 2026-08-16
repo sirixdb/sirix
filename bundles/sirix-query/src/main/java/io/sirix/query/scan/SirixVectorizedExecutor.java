@@ -613,6 +613,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     } catch (Exception ignored) {
     }
+    final JsonNodeReadOnlyTrx[] lanes = recordTrxLanes;
+    if (lanes != null) {
+      for (final JsonNodeReadOnlyTrx laneTrx : lanes) {
+        try {
+          if (laneTrx != null && !laneTrx.isClosed()) {
+            laneTrx.close();
+          }
+        } catch (Exception ignored) {
+        }
+      }
+    }
     workerPool.shutdown();
   }
 
@@ -12375,6 +12386,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Cached record-materialization trx (see {@link #recordTrx()}); executor-owned. */
   private volatile JsonNodeReadOnlyTrx recordTrx;
+
+  /** Lane pool for PARALLEL record materialization (see {@link #recordTrxAt}); executor-owned. */
+  private volatile JsonNodeReadOnlyTrx[] recordTrxLanes;
+
+  /** How many materialization lanes {@link #recordTrxAt} serves. */
+  public int recordTrxLaneCount() {
+    return Math.min(threads, 16);
+  }
+
+  /**
+   * Lane {@code lane}'s record-materialization transaction — the parallel counterpart of
+   * {@link #recordTrx()}, with the same lifetime contract: materialized items keep reading
+   * fields through their lane's transaction during serialization, so the pool lives until the
+   * executor closes and reopens after a close for already-compiled queries. Bounded leak:
+   * {@link #recordTrxLaneCount()}.
+   */
+  public JsonNodeReadOnlyTrx recordTrxAt(final int lane) {
+    JsonNodeReadOnlyTrx[] lanes = recordTrxLanes;
+    if (lanes == null) {
+      synchronized (this) {
+        lanes = recordTrxLanes;
+        if (lanes == null) {
+          lanes = recordTrxLanes = new JsonNodeReadOnlyTrx[recordTrxLaneCount()];
+        }
+      }
+    }
+    JsonNodeReadOnlyTrx trx = lanes[lane];
+    if (trx == null || trx.isClosed()) {
+      synchronized (this) {
+        trx = lanes[lane];
+        if (trx == null || trx.isClosed()) {
+          trx = session.beginNodeReadOnlyTrx(revision);
+          lanes[lane] = trx;
+        }
+      }
+    }
+    return trx;
+  }
 
   /**
    * The executor's ONE cached record-materialization transaction — materialized items read fields
