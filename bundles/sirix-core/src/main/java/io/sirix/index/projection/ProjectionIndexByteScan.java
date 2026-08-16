@@ -2233,6 +2233,63 @@ public final class ProjectionIndexByteScan {
     }
   }
 
+  /**
+   * Fold EVERY matching row of every leaf into ONE accumulator block ({@link #newGroupAggAcc}
+   * layout; the ordinal lane is unused) — the single-group kernel behind {@code group by
+   * <constant>}: N aggregates over their operand columns in one pass, no group column read at all.
+   */
+  public static void conjunctiveAggregateAllNumeric(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] aggColumns, final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (acc == null || aggColumns == null) {
+      throw new IllegalArgumentException("acc and aggColumns must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = aggColumns.length;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          foldRow(acc, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowBase + bit);
+        }
+      }
+    }
+  }
+
   /** Shared per-row accumulate for the flat group kernels. */
   private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx) {
