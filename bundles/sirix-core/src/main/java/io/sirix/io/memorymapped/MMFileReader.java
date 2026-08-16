@@ -36,10 +36,15 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
+import io.sirix.settings.Constants;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandle;
 import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
@@ -130,24 +135,101 @@ public final class MMFileReader extends AbstractReader {
   }
 
   private static final int MADV_SEQUENTIAL = 2;
+  private static final int MADV_WILLNEED = 3;
+  private static final long PAGE_MASK = ~4095L;
+
+  /** Cached madvise downcall — {@code null} where unavailable (non-Linux); every use is a hint. */
+  private static final MethodHandle MADVISE_HANDLE;
+
+  static {
+    MethodHandle h = null;
+    try {
+      final Linker linker = Linker.nativeLinker();
+      h = linker.downcallHandle(
+          linker.defaultLookup().find("madvise").orElseThrow(),
+          FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
+              ValueLayout.JAVA_INT));
+    } catch (final Throwable ignored) {
+      // madvise unavailable — hints become no-ops.
+    }
+    MADVISE_HANDLE = h;
+  }
 
   private static void adviseMadvSequential(final MemorySegment seg) {
+    if (MADVISE_HANDLE == null) {
+      return;
+    }
     try {
-      final var linker = java.lang.foreign.Linker.nativeLinker();
-      final var madvise = linker.downcallHandle(
-          linker.defaultLookup().find("madvise").orElseThrow(),
-          java.lang.foreign.FunctionDescriptor.of(
-              java.lang.foreign.ValueLayout.JAVA_INT,
-              java.lang.foreign.ValueLayout.ADDRESS,
-              java.lang.foreign.ValueLayout.JAVA_LONG,
-              java.lang.foreign.ValueLayout.JAVA_INT));
-      final int rc = (int) madvise.invokeExact(seg, seg.byteSize(), MADV_SEQUENTIAL);
+      final int rc = (int) MADVISE_HANDLE.invokeExact(seg, seg.byteSize(), MADV_SEQUENTIAL);
       if (rc != 0) {
         // Non-fatal: kernel may not support MADV_SEQUENTIAL on all mappings.
       }
     } catch (final Throwable ignored) {
       // madvise unavailable (non-Linux) — no-op.
     }
+  }
+
+  /**
+   * Async-readahead hint for one page-aligned region of the data mapping. Purely advisory —
+   * failures are ignored; correctness never depends on it.
+   */
+  private void adviseWillNeed(final long offset, final long length) {
+    if (MADVISE_HANDLE == null) {
+      return;
+    }
+    final long alignedStart = offset & PAGE_MASK;
+    final long end = Math.min(offset + length, dataFileSegment.byteSize());
+    if (end <= alignedStart) {
+      return;
+    }
+    try {
+      final MemorySegment region = dataFileSegment.asSlice(alignedStart, end - alignedStart);
+      final int rc = (int) MADVISE_HANDLE.invokeExact(region, region.byteSize(), MADV_WILLNEED);
+      if (rc != 0) {
+        // Advisory only.
+      }
+    } catch (final Throwable ignored) {
+      // Advisory only.
+    }
+  }
+
+  /**
+   * Batched read with COLD-MAPPING readahead: the inherited default demand-faults each segment's
+   * pages one at a time (~100 µs of device latency per 4 KiB page, serially — a cold projection
+   * column fetch measured ~1,100 major faults for one query). Two WILLNEED passes turn that into
+   * kernel-parallel readahead: first every reference's length-header page, then — once the
+   * headers are resident enough to read cheaply — every full span. The copy/deserialize loop
+   * then runs over mostly-resident pages. Semantics identical to the default loop.
+   */
+  @Override
+  public Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration) {
+    if (MADVISE_HANDLE != null && references.length >= 8) {
+      for (final PageReference ref : references) {
+        if (ref != null && ref.getKey() >= 0) {
+          adviseWillNeed(ref.getKey(), LAYOUT_INT.byteSize());
+        }
+      }
+      for (final PageReference ref : references) {
+        if (ref == null || ref.getKey() < 0) {
+          continue;
+        }
+        final long key = ref.getKey();
+        if (key + LAYOUT_INT.byteSize() > dataFileSegment.byteSize()) {
+          continue; // the read below reports the corruption attributably
+        }
+        final int dataLength = dataFileSegment.get(LAYOUT_INT, key);
+        if (dataLength > 0 && dataLength <= dataFileSegment.byteSize()) {
+          adviseWillNeed(key + LAYOUT_INT.byteSize(), dataLength);
+        }
+      }
+    }
+    final Page[] pages = new Page[references.length];
+    for (int i = 0; i < references.length; i++) {
+      if (references[i] != null && references[i].getKey() != Constants.NULL_ID_LONG) {
+        pages[i] = read(references[i], resourceConfiguration);
+      }
+    }
+    return pages;
   }
 
   /**
