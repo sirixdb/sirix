@@ -10,6 +10,7 @@ import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 
 /**
@@ -1297,4 +1298,93 @@ public final class ProjectionColumnScan {
       mask[w] = out;
     }
   }
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#distinctPresentStrings}: distinct PRESENT
+   * string values of a dict column over leaves {@code [fromLeaf, toLeaf)}, from the column's
+   * slices alone — the payload route hydrates every column of every leaf to read one dict.
+   * Same contract: sparse-clean unpredicated callers only; every non-empty dict entry was
+   * interned by a present row, and only a zero-length entry needs per-row disambiguation (a
+   * MISSING row interns the "" default). Content-based dedup; {@code cardLimit} exceeded, a
+   * null slice, or absent dict/id/presence lanes return {@code null} — the caller falls back.
+   */
+  public static @Nullable ArrayList<byte[]> distinctPresentStrings(final ColumnSlice[] slices, final int fromLeaf,
+      final int toLeaf, final int cardLimit) {
+    final ArrayList<byte[]> distinct = new ArrayList<>(16);
+    boolean emptyReal = false;
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final ColumnSlice slice = slices[leaf];
+      if (slice == null) {
+        return null;
+      }
+      final int rowCount = slice.rowCount();
+      if (rowCount == 0) {
+        continue;
+      }
+      final byte[][] dict = slice.stringDict();
+      if (dict == null) {
+        return null;
+      }
+      int emptyId = -1;
+      for (int i = 0; i < dict.length; i++) {
+        final byte[] entry = dict[i];
+        if (entry == null) {
+          break; // null-padded dict tail (codec floor of 16) — no id references it
+        }
+        if (entry.length == 0) {
+          emptyId = i;
+          continue;
+        }
+        boolean present = false;
+        for (int c = distinct.size() - 1; c >= 0; c--) {
+          if (Arrays.equals(entry, distinct.get(c))) {
+            present = true;
+            break;
+          }
+        }
+        if (!present) {
+          if (distinct.size() >= cardLimit) {
+            return null;
+          }
+          distinct.add(entry);
+        }
+      }
+      if (emptyId >= 0 && !emptyReal) {
+        final long[] presence = slice.presenceWords();
+        final int[] ids = slice.stringDictIds();
+        if (presence == null || ids == null) {
+          return null;
+        }
+        final int presWords = (rowCount + 63) >>> 6;
+        boolean allPresent = true;
+        for (int w = 0; w < presWords; w++) {
+          final long expect = w == presWords - 1 && (rowCount & 63) != 0
+              ? (1L << (rowCount & 63)) - 1
+              : -1L;
+          if ((presence[w] & expect) != expect) {
+            allPresent = false;
+            break;
+          }
+        }
+        if (allPresent) {
+          // Every row is present, so the "" entry was interned by a present row.
+          emptyReal = true;
+        } else {
+          for (int r = 0; r < rowCount; r++) {
+            if ((presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+              continue;
+            }
+            if (ids[r] == emptyId) {
+              emptyReal = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+    if (emptyReal) {
+      distinct.add(new byte[0]);
+    }
+    return distinct;
+  }
+
 }
