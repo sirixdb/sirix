@@ -7,17 +7,13 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
-import io.sirix.node.Bytes;
-import io.sirix.node.BytesIn;
-import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.node.Utils;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageLayout;
 import io.sirix.page.RegionsOnlyPage;
-import io.sirix.page.SerializationType;
+import io.sirix.page.chunked.ChunkedPageHarness.ChunkedLayout;
 import io.sirix.page.pax.RegionTable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,7 +21,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
 import java.util.LinkedHashMap;
 import java.util.Random;
 
@@ -264,7 +259,7 @@ final class ChunkedBodyWireFormatTest {
     assertTrue(layout.chunkCount >= 2, "this sabotage wants a page with several chunks");
 
     final byte[] sabotaged = toArray(wire);
-    final int victim = (int) layout.firstChunkPayloadOffset;
+    final int victim = (int) layout.chunkPayloadOffset[0];
     sabotaged[victim] ^= 0x01;
 
     final SirixIOException thrown =
@@ -315,107 +310,25 @@ final class ChunkedBodyWireFormatTest {
 
   // ---------------------------------------------------------------- helpers
 
-  /** Where the parts of a chunked body sit, parsed the way the reader parses them. */
-  private record ChunkedLayout(int populatedCount, long fsstDictId, int bodyTotalLen, int metaRawLen, int metaEncLen,
-      int chunkCount, long chunkTableOffset, long metaPayloadOffset, long firstChunkPayloadOffset,
-      long regionTableOffset) {
-  }
-
   private static ChunkedLayout parseChunkedLayout(final MemorySegment wire) {
-    final MemorySegmentBytesIn in = new MemorySegmentBytesIn(wire);
-    in.readByte(); // page-kind id
-    in.readByte(); // binary version
-    assertEquals(ChunkedBodyConfig.FLAG_CHUNKED_BODY, in.readByte(), "the envelope must flag a chunked body");
-    Utils.getVarLong(in); // record page key
-    in.readInt(); // revision
-    in.readByte(); // index type
-    in.skip(PageLayout.DISK_HEADER_BITMAP_SIZE);
-    final int populatedCount = in.readInt();
-    in.readInt(); // onDiskHeapSize
-    final int templateCount = in.readByte() & 0xFF;
-    if (templateCount > 0) {
-      in.readByte(); // structural flags
-    }
-    in.readInt(); // templatePoolBytes
-    final long fsstDictId = Utils.getVarLong(in);
-    final int bodyTotalLen = in.readInt();
-    final long bodyStart = in.position();
-    final int metaRawLen = in.readInt();
-    final int metaEncLen = in.readInt();
-    in.readByte(); // META codec
-    in.readLong(); // META checksum
-    final long chunkTableOffset = in.position();
-    final int chunkCount = in.readByte() & 0xFF;
-    long payload = chunkTableOffset + 1 + (long) chunkCount * ChunkedBodyConfig.CHUNK_TABLE_ROW_BYTES;
-    final long metaPayloadOffset = payload;
-    payload += metaEncLen;
-    return new ChunkedLayout(populatedCount, fsstDictId, bodyTotalLen, metaRawLen, metaEncLen, chunkCount,
-        chunkTableOffset, metaPayloadOffset, payload, bodyStart + bodyTotalLen);
+    return ChunkedPageHarness.parseChunkedLayout(wire);
   }
 
-  /**
-   * Compare two decoded pages as pages, not as slot lists: the on-disk header and slot bitmap, the
-   * directory entry of every populated slot, and the whole record heap. A slot-by-slot comparison
-   * alone would pass a page whose DeweyID trailers or heap layout had shifted.
-   */
   private static void assertSameSlottedPage(final KeyValueLeafPage expected, final KeyValueLeafPage actual) {
-    final MemorySegment a = expected.getSlottedPage();
-    final MemorySegment b = actual.getSlottedPage();
-    assertArrayEquals(bytes(a, 0, PageLayout.DISK_HEADER_BITMAP_SIZE), bytes(b, 0, PageLayout.DISK_HEADER_BITMAP_SIZE),
-        "header + slot bitmap");
-    final int heapEnd = PageLayout.getHeapEnd(a);
-    assertEquals(heapEnd, PageLayout.getHeapEnd(b), "heap size");
-    assertArrayEquals(bytes(a, PageLayout.HEAP_START, heapEnd), bytes(b, PageLayout.HEAP_START, heapEnd),
-        "record heap");
-    for (int slot = 0; slot < PageLayout.SLOT_COUNT; slot++) {
-      if (!PageLayout.isSlotPopulated(a, slot)) {
-        continue;
-      }
-      assertEquals(PageLayout.getDirDataLength(a, slot), PageLayout.getDirDataLength(b, slot),
-          "slot " + slot + " directory length");
-      assertEquals(PageLayout.getDirNodeKindId(a, slot), PageLayout.getDirNodeKindId(b, slot),
-          "slot " + slot + " directory kind");
-      assertEquals(PageLayout.getDirHeapOffset(a, slot), PageLayout.getDirHeapOffset(b, slot),
-          "slot " + slot + " directory heap offset");
-      assertArrayEquals(expected.getSlotAsByteArray(slot), actual.getSlotAsByteArray(slot), "slot " + slot + " bytes");
-    }
-  }
-
-  private static byte[] bytes(final MemorySegment segment, final long offset, final int length) {
-    return segment.asSlice(offset, length).toArray(ValueLayout.JAVA_BYTE);
+    ChunkedPageHarness.assertSameSlottedPage(expected, actual, "page");
   }
 
   private static byte[] toArray(final MemorySegment wire) {
-    return wire.toArray(ValueLayout.JAVA_BYTE);
+    return ChunkedPageHarness.toArray(wire);
   }
 
-  /**
-   * Serialize a page and hand back exactly the bytes that would reach disk. The sticky codec election
-   * is reset first so the choice depends on the page's content alone, not on what this thread
-   * serialized before it.
-   */
   private static MemorySegment serialize(final ResourceConfiguration config, final KeyValueLeafPage page,
       final boolean chunked) {
-    final boolean previous = ChunkedBodyConfig.setEnabledForTesting(chunked);
-    try {
-      PageKind.resetStickyCodecElectionForCurrentThread();
-      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
-      PageKind.KEYVALUELEAFPAGE.serializePage(config, sink, page, SerializationType.DATA);
-      final long length = sink.writePosition();
-      final BytesIn<?> read = sink.bytesForRead();
-      final MemorySegment source = ((MemorySegmentBytesIn) read).getSource();
-      final MemorySegment copy = java.lang.foreign.Arena.ofAuto().allocate(length);
-      MemorySegment.copy(source, 0, copy, 0, length);
-      return copy;
-    } finally {
-      ChunkedBodyConfig.setEnabledForTesting(previous);
-    }
+    return ChunkedPageHarness.serialize(config, page, chunked);
   }
 
   private static KeyValueLeafPage deserialize(final ResourceConfiguration config, final MemorySegment wire) {
-    final MemorySegmentBytesIn in = new MemorySegmentBytesIn(wire);
-    in.readByte(); // page-kind id, consumed by the caller in production too
-    return (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, in, SerializationType.DATA);
+    return ChunkedPageHarness.deserialize(config, wire);
   }
 
   private static KeyValueLeafPage emptyPage(final ResourceConfiguration config) {
