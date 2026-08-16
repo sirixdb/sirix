@@ -586,6 +586,81 @@ public final class ProjectionIndexByteScan {
    *
    * @throws ArithmeticException on overflow — callers treat it as a DECLINE
    */
+  /**
+   * {@link #conjunctiveAggregateNumeric} with a 128-BIT SUM — the overflow fallback for columns
+   * whose exact long sum cannot fit (64-bit id columns; the interpreter promotes to big-integer
+   * arithmetic there, so declining to the row path was pure cost). {@code acc} layout:
+   * {@code [count, sumHi, sumLo(unsigned), min, max]}; the two sum lanes add with carry and merge
+   * associatively, so the parallel chunk merge stays exact.
+   */
+  public static void conjunctiveAggregateNumeric128(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    for (final byte[] payload : rowGroupPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte kind = payload[24 + numericColumn];
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalStateException(
+            "aggregate column " + numericColumn + " is not NUMERIC_LONG (kind=" + kind + ")");
+      }
+      final int base = s.columnDataOff[numericColumn];
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      if (tailStart >= 0) {
+        final int presOff = presenceWordsOff(payload, tailStart, numericColumn);
+        for (int w = 0; w < stride; w++) {
+          scanMask[w] &= getLongLE(payload, presOff + w * 8);
+        }
+      }
+      long count = acc[0];
+      long sumHi = acc[1];
+      long sumLo = acc[2];
+      long min = acc[3];
+      long max = acc[4];
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long v = getLongLE(payload, base + rowIdx * 8);
+          count++;
+          final long lo = sumLo + v;
+          // Unsigned carry-out of lo += v, plus the sign extension of v into the high lane.
+          sumHi += (v >> 63) + (((sumLo & v) | ((sumLo | v) & ~lo)) >>> 63);
+          sumLo = lo;
+          if (v < min) {
+            min = v;
+          }
+          if (v > max) {
+            max = v;
+          }
+        }
+      }
+      acc[0] = count;
+      acc[1] = sumHi;
+      acc[2] = sumLo;
+      acc[3] = min;
+      acc[4] = max;
+    }
+  }
+
   public static void conjunctiveAggregateNumeric(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
     if (predicates == null) {

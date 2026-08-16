@@ -106,6 +106,8 @@ import java.lang.reflect.InvocationTargetException;
 import io.brackit.query.util.Regex;
 
 import java.math.BigDecimal;
+import io.brackit.query.atomic.Int;
+import io.brackit.query.atomic.Numeric;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.regex.Pattern;
@@ -1522,7 +1524,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return served;
     } catch (final ArithmeticException overflow) {
       PROJECTION_AGGREGATE_OVERFLOW_DECLINES.increment();
-      return null;
+      // The interpreter PROMOTES to big-integer arithmetic here — serve the identical
+      // result through the 128-bit-sum kernel instead of declining to the row path, whose
+      // first touch hydrates every record page (the cold-regime whale).
+      try {
+        final long[] wide = projectionAggregate128OrNull(sourcePath, field, predicateOrNull);
+        if (PROJ_DIAG) {
+          System.err.println("[proj] 128 retry field=" + field + " -> " + java.util.Arrays.toString(wide));
+        }
+        if (wide != null) {
+          PROJECTION_AGGREGATES_SERVED.increment();
+        }
+        return wide;
+      } catch (final RuntimeException declined) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] 128 retry THREW: " + declined);
+        }
+        return null;
+      }
     }
   }
 
@@ -1648,6 +1667,82 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     } catch (final IllegalStateException ise) {
       return null;
     }
+  }
+
+  /**
+   * The OVERFLOW retry: {@code [count, sumHi, sumLo(unsigned), min, max]} through the
+   * 128-bit-sum kernel, for columns whose exact long sum cannot fit. Re-runs the same gates
+   * (cheap — descriptor reads) and the eager byte scan only; the sliced path is what threw.
+   */
+  private long[] projectionAggregate128OrNull(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull) {
+    final CompiledPredicate cp = predicateOrNull == null
+        ? null
+        : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] {field}, cp);
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
+    if (handle == null) {
+      return null;
+    }
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    final int col = handle.columnOf(field);
+    if (col < 0 || handle.rowGroupCount() == 0
+        || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (cp == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null; // tree shapes keep the row path for the overflow case (v1)
+      }
+      preds = fuseRangePredicates(extracted);
+    }
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    if (rowGroupPayloads == null) {
+      return null;
+    }
+    final int rowGroupCount = rowGroupPayloads.size();
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+    final long[][] perThread = new long[eff][];
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      final long[] acc = {0, 0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+      ProjectionIndexByteScan.conjunctiveAggregateNumeric128(rowGroupPayloads.subList(from, to), preds, col, acc);
+      perThread[idx] = acc;
+    });
+    long count = 0;
+    long sumHi = 0;
+    long sumLo = 0;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (final long[] acc : perThread) {
+      if (acc == null) {
+        continue;
+      }
+      count += acc[0];
+      final long lo = sumLo + acc[2];
+      sumHi += acc[1] + (((sumLo & acc[2]) | ((sumLo | acc[2]) & ~lo)) >>> 63);
+      sumLo = lo;
+      if (acc[3] < min) {
+        min = acc[3];
+      }
+      if (acc[4] > max) {
+        max = acc[4];
+      }
+    }
+    return new long[] {count, sumHi, sumLo, min, max};
   }
 
   /**
@@ -4156,7 +4251,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         if (projected != null) {
-          fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+          fresh = statsToSequence(func, projected);
         }
         if (fresh == null) {
           // Double-column branch, purity-gated (§11-8): value aggregates serve only when
@@ -10245,7 +10340,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // kernels are committed-revision scoped), no result caches.
         final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
         if (projected != null) {
-          return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+          return statsToSequence(func, projected);
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
@@ -10255,7 +10350,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // short-circuit ahead of it silently retired it the moment path statistics were switched on.
       final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
-        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2], projectedFirst[3]);
+        return statsToSequence(func, projectedFirst);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -10374,7 +10469,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblStats != null) {
         return dblStats.result(func);
       }
-      return longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
+      return statsToSequence(func, stats);
     } catch (Exception e) {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
     }
@@ -13273,6 +13368,51 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       throw new IllegalStateException("xs:double cast failed on a served aggregate", e);
     }
   }
+
+  /** Dispatch on the accumulator width: 4 lanes = exact long stats, 5 = the 128-bit-sum
+   * fallback's {@code [count, sumHi, sumLo, min, max]}. Every consumer of
+   * {@code tryProjectionAggregate} must come through here — reading a 5-lane array with the
+   * 4-lane layout serves {@code sumHi} as the sum. */
+  private static Sequence statsToSequence(final String func, final long[] stats) {
+    return stats.length == 5
+        ? longStats128ToSequence(func, stats)
+        : longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
+  }
+
+  /** {@code [count, sumHi, sumLo, min, max]} stats from the 128-bit-sum fallback. The avg
+   * division and the (rare) sum emission go through Brackit's own numeric ops on the exact
+   * big-integer value — the same arithmetic the interpreter's promotion performs. */
+  private static Sequence longStats128ToSequence(final String func, final long[] acc) {
+    final long count = acc[0];
+    return switch (func) {
+      case "count" -> new Int64(count);
+      case "sum" -> count == 0
+          ? new Int64(0L)
+          : bigSumAtomic(acc[1], acc[2]);
+      case "avg" -> count == 0
+          ? new ItemSequence()
+          : (Sequence) bigSumAtomic(acc[1], acc[2]).div(new Int64(count));
+      case "min" -> count == 0
+          ? new ItemSequence()
+          : new Int64(acc[3]);
+      case "max" -> count == 0
+          ? new ItemSequence()
+          : new Int64(acc[4]);
+      default -> throw new IllegalStateException("unhandled 128-bit aggregate function: " + func);
+    };
+  }
+
+  /** The exact signed 128-bit sum as Brackit's own numeric atomic: {@link Int64} when it fits
+   * (the interpreter never promoted), else the big-integer {@link Int}. */
+  private static Numeric bigSumAtomic(final long hi, final long lo) {
+    final BigInteger big =
+        BigInteger.valueOf(hi).shiftLeft(64).or(BigInteger.valueOf(lo).and(UNSIGNED_64_MASK));
+    return big.bitLength() <= 63
+        ? new Int64(big.longValueExact())
+        : new Int(new BigDecimal(big));
+  }
+
+  private static final BigInteger UNSIGNED_64_MASK = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
 
   private static Sequence longStatsToSequence(final String func, final long count, final long sum, final long min,
       final long max) {
