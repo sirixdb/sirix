@@ -9943,6 +9943,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) — callers fall back.
    */
   private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle, final int groupColumn) {
+    // SLICED first (regime-gated like the group kernels): the payload route hydrates every
+    // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
+    final ProjectionColumnStore cdStore = handle.columnStoreOrNull();
+    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnSliceable(groupColumn)
+        && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      try {
+        final ProjectionColumnStore.ColumnSlice[] cdSlices = cdStore.column(groupColumn, columnFetcher());
+        final int n = cdStore.rowGroupCount();
+        final int effS = Math.min(threads, Math.max(1, (n + 63) / 64));
+        final int chunkS = (n + effS - 1) / effS;
+        @SuppressWarnings("unchecked")
+        final ArrayList<byte[]>[] perThreadS = new ArrayList[effS];
+        final boolean[] declinedS = new boolean[1];
+        parallel(effS, idx -> {
+          final int from = idx * chunkS;
+          final int to = Math.min(from + chunkS, n);
+          if (from >= to)
+            return;
+          final ArrayList<byte[]> local =
+              ProjectionColumnScan.distinctPresentStrings(cdSlices, from, to, COUNT_DISTINCT_DICT_CARD_LIMIT);
+          if (local == null) {
+            declinedS[0] = true;
+          } else {
+            perThreadS[idx] = local;
+          }
+        });
+        if (!declinedS[0]) {
+          return mergeDistinctByteLists(perThreadS);
+        }
+      } catch (final IllegalStateException slicedFailed) {
+        // corrupt/missing slices — the payload route below re-surfaces the condition
+      }
+    }
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
     if (rowGroupPayloads == null)
       return -1L;
@@ -9976,6 +10009,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     });
     if (declined[0])
       return -1L;
+    return mergeDistinctByteLists(perThread);
+  }
+
+  /** Content-based union of per-chunk distinct lists; {@code -1} when the card limit trips. */
+  private static long mergeDistinctByteLists(final ArrayList<byte[]>[] perThread) {
     final ArrayList<byte[]> merged = new ArrayList<>(16);
     for (final ArrayList<byte[]> local : perThread) {
       if (local == null)
