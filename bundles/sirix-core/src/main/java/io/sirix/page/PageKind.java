@@ -1549,8 +1549,10 @@ public enum PageKind {
       // | if templateCount > 0: templatePoolBytes(int) | pool | slotIds
       // | compressedLen(int) | codec(byte) | compressed bytes
       // | if templateCount == 0: heapBytes (inline, uncompressed)
+      final boolean nameKeyRegionPresent =
+          regionTable != null && regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) != null;
       writeEncodedBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, slotBits,
-          slotRegionAbsIdx, chunkedBody, keyValueLeafPage.getFsstSymbolTableId());
+          slotRegionAbsIdx, chunkedBody, keyValueLeafPage.getFsstSymbolTableId(), nameKeyRegionPresent);
 
       final long afterEncodedBody = sectionDiag
           ? sink.writePosition()
@@ -1701,10 +1703,13 @@ public enum PageKind {
      * @param chunkedBody whether the body is chunk-framed ({@link ChunkedBodyConfig}); the staged
      *        sections are identical either way, only the framing around them differs
      * @param fsstDictId the page's FSST dictionary id, hoisted into a chunked body's prefix
+     * @param nameKeyRegionPresent whether the page's region table actually carries the name-key region;
+     *        name-key elision may only strip what that region can put back
      */
     private static void writeEncodedBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
-        final short[] slotBits, final int[] slotRegionAbsIdx, final boolean chunkedBody, final long fsstDictId) {
+        final short[] slotBits, final int[] slotRegionAbsIdx, final boolean chunkedBody, final long fsstDictId,
+        final boolean nameKeyRegionPresent) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
           ? sink.writePosition()
@@ -2250,9 +2255,16 @@ public enum PageKind {
           // without consulting the (cheap-rejected) zero counters — defensive
           // guard against future refactors that might pre-populate the
           // counters above the cheap-reject path.
-          final boolean nameKeyElisionActive = NAME_KEY_ELISION_ENABLED && !nameKeyElisionCheapReject
-              && nameKeyElidableSlotCount > 0 && nameKeyElidableSlotCount == totalFusedNamedSlotCount
-              && nameKeyElidableTotalBytes > nameKeyElidableSlotCount + 4;
+          // The region is the only place a stripped name key can come back from, so its presence is
+          // the condition — not a proxy for it. The unique-value counter above walks the primitive
+          // fused slots alone, while the region also carries the structural fused ones (OBJECT- and
+          // ARRAY-valued fields), so on a page holding both the counter can stay under the region
+          // encoder's 255-value ceiling while the encoder itself refuses. Eliding then wrote a page
+          // that could never be read back: the reinject pass has nothing to read.
+          final boolean nameKeyElisionActive =
+              NAME_KEY_ELISION_ENABLED && nameKeyRegionPresent && !nameKeyElisionCheapReject
+                  && nameKeyElidableSlotCount > 0 && nameKeyElidableSlotCount == totalFusedNamedSlotCount
+                  && nameKeyElidableTotalBytes > nameKeyElidableSlotCount + 4;
           if (finerDiag) {
             if (valueElisionActive) {
               PageSectionDiag.recordValueElision(valueElidableTotalBytes - valueElisionWireBytes - 4L);
