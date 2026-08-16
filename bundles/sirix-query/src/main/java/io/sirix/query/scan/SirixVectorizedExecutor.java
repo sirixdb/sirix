@@ -1716,6 +1716,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       preds = fuseRangePredicates(extracted);
     }
+    // SLICED first: only the aggregate + predicate columns' segments are read — the whole-leaf
+    // materialization below is the cold-start whale and exists only as the fallback.
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store != null && store.columnSliceable(col) && predsSliceable(store, preds)) {
+      try {
+        final int rgc = store.rowGroupCount();
+        final int effS = Math.min(threads, Math.max(1, (rgc + 63) / 64));
+        final long[][] perThreadS = new long[effS][];
+        final int chunkS = (rgc + effS - 1) / effS;
+        prefillColumns(store, preds, col, fetcher);
+        parallel(effS, idx -> {
+          final int from = idx * chunkS;
+          final int to = Math.min(from + chunkS, rgc);
+          if (from >= to)
+            return;
+          final long[] acc = {0, 0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+          ProjectionColumnScan.conjunctiveAggregateNumeric128(store, preds, col, acc, from, to, fetcher);
+          perThreadS[idx] = acc;
+        });
+        return mergeLongAgg128(perThreadS);
+      } catch (final IllegalStateException slicedFailed) {
+        // fall through to the whole-leaf path below
+      }
+    }
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
     if (rowGroupPayloads == null) {
       return null;
@@ -1733,6 +1757,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       ProjectionIndexByteScan.conjunctiveAggregateNumeric128(rowGroupPayloads.subList(from, to), preds, col, acc);
       perThread[idx] = acc;
     });
+    return mergeLongAgg128(perThread);
+  }
+
+  /** Carry-exact merge of {@code [count, sumHi, sumLo, min, max]} chunk accumulators. */
+  private static long[] mergeLongAgg128(final long[][] perThread) {
     long count = 0;
     long sumHi = 0;
     long sumLo = 0;
