@@ -11070,10 +11070,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Composite flat arm (unit 4): multi-key and transformed keys, CD and all three key
       // transforms included — condition columns are gated NUMERIC_LONG upstream.
       final boolean compositeSlicedArm = groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null;
+      final boolean packedSlicedArm = groupSliced && packedStringKey && orderPlan != null;
       // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
       // the flat arms, which never touch payloads).
       final List<byte[]> armPayloads;
-      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced && !compositeSlicedArm) {
+      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced && !compositeSlicedArm
+          && !packedSlicedArm) {
         armPayloads = leafPayloadsOrNull(handle);
         if (armPayloads == null) {
           return null;
@@ -11085,7 +11087,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         armPayloads = rowGroupPayloads;
       }
       if (packedStringKey) {
-        return packedSubstringGroupAggregate(armPayloads, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
+        return packedSubstringGroupAggregate(armPayloads, packedSlicedArm
+            ? groupStore
+            : null, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
             aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit,
             having);
       }
@@ -12037,14 +12041,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * including the {@code ""} of a missing field, a REAL group key — declines the whole serve.
    */
   private ServedGroups packedSubstringGroupAggregate(final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
-      final int groupCol, final int subStart, final int subLen, final int[] aggCols, final String[] keyNames,
-      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
-      final int eff, final int chunkSize, final GroupOrderPlan orderPlan, final long limit, final long[] having) {
+      final ProjectionColumnStore slicedStore, final ProjectionIndexScan.ColumnPredicate[] preds,
+      final ProjectionIndexScan.PredicateTree tree, final int groupCol, final int subStart, final int subLen,
+      final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
+      final GroupOrderPlan orderPlan, final long limit, final long[] having) {
     if (orderPlan == null) {
       return null;
     }
-    final int rowGroupCount = rowGroupPayloads.size();
+    final int rowGroupCount = slicedStore != null
+        ? slicedStore.rowGroupCount()
+        : rowGroupPayloads.size();
+    // SLICED arm: resolve ONCE on the calling thread; workers share the immutable slices.
+    final ProjectionColumnStore.ColumnSlice[][] pPredCols;
+    final ProjectionColumnStore.ColumnSlice[] pGroupCol;
+    final ProjectionColumnStore.ColumnSlice[][] pAggCols;
+    if (slicedStore != null) {
+      final ProjectionColumnStore.ColumnSegmentFetcher pFetcher = columnFetcher();
+      if (slicedStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+      }
+      pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher);
+      pGroupCol = slicedStore.column(groupCol, pFetcher);
+      pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+      for (int a = 0; a < aggCols.length; a++) {
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        }
+        pAggCols[a] = slicedStore.column(aggCols[a], pFetcher);
+      }
+    } else {
+      pPredCols = null;
+      pGroupCol = null;
+      pAggCols = null;
+    }
     final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
     final long[] decline = new long[1];
     parallel(eff, idx -> {
@@ -12054,8 +12084,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return;
       final NumericGroupAggTable local =
           new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
-          preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
+      if (slicedStore != null) {
+        ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, pGroupCol,
+            pAggCols, from, to, subStart, subLen, local, decline);
+      } else {
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
+            preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
+      }
       tables[idx] = local;
     });
     if (decline[0] != 0) {
@@ -12141,17 +12176,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long src = into.auxAtBase(into.acquire(packed, Long.MAX_VALUE));
       final int leaf = (int) (src >>> 20);
       final int dictId = (int) (src & 0xFFFFF);
-      final byte[] payload = rowGroupPayloads.get(leaf);
-      int columnBase = leafColumnBase[leaf];
-      if (columnBase < 0) {
-        columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+      final String entry;
+      if (slicedStore != null) {
+        entry = new String(pGroupCol[leaf].stringDict()[dictId], StandardCharsets.UTF_8);
+      } else {
+        final byte[] payload = rowGroupPayloads.get(leaf);
+        int columnBase = leafColumnBase[leaf];
+        if (columnBase < 0) {
+          columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+        }
+        entry = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
       }
-      final String entry = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
       // The window validated all-ASCII, so char indexing IS codepoint indexing.
       final String key = entry.substring(subStart - 1, subStart - 1 + subLen);
       out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
     }
     GROUP_AGG_SERVED.increment();
+    if (slicedStore != null) {
+      GROUP_AGG_SLICED_SERVED.increment();
+    }
     return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
   }
 
