@@ -857,22 +857,22 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     // and a negative key, plus a predicate so the mask path is exercised.
     query("""
           jn:store('json-path1','slicedgroup.jn','[
-            {"grp": 7,  "age": 30},
-            {"grp": 7,  "age": 45},
-            {"grp": 0,  "age": 20},
+            {"grp": 7,  "age": 30, "tag": "aa"},
+            {"grp": 7,  "age": 45, "tag": "bbbb"},
+            {"grp": 0,  "age": 20, "tag": "c"},
             {"grp": 3,  "age": 8},
-            {"grp": 7,  "age": 12},
-            {"grp": 3,  "age": 15},
-            {"age": 99},
-            {"grp": -5, "age": 60},
-            {"grp": 4,  "age": 2}
+            {"grp": 7,  "age": 12, "tag": "dd"},
+            {"grp": 3,  "age": 15, "tag": "ee"},
+            {"age": 99, "tag": "fff"},
+            {"grp": -5, "age": 60, "tag": "g"},
+            {"grp": 4,  "age": 2,  "tag": "hh"}
           ]')
         """);
     query("""
           let $doc := jn:doc('json-path1','slicedgroup.jn')
           let $stats := jn:create-projection-index($doc, '/[]',
-              ('/[]/grp', '/[]/age'),
-              ('long', 'long'))
+              ('/[]/grp', '/[]/age', '/[]/tag'),
+              ('long', 'long', 'string'))
           return {"revision": sdb:commit($doc)}
         """);
     ProjectionIndexRegistry.clear();
@@ -889,6 +889,18 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
             order by $c descending
             return {"g": $g, "c": $c, "total": sum($r.age), "hi": max($r.age)}, 1, 3)
         """;
+    // strlen operand on the NUMERIC arm: the agg slice is the STRING dict, codepoint counts
+    // fold with missing-is-0 (the grp-3/age-8 record has no tag).
+    final String strlenQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','slicedgroup.jn')[]
+            where $r.age gt 5
+            let $g := $r.grp, $len := fn:string-length($r.tag)
+            group by $g
+            let $c := count($r)
+            order by $c descending
+            return {"g": $g, "c": $c, "slen": sum($len)}, 1, 3)
+        """;
     try (
         final BasicJsonDBStore store =
             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
@@ -899,6 +911,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       // Generic (no executor): the parity oracle, computed BEFORE the executor exists so the
       // auto-wiring cannot silently serve this leg too.
       final String generic = evaluateQuery(chain, ctx, topKQuery);
+      final String genericStrlen = evaluateQuery(chain, ctx, strlenQuery);
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
@@ -906,17 +919,23 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
         final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
         final String served = evaluateQuery(chain, ctx, topKQuery);
+        final String servedStrlen = evaluateQuery(chain, ctx, strlenQuery);
         Assertions.assertEquals(generic, served,
             "sliced-served top-K numeric grouping must match the generic pipeline exactly");
-        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
-            "the top-K numeric group-aggregate query must be SERVED from the projection");
-        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
-            "the COLUMN-SLICE group kernel specifically must have served it (whole-leaf would "
+        Assertions.assertEquals(genericStrlen, servedStrlen,
+            "sliced-served strlen-operand grouping must match the generic pipeline exactly");
+        Assertions.assertEquals(2L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "both numeric group-aggregate queries must be SERVED from the projection");
+        Assertions.assertEquals(2L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the COLUMN-SLICE group kernel specifically must have served both (whole-leaf would "
                 + "produce identical bytes, so this counter is the only route-level evidence)");
         // Stable count-descending over first-appearance order 7, 0, 3, null, -5:
         // 7 (3 rows) > 3 (2 rows) > 0 (1 row, first-seen before the other singletons).
         Assertions.assertEquals("{\"g\":7,\"c\":3,\"total\":87,\"hi\":45}"
             + " {\"g\":3,\"c\":2,\"total\":23,\"hi\":15}" + " {\"g\":0,\"c\":1,\"total\":20,\"hi\":20}", served);
+        // 7: aa+bbbb+dd = 8; 3: (missing→0)+ee = 2; 0: c = 1.
+        Assertions.assertEquals("{\"g\":7,\"c\":3,\"slen\":8}"
+            + " {\"g\":3,\"c\":2,\"slen\":2}" + " {\"g\":0,\"c\":1,\"slen\":1}", servedStrlen);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();

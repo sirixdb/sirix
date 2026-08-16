@@ -10986,8 +10986,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
       // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
-      final boolean numericSlicedArm =
-          groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null && !anyStrlenAgg;
+      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
       final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null && !anyDeferred;
@@ -12021,8 +12020,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         slicedGroupCol = slicedStore.column(groupCol, fetcher);
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
         for (int a = 0; a < aggCols.length; a++) {
-          if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+          final int expected = aggStrlen != null && aggStrlen[a]
+              ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+              : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+          if (slicedStore.columnKind(aggCols[a]) != expected) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " kind mismatch (expected " + expected + ")");
           }
           slicedAggCols[a] = slicedStore.column(aggCols[a], fetcher);
         }
@@ -12046,7 +12048,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         if (slicedStore != null) {
           ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, slicedGroupCol,
-              slicedAggCols, from, to, local, missing, cdBlockIdx, cdBlockIdx >= 0
+              slicedAggCols, aggStrlen, from, to, local, missing, cdBlockIdx, cdBlockIdx >= 0
                   ? cdMaps[idx]
                   : null,
               cdBlockIdx >= 0
