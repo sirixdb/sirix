@@ -12082,6 +12082,54 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return record keys in emission order, or {@code null} to fall back
    */
+  /** Serving cap for the UNORDERED predicate scan: past this many matches, materializing the
+   * result through per-record navigation is slower than the row path it replaces. */
+  private static final int PREDICATE_SCAN_MAX_MATCHES =
+      Integer.getInteger("sirix.predScan.maxMatches", 100_000);
+
+  /**
+   * PREDICATE SCAN (stage 7d — the point-lookup shape): record keys of every row matching a
+   * conjunctive predicate, in DOCUMENT order, served entirely from projection column slices.
+   * {@code null} = decline (no covering projection, unsliceable predicate, OR/NOT tree, or more
+   * than {@link #PREDICATE_SCAN_MAX_MATCHES} matches). The expr materializes each key through the
+   * shared read trx — touching ONLY the matching records' pages, never hydrating the store.
+   */
+  public long[] predicateScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final long limit) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable() || predicateOrNull == null) {
+        return null;
+      }
+      // Unanchored: the mask visits every row with per-leaf presence — same contract as the
+      // group routes (a bare negation shape would still decline at tree extraction below).
+      final CompiledPredicate cp = compile(predicateOrNull, false);
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(new String[0], cp));
+      if (handle == null) {
+        return null;
+      }
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null; // OR/NOT trees decline (v1) — the sliced mask is conjunction-only
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      if (store == null || !predsSliceable(store, preds)) {
+        return null;
+      }
+      return ProjectionColumnScan.matchingRecordKeys(store, preds, PREDICATE_SCAN_MAX_MATCHES, limit,
+          columnFetcher());
+    } catch (final RuntimeException e) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] predicate scan declined: " + e);
+      }
+      return null;
+    }
+  }
+
   public long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] orderFields, final boolean[] descending, final long limit) {
     try {
@@ -12303,6 +12351,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final LongAdder SORTED_SCAN_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #SORTED_SCAN_FAILED}. */
+  private static final LongAdder PREDICATE_SCAN_SERVED = new LongAdder();
+
+  public static void markPredicateScanServed() {
+    PREDICATE_SCAN_SERVED.increment();
+  }
+
+  public static long predicateScanServedCount() {
+    return PREDICATE_SCAN_SERVED.sum();
+  }
+
   public static long sortedScanFailedCount() {
     return SORTED_SCAN_FAILED.sum();
   }

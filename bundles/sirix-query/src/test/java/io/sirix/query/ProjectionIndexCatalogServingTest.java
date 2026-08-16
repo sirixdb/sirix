@@ -1935,6 +1935,80 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void predicateScansServeFilteredRowsInDocumentOrder() throws IOException {
+    // Stage 7d: `for $r in P where p return $r [.field]` — record keys straight from the
+    // predicate mask, materialized per record. Document order is the contract; multi-match
+    // predicates prove it, zero-match proves the empty serve, and the unfiltered shape must
+    // NOT serve (full-table per-record navigation loses to the row path).
+    query("""
+          jn:store('json-path1','predscan.jn','[
+            {"uid": 7, "name": "a", "grp": "x"},
+            {"uid": 3, "name": "b", "grp": "y"},
+            {"uid": 7, "name": "c", "grp": "x"},
+            {"uid": 9, "name": "d"},
+            {"uid": 7, "name": "e", "grp": "z"},
+            {"uid": 3, "name": "f", "grp": "x"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','predscan.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name', '/[]/grp'),
+              ('long', 'string', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','predscan.jn')\n";
+    final String[] queries = {
+        // numeric point lookup, multiple matches straddling non-matches
+        src + "for $r in $doc[] where $r.uid = 7 return $r",
+        // conjunction with a string predicate
+        src + "for $r in $doc[] where $r.uid = 7 and $r.grp = \"x\" return $r",
+        // contains + field projection
+        src + "for $r in $doc[] where contains($r.grp, \"x\") return $r.name",
+        // zero matches: the served answer is the empty sequence
+        src + "for $r in $doc[] where $r.uid = 999 return $r",
+        // subsequence cap: the document-order prefix is exact
+        "subsequence(" + src + "for $r in $doc[] where $r.uid = 7 return $r, 1, 2)"};
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("predscan.jn");
+      final String unfiltered = src + "for $r in $doc[] return $r";
+      final String[] generic = new String[queries.length];
+      for (int i = 0; i < queries.length; i++) {
+        generic[i] = evaluateQuery(chain, ctx, queries[i]);
+      }
+      final String genericAll = evaluateQuery(chain, ctx, unfiltered);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        long servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        for (int i = 0; i < queries.length; i++) {
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
+              "predicate-scan parity, query " + i);
+        }
+        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
+            "every predicate-scan query must be SERVED from the projection");
+        // The unfiltered shape must decline (and still answer identically via the fallback).
+        servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        Assertions.assertEquals(genericAll, evaluateQuery(chain, ctx, unfiltered),
+            "unfiltered scan must answer identically via the fallback");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
+            "an unfiltered scan must NOT serve through the predicate-scan route");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void stringSortedScanDeclinesOnMissingOrderCells() throws IOException {
     // A matched row without the string order key can only be placed by the interpreter
     // (empty-least semantics) — the scan must return null, never invent a position.

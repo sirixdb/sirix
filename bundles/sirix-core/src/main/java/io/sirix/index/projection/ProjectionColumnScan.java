@@ -500,6 +500,62 @@ public final class ProjectionColumnScan {
   }
 
   /**
+   * PREDICATE SCAN (no ordering): record keys of every matching row, in DOCUMENT order — leaf
+   * order, then row order, exactly the interpreter's emission for {@code for $r in P where p
+   * return $r}. Pruned/zone-skipped leaves cost nothing ({@link #evaluateMask}'s pre-checks).
+   * {@code null} when more than {@code maxMatches} rows match: materializing an unbounded result
+   * through per-record navigation would be slower than the row path it replaces, so the caller
+   * declines instead. {@code limit >= 0} truncates to the first {@code limit} matches (a
+   * sole-consumer {@code fn:subsequence} cap — document order makes the prefix exact).
+   */
+  public static long @Nullable [] matchingRecordKeys(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final int maxMatches, final long limit,
+      final ColumnSegmentFetcher fetcher) {
+    checkPredicates(store, predicates);
+    if (predicates.length == 0) {
+      return null; // an unfiltered full-table materialization is the row path's case
+    }
+    final ColumnSlice[][] cols = resolvePredicateColumns(store, predicates, fetcher);
+    final long[][] keySlices = store.recordKeys(fetcher);
+    final Scratch s = SCRATCH.get();
+    final LongArrayList out = new LongArrayList(64);
+    final long cap = limit >= 0
+        ? Math.min(limit, maxMatches)
+        : maxMatches;
+    for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
+      final int leafRows = store.rowCount(leaf);
+      if (leafRows <= 0) {
+        continue;
+      }
+      final int rowCount = evaluateMask(predicates, cols, leaf, leafRows, s.mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final long[] keys = keySlices[leaf];
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = s.mask[w];
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          if (out.size() >= cap) {
+            if (limit >= 0) {
+              return out.toLongArray(); // the cap IS the answer prefix under a limit
+            }
+            return null; // unbounded and over budget — the row path serves this better
+          }
+          out.add(keys[rowIdx]);
+        }
+      }
+    }
+    return out.toLongArray();
+  }
+
+  /**
    * Whether every row of {@code leaf} is STRICTLY worse than the worst kept row on the first order
    * key, with the leaf's order columns provably all-present. Zone truth: a slice's min/max fold only
    * present values, and the all-present check makes them row-complete.
