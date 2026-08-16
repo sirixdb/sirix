@@ -7,6 +7,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.regex.Pattern;
 
 /**
@@ -739,6 +740,129 @@ public final class ProjectionColumnGroupScan {
           foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1, null,
               null);
         }
+      }
+    }
+  }
+
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#stringAggForWinnerGroups} — deferred string
+   * extrema (pass 2): fold min/max over string operand columns for the WINNER groups only,
+   * matching rows to winners by the SAME transformed-key hash pass 1 grouped on (a regex key
+   * hashes the TRANSFORMED entry — hashing raw would silently mismatch every winner and return
+   * all-null extrema). Best-so-far entries are plain {@code byte[]} refs (slices are immutable,
+   * store-lifetime); collation authority is the byte kernel's own comparator.
+   */
+  public static void stringAggForWinnerGroupsSliced(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnSlice[][] stringAggCols, final boolean[] aggIsMin, final long[] winnerHashes,
+      final boolean winnerMissingKey, final String[][] bestOut, final Pattern keyRegex, final String keyRegexRepl,
+      final int fromLeaf, final int toLeaf) {
+    if (predicates == null || stringAggCols == null || aggIsMin == null || winnerHashes == null || bestOut == null) {
+      throw new IllegalArgumentException(
+          "predicates, stringAggCols, aggIsMin, winnerHashes and bestOut must not be null");
+    }
+    final long[] mask = MASK.get();
+    final ProjectionIndexByteScan.RegexHashCache regexCache = keyRegex != null
+        ? new ProjectionIndexByteScan.RegexHashCache()
+        : null;
+    final int aggCount = stringAggCols.length;
+    final int slots = winnerHashes.length + (winnerMissingKey
+        ? 1
+        : 0);
+    final byte[][][] best = new byte[aggCount][slots][];
+    // OWN winner-slot memo (sentinel -2 = unresolved) — DictScratch.base uses -1 and sharing
+    // two sentinel conventions in one array is a foot-gun.
+    int[] winnerSlotOfDict = new int[64];
+    final byte[][][] aggDicts = new byte[aggCount][][];
+    final int[][] aggIds = new int[aggCount][];
+    final long[][] aggPresence = new long[aggCount][];
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final ColumnSlice group = groupCol[leaf];
+      final byte[][] dict = group.stringDict();
+      final int[] ids = group.stringDictIds();
+      final long[] groupPresence = group.presenceWords();
+      final int dictSize = dict == null
+          ? 0
+          : dict.length;
+      if (winnerSlotOfDict.length < dictSize) {
+        winnerSlotOfDict = new int[Math.max(winnerSlotOfDict.length * 2, dictSize)];
+      }
+      Arrays.fill(winnerSlotOfDict, 0, dictSize, -2);
+      for (int a = 0; a < aggCount; a++) {
+        final ColumnSlice agg = stringAggCols[a][leaf];
+        aggDicts[a] = agg.stringDict();
+        aggIds[a] = agg.stringDictIds();
+        aggPresence[a] = agg.presenceWords();
+      }
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        final long groupPresWord = groupPresence[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          int slot;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            if (!winnerMissingKey) {
+              continue;
+            }
+            slot = winnerHashes.length;
+          } else {
+            final int dictId = ids[rowIdx];
+            slot = winnerSlotOfDict[dictId];
+            if (slot == -2) {
+              final byte[] entry = dict[dictId];
+              final long h = keyRegex != null
+                  ? ProjectionIndexByteScan.transformedKeyHash(regexCache, keyRegex, keyRegexRepl, entry, 0,
+                      entry.length)
+                  : ProjectionIndexByteScan.fnv1a64(entry, 0, entry.length);
+              slot = -1;
+              for (int wi = 0; wi < winnerHashes.length; wi++) {
+                if (winnerHashes[wi] == h) {
+                  slot = wi;
+                  break;
+                }
+              }
+              winnerSlotOfDict[dictId] = slot;
+            }
+            if (slot < 0) {
+              continue;
+            }
+          }
+          for (int a = 0; a < aggCount; a++) {
+            if ((aggPresence[a][w] & 1L << bit) == 0L) {
+              continue; // operand missing on this row — contributes nothing
+            }
+            final byte[] entry = aggDicts[a][aggIds[a][rowIdx]];
+            final byte[] cur = best[a][slot];
+            if (cur == null) {
+              best[a][slot] = entry;
+              continue;
+            }
+            if (cur == entry) {
+              continue; // the group's best IS this dict entry (same leaf + id = same array)
+            }
+            final int cmp = ProjectionIndexByteScan.compareStrSlices(entry, 0, entry.length, cur, 0, cur.length);
+            if (aggIsMin[a]
+                ? cmp < 0
+                : cmp > 0) {
+              best[a][slot] = entry;
+            }
+          }
+        }
+      }
+    }
+    for (int a = 0; a < aggCount; a++) {
+      for (int sl = 0; sl < slots; sl++) {
+        bestOut[a][sl] = best[a][sl] == null
+            ? null
+            : new String(best[a][sl], StandardCharsets.UTF_8);
       }
     }
   }

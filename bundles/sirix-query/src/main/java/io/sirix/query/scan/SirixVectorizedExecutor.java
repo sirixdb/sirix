@@ -11063,7 +11063,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
-      final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null && !anyDeferred;
+      final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null;
       // The LEGACY string emission arm (no order plan) slices too — by construction it is the
       // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
       final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null;
@@ -11634,17 +11634,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final long src = finalSel.keyLongAt(i);
               final int leaf = (int) (src >>> 20);
               final int dictId = (int) (src & 0xFFFFF);
-              final byte[] payload = armPayloads.get(leaf);
-              int columnBase = leafColumnBase[leaf];
-              if (columnBase < 0) {
-                columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
-              }
               winnerSlotOf[i] = hashCount;
-              hashScratch[hashCount++] = regexKey != null
-                  ? ProjectionIndexByteScan.utf8Hash(regexKey.matcher(
-                      ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId))
-                      .replaceAll(regexRepl).getBytes(StandardCharsets.UTF_8))
-                  : ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
+              if (stringSlicedArm) {
+                // Domain-consistent with pass 1 by construction: these are the very bytes the
+                // sliced scan hashed (regex keys hash the TRANSFORMED entry — hashing raw
+                // would mismatch every winner and return all-null extrema).
+                final byte[] entry = sGroupCol[leaf].stringDict()[dictId];
+                hashScratch[hashCount++] = regexKey != null
+                    ? ProjectionIndexByteScan.utf8Hash(regexKey.matcher(new String(entry, StandardCharsets.UTF_8))
+                        .replaceAll(regexRepl).getBytes(StandardCharsets.UTF_8))
+                    : ProjectionIndexByteScan.utf8Hash(entry);
+              } else {
+                final byte[] payload = armPayloads.get(leaf);
+                int columnBase = leafColumnBase[leaf];
+                if (columnBase < 0) {
+                  columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+                }
+                hashScratch[hashCount++] = regexKey != null
+                    ? ProjectionIndexByteScan.utf8Hash(regexKey.matcher(
+                        ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId))
+                        .replaceAll(regexRepl).getBytes(StandardCharsets.UTF_8))
+                    : ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
+              }
             } else {
               winnerSlotOf[i] = -1; // resolved to the missing slot below
               missingWinner = true;
@@ -11662,6 +11673,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final boolean missingWinnerFinal = missingWinner;
           final int[] deferredColsArr = deferredCols.toIntArray();
           final boolean[] deferredIsMinArr = deferredIsMin.toBooleanArray();
+          // SLICED pass 2: resolve the deferred string operand columns ONCE, like every other
+          // sliced resolve — workers share the immutable slice arrays.
+          final ProjectionColumnStore.ColumnSlice[][] dAggCols;
+          if (stringSlicedArm) {
+            final ProjectionColumnStore.ColumnSegmentFetcher dFetcher = columnFetcher();
+            dAggCols = new ProjectionColumnStore.ColumnSlice[deferredColsArr.length][];
+            for (int a = 0; a < deferredColsArr.length; a++) {
+              if (groupStore.columnKind(deferredColsArr[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+                throw new IllegalStateException("stringAggColumn " + deferredColsArr[a] + " is not STRING_DICT");
+              }
+              dAggCols[a] = groupStore.column(deferredColsArr[a], dFetcher);
+            }
+          } else {
+            dAggCols = null;
+          }
           final String[][][] perThreadBest = new String[eff][][];
           parallel(eff, idx -> {
             final int from = idx * chunkSize;
@@ -11669,8 +11695,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (from >= to)
               return;
             final String[][] best = new String[deferredColsArr.length][slotsTotal];
-            ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
-                deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
+            if (stringSlicedArm) {
+              ProjectionColumnGroupScan.stringAggForWinnerGroupsSliced(groupStore, preds, sPredCols, sGroupCol,
+                  dAggCols, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl, from, to);
+            } else {
+              ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
+                  deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
+            }
             perThreadBest[idx] = best;
           });
           deferredBest = new String[deferredColsArr.length][slotsTotal];
