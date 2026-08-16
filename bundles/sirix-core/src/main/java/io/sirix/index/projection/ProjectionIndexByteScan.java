@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -2354,6 +2355,252 @@ public final class ProjectionIndexByteScan {
         }
       }
     }
+  }
+
+  /**
+   * COMPOSITE-key flat group aggregation: 2..5 key components, each NUMERIC_LONG or STRING_DICT,
+   * combined into one 64-bit identity by chaining LEAF-INDEPENDENT component hashes (numeric:
+   * {@code HashCommon.mix(value)}; dict: the FNV-1a of the entry BYTES, cached per leaf entry;
+   * missing component: a fixed sentinel — a missing part is PART of the key, per the multi-key
+   * contract, never a separate null-key group). Identity is hash-only — the same assumption the
+   * string kernels' intern already trusts. The table's aux lane records the FIRST-SEEN row
+   * ({@code (leaf << 20) | rowIdx}), so a caller materializes the K winning keys by re-reading
+   * their component values from that one row each — no per-group key materialization during the
+   * scan at all.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out,
+        leafIndexBase, -1, null, null);
+  }
+
+  /** {@link #conjunctiveAggregateByGroupCompositeFlat} with the COUNT(DISTINCT) lane, keyed by the
+   * same composite hash the table keys on (no missing-key side set: a missing component is part
+   * of the key here). Same budget-decline contract as the single-key overloads. */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || aggColumns == null || groupColumns == null) {
+      throw new IllegalArgumentException("out, aggColumns and groupColumns must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int keyCount = groupColumns.length;
+    final int aggCount = aggColumns.length;
+    // Per-component per-leaf dict caches (entry hash by dict id); components are <= 5.
+    final long[][] compDictHash = new long[keyCount][];
+    final int[] compPresOff = new int[keyCount];
+    final int[] compValOff = new int[keyCount];
+    final byte[] compKind = new byte[keyCount];
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      for (int k = 0; k < keyCount; k++) {
+        final int col = groupColumns[k];
+        final byte kind = payload[24 + col];
+        compKind[k] = kind;
+        compPresOff[k] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, col)
+            : -1;
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          compValOff[k] = s.columnDataOff[col];
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          // Pre-hash the WHOLE dictionary once per leaf (<= 1024 entries): per-row cost is
+          // then one id load + one array index per component.
+          final int groupBase = s.columnDataOff[col];
+          final int dictSize = getIntLE(payload, groupBase);
+          final int lenHeaderOff = groupBase + 4;
+          long[] hashes = compDictHash[k];
+          if (hashes == null || hashes.length < dictSize) {
+            hashes = compDictHash[k] = new long[Math.max(64, dictSize)];
+          }
+          int off = lenHeaderOff + dictSize * 4;
+          for (int i = 0; i < dictSize; i++) {
+            final int len = getIntLE(payload, lenHeaderOff + i * 4);
+            hashes[i] = fnv1a64(payload, off, len);
+            off += len;
+          }
+          compValOff[k] = off; // ids region
+        } else {
+          throw new IllegalStateException("composite key component " + col + " has unsupported kind " + kind);
+        }
+      }
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          long h = 0xcbf29ce484222325L;
+          for (int k = 0; k < keyCount; k++) {
+            final long compHash;
+            if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+              // Missing component: a fixed sentinel — part of the identity, not a side group.
+              compHash = 0x9E3779B97F4A7C15L;
+            } else if (compKind[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+              compHash = HashCommon.mix(getLongLE(payload, compValOff[k] + rowIdx * 8));
+            } else {
+              compHash = compDictHash[k][getIntLE(payload, compValOff[k] + rowIdx * 4)];
+            }
+            h = h * 0x100000001b3L ^ compHash;
+          }
+          final long[] slotArr;
+          final int base;
+          if (h == 0L) {
+            final boolean fresh = !out.hasZeroKey();
+            slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
+            base = 0;
+            if (fresh) {
+              out.setZeroAux(leafOrdinalBase | rowIdx);
+            }
+          } else {
+            base = out.acquire(h, leafOrdinalBase | rowIdx);
+            slotArr = out.slotsArray();
+            if (slotArr[base] == 0L) {
+              out.setAuxAtBase(base, leafOrdinalBase | rowIdx);
+            }
+          }
+          if (distinctBlock < 0) {
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+          } else {
+            foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
+                distinctSetFor(distinctOut, h), budget, w, bit, rowIdx);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Materialize the composite key parts of ONE row — the winner-side companion of
+   * {@link #conjunctiveAggregateByGroupCompositeFlat}: {@code outStrings[k]} for a present
+   * STRING_DICT component, {@code outLongs[k]} (with {@code outIsLong[k]}) for a present
+   * NUMERIC_LONG one, neither for a missing component ({@code outPresent[k] == false}).
+   * {@code columnDataOff} must be this payload's offsets from {@link #columnOffsets}.
+   */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong) {
+    final int tailStart = presenceTailStart(payload, leafDataEnd);
+    for (int k = 0; k < groupColumns.length; k++) {
+      final int col = groupColumns[k];
+      if (tailStart >= 0) {
+        final int presOff = presenceWordsOff(payload, tailStart, col);
+        if ((getLongLE(payload, presOff + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+          outPresent[k] = false;
+          continue;
+        }
+      }
+      outPresent[k] = true;
+      final byte kind = payload[24 + col];
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        outIsLong[k] = true;
+        outLongs[k] = getLongLE(payload, columnDataOff[col] + rowIdx * 8);
+      } else {
+        outIsLong[k] = false;
+        final int groupBase = columnDataOff[col];
+        final int dictSize = getIntLE(payload, groupBase);
+        final int lenHeaderOff = groupBase + 4;
+        int off = lenHeaderOff + dictSize * 4;
+        int total = 0;
+        for (int i = 0; i < dictSize; i++) {
+          total += getIntLE(payload, lenHeaderOff + i * 4);
+        }
+        final int idsOff = off + total;
+        final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+        int entryOff = off;
+        for (int i = 0; i < dictId; i++) {
+          entryOff += getIntLE(payload, lenHeaderOff + i * 4);
+        }
+        outStrings[k] =
+            new String(payload, entryOff, getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
+      }
+    }
+  }
+
+  /**
+   * Column offsets + data end for one payload — the winner-side offset computation (headers only,
+   * no mask work); cache the result per leaf when materializing many winners.
+   *
+   * @return {@code [columnDataOff.., leafDataEnd]} — the last slot carries the data end
+   */
+  public static int[] columnOffsets(final byte[] payload) {
+    final int rowCount = getIntLE(payload, 0);
+    final int columnCount = getIntLE(payload, 4);
+    final int kindsOff = 24;
+    final int[] result = new int[columnCount + 1];
+    int cursor = kindsOff + columnCount + rowCount * 8;
+    for (int c = 0; c < columnCount; c++) {
+      cursor += 16;
+      result[c] = cursor;
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+          cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + kind);
+      }
+    }
+    result[columnCount] = cursor;
+    return result;
   }
 
   /** Shared per-row accumulate for the flat group kernels. */
