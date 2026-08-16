@@ -60,6 +60,69 @@ final class ChunkedPageHarness {
   }
 
   /**
+   * Decode a page without expanding its records, the way a point lookup would ask for it. On a
+   * monolith page this is the eager decode — the caller states a preference, not a requirement.
+   */
+  static KeyValueLeafPage deserializeLazily(final ResourceConfiguration config, final MemorySegment wire) {
+    final MemorySegmentBytesIn in = new MemorySegmentBytesIn(wire);
+    in.readByte();
+    return (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePageLazily(config, in, SerializationType.DATA, null);
+  }
+
+  /** Build a page to a recipe, serialize it chunked, and throw the page away. */
+  static MemorySegment serializeChunked(final ResourceConfiguration config,
+      final ChunkedPageGenerator.Recipe recipe) {
+    final KeyValueLeafPage page = ChunkedPageGenerator.build(recipe, config);
+    try {
+      return serialize(config, page, true);
+    } finally {
+      page.close();
+    }
+  }
+
+  /** The slots a decoded page has records in, in ascending order. */
+  static int[] populatedSlots(final KeyValueLeafPage page) {
+    final MemorySegment segment = page.getSlottedPage();
+    final int[] slots = new int[PageLayout.getPopulatedCount(segment)];
+    int at = 0;
+    for (int slot = 0; slot < PageLayout.SLOT_COUNT; slot++) {
+      if (PageLayout.isSlotPopulated(segment, slot)) {
+        slots[at++] = slot;
+      }
+    }
+    return slots;
+  }
+
+  /**
+   * The in-memory heap range each chunk's records occupy, as {@code [from, to)} offsets from the
+   * heap's start. Derived from the decoded directory and the chunk table's entry ranges, so it is the
+   * test's own arithmetic rather than the reader's.
+   */
+  static int[][] chunkHeapRanges(final KeyValueLeafPage page, final ChunkedLayout layout) {
+    final MemorySegment segment = page.getSlottedPage();
+    final int[] slots = populatedSlots(page);
+    final int[][] ranges = new int[layout.chunkCount][2];
+    for (int c = 0; c < layout.chunkCount; c++) {
+      final int firstSlot = slots[layout.chunkFirstEntry[c]];
+      final int lastSlot = slots[layout.chunkFirstEntry[c] + layout.chunkEntryCount[c] - 1];
+      ranges[c][0] = PageLayout.getDirHeapOffset(segment, firstSlot);
+      ranges[c][1] = PageLayout.getDirHeapOffset(segment, lastSlot) + PageLayout.getDirDataLength(segment, lastSlot);
+    }
+    return ranges;
+  }
+
+  /** Whether every byte of a heap range is the poison an unexpanded chunk is filled with. */
+  static boolean isAllPoison(final KeyValueLeafPage page, final int[] range) {
+    final MemorySegment segment = page.getSlottedPage();
+    for (int off = range[0]; off < range[1]; off++) {
+      if (segment.get(ValueLayout.JAVA_BYTE, PageLayout.HEAP_START + off) != ChunkedBodyConfig.POISON_BYTE) {
+        return false;
+      }
+    }
+    return range[1] > range[0];
+  }
+
+  /**
    * Compare two decoded pages as pages, not as slot lists: the on-disk header and slot bitmap, the
    * directory entry of every populated slot, and the whole record heap — DeweyID trailers included,
    * since they live inside the heap rather than in any slot's bytes. A slot-by-slot comparison alone

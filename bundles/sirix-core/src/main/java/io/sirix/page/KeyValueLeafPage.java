@@ -488,6 +488,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   private int slottedPageCapacity;
 
+  /**
+   * The chunks of this page's body that have not been expanded into the heap yet, or {@code null} on
+   * a page that was decoded whole — which is every page unless the loader asked for
+   * {@link PageKind#deserializePageLazily} and the body was chunk-framed.
+   *
+   * <p>
+   * Read on the way to every heap byte this page hands out, so what it costs matters. Deliberately
+   * <em>not</em> volatile and deliberately never cleared: the reference is written once, before the
+   * page is published, so an eager page pays one plain null check per accessor and nothing else, and
+   * a lazy page's one-way transition to fully-expanded is published by the flag inside the object
+   * rather than by nulling the field. Clearing it would be the unsafe publication in reverse — a
+   * reader could observe the null a materializing thread wrote without observing the record bytes it
+   * wrote first.
+   */
+  private LazyChunkedBody lazyChunkedBody;
+
   // ==================== CACHED PAGE HEADER VALUES ====================
   // Mirror of header fields from slottedPage MemorySegment.
   // All hot-path reads use these Java fields (zero MemorySegment overhead).
@@ -655,6 +671,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Deep-copy slotted page MemorySegment (primary data store)
     if (slottedPage != null) {
+      // A whole-segment copy carries whatever the heap holds, poison included, so the source must
+      // hold records rather than chunks first.
+      ensureAllChunks();
       final MemorySegment freshSegment = segmentAllocator.allocate(slottedPageCapacity);
       MemorySegment.copy(slottedPage, 0, freshSegment, 0, slottedPageCapacity);
       copy.setSlottedPage(freshSegment);
@@ -1039,7 +1058,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     bytes = null;
 
     // --- Read old record metadata from directory ---
-    final int oldHeapOffset = PageLayout.getDirHeapOffset(slottedPage, slotIndex);
+    final int oldHeapOffset = heapOffsetOf(slottedPage, slotIndex);
     final int oldTotalLen = PageLayout.getDirDataLength(slottedPage, slotIndex);
     final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slotIndex);
     final long oldRecordBase = PageLayout.heapAbsoluteOffset(oldHeapOffset);
@@ -1116,6 +1135,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (srcPage == null || !PageLayout.isSlotPopulated(srcPage, slotIndex)) {
       return;
     }
+    // The bytes come from the SOURCE page's heap, so it is the source that has to have them.
+    sourcePage.ensureChunkFor(slotIndex);
     ensureSlottedPage();
 
     // Read source slot metadata
@@ -1209,6 +1230,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * target revision (not the donor fragment's).
    */
   public void copySlottedPageFrom(final KeyValueLeafPage src) {
+    src.ensureAllChunks();
     final MemorySegment srcSp = src.slottedPage;
     if (srcSp == null) {
       return;
@@ -1656,7 +1678,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
       return Fixed.NULL_NODE_KEY.getStandardProperty();
     }
-    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffsetOf(sp, slotNumber);
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
     if (fieldCount <= 0 || isParentless(kindId)) {
@@ -1698,7 +1720,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return ObjectKeyNameKeyRegion.nameKeyForSlot(nameKeyPayload, slotNumber);
     }
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     if (isFusedStructuralKindId(kindId)) {
@@ -1718,7 +1740,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public int getFusedObjectNamedNameKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
@@ -1735,7 +1757,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public int getFusedStructuralNameKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
@@ -1759,7 +1781,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public boolean getFusedObjectNamedBooleanValueFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDBOOL_VALUE) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_BOOLEAN_FIELD_COUNT;
@@ -1777,7 +1799,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedNumberValueLongFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     // Payload is field index 8 (OBJNAMEDNUM_PAYLOAD).
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
@@ -1828,7 +1850,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedNumberValueDecimalFromSlot(final int slotNumber, final int[] scaleOut) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
@@ -1882,7 +1904,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public boolean isFusedObjectNamedNumberDecimalSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
@@ -1891,7 +1913,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   public double getFusedObjectNamedNumberValueDoubleFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT + fieldOff;
@@ -1950,7 +1972,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
       return false;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
@@ -1974,7 +1996,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
       return null;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
@@ -2012,7 +2034,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
       return null;
     }
-    final long recordBase = PageLayout.HEAP_START + PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffsetOf(sp, slotNumber);
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
     final long payloadStart = recordBase + 1 + NodeFieldLayout.STRING_VALUE_FIELD_COUNT + fieldOff;
     final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
@@ -2042,7 +2064,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final MemorySegment sp = slottedPage;
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber))
       return null;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT;
@@ -2096,7 +2118,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedStructuralFirstChildKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final long nodeKey = nodeKeyForSlot(slotNumber);
     final int fieldOff =
@@ -2111,7 +2133,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedStructuralLastChildKeyFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final long nodeKey = nodeKeyForSlot(slotNumber);
     final int fieldOff =
@@ -2126,7 +2148,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedStructuralChildCountFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDOBJ_CHILD_COUNT) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
@@ -2139,7 +2161,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getFusedObjectNamedStructuralDescendantCountFromSlot(final int slotNumber) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int fieldOff =
         sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDOBJ_DESCENDANT_COUNT) & 0xFF;
@@ -2185,7 +2207,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
       if (!PageLayout.isSlotPopulated(sp, slot))
         continue;
-      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final int heapOffset = heapOffsetOf(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
       if (!isFusedAnyObjectNamedKindId(kindId))
@@ -2432,7 +2454,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    */
   public long getObjectKeyFirstChildKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
     final MemorySegment sp = slottedPage;
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     if (!isFusedStructuralKindId(kindId)) {
@@ -2471,7 +2493,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (sp == null) {
       return -1L;
     }
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
@@ -2510,7 +2532,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       // Signal unresolvable; callers either skip the slot or retry the page.
       return -1L;
     }
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldIdx = NodeFieldLayout.pathNodeKeyFieldIndexForKind(kindId);
@@ -2576,7 +2598,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     for (int i = 0; i < count; i++) {
       final int slot = slots[i];
       final long nodeKey = pageBase + slot;
-      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final int heapOffset = heapOffsetOf(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
       final long offsetTable = recordBase + 1;
@@ -2633,7 +2655,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     for (int i = 0; i < count; i++) {
       final int slot = slots[i];
       final long nodeKey = pageBase + slot;
-      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final int heapOffset = heapOffsetOf(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
       final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
       final long offsetTable = recordBase + 1;
@@ -3115,13 +3137,107 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, slotNumber)) {
       return null;
     }
-    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slotNumber);
+    final int heapOffset = heapOffsetOf(slottedPage, slotNumber);
     // Use record-only length (excludes inline DeweyID data + 2-byte trailer)
     final int recordLength = PageLayout.getRecordOnlyLength(slottedPage, slotNumber);
     if (recordLength <= 0) {
       return null;
     }
     return slottedPage.asSlice(PageLayout.HEAP_START + heapOffset, recordLength);
+  }
+
+  /**
+   * Where a slot's record starts in the heap, after making sure the record is actually there.
+   *
+   * <p>
+   * This is the gate. A lazily loaded page has a complete directory over a heap whose bytes arrive a
+   * chunk at a time, so every read that resolves a slot to a heap address has to come through here —
+   * and by resolving the address <em>and</em> expanding the chunk in one call, a reader cannot get
+   * one without the other. Directory-only reads (a slot's kind, its length, whether it is populated)
+   * are answerable from the META section alone and deliberately do not gate.
+   *
+   * <p>
+   * On the overwhelmingly common eager page this is a null check against a field that was written
+   * before the page was published, which the JIT folds into the surrounding load.
+   */
+  private int heapOffsetOf(final MemorySegment sp, final int slotNumber) {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    if (lazy != null) {
+      lazy.ensureChunkFor(this, slotNumber);
+      if (ChunkedBodyConfig.poisonEnabled()) {
+        assertChunkMaterialized(lazy, slotNumber);
+      }
+    }
+    return PageLayout.getDirHeapOffset(sp, slotNumber);
+  }
+
+  /**
+   * Test-mode check that the gate resolved to the right chunk.
+   *
+   * <p>
+   * Poison-filling catches a reader that never gated at all — it reads {@code 0xCC} and fails its
+   * comparison. This catches the subtler failure the fill cannot: a gate that consulted the wrong
+   * chunk, expanded it, and then read a slot that is still poison.
+   */
+  private void assertChunkMaterialized(final LazyChunkedBody lazy, final int slotNumber) {
+    final int chunk = lazy.chunkOf(slotNumber);
+    if (chunk >= 0 && !lazy.isMaterialized(chunk)) {
+      throw new IllegalStateException("page " + recordPageKey + " slot " + slotNumber + " was read while chunk " + chunk
+          + ", the chunk holding it, was still unexpanded");
+    }
+  }
+
+  /**
+   * Expand the chunk holding {@code slotNumber}, if this page still holds chunks and that one is not
+   * expanded yet. A no-op on an eagerly decoded page.
+   */
+  public void ensureChunkFor(final int slotNumber) {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    if (lazy != null) {
+      lazy.ensureChunkFor(this, slotNumber);
+    }
+  }
+
+  /**
+   * Expand every chunk this page still holds compressed, so the whole heap is readable without
+   * further gating. What a consumer that walks the page from end to end calls once, instead of
+   * gating per slot.
+   */
+  public void ensureAllChunks() {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    if (lazy != null) {
+      lazy.ensureAllChunks(this);
+    }
+  }
+
+  /** Whether every record of this page is in the heap. True on any eagerly decoded page. */
+  public boolean isFullyMaterialized() {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    return lazy == null || lazy.isAllMaterialized();
+  }
+
+  /** Encoded bytes this page still holds on behalf of chunks it has not expanded. */
+  public int pendingChunkBytes() {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    return lazy == null
+        ? 0
+        : lazy.pendingBytes();
+  }
+
+  /** Chunks this page's body was framed into, or {@code 0} when it was decoded whole. */
+  public int chunkCount() {
+    final LazyChunkedBody lazy = lazyChunkedBody;
+    return lazy == null
+        ? 0
+        : lazy.chunkCount();
+  }
+
+  /**
+   * Hand this page the chunks of its body that have not been expanded. Called by the deserializer
+   * before the page is published and by nothing else.
+   */
+  void setLazyChunkedBody(final LazyChunkedBody body) {
+    this.lazyChunkedBody = body;
   }
 
 
@@ -3175,7 +3291,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     if (slotExists) {
       // Existing slot — read current allocation info
-      final int oldHeapOffset = PageLayout.getDirHeapOffset(slottedPage, slotNumber);
+      final int oldHeapOffset = heapOffsetOf(slottedPage, slotNumber);
       oldDataLength = PageLayout.getDirDataLength(slottedPage, slotNumber);
       nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slotNumber);
       recordLen = PageLayout.getRecordOnlyLength(slottedPage, slotNumber);
@@ -3690,6 +3806,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     clearFsstBinding();
 
+    // Drop any chunk this page never had to expand. Under the page monitor, which close() already
+    // holds and which an expansion takes — so a chunk cannot be decoding into the segment that is
+    // being released one line above.
+    if (lazyChunkedBody != null) {
+      lazyChunkedBody.release();
+    }
+
     // Clear references to aid garbage collection
     if (records != null) {
       Arrays.fill(records, null);
@@ -3707,8 +3830,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * @return Total size in bytes of all memory segments used by this page
    */
   public long getActualMemorySize() {
+    // The heap segment is allocated at full size the moment the page exists, lazily loaded or not,
+    // so a lazy page's extra weight is exactly the chunks it still holds encoded. Counted from the
+    // chunk table's lengths, never by decoding: sizing is an accounting question, and asking a page
+    // how big it is must not be what expands it.
     return slottedPage != null
-        ? slottedPageCapacity
+        ? slottedPageCapacity + pendingChunkBytes()
         : 0;
   }
 
@@ -5517,6 +5644,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Scan slotted page for FlyweightNode strings (zero records[] path)
     if (slottedPage != null) {
+      // Every populated slot is inspected, so hoist the expansion out of the walk rather than
+      // gating a thousand times.
+      ensureAllChunks();
       final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         if (samples.size() >= cap) {
@@ -5611,6 +5741,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
     // Compress slotted page strings (zero records[] path)
     if (slottedPage != null) {
+      // Rewrites records in place across the whole page; nothing here is selective enough for the
+      // per-slot gate to buy anything.
+      ensureAllChunks();
       final int fusedStringId = NodeKind.OBJECT_NAMED_STRING.getId();
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         if (records != null && records[i] != null)

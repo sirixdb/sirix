@@ -3,6 +3,8 @@
  */
 package io.sirix.page;
 
+import java.util.concurrent.atomic.LongAdder;
+
 /**
  * Switches and wire constants for the chunk-framed record-page body.
  *
@@ -62,6 +64,16 @@ public final class ChunkedBodyConfig {
   private static volatile int targetChunkBytes =
       clampTarget(Integer.getInteger("sirix.chunkedBody.targetChunkBytes", DEFAULT_TARGET_CHUNK_BYTES));
 
+  private static volatile boolean diag = Boolean.getBoolean("sirix.chunkedBody.diag");
+
+  private static volatile boolean poison = Boolean.getBoolean("sirix.chunkedBody.poison");
+
+  /** Pages whose body was parsed without expanding a single record. */
+  private static final LongAdder LAZY_LOADS = new LongAdder();
+
+  /** Chunks expanded on demand, across every lazily parsed page. */
+  private static final LongAdder CHUNK_MATERIALIZATIONS = new LongAdder();
+
   private ChunkedBodyConfig() {
     throw new AssertionError("no instances");
   }
@@ -105,4 +117,86 @@ public final class ChunkedBodyConfig {
   private static int clampTarget(final int value) {
     return Math.max(MIN_TARGET_CHUNK_BYTES, value);
   }
+
+  /**
+   * Whether lazy loads and chunk expansions are counted.
+   *
+   * <p>
+   * A counter nobody reads is how the column read path was disabled twice without a test noticing, so
+   * the numbers exist — but a {@link LongAdder} increment per materialized chunk is not something the
+   * point-read path should pay for by default.
+   */
+  public static boolean diagEnabled() {
+    return diag;
+  }
+
+  /** Record a page whose body was parsed without expanding any record. */
+  public static void recordLazyLoad() {
+    if (diag) {
+      LAZY_LOADS.increment();
+    }
+  }
+
+  /** Record a chunk expanded on demand. */
+  public static void recordChunkMaterialization() {
+    if (diag) {
+      CHUNK_MATERIALIZATIONS.increment();
+    }
+  }
+
+  /** Pages parsed lazily since the last {@link #resetDiag()}. Zero unless {@link #diagEnabled()}. */
+  public static long lazyLoads() {
+    return LAZY_LOADS.sum();
+  }
+
+  /** Chunks expanded on demand since the last {@link #resetDiag()}. */
+  public static long chunkMaterializations() {
+    return CHUNK_MATERIALIZATIONS.sum();
+  }
+
+  /** Zero the diagnostic counters, so a test can attribute what one operation did. */
+  public static void resetDiag() {
+    LAZY_LOADS.reset();
+    CHUNK_MATERIALIZATIONS.reset();
+  }
+
+  /**
+   * Test seam: count lazy loads and chunk expansions.
+   *
+   * @param value whether to count
+   * @return the previous setting, for restoring in a finally block
+   */
+  public static boolean setDiagForTesting(final boolean value) {
+    final boolean previous = diag;
+    diag = value;
+    return previous;
+  }
+
+  /**
+   * Whether a lazily parsed page fills the heap ranges of its unexpanded chunks with a poison byte.
+   *
+   * <p>
+   * This is the enforcement the gate list cannot get from enumeration. A reader that reaches the heap
+   * without going through {@link KeyValueLeafPage#ensureChunkFor} sees {@code 0xCC} instead of a
+   * record and fails its comparison deterministically, rather than reading whatever the allocator
+   * happened to leave behind — which on a recycled page is frequently a plausible-looking record.
+   */
+  public static boolean poisonEnabled() {
+    return poison;
+  }
+
+  /**
+   * Test seam: fill unexpanded heap ranges with a poison byte.
+   *
+   * @param value whether to poison
+   * @return the previous setting, for restoring in a finally block
+   */
+  public static boolean setPoisonForTesting(final boolean value) {
+    final boolean previous = poison;
+    poison = value;
+    return previous;
+  }
+
+  /** The byte an unexpanded heap range is filled with when {@link #poisonEnabled()}. */
+  public static final byte POISON_BYTE = (byte) 0xCC;
 }
