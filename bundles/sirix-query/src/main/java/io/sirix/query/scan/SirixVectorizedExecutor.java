@@ -12711,6 +12711,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * through it lazily during serialization, so it lives until the executor closes (a per-query trx
    * would leak one open transaction per served query).
    */
+  /**
+   * Advisory WILLNEED over the winner record keys' pages BEFORE the materialization loop —
+   * the keys are known in full, so the kernel readahead runs at device queue depth instead of
+   * one demand fault per 4 KiB page per moveTo. Sorts a COPY (the caller's array carries the
+   * emission order); zero work when the backend advertises no prefetch capability.
+   */
+  public void prefetchWinnerRecordPages(final long[] recordKeys) {
+    if (recordKeys.length == 0) {
+      return;
+    }
+    final StorageEngineReader reader = recordTrx().getStorageEngineReader();
+    final int batch = reader.recordPagePrefetchBatch();
+    if (batch <= 0) {
+      return;
+    }
+    final long[] pageKeys = new long[recordKeys.length];
+    for (int i = 0; i < recordKeys.length; i++) {
+      pageKeys[i] = recordKeys[i] >> Constants.NDP_NODE_COUNT_EXPONENT;
+    }
+    Arrays.sort(pageKeys);
+    int n = 0;
+    long last = -1;
+    for (final long pk : pageKeys) {
+      if (pk != last) {
+        pageKeys[n++] = pk;
+        last = pk;
+      }
+    }
+    for (int base = 0; base < n; base += batch) {
+      final int len = Math.min(batch, n - base);
+      reader.prefetchRecordPages(Arrays.copyOfRange(pageKeys, base, base + len), len, IndexType.DOCUMENT);
+    }
+  }
+
   public JsonNodeReadOnlyTrx recordTrx() {
     JsonNodeReadOnlyTrx trx = recordTrx;
     // Reopen when closed, not only when absent: an executor that has been closed can still be
