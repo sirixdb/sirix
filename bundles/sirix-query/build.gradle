@@ -156,6 +156,9 @@ tasks.register('clickBenchLoad', JavaExec) {
     group = 'verification'
     description = 'Load the ClickBench hits dataset into a SirixDB JSON resource.'
     classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
     mainClass = 'io.sirix.query.bench.clickbench.ClickBenchLoadMain'
     def argsStr = (findProperty('clickbench.args') ?: '').toString()
     args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
@@ -200,6 +203,11 @@ tasks.register('clickBench', JavaExec) {
     group = 'verification'
     description = 'Run the 43 ClickBench queries against a loaded SirixDB resource.'
     classpath = sourceSets.main.runtimeClasspath
+    // Enterprise backend A/B: -Penterprise.jars=jar1:jar2 appends provider jars (e.g. the
+    // io_uring StorageProvider) — SPI discovery does the rest.
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
     mainClass = 'io.sirix.query.bench.clickbench.ClickBenchRunMain'
     def argsStr = (findProperty('clickbench.args') ?: '').toString()
     args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
