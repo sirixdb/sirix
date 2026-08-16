@@ -10359,6 +10359,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (fast != null) {
         return fast;
       }
+      // STRING min/max straight from the projection dictionaries — BEFORE any row scan.
+      // The generic probe below discovers a column's type by SCANNING it, and that first
+      // touch hydrates every record page (the cold-regime whale). A dict column answers
+      // here in one dictionary sweep; anything else declines on the kind gate in
+      // microseconds and probes exactly as before.
+      if ("min".equals(func) || "max".equals(func)) {
+        final Sequence viaDict = tryProjectionStringMinMax(sourcePath, field, "min".equals(func));
+        if (viaDict != null) {
+          return viaDict;
+        }
+      }
       // Descriptor-tier bare count (P5b stage 1): count($doc[]) needs only the per-leaf
       // rowCounts, which live in the ~30-byte PIXD slot values — one metadata read + one
       // trie walk, ZERO segment-page hydrates AND no parallel document scan (the path this
