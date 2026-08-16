@@ -60,6 +60,9 @@ public final class SirixGroupAggregateExpr implements Expr {
    * stable order instead of sorting and materializing every group.
    */
   private final long limit;
+  /** Per-key transform annotations (see the detection stage), or {@code null} for plain keys. */
+  private final long[] keyOffsets;
+  private final int[] keySubstr;
   /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
   private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
@@ -67,7 +70,8 @@ public final class SirixGroupAggregateExpr implements Expr {
   public SirixGroupAggregateExpr(final SirixVectorizedExecutor executor, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit, final SourceRef runtimeSourceRef, final Expr genericFallback) {
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -78,6 +82,8 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.outNames = outNames;
     this.runtimeSourceRef = runtimeSourceRef;
     this.genericFallback = genericFallback;
+    this.keyOffsets = keyOffsets;
+    this.keySubstr = keySubstr;
     if (orderIndexes == null || orderIndexes.length == 0) {
       this.orderIndexes = null;
       this.orderAsc = null;
@@ -109,7 +115,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     if (executor.canExecute(ctx)) {
       final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
           predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit);
+          limit, keyOffsets, keySubstr);
       if (served != null) {
         if (orderIndexes == null || served.ordered()) {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to
