@@ -39,6 +39,18 @@ public final class ObjectKeyNameKeyRegion {
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_PREFERRED;
   private static final int LANES = BYTE_SPECIES.length();
 
+  /**
+   * Whether the SIMD dict-id loops may run. Under a GraalVM NATIVE IMAGE the compiler miscompiles
+   * {@code ByteVector.fromMemorySegment} over a NATIVE segment (it addresses the segment as
+   * heap-backed and segfaults — oracle/graal#14255, reproduced only in this compilation context),
+   * so the scalar tails serve the whole range there. {@code -Dsirix.pax.scalarOnly=true} forces
+   * the same on the JVM for A/B measurement. The flag folds to a constant at image build time
+   * (the imagecode property is set during build-time class initialization) and stays a dead
+   * branch for JIT compilation on the JVM.
+   */
+  private static final boolean VECTOR_OK =
+      System.getProperty("org.graalvm.nativeimage.imagecode") == null && !Boolean.getBoolean("sirix.pax.scalarOnly");
+
   // Array VarHandles for the ENCODE path, which builds its output in a byte[] before the region
   // table copies it off-heap. Reads go through the payload segment instead (see the accessors
   // below): payloads are native now, so there is no ofArray wrapper left to avoid.
@@ -279,7 +291,7 @@ public final class ObjectKeyNameKeyRegion {
     final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, (byte) targetId);
     int matched = 0;
     int i = 0;
-    for (; i <= okCount - LANES; i += LANES) {
+    for (; VECTOR_OK && i <= okCount - LANES; i += LANES) {
       final ByteVector v =
           ByteVector.fromMemorySegment(BYTE_SPECIES, payload, (long) dictIdsOff + i, ByteOrder.LITTLE_ENDIAN);
       matched += v.compare(VectorOperators.EQ, bNeedle).trueCount();
@@ -340,7 +352,7 @@ public final class ObjectKeyNameKeyRegion {
     final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, (byte) targetId);
     int matched = 0;
     int i = 0;
-    for (; i <= okCount - LANES; i += LANES) {
+    for (; VECTOR_OK && i <= okCount - LANES; i += LANES) {
       final ByteVector v =
           ByteVector.fromMemorySegment(BYTE_SPECIES, payload, (long) dictIdsOff + i, ByteOrder.LITTLE_ENDIAN);
       long bits = v.compare(VectorOperators.EQ, bNeedle).toLong();
@@ -494,7 +506,7 @@ public final class ObjectKeyNameKeyRegion {
 
     int written = 0;
     int i = 0;
-    for (; i <= okCount - LANES; i += LANES) {
+    for (; VECTOR_OK && i <= okCount - LANES; i += LANES) {
       // Loads straight out of the payload segment. Payloads are native (see ColumnLoad), which is
       // the case fromMemorySegment intrinsifies; the heap-backed case, which does not, no longer
       // arises here.
