@@ -42,6 +42,16 @@ public final class SortedScanDetectionStage implements Stage {
   public static final String SORTED_DESC = "SIRIX_SORTED_DESC";
 
   /**
+   * Field projection (gap item 1c): {@code return $r.field} instead of {@code return $r}.
+   * The K winning records materialize as before, then the single field is dereffed from
+   * each. Semantics guard lives in the expr: under a top-K limit a winner row MISSING the
+   * field would shift the {@code fn:subsequence} item window (subsequence counts ITEMS,
+   * not rows), so the expr fails loud into the generic fallback there; only the unbounded
+   * path may skip empties.
+   */
+  public static final String SORTED_RETURN_FIELD = "SIRIX_SORTED_RETURN_FIELD";
+
+  /**
    * TOP-K pushdown (gap item 3): when a sorted pipe's SOLE consumer is
    * {@code fn:subsequence(pipe, start, length)} with positive integer literals, the pipe
    * only ever needs its first {@code start+length-1} items — {@code fn:subsequence} never
@@ -197,9 +207,16 @@ public final class SortedScanDetectionStage implements Stage {
       return;
     }
     final AST returnExpr = current.getChild(0);
-    if (returnExpr == null || returnExpr.getType() != XQ.VariableRef
-        || !loopVar.equals(returnExpr.getValue())) {
+    String returnField = null;
+    if (returnExpr == null) {
       return;
+    }
+    if (returnExpr.getType() != XQ.VariableRef || !loopVar.equals(returnExpr.getValue())) {
+      // Not the bare loop var: a single direct `$r.field` deref also serves (gap 1c).
+      returnField = loopVarDerefField(returnExpr, loopVar);
+      if (returnField == null) {
+        return;
+      }
     }
     final List<String> fields = new ArrayList<>(4);
     final List<Boolean> descList = new ArrayList<>(4);
@@ -245,6 +262,9 @@ public final class SortedScanDetectionStage implements Stage {
     pipeExpr.setProperty(SORTED_SCAN, Boolean.TRUE);
     pipeExpr.setProperty(SORTED_FIELDS, fieldsArr);
     pipeExpr.setProperty(SORTED_DESC, descArr);
+    if (returnField != null) {
+      pipeExpr.setProperty(SORTED_RETURN_FIELD, returnField);
+    }
   }
 
   /** Every {@link XQ#VariableRef} in the subtree is {@code var} — no foreign variables. */

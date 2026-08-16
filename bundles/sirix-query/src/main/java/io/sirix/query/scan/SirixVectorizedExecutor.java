@@ -1864,11 +1864,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // `stringLitBytes != null` guard below and the whole query dropped to the WHOLE-LEAF byte
       // scan, which hydrates every column of every leaf; the sliced path reads this column alone.
       final byte columnKind = store.columnKind(p.column);
-      final boolean stringColumn = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
-      if (stringColumn) {
+      if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        if (p.stringLitBytes == null) {
+          return false;
+        }
+        switch (p.op) {
+          case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+            /* the sliced dict evaluator serves every per-value string op now */ }
+          default -> {
+            return false;
+          }
+        }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
-          return false; // the sliced string kernel serves equality-with-literal, nothing else
+          return false; // membership only
         }
       } else if (p.stringLitBytes != null) {
         return false; // a string literal against a non-string column is the record path's case
@@ -11626,10 +11635,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] cols = new int[keyCount];
+      boolean anyStringKey = false;
       for (int k = 0; k < keyCount; k++) {
         final int col = handle.columnOf(orderFields[k]);
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        final byte kind = handle.columnKindOf(col);
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          if (!handle.numericColumnIsIntegral(col, fetcher)) {
+            return null;
+          }
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          // Served by the bounded sliced heap only — the tuple-collect fallbacks below are
+          // long-only, so a string key without that path declines.
+          anyStringKey = true;
+        } else {
           return null;
         }
         cols[k] = col;
@@ -11652,6 +11673,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
       final ProjectionColumnStore store = handle.columnStoreOrNull();
       final boolean sliced = store != null && predsSliceable(store, preds);
+      if (anyStringKey && !(sliced && limit >= 0)) {
+        return null;
+      }
       if (sliced && limit >= 0) {
         long totalRows = 0;
         for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
@@ -11671,6 +11695,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           return top;
         }
+      }
+      if (anyStringKey) {
+        return null; // the fall-through collectors carry long tuples only
       }
       final LongArrayList values = new LongArrayList();
       final LongArrayList keys = new LongArrayList();
