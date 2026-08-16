@@ -10558,10 +10558,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
       // first `limit` groups of the stable order instead of sorting and materializing them all.
       final boolean anyKeyTransform = keyOffsets != null;
-      final GroupOrderPlan orderPlan = orderIndexes == null || limit < 1
+      final GroupOrderPlan orderPlan = limit < 1
           ? null
-          : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
-              numericSingleKey && !anyKeyTransform, funcs, aggFields, distinctFields, cdBlock);
+          : orderIndexes == null
+              ? GroupOrderPlan.ordinalOnly()
+              : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
+                  numericSingleKey && !anyKeyTransform, funcs, aggFields, distinctFields, cdBlock);
       if (anyKeyTransform && orderPlan == null) {
         return null; // transformed keys serve only through the flat composite route
       }
@@ -12235,6 +12237,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.aggBase = aggBase;
       this.asc = asc;
       this.emptyLeast = emptyLeast;
+    }
+
+    /** ZERO specs: the comparator is the first-seen-ordinal tiebreak alone, so a bounded
+     * selection yields the first K groups in DOCUMENT order — exactly the interpreter's emission
+     * for {@code LIMIT} without {@code ORDER BY}. */
+    static GroupOrderPlan ordinalOnly() {
+      return new GroupOrderPlan(new int[0], new int[0], new boolean[0], new boolean[0]);
     }
 
     /**

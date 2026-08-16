@@ -100,7 +100,9 @@ public final class SirixGroupAggregateExpr implements Expr {
       this.orderAsc = null;
       this.orderEmptyLeast = null;
       this.orderModifiers = null;
-      this.limit = -1L;
+      // The cap survives WITHOUT an order-by: LIMIT alone means the first K groups in the
+      // pipeline's emission order, which the kernel selects by first-seen ordinal.
+      this.limit = limit;
     } else {
       this.orderIndexes = orderIndexes.clone();
       this.orderAsc = orderAsc.clone();

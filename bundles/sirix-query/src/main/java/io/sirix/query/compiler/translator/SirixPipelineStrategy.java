@@ -102,10 +102,14 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))) {
       return generic;
     }
-    if (generic instanceof VectorizedGroupByExpr) {
+    final Long groupCap = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+    if (generic instanceof VectorizedGroupByExpr && groupCap == null) {
       // Overlap shape (canonical count return matches BOTH detections): brackit's expr
       // THROWS on decline instead of falling back, so it must not become our "generic
-      // fallback" — leave it as-is (pre-stage-7a behavior for that shape).
+      // fallback" — leave it as-is (pre-stage-7a behavior for that shape). With a
+      // subsequence CAP the flat top-K route claims first: brackit's expr stays the
+      // fallback, and on our decline it serves exactly as it does today (it claimed the
+      // shape at compile time, so its own runtime path exists).
       return generic;
     }
     if (!(SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor sirixExecutor)) {
@@ -162,7 +166,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return generic;
     }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
-        outNames, orderIndexes, orderAsc, orderEmptyLeast, orderIndexes != null && groupTopK != null
+        outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
         keyOffsets, keySubstr, constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
