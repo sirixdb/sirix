@@ -8,6 +8,8 @@ import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 /**
  * Column-sliced view of a projection's persisted leaves (P5b stage 2,
@@ -432,19 +434,49 @@ public final class ProjectionColumnStore {
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
-      for (int i = 0; i < n; i++) {
-        final byte[] descriptor = directories.get(i).descriptor();
-        slices[i] = set
-            ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
-            : string
-                ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i], dictSegments[i], col)
-                : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+      if (n >= PARALLEL_DECODE_MIN) {
+        // The per-leaf decode is a pure in-memory transform over already-verified bytes
+        // (no shared state) — and for FSST string dictionaries it is the COLD whale: a
+        // serial fill measured ~120 ms behind the 15-worker whole-leaf assembly on a 1M-row
+        // URL grouping. Decode across the common pool; first failure wins the rethrow.
+        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        IntStream.range(0, n).parallel().forEach(i -> {
+          if (failed.get() != null) {
+            return;
+          }
+          try {
+            slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
+          } catch (final IllegalStateException corrupt) {
+            failed.compareAndSet(null, corrupt);
+          }
+        });
+        final IllegalStateException corrupt = failed.get();
+        if (corrupt != null) {
+          throw corrupt;
+        }
+      } else {
+        for (int i = 0; i < n; i++) {
+          slices[i] = decodeOneSlice(i, col, set, string, segments, dictSegments);
+        }
       }
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
       throw corrupt;
     }
     return slices;
+  }
+
+  /** Leaves below this count decode serially — fork/join overhead beats the win. */
+  private static final int PARALLEL_DECODE_MIN = 128;
+
+  private ColumnSlice decodeOneSlice(final int i, final int col, final boolean set, final boolean string,
+      final byte[][] segments, final byte[] @Nullable [] dictSegments) {
+    final byte[] descriptor = directories.get(i).descriptor();
+    return set
+        ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
+        : string
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i], dictSegments[i], col)
+            : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
   }
 
   /**
