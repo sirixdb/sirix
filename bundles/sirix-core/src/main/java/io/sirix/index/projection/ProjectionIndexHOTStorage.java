@@ -962,6 +962,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots) {
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots, null);
+  }
+
+  /**
+   * {@code parallelReaders}: pre-opened extra readers for PARTITIONED committed-segment
+   * resolution (the caller owns their transactions). {@code null} keeps the single-reader batch.
+   */
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
+      final StorageEngineReader @Nullable [] parallelReaders) {
     final long p3 = DIAG
         ? System.nanoTime()
         : 0L;
@@ -1001,7 +1011,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final long p4 = DIAG
         ? System.nanoTime()
         : 0L;
-    resolvePending(reader, pendingSeg);
+    if (parallelReaders != null && parallelReaders.length > 1 && pendingSeg.size() >= 1024) {
+      resolvePendingParallel(parallelReaders, pendingSeg);
+    } else {
+      resolvePending(reader, pendingSeg);
+    }
     final long p5 = DIAG
         ? System.nanoTime()
         : 0L;
@@ -1131,6 +1145,55 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * → a loud "Missing segment bytes" there). {@code indexNumber} is unused — kept out of the hot
    * loop.
    */
+  /**
+   * {@link #resolvePending} partitioned across pre-opened readers. The refs sort by OFFSET first
+   * and each reader takes a CONTIGUOUS run of the sorted order, so per-thread reads keep the
+   * coalescing locality the single-reader batch had — cold storage sees T mostly-sequential
+   * streams instead of one.
+   */
+  private static void resolvePendingParallel(final StorageEngineReader[] readers,
+      final ArrayList<PendingSegRef> pending) {
+    if (pending.isEmpty()) {
+      return;
+    }
+    pending.sort(java.util.Comparator.comparingLong(PendingSegRef::offset));
+    final int lanes = Math.min(readers.length, Math.max(1, pending.size() / 512));
+    if (lanes <= 1) {
+      resolvePending(readers[0], pending);
+      return;
+    }
+    final int chunk = (pending.size() + lanes - 1) / lanes;
+    ForkJoinPool.commonPool().invoke(new RecursiveAction() {
+      @Override
+      protected void compute() {
+        final RecursiveAction[] subs = new RecursiveAction[lanes];
+        for (int l = 0; l < lanes; l++) {
+          final int lane = l;
+          subs[l] = new RecursiveAction() {
+            @Override
+            protected void compute() {
+              final int from = lane * chunk;
+              final int to = Math.min(from + chunk, pending.size());
+              if (from >= to) {
+                return;
+              }
+              final long[] offsets = new long[to - from];
+              for (int i = from; i < to; i++) {
+                offsets[i - from] = pending.get(i).offset();
+              }
+              final byte[][] pages = readSegmentBytesBatch(readers[lane], offsets);
+              for (int i = from; i < to; i++) {
+                final PendingSegRef p = pending.get(i);
+                p.target()[p.idx()] = pages[i - from];
+              }
+            }
+          };
+        }
+        invokeAll(subs);
+      }
+    });
+  }
+
   private static void resolvePending(final StorageEngineReader reader, final ArrayList<PendingSegRef> pending) {
     if (pending.isEmpty()) {
       return;

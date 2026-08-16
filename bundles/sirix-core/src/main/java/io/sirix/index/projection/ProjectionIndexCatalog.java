@@ -757,9 +757,33 @@ public final class ProjectionIndexCatalog {
         : 0L;
     final ProjectionIndexHOTStorage.RawBlobSlot[] descArr =
         ProjectionIndexHOTStorage.drainOrderedDescriptors(descriptors, rowGroupCount, defId);
+    final JsonNodeReadOnlyTrx[] laneTrxs = new JsonNodeReadOnlyTrx[workers];
+    final StorageEngineReader[] laneReaders = new StorageEngineReader[workers];
     try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
-      final List<byte[]> out = ProjectionIndexHOTStorage.assembleRowGroupsFromSlots(matRtx.getStorageEngineReader(),
-          defId, rowGroupCount, descArr, segmentSlots);
+      try {
+        for (int w = 0; w < workers; w++) {
+          laneTrxs[w] = session.beginNodeReadOnlyTrx(revision);
+          laneReaders[w] = laneTrxs[w].getStorageEngineReader();
+        }
+      } catch (final RuntimeException openFailed) {
+        for (final JsonNodeReadOnlyTrx t : laneTrxs) {
+          if (t != null) {
+            t.close();
+          }
+        }
+        throw openFailed;
+      }
+      final List<byte[]> out;
+      try {
+        out = ProjectionIndexHOTStorage.assembleRowGroupsFromSlots(matRtx.getStorageEngineReader(), defId,
+            rowGroupCount, descArr, segmentSlots, laneReaders);
+      } finally {
+        for (final JsonNodeReadOnlyTrx t : laneTrxs) {
+          if (t != null) {
+            t.close();
+          }
+        }
+      }
       if (DIAG) {
         System.err.println("[cat] parallel materialize: walk=" + (t1 - t0) / 1_000_000 + "ms assemble="
             + (System.nanoTime() - t1) / 1_000_000 + "ms workers=" + workers + " rowGroups=" + rowGroupCount);
