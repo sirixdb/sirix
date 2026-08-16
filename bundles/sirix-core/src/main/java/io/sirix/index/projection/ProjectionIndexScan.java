@@ -205,13 +205,16 @@ public final class ProjectionIndexScan {
    * <p>
    * <b>Program encoding.</b> {@code program} is a postfix (RPN) walk over leaf masks: an entry
    * {@code >= 0} pushes leaf {@code program[i]}'s mask; {@link #OP_AND} pops two masks and pushes
-   * their intersection; {@link #OP_OR} pushes their union. A well-formed program leaves exactly one
-   * mask on the stack. Leaf masks encode two-valued predicate truth with missing ⇒ {@code false}
-   * (presence AND) — under AND/OR composition this is exactly the interpreter's general-comparison
-   * semantics, which is why NOT is deliberately NOT representable here:
-   * {@code not(missing-comparison)} flips missing ⇒ {@code true}, a semantic the mask algebra must
-   * model explicitly before negation can be offered (callers fall back to the generic pipeline for
-   * NOT).
+   * their intersection; {@link #OP_OR} pushes their union; {@link #OP_NOT} pops one and pushes its
+   * complement. A well-formed program leaves exactly one mask on the stack. Leaf masks encode
+   * two-valued predicate truth with missing ⇒ {@code false} (presence AND) — under AND/OR
+   * composition this is exactly the interpreter's general-comparison semantics, and it is ALSO what
+   * makes {@link #OP_NOT} exact: the complement of {@code present AND matches} is
+   * {@code missing OR (present AND !matches)}, precisely {@code fn:not} over a comparison whose
+   * missing-deref operand made it false (an empty existential, {@code contains} over {@code ""},
+   * a false EBV). The leaf null gate is load-bearing here: JSON-null cells order differently from
+   * missing under the interpreter's total order, so every leaf declines null-bearing columns
+   * BEFORE the algebra runs — with or without negation above it.
    *
    * <p>
    * Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
@@ -222,6 +225,7 @@ public final class ProjectionIndexScan {
 
     public static final byte OP_AND = -1;
     public static final byte OP_OR = -2;
+    public static final byte OP_NOT = -3;
 
     public final ColumnPredicate[] leaves;
     public final byte[] program;
@@ -256,6 +260,10 @@ public final class ProjectionIndexScan {
             throw new IllegalArgumentException("combinator underflow at depth " + depth);
           }
           depth--;
+        } else if (insn == OP_NOT) {
+          if (depth < 1) {
+            throw new IllegalArgumentException("negation underflow at depth " + depth);
+          }
         } else {
           throw new IllegalArgumentException("unknown program op " + insn);
         }

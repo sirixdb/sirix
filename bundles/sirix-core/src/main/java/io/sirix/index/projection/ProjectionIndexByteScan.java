@@ -4205,6 +4205,14 @@ public final class ProjectionIndexByteScan {
         for (int i = 0; i < stride; i++) {
           a[i] &= b[i];
         }
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_NOT) {
+        // Complement of (present AND matches) = missing OR (present AND !matches) — exactly
+        // fn:not over the child. Tail garbage past rowCount is cleared by the final AND with
+        // the tail-masked base mask below.
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] = ~a[i];
+        }
       } else {
         final long[] b = stack[--top];
         final long[] a = stack[top - 1];

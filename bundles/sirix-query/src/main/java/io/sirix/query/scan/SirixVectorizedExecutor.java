@@ -4903,12 +4903,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * query; the compiled form is then consumed by the hot loop below without any allocation.
    */
   private CompiledPredicate compile(final PredicateNode root) {
+    return compile(root, true);
+  }
+
+  /**
+   * {@code requireAnchor = false} is for consumers that scan EVERY row with per-leaf presence
+   * masks (the projection group/tree kernels): they never iterate one field's slots, so an
+   * anchorless predicate — e.g. a bare {@code fn:not(contains(...))}, true on records missing
+   * the field — is exactly servable there and must not be rejected by the row-scan guard.
+   * Field order in {@code fieldNames} carries no meaning for those consumers; they resolve
+   * columns by name per leaf.
+   */
+  private CompiledPredicate compile(final PredicateNode root, final boolean requireAnchor) {
     // First pass: collect unique fields and string literals in deterministic order.
     final LinkedHashSet<String> fieldSet = new LinkedHashSet<>();
     final LinkedHashSet<String> strSet = new LinkedHashSet<>();
     collectLiterals(root, fieldSet, strSet);
 
-    hoistSoundAnchorField(root, fieldSet);
+    if (requireAnchor) {
+      hoistSoundAnchorField(root, fieldSet);
+    }
 
     final CompiledPredicate cp = new CompiledPredicate();
     cp.tree = root;
@@ -6723,6 +6737,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         program[pc[0]++] = combinator;
       }
+      return true;
+    }
+    if (op == CompiledPredicate.OP_NOT) {
+      // Sound because every leaf below ANDs its own presence: the complement of
+      // (present AND matches) is missing OR !matches — fn:not's truth table over a
+      // comparison whose missing operand made it false. Null-bearing columns declined
+      // at the leaf gate long before negation could misorder them.
+      if (cp.childCount[n] != 1 || !emitTreeNode(cp, cp.children[cp.childStart[n]], handle, leaves, program, pc)) {
+        return false;
+      }
+      program[pc[0]++] = ProjectionIndexScan.PredicateTree.OP_NOT;
       return true;
     }
     if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP
@@ -10429,9 +10454,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
         return null;
       }
+      // Unanchored: this route's kernels visit every row of every row group with per-leaf
+      // presence masks, so an anchorless predicate (bare negation, true-on-missing) serves
+      // exactly — the row-scan anchor guard must not veto it.
       final CompiledPredicate cp = predicateOrNull == null
           ? null
-          : compile(predicateOrNull);
+          : compile(predicateOrNull, false);
       final ArrayList<String> required = new ArrayList<>();
       for (final String g : groupFields) {
         if (!required.contains(g)) {
@@ -10582,6 +10610,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // ANDs its own column's presence before the combine, the tree type's contract.
           predTree = extractPredicateTree(cp, handle);
           if (predTree == null) {
+            if (PROJ_DIAG) {
+              System.err.println("[proj] group tree extract declined: root op " + cp.ops[0]);
+            }
             return null;
           }
           preds = new ProjectionIndexScan.ColumnPredicate[0];
