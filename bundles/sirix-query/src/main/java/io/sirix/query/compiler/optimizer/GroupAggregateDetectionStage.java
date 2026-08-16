@@ -91,6 +91,21 @@ public final class GroupAggregateDetectionStage implements Stage {
    * contribute — the same population the plain aggregate folds).
    */
   public static final String GROUP_AGG_OFFSETS = "SIRIX_GROUP_AGG_OFFSETS";
+  /**
+   * {@code long[]}: per GROUP KEY, the constant offset of a shifted key ({@code group by $w} with
+   * {@code $w := $r.f + k}); 0 for an untransformed key. The kernel groups on the TRANSFORMED
+   * value — grouping raw and shifting at emission would be wrong only for non-injective
+   * transforms, but the discipline is uniform.
+   */
+  public static final String GROUP_AGG_KEY_OFFSETS = "SIRIX_GROUP_AGG_KEY_OFFSETS";
+  /**
+   * {@code int[]} of {@code 2 * keyCount}: per group key, the (start, length) of an
+   * {@code xs:integer(substring($r.f, start, length))} key transform, or {@code (-1, -1)}. The
+   * kernel evaluates it once per dictionary entry per leaf; a MISSING field or a lexically
+   * invalid substring makes the interpreter RAISE (xs:integer("")), so the serve DECLINES on
+   * either and the generic pipeline raises identically.
+   */
+  public static final String GROUP_AGG_KEY_SUBSTR = "SIRIX_GROUP_AGG_KEY_SUBSTR";
 
   /** Mirrors the kernel's packed-key bound (ProjectionIndexByteScan.MAX_GROUP_COLUMNS). */
   private static final int MAX_GROUP_KEYS = 5;
@@ -149,9 +164,11 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     final List<QNm> letVars = new ArrayList<>();
     final List<String> letFields = new ArrayList<>();
-    // Per pre-group let: the constant added to the deref (0 for a plain `$r.field`). A key may
-    // only bind to an offset-0 let — grouping by `f + 1` under field `f` would serve wrong keys.
+    // Per pre-group let: the constant added to the deref (0 for a plain `$r.field`).
     final List<Long> letOffsets = new ArrayList<>();
+    // Per pre-group let: (start, length) of an xs:integer(substring(...)) binding, or null.
+    final List<int[]> letSubstr = new ArrayList<>();
+    final String[] subField = new String[1];
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
     final List<QNm> groupSpecVars = new ArrayList<>();
@@ -211,7 +228,7 @@ public final class GroupAggregateDetectionStage implements Stage {
             if (groupSpecVars.contains(letVar)) {
               return;
             }
-            final Agg agg = aggregateCall(current.getChild(1), loopVar, letVars, letFields, letOffsets);
+            final Agg agg = aggregateCall(current.getChild(1), loopVar, letVars, letFields, letOffsets, letSubstr);
             if (agg == null) {
               return;
             }
@@ -226,18 +243,28 @@ public final class GroupAggregateDetectionStage implements Stage {
               letVars.add(letVar);
               letFields.add(field);
               letOffsets.add(0L);
+              letSubstr.add(null);
             } else if (bound.getType() == XQ.Int) {
               // A literal binding: a CONSTANT group key candidate (`let $g := 1`). Only a
               // group-by spec may consume it — an aggregate or record entry over it declines.
               constLetVars.add(letVar);
             } else {
               final ShiftedDeref shifted = shiftedDeref(bound, loopVar);
-              if (shifted == null) {
+              if (shifted != null) {
+                letVars.add(letVar);
+                letFields.add(shifted.field());
+                letOffsets.add(shifted.offset());
+                letSubstr.add(null);
+                continue;
+              }
+              final int[] sub = integerOfSubstring(bound, loopVar, subField);
+              if (sub == null) {
                 return; // a let we can't model — the served scan would not see it
               }
               letVars.add(letVar);
-              letFields.add(shifted.field());
-              letOffsets.add(shifted.offset());
+              letFields.add(subField[0]);
+              letOffsets.add(0L);
+              letSubstr.add(sub);
             }
           }
         }
@@ -354,6 +381,9 @@ public final class GroupAggregateDetectionStage implements Stage {
     // key emission order (field order is answer shape).
     final String[] keyNames = new String[keyCount];
     final String[] groupFields = new String[keyCount];
+    final long[] keyOffsets = new long[keyCount];
+    final int[] keySubstr = new int[2 * keyCount];
+    boolean anyKeyTransform = false;
     final Set<String> seenNames = new HashSet<>();
     final Set<QNm> seenGroupVars = new HashSet<>();
     for (int i = 0; i < keyCount; i++) {
@@ -368,13 +398,20 @@ public final class GroupAggregateDetectionStage implements Stage {
         return;
       }
       final int letIdx = letVars.indexOf(keyVar);
-      if (letIdx < 0 || letOffsets.get(letIdx) != 0L) {
-        // A key bound to a SHIFTED let (`group by $w` with `$w := $r.f + 1`) would serve `f`'s
-        // values as keys — off by the shift. Decline.
+      if (letIdx < 0) {
         return;
       }
       keyNames[i] = keyName;
       groupFields[i] = letFields.get(letIdx);
+      keyOffsets[i] = letOffsets.get(letIdx);
+      final int[] sub = letSubstr.get(letIdx);
+      keySubstr[2 * i] = sub == null
+          ? -1
+          : sub[0];
+      keySubstr[2 * i + 1] = sub == null
+          ? -1
+          : sub[1];
+      anyKeyTransform |= keyOffsets[i] != 0L || sub != null;
     }
     final int aggCount = returnExpr.getChildCount() - keyCount;
     final String[] funcs = new String[aggCount];
@@ -403,7 +440,7 @@ public final class GroupAggregateDetectionStage implements Stage {
         emittedPostGroupVars.add(valueVar);
         emittedPostGroupAt.add(keyCount + i);
       } else {
-        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets);
+        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets, letSubstr);
         if (agg == null) {
           return;
         }
@@ -453,6 +490,10 @@ public final class GroupAggregateDetectionStage implements Stage {
     pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
     pipeExpr.setProperty(GROUP_AGG_GROUP_FIELDS, groupFields);
     pipeExpr.setProperty(GROUP_AGG_KEY_NAMES, keyNames);
+    if (anyKeyTransform) {
+      pipeExpr.setProperty(GROUP_AGG_KEY_OFFSETS, keyOffsets);
+      pipeExpr.setProperty(GROUP_AGG_KEY_SUBSTR, keySubstr);
+    }
     pipeExpr.setProperty(GROUP_AGG_FUNCS, funcs);
     pipeExpr.setProperty(GROUP_AGG_FIELDS, fields);
     pipeExpr.setProperty(GROUP_AGG_OUT_NAMES, outNames);
@@ -500,7 +541,7 @@ public final class GroupAggregateDetectionStage implements Stage {
    * @return the aggregate, or {@code null} when the expression is not servable
    */
   private static Agg aggregateCall(final AST call, final QNm loopVar, final List<QNm> letVars,
-      final List<String> letFields, final List<Long> letOffsets) {
+      final List<String> letFields, final List<Long> letOffsets, final List<int[]> letSubstr) {
     if (call == null || call.getType() != XQ.FunctionCall || call.getChildCount() != 1
         || !(call.getValue() instanceof QNm fn)) {
       return null;
@@ -510,7 +551,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     // cast flows through every annotation layer unchanged; emission applies Brackit's own cast to
     // the exact value, digit-for-digit what the interpreter's constructor function computes.
     if (Namespaces.XS_NSURI.equals(fn.getNamespaceURI()) && "double".equals(fn.getLocalName())) {
-      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets);
+      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets, letSubstr);
       return inner == null || inner.func().startsWith("dbl:")
           ? null
           : new Agg("dbl:" + inner.func(), inner.field(), inner.offset());
@@ -542,7 +583,7 @@ public final class GroupAggregateDetectionStage implements Stage {
           }
           if (dArg.getType() == XQ.VariableRef && dArg.getValue() instanceof QNm dv) {
             final int li = letVars.indexOf(dv);
-            if (li >= 0 && letOffsets.get(li) == 0L) {
+            if (li >= 0 && letOffsets.get(li) == 0L && letSubstr.get(li) == null) {
               // A SHIFTED let stays declined: distinct-count is shift-invariant in principle,
               // but proving that here buys nothing ClickBench-shaped.
               return new Agg("count-distinct", letFields.get(li), 0L);
@@ -561,7 +602,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm argVar) {
       final int letIdx = letVars.indexOf(argVar);
-      if (letIdx >= 0) {
+      if (letIdx >= 0 && letSubstr.get(letIdx) == null) {
+        // A substring-transformed let as an aggregate operand would fold the RAW column.
         return new Agg(func, letFields.get(letIdx), letOffsets.get(letIdx));
       }
     }
@@ -603,6 +645,42 @@ public final class GroupAggregateDetectionStage implements Stage {
       }
     }
     return null;
+  }
+
+  /**
+   * {@code xs:integer(substring($loopVar.f, startLit, lenLit))} — the DATE_TRUNC/EXTRACT idiom
+   * over ISO-8601 strings. Positive int literals only; the field lands in {@code fieldOut[0]}.
+   */
+  private static int[] integerOfSubstring(final AST expr, final QNm loopVar, final String[] fieldOut) {
+    if (expr == null || expr.getType() != XQ.FunctionCall || expr.getChildCount() != 1
+        || !(expr.getValue() instanceof QNm outer) || !"integer".equals(outer.getLocalName())
+        || !Namespaces.XS_NSURI.equals(outer.getNamespaceURI())) {
+      return null;
+    }
+    final AST sub = expr.getChild(0);
+    if (sub.getType() != XQ.FunctionCall || sub.getChildCount() != 3 || !(sub.getValue() instanceof QNm fn)
+        || !"substring".equals(fn.getLocalName())) {
+      return null;
+    }
+    final String ns = fn.getNamespaceURI();
+    if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns) && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      return null;
+    }
+    final String field = loopVarDerefField(sub.getChild(0), loopVar);
+    if (field == null) {
+      return null;
+    }
+    final long start = sub.getChild(1).getType() == XQ.Int
+        ? intValue(sub.getChild(1))
+        : Long.MIN_VALUE;
+    final long len = sub.getChild(2).getType() == XQ.Int
+        ? intValue(sub.getChild(2))
+        : Long.MIN_VALUE;
+    if (start < 1 || len < 0 || start > 1 << 20 || len > 1 << 20) {
+      return null;
+    }
+    fieldOut[0] = field;
+    return new int[] {(int) start, (int) len};
   }
 
   /** Value of an integer literal node, or {@code Long.MIN_VALUE} when it is not usable (that

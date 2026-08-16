@@ -10346,7 +10346,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit) {
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -10391,6 +10391,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Kind first: it is a metadata byte, while the two evidence gates below can walk
         // descriptors — an unservable kind must not pay for a probe it will discard.
         final byte kind = handle.columnKindOf(col);
+        final boolean keyShifted = keyOffsets != null && keyOffsets[g] != 0L;
+        final boolean keySubstring = keySubstr != null && keySubstr[2 * g] >= 0;
+        if (keyShifted && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          return null; // an arithmetic shift needs a numeric component
+        }
+        if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return null; // a substring transform needs a dict component
+        }
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && handle.numericColumnIsIntegral(col, fetcher)) {
           if (keyCount == 1) {
@@ -10477,10 +10485,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // In-kernel ordering: resolvable only when every order spec reads a primitive accumulator
       // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
       // first `limit` groups of the stable order instead of sorting and materializing them all.
+      final boolean anyKeyTransform = keyOffsets != null;
       final GroupOrderPlan orderPlan = orderIndexes == null || limit < 1
           ? null
-          : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount, numericSingleKey, funcs,
-              aggFields, distinctFields, cdBlock);
+          : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
+              numericSingleKey && !anyKeyTransform, funcs, aggFields, distinctFields, cdBlock);
+      if (anyKeyTransform && orderPlan == null) {
+        return null; // transformed keys serve only through the flat composite route
+      }
       // The distinct machinery exists only on the flat (ordered + capped) routes; the legacy
       // emission paths decline rather than half-serving.
       if (cdBlock >= 0 && orderPlan == null) {
@@ -10502,11 +10514,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int rowGroupCount = rowGroupPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
-      if (numericSingleKey) {
+      if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
             outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock);
       }
-      if (keyCount > 1) {
+      if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
           // COMPOSITE flat path: components hash leaf-independently into ONE 64-bit identity,
           // the aux lane carries a first-seen (leaf, row) reference, and only the K winners
@@ -10515,6 +10527,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               ? 2 + 4 * cdBlock
               : -1;
           final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+          final long[] transformDecline = anyKeyTransform
+              ? new long[1]
+              : null;
           @SuppressWarnings("unchecked")
           final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
               ? new Long2ObjectOpenHashMap[eff]
@@ -10539,9 +10554,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     : null,
                 cdBlock >= 0
                     ? cdBudgets[idx]
-                    : null);
+                    : null,
+                keyOffsets, keySubstr, transformDecline);
             tables[idx] = local;
           });
+          if (transformDecline != null && transformDecline[0] != 0) {
+            // A matching row hit a transform the interpreter RAISES on (missing operand or a
+            // lexically invalid substring) or an overflowing shift — the generic pipeline
+            // raises/promotes identically.
+            return null;
+          }
           if (cdBudgets != null) {
             for (final long[] b : cdBudgets) {
               if (b != null && b[1] != 0) {
@@ -10632,7 +10654,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
             }
             ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
-                longParts, present, isLong);
+                longParts, present, isLong, keyOffsets, keySubstr);
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
                 aggFields, outNames, distinctFields, cdBase));
           }

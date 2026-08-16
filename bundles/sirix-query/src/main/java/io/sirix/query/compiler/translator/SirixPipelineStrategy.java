@@ -146,11 +146,17 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // group-by whose only consumer slices the first K records never needs more than K groups
     // materialized — the executor then heap-selects top-K instead of sort-all + emit-all.
     final Long groupTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+    final long[] keyOffsets = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_OFFSETS);
+    final int[] keySubstr = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_SUBSTR);
+    if (keyOffsets != null
+        && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
         outNames, orderIndexes, orderAsc, orderEmptyLeast, orderIndexes != null && groupTopK != null
             ? groupTopK
             : -1L,
-        runtimeRef(sourceRef), generic);
+        keyOffsets, keySubstr, runtimeRef(sourceRef), generic);
   }
 
   /**

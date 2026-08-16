@@ -2382,6 +2382,25 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
       final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out,
+        leafIndexBase, distinctBlock, distinctOut, budget, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupCompositeFlat} with per-component KEY TRANSFORMS:
+   * {@code keyOffsets[k]} shifts a numeric component ({@code $r.f + c} keys — grouping happens on
+   * the SHIFTED value; a non-injective transform grouped raw would over-partition), and
+   * {@code keySubstr[2k, 2k+1]} applies {@code xs:integer(substring(entry, start, len))} to a
+   * dict component, evaluated once per dictionary entry per leaf. {@code declineFlag[0] != 0}
+   * signals a case the interpreter RAISES on (missing operand under a substring transform, a
+   * lexically invalid slice, an overflowing shift) — the caller declines, and the generic
+   * pipeline raises identically.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
+      final int[] keySubstr, final long[] declineFlag) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2399,6 +2418,9 @@ public final class ProjectionIndexByteScan {
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines
+      }
+      if (declineFlag != null && declineFlag[0] != 0) {
+        return; // a transform case the interpreter raises on — the caller declines
       }
       final byte[] payload = rowGroupPayloads.get(leaf);
       final int columnCount = columnCountOf(payload);
@@ -2422,7 +2444,9 @@ public final class ProjectionIndexByteScan {
           compValOff[k] = s.columnDataOff[col];
         } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           // Pre-hash the WHOLE dictionary once per leaf (<= 1024 entries): per-row cost is
-          // then one id load + one array index per component.
+          // then one id load + one array index per component. Under a substring transform the
+          // per-entry value IS the transformed integer (hashed), with Long.MIN_VALUE marking a
+          // slice the cast would raise on — referenced by a row, that declines the serve.
           final int groupBase = s.columnDataOff[col];
           final int dictSize = getIntLE(payload, groupBase);
           final int lenHeaderOff = groupBase + 4;
@@ -2430,10 +2454,23 @@ public final class ProjectionIndexByteScan {
           if (hashes == null || hashes.length < dictSize) {
             hashes = compDictHash[k] = new long[Math.max(64, dictSize)];
           }
+          final int subStart = keySubstr != null
+              ? keySubstr[2 * k]
+              : -1;
+          final int subLen = keySubstr != null
+              ? keySubstr[2 * k + 1]
+              : -1;
           int off = lenHeaderOff + dictSize * 4;
           for (int i = 0; i < dictSize; i++) {
             final int len = getIntLE(payload, lenHeaderOff + i * 4);
-            hashes[i] = fnv1a64(payload, off, len);
+            if (subStart >= 0) {
+              final long tv = xsIntegerOfSubstring(payload, off, len, subStart, subLen);
+              hashes[i] = tv == Long.MIN_VALUE
+                  ? Long.MIN_VALUE
+                  : HashCommon.mix(tv);
+            } else {
+              hashes[i] = fnv1a64(payload, off, len);
+            }
             off += len;
           }
           compValOff[k] = off; // ids region
@@ -2469,14 +2506,33 @@ public final class ProjectionIndexByteScan {
           final int rowIdx = rowBase + bit;
           long h = 0xcbf29ce484222325L;
           for (int k = 0; k < keyCount; k++) {
+            final boolean subTransformed = keySubstr != null && keySubstr[2 * k] >= 0;
             final long compHash;
             if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+              if (subTransformed) {
+                // xs:integer(substring((), s, l)) = xs:integer("") — the interpreter RAISES.
+                declineFlag[0] = 1;
+                return;
+              }
               // Missing component: a fixed sentinel — part of the identity, not a side group.
               compHash = 0x9E3779B97F4A7C15L;
             } else if (compKind[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-              compHash = HashCommon.mix(getLongLE(payload, compValOff[k] + rowIdx * 8));
+              long v = getLongLE(payload, compValOff[k] + rowIdx * 8);
+              if (keyOffsets != null && keyOffsets[k] != 0L) {
+                final long shifted = v + keyOffsets[k];
+                if (((v ^ shifted) & (keyOffsets[k] ^ shifted)) < 0) {
+                  declineFlag[0] = 1; // overflow: the interpreter promotes to decimal
+                  return;
+                }
+                v = shifted;
+              }
+              compHash = HashCommon.mix(v);
             } else {
               compHash = compDictHash[k][getIntLE(payload, compValOff[k] + rowIdx * 4)];
+              if (subTransformed && compHash == Long.MIN_VALUE) {
+                declineFlag[0] = 1; // a row references a slice the cast raises on
+                return;
+              }
             }
             h = h * 0x100000001b3L ^ compHash;
           }
@@ -2517,6 +2573,16 @@ public final class ProjectionIndexByteScan {
   public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
       final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
       final boolean[] outPresent, final boolean[] outIsLong) {
+    readRowKeyParts(payload, columnDataOff, leafDataEnd, groupColumns, rowIdx, outStrings, outLongs, outPresent,
+        outIsLong, null, null);
+  }
+
+  /** {@link #readRowKeyParts} applying the same key transforms the composite kernel groups by —
+   * winners must emit the TRANSFORMED value. A raise-case cannot appear here: the kernel already
+   * declined the serve before any winner existed. */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets, final int[] keySubstr) {
     final int tailStart = presenceTailStart(payload, leafDataEnd);
     for (int k = 0; k < groupColumns.length; k++) {
       final int col = groupColumns[k];
@@ -2531,7 +2597,9 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[24 + col];
       if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
         outIsLong[k] = true;
-        outLongs[k] = getLongLE(payload, columnDataOff[col] + rowIdx * 8);
+        outLongs[k] = getLongLE(payload, columnDataOff[col] + rowIdx * 8) + (keyOffsets != null
+            ? keyOffsets[k]
+            : 0L);
       } else {
         outIsLong[k] = false;
         final int groupBase = columnDataOff[col];
@@ -2548,10 +2616,66 @@ public final class ProjectionIndexByteScan {
         for (int i = 0; i < dictId; i++) {
           entryOff += getIntLE(payload, lenHeaderOff + i * 4);
         }
-        outStrings[k] =
-            new String(payload, entryOff, getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
+        final int entryLen = getIntLE(payload, lenHeaderOff + dictId * 4);
+        if (keySubstr != null && keySubstr[2 * k] >= 0) {
+          outIsLong[k] = true;
+          outLongs[k] = xsIntegerOfSubstring(payload, entryOff, entryLen, keySubstr[2 * k], keySubstr[2 * k + 1]);
+        } else {
+          outStrings[k] = new String(payload, entryOff, entryLen, StandardCharsets.UTF_8);
+        }
       }
     }
+  }
+
+  /**
+   * {@code xs:integer(substring(entry, start, len))} as a long — the transform the composite
+   * kernel groups by. {@code Long.MIN_VALUE} = a case the CAST raises on (empty slice, non-digit,
+   * beyond long) or a non-ASCII entry (fn:substring counts CODEPOINTS; declining beats an
+   * off-by-index answer). fn:substring clamps out-of-range windows to the empty string.
+   */
+  static long xsIntegerOfSubstring(final byte[] bytes, final int off, final int len, final int start,
+      final int subLen) {
+    for (int i = off; i < off + len; i++) {
+      if (bytes[i] < 0) {
+        return Long.MIN_VALUE;
+      }
+    }
+    final int s0 = start - 1;
+    int from = off + Math.min(s0, len);
+    int end = off + Math.min(len, s0 + subLen);
+    // xs:integer's whiteSpace facet collapses surrounding whitespace before the cast.
+    while (from < end && (bytes[from] == ' ' || bytes[from] == '\t' || bytes[from] == '\n' || bytes[from] == '\r')) {
+      from++;
+    }
+    while (end > from && (bytes[end - 1] == ' ' || bytes[end - 1] == '\t' || bytes[end - 1] == '\n'
+        || bytes[end - 1] == '\r')) {
+      end--;
+    }
+    if (from >= end) {
+      return Long.MIN_VALUE;
+    }
+    boolean neg = false;
+    if (bytes[from] == '+' || bytes[from] == '-') {
+      neg = bytes[from] == '-';
+      from++;
+    }
+    if (from >= end) {
+      return Long.MIN_VALUE;
+    }
+    long v = 0;
+    for (int i = from; i < end; i++) {
+      final int d = bytes[i] - '0';
+      if (d < 0 || d > 9) {
+        return Long.MIN_VALUE;
+      }
+      v = v * 10 + d;
+      if (v < 0) {
+        return Long.MIN_VALUE; // beyond long: the interpreter goes to big-integer — decline
+      }
+    }
+    return neg
+        ? -v
+        : v;
   }
 
   /**
