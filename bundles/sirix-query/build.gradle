@@ -288,6 +288,8 @@ tasks.register('nativeImageSmokeTest', Test) {
     maxHeapSize = '4g'
 }
 
+// FIXED UPSTREAM in the EA channel: graalvm-25.3.4.1-dev (native-image 2026-08-18) instruments
+// cleanly with jline present, so this exclusion only matters for GA toolchains.
 // PGO instrumentation crashes GraalVM's register allocator (25.0.3 and 25.0.4:
 // "mismatched definition: r10|QWORD != r10|QWORD[.]") while compiling the FFM UPCALL stub that
 // jline's terminal provider registers (an int->void signal handler) — the only upcall in the

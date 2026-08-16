@@ -708,7 +708,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * segment raw), or {@code marker}+{@code offset} (a committed reference batch-resolved after the
    * walk; {@code marker} is non-null only for descriptors, which still hash-verify).
    */
-  private record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker,
+  record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker,
       long offset, long slotKey) {
   }
 
@@ -772,13 +772,27 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static RawBlobSlot[] orderedDescriptorSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+    final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
+    collectSlotsRange(reader, indexNumber, rowGroupCount, -1, -1, descriptors, segmentSlotsOut);
+    return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber);
+  }
+
+  /**
+   * The slot walk over ONE row-group id range, {@code [fromRowGroup, toRowGroup]} inclusive —
+   * the unit a PARALLEL materialization partitions across per-thread readers (each range touches
+   * mostly-disjoint trie leaves, so the page decodes the cursor forces run concurrently into the
+   * shared buffer manager). Negative bounds = the historical UNBOUNDED walk.
+   */
+  static void collectSlotsRange(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final long fromRowGroup, final long toRowGroup, final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       if (rowGroupCount != 0) {
         throw new IllegalStateException("segment-slot sub-tree missing but metadata declares " + rowGroupCount
             + " leaves (indexNumber=" + indexNumber + ")");
       }
-      return NO_DESCRIPTOR_SLOTS;
+      return;
     }
     // UNBOUNDED, not [0x00..8, 0xFF..8]: both name the whole trie, but explicit bounds make the
     // cursor lex-compare every key against the upper bound on every step — a comparison that,
@@ -786,10 +800,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // bound check and start at the leftmost leaf directly (measured: 0.687 -> 0.659 ms over 977
     // row groups, 3 forks x 10 iterations). A key longer than 8 bytes, which the bounded form
     // would have quietly ended the scan on, now reaches decodeKey8BE and fails loudly — the
-    // better outcome for a store that must contain only 8-byte slot keys.
-    final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
+    // better outcome for a store that must contain only 8-byte slot keys. RANGED calls pay the
+    // bound compare; they exist to be run in parallel, where it is noise.
+    final byte[] fromKey = fromRowGroup < 0
+        ? null
+        : slotKeyBytes(fromRowGroup << 16);
+    final byte[] toKey = toRowGroup < 0
+        ? null
+        : slotKeyBytes((toRowGroup << 16) | 0xFFFFL);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
-        HOTRangeCursor cursor = trieReader.range(rootRef, null, null)) {
+        HOTRangeCursor cursor = trieReader.range(rootRef, fromKey, toKey)) {
       // The walk reads UNPINNED leaves under optimistic stamps: each slot's read batch — key
       // decode, value slice, capture copy — is validated before its outcome is committed to the
       // collections; a torn batch re-evaluates the SAME slot on a refreshed leaf copy.
@@ -849,6 +869,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         }
         cursor.advance();
       }
+    }
+  }
+
+  /** BE-encoded trie key of one slot key (the walk's decode, inverted). */
+  private static byte[] slotKeyBytes(final long slotKey) {
+    final long flipped = slotKey ^ 0x8000_0000_0000_0000L;
+    final byte[] key = new byte[8];
+    for (int i = 0; i < 8; i++) {
+      key[i] = (byte) (flipped >>> (56 - 8 * i));
+    }
+    return key;
+  }
+
+  /** Validation + positional drain shared by the serial walk and the parallel partitions' merge. */
+  static RawBlobSlot[] drainOrderedDescriptors(final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final int rowGroupCount, final int indexNumber) {
+    if (descriptors.isEmpty() && rowGroupCount == 0) {
+      return NO_DESCRIPTOR_SLOTS;
     }
     // Validate the descriptor key set is exactly {1..rowGroupCount} BEFORE any page I/O: a size
     // mismatch is a gap/truncation/leaked-orphan, a non-1..N key is a contiguity break.
@@ -913,6 +951,20 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
     // Phases 1-2 — one walk, then validate the descriptor key set is exactly {1..rowGroupCount}.
     final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, segmentSlots);
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots);
+  }
+
+  /**
+   * Phases 3-5 over an already-collected slot set — the shared tail of the serial walk above and
+   * the catalog's PARALLEL collection (partitioned {@link #collectSlotsRange} calls merged by the
+   * caller). Batch I/O (descriptor resolution, committed segment refs) runs on the ONE reader
+   * passed here; the per-leaf assembly fans out as before.
+   */
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots) {
+    final long p3 = DIAG
+        ? System.nanoTime()
+        : 0L;
     // Phase 3 — resolve descriptors (referenced ones in one batch), then size each leaf's accum. The
     // ordered array is indexed by rowGroupId-1 (keys were just validated contiguous 1..rowGroupCount).
     final ColumnSegmentSlotRowGroupAccum[] ordered = new ColumnSegmentSlotRowGroupAccum[rowGroupCount];
@@ -946,10 +998,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         pendingSeg.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
       }
     }
+    final long p4 = DIAG
+        ? System.nanoTime()
+        : 0L;
     resolvePending(reader, pendingSeg);
+    final long p5 = DIAG
+        ? System.nanoTime()
+        : 0L;
     // Phase 5 — assemble each (independent) leaf; fan out for large stores.
     final byte[][] assembled = new byte[ordered.length][];
     assembleColumnSegmentSlotRowGroups(ordered, assembled, ordered.length >= PARALLEL_ASSEMBLE_MIN);
+    if (DIAG) {
+      System.err.println("[hot] assemble phases: descriptors+fill=" + (p4 - p3) / 1_000_000 + "ms resolvePending="
+          + (p5 - p4) / 1_000_000 + "ms (" + pendingSeg.size() + " refs) assemble="
+          + (System.nanoTime() - p5) / 1_000_000 + "ms");
+    }
     final ArrayList<byte[]> out = new ArrayList<>(assembled.length);
     Collections.addAll(out, assembled);
     return out;
