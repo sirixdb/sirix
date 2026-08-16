@@ -1450,4 +1450,82 @@ public final class ProjectionColumnScan {
     return ProjectionIndexByteScan.compareStrSlices(a, 0, a.length, b, 0, b.length);
   }
 
+  /** Per-thread tree-mask stack (MAX_LEAVES × MAX_ROWS bound — same bound the byte twin uses). */
+  private static final ThreadLocal<long[][]> TREE_STACK = ThreadLocal.withInitial(
+      () -> new long[ProjectionIndexScan.PredicateTree.MAX_LEAVES][(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6]);
+
+  /**
+   * Sliced twin of the byte kernels' tree mask evaluator: a stack machine over per-leaf masks —
+   * each leaf is (predicate matches AND its own column's presence), AND/OR combine, NOT is the
+   * complement (missing OR present-and-failing = fn:not exactly; tail garbage clears on the
+   * final AND with the tail-masked base). Zone/prune evidence stays PER LEAF (an all-zero leaf
+   * mask, sound under OR) — never a row-group skip. {@code treeCols[i]} = FULL fill of leaf
+   * {@code i}'s column (keep-mask pruning is conjunction-only and must not touch tree fills).
+   */
+  static int evaluateMaskTree(final ProjectionIndexScan.PredicateTree tree, final ColumnSlice[][] treeCols,
+      final int leaf, final int rowCount, final long[] mask) {
+    if (rowCount <= 0) {
+      return 0;
+    }
+    final int stride = (rowCount + 63) >>> 6;
+    fillAllTrue(mask, rowCount, stride);
+    final long[][] stack = TREE_STACK.get();
+    int top = 0;
+    for (final byte op : tree.program) {
+      if (op >= 0) {
+        final long[] dst = stack[top++];
+        evalLeafInto(tree.leaves[op], treeCols[op][leaf], rowCount, stride, dst);
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_AND) {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] &= b[i];
+        }
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_NOT) {
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] = ~a[i];
+        }
+      } else {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] |= b[i];
+        }
+      }
+    }
+    final long[] result = stack[0];
+    for (int i = 0; i < stride; i++) {
+      mask[i] &= result[i];
+    }
+    return rowCount;
+  }
+
+  /** One tree leaf's mask: (matches AND presence), into {@code dst} — pruned/rowless/zone-skipped
+   * slices yield the all-zero mask (the correct per-leaf value under any combiner). */
+  private static void evalLeafInto(final ColumnPredicate p, final ColumnSlice slice, final int rowCount,
+      final int stride, final long[] dst) {
+    if (slice == null || slice.rowCount() <= 0) {
+      Arrays.fill(dst, 0, stride, 0L);
+      return;
+    }
+    final long[] values = slice.numericValues();
+    if (values != null && (slice.min() > slice.max() || zoneSkip(p, slice.min(), slice.max()))) {
+      Arrays.fill(dst, 0, stride, 0L);
+      return;
+    }
+    fillAllTrue(dst, rowCount, stride);
+    final long[] presence = slice.presenceWords();
+    if (values != null) {
+      evalNumeric(values, rowCount, p, presence, dst);
+    } else if (slice.setCounts() != null) {
+      evalStringSetContains(slice.stringDict(), slice.setCounts(), slice.stringDictIds(), rowCount, p.stringLitBytes,
+          presence, dst);
+    } else if (slice.stringDictIds() != null) {
+      evalStringDict(slice.stringDict(), slice.stringDictIds(), rowCount, p, presence, dst);
+    } else {
+      evalBoolean(slice.boolWords(), stride, p.boolLit, presence, dst);
+    }
+  }
+
 }

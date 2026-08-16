@@ -48,7 +48,8 @@ public final class ProjectionColumnGroupScan {
    * fn:string-length's missing-is-0 semantics (null = all-numeric aggregates).
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
       final ColumnSlice[][] aggCols, final boolean[] aggStrlen, final int fromLeaf, final int toLeaf,
       final NumericGroupAggTable out, final long[] missingAcc, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
@@ -71,7 +72,9 @@ public final class ProjectionColumnGroupScan {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
       }
-      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      final int rowCount = treeOrNull != null
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }
@@ -162,7 +165,8 @@ public final class ProjectionColumnGroupScan {
    * folds per-dict-entry CODEPOINT counts with fn:string-length's missing-is-0 semantics.
    */
   public static void aggregateByGroupStringFlat(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
       final ColumnSlice[][] aggCols, final boolean[] aggStrlen, final int fromLeaf, final int toLeaf,
       final NumericGroupAggTable out, final long[] missingAcc, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
@@ -186,7 +190,9 @@ public final class ProjectionColumnGroupScan {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines
       }
-      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      final int rowCount = treeOrNull != null
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }
@@ -415,7 +421,8 @@ public final class ProjectionColumnGroupScan {
    * {@code (leaf << 20) | rowIdx} so winners re-read key parts from slices.
    */
   public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[][] keyCols,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[][] keyCols,
       final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
       final NumericGroupAggTable out, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
@@ -456,7 +463,9 @@ public final class ProjectionColumnGroupScan {
       if (declineFlag != null && declineFlag[0] != 0) {
         return; // a transform case the interpreter raises on — the caller declines
       }
-      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      final int rowCount = treeOrNull != null
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }
@@ -670,7 +679,8 @@ public final class ProjectionColumnGroupScan {
    * validator rejected.
    */
   public static void aggregateByGroupPackedSubstringFlat(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
       final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf, final int subStart, final int subLen,
       final NumericGroupAggTable out, final long[] declineFlag) {
     if (predicates == null || out == null || aggCols == null || declineFlag == null) {
@@ -685,7 +695,9 @@ public final class ProjectionColumnGroupScan {
       if (declineFlag[0] != 0) {
         return;
       }
-      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      final int rowCount = treeOrNull != null
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }
@@ -753,7 +765,8 @@ public final class ProjectionColumnGroupScan {
    * store-lifetime); collation authority is the byte kernel's own comparator.
    */
   public static void stringAggForWinnerGroupsSliced(final ProjectionColumnStore store,
-      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final ColumnSlice[][] treeCols, final ColumnSlice[] groupCol,
       final ColumnSlice[][] stringAggCols, final boolean[] aggIsMin, final long[] winnerHashes,
       final boolean winnerMissingKey, final String[][] bestOut, final Pattern keyRegex, final String keyRegexRepl,
       final int fromLeaf, final int toLeaf) {
@@ -777,7 +790,9 @@ public final class ProjectionColumnGroupScan {
     final int[][] aggIds = new int[aggCount][];
     final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
-      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      final int rowCount = treeOrNull != null
+          ? ProjectionColumnScan.evaluateMaskTree(treeOrNull, treeCols, leaf, store.rowCount(leaf), mask)
+          : ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
       if (rowCount <= 0) {
         continue;
       }

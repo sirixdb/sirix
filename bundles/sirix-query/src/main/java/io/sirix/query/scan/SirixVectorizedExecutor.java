@@ -2023,6 +2023,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return true;
   }
 
+  /** Tree serving gate: every leaf sliceable under the conjunctive rules; SET leaves stay
+   * whole-leaf (v1). Tree fills are FULL — keep-mask pruning is conjunction-only. */
+  private static boolean treeSliceable(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree) {
+    if (!predsSliceable(store, tree.leaves)) {
+      return false;
+    }
+    for (final ProjectionIndexScan.ColumnPredicate leaf : tree.leaves) {
+      if (store.columnKind(leaf.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** FULL fills of every tree leaf's column, index-aligned with {@code tree.leaves}. */
+  private ProjectionColumnStore.ColumnSlice[][] resolveTreeCols(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final ProjectionColumnStore.ColumnSlice[][] cols = new ProjectionColumnStore.ColumnSlice[tree.leaves.length][];
+    for (int i = 0; i < tree.leaves.length; i++) {
+      cols[i] = store.column(tree.leaves[i].column, fetcher);
+    }
+    return cols;
+  }
+
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
@@ -10970,8 +10995,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
       // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
       // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
-      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && tree == null
-          && !handle.payloadsMaterialized() && predsSliceable(groupStore, preds)
+      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null
+          && !handle.payloadsMaterialized() && (tree == null
+              ? predsSliceable(groupStore, preds)
+              : treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
       final List<byte[]> rowGroupPayloads = groupSliced
           ? null
@@ -11133,6 +11160,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // SLICED arm: resolve every column ONCE on the calling thread (workers share the
           // immutable slice arrays); key kinds captured for the kernel's component dispatch.
           final ProjectionColumnStore.ColumnSlice[][] cPredCols;
+          final ProjectionColumnStore.ColumnSlice[][] cTreeCols;
           final ProjectionColumnStore.ColumnSlice[][] cKeyCols;
           final byte[] cKeyKinds;
           final ProjectionColumnStore.ColumnSlice[][] cAggCols;
@@ -11140,6 +11168,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (compositeSlicedArm) {
             final ProjectionColumnStore.ColumnSegmentFetcher cFetcher = columnFetcher();
             cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher);
+            cTreeCols = tree != null
+                ? resolveTreeCols(groupStore, tree, cFetcher)
+                : null;
             cKeyCols = new ProjectionColumnStore.ColumnSlice[keyCount][];
             cKeyKinds = new byte[keyCount];
             for (int k = 0; k < keyCount; k++) {
@@ -11165,6 +11196,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             }
           } else {
             cPredCols = null;
+            cTreeCols = null;
             cKeyCols = null;
             cKeyKinds = null;
             cAggCols = null;
@@ -11182,8 +11214,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
             }
             if (compositeSlicedArm) {
-              ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, cKeyCols,
-                  cKeyKinds, cAggCols, from, to, local, cdBlock, cdBlock >= 0
+              ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, tree, cTreeCols,
+                  cKeyCols, cKeyKinds, cAggCols, from, to, local, cdBlock, cdBlock >= 0
                       ? cdMaps[idx]
                       : null,
                   cdBlock >= 0
@@ -11419,6 +11451,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // SLICED arm: resolve every column ONCE on the calling thread — workers share the
         // immutable slice arrays; racing the first fill would multiply the segment I/O.
         final ProjectionColumnStore.ColumnSlice[][] sPredCols;
+        final ProjectionColumnStore.ColumnSlice[][] sTreeCols;
         final ProjectionColumnStore.ColumnSlice[] sGroupCol;
         final ProjectionColumnStore.ColumnSlice[][] sAggCols;
         if (stringSlicedArm) {
@@ -11427,6 +11460,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
           }
           sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher);
+          sTreeCols = tree != null
+              ? resolveTreeCols(groupStore, tree, sFetcher)
+              : null;
           sGroupCol = groupStore.column(groupCol, sFetcher);
           sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
           for (int a = 0; a < aggColsFlat.length; a++) {
@@ -11441,6 +11477,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         } else {
           sPredCols = null;
+          sTreeCols = null;
           sGroupCol = null;
           sAggCols = null;
         }
@@ -11470,8 +11507,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
           }
           if (stringSlicedArm) {
-            ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, sGroupCol, sAggCols,
-                strlenInFlat, from, to, local, missing, cdBlock, cdBlock >= 0
+            ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, tree, sTreeCols,
+                sGroupCol, sAggCols, strlenInFlat, from, to, local, missing, cdBlock, cdBlock >= 0
                     ? cdMaps[idx]
                     : null,
                 cdBlock >= 0
@@ -11696,8 +11733,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               return;
             final String[][] best = new String[deferredColsArr.length][slotsTotal];
             if (stringSlicedArm) {
-              ProjectionColumnGroupScan.stringAggForWinnerGroupsSliced(groupStore, preds, sPredCols, sGroupCol,
-                  dAggCols, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl, from, to);
+              ProjectionColumnGroupScan.stringAggForWinnerGroupsSliced(groupStore, preds, sPredCols, tree, sTreeCols,
+                  sGroupCol, dAggCols, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl,
+                  from, to);
             } else {
               ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
                   deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
@@ -11808,8 +11846,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (stringLegacySliced) {
           final NumericGroupAggTable localT =
               new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
-          ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, legPredCols, legGroupCol,
-              legAggCols, null, from, to, localT, missing, -1, null, null, null, null, null, null);
+          ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, legPredCols, null, null,
+              legGroupCol, legAggCols, null, from, to, localT, missing, -1, null, null, null, null, null, null);
           perThread[idx] = drainStringGroupTable(localT, aggCols.length, legGroupCol);
         } else {
           final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
@@ -12085,6 +12123,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         : rowGroupPayloads.size();
     // SLICED arm: resolve ONCE on the calling thread; workers share the immutable slices.
     final ProjectionColumnStore.ColumnSlice[][] pPredCols;
+    final ProjectionColumnStore.ColumnSlice[][] pTreeCols;
     final ProjectionColumnStore.ColumnSlice[] pGroupCol;
     final ProjectionColumnStore.ColumnSlice[][] pAggCols;
     if (slicedStore != null) {
@@ -12093,6 +12132,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
       }
       pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher);
+      pTreeCols = tree != null
+          ? resolveTreeCols(slicedStore, tree, pFetcher)
+          : null;
       pGroupCol = slicedStore.column(groupCol, pFetcher);
       pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
       for (int a = 0; a < aggCols.length; a++) {
@@ -12103,6 +12145,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     } else {
       pPredCols = null;
+      pTreeCols = null;
       pGroupCol = null;
       pAggCols = null;
     }
@@ -12116,8 +12159,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final NumericGroupAggTable local =
           new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
       if (slicedStore != null) {
-        ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, pGroupCol,
-            pAggCols, from, to, subStart, subLen, local, decline);
+        ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, tree, pTreeCols,
+            pGroupCol, pAggCols, from, to, subStart, subLen, local, decline);
       } else {
         ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
             preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
@@ -12262,11 +12305,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // immutable and shared, and letting the fan-out race the first fill would multiply the
       // segment I/O by the worker count.
       final ProjectionColumnStore.ColumnSlice[][] slicedPredCols;
+      final ProjectionColumnStore.ColumnSlice[][] slicedTreeCols;
       final ProjectionColumnStore.ColumnSlice[] slicedGroupCol;
       final ProjectionColumnStore.ColumnSlice[][] slicedAggCols;
       if (slicedStore != null) {
         final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
         slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher);
+        slicedTreeCols = predTree != null
+            ? resolveTreeCols(slicedStore, predTree, fetcher)
+            : null;
         slicedGroupCol = slicedStore.column(groupCol, fetcher);
         slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
         for (int a = 0; a < aggCols.length; a++) {
@@ -12280,6 +12327,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       } else {
         slicedPredCols = null;
+        slicedTreeCols = null;
         slicedGroupCol = null;
         slicedAggCols = null;
       }
@@ -12297,8 +12345,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
         }
         if (slicedStore != null) {
-          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, slicedGroupCol,
-              slicedAggCols, aggStrlen, from, to, local, missing, cdBlockIdx, cdBlockIdx >= 0
+          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, predTree,
+              slicedTreeCols, slicedGroupCol, slicedAggCols, aggStrlen, from, to, local, missing, cdBlockIdx,
+              cdBlockIdx >= 0
                   ? cdMaps[idx]
                   : null,
               cdBlockIdx >= 0
@@ -12488,8 +12537,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (slicedStore != null) {
         final NumericGroupAggTable localT =
             new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10));
-        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, legPredCols, legGroupCol,
-            legAggCols, null, from, to, localT, missing, -1, null, null, null);
+        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, legPredCols, null, null,
+            legGroupCol, legAggCols, null, from, to, localT, missing, -1, null, null, null);
         perThread[idx] = drainNumericGroupTable(localT, aggCols.length);
       } else {
         final Long2ObjectOpenHashMap<long[]> local = new Long2ObjectOpenHashMap<>();
