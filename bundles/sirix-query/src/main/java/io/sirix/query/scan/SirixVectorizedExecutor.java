@@ -10378,9 +10378,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] groupCols = new int[keyCount];
       // A single NUMERIC_LONG group key is servable under the same two gates the count-only
-      // route uses; composites stay dict-only (a mixed typed composite key needs its own
-      // kernel). Every other kind — NUMERIC_DOUBLE, STRING_SET, BOOLEAN — declines.
+      // route uses. COMPOSITE keys may mix NUMERIC_LONG (integral) and STRING_DICT components —
+      // the flat composite kernel hashes each component leaf-independently. Every other kind —
+      // NUMERIC_DOUBLE, STRING_SET, BOOLEAN — declines.
       boolean numericSingleKey = false;
+      boolean anyNumericComponent = false;
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
         if (col < 0) {
@@ -10389,9 +10391,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Kind first: it is a metadata byte, while the two evidence gates below can walk
         // descriptors — an unservable kind must not pay for a probe it will discard.
         final byte kind = handle.columnKindOf(col);
-        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG && keyCount == 1
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && handle.numericColumnIsIntegral(col, fetcher)) {
-          numericSingleKey = true;
+          if (keyCount == 1) {
+            numericSingleKey = true;
+          }
+          anyNumericComponent = true;
         } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return null;
         }
@@ -10476,9 +10481,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           ? null
           : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount, numericSingleKey, funcs,
               aggFields, distinctFields, cdBlock);
-      // The distinct machinery exists only on the flat single-key routes; everything else
-      // declines rather than half-serving.
-      if (cdBlock >= 0 && (orderPlan == null || keyCount > 1)) {
+      // The distinct machinery exists only on the flat (ordered + capped) routes; the legacy
+      // emission paths decline rather than half-serving.
+      if (cdBlock >= 0 && orderPlan == null) {
         return null;
       }
       // Zone-map pre-flight, BEFORE a single row is read: one whole-column magnitude bound
@@ -10502,6 +10507,146 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock);
       }
       if (keyCount > 1) {
+        if (orderPlan != null) {
+          // COMPOSITE flat path: components hash leaf-independently into ONE 64-bit identity,
+          // the aux lane carries a first-seen (leaf, row) reference, and only the K winners
+          // ever materialize their key parts — by re-reading that one row each.
+          final int cdBase = cdBlock >= 0
+              ? 2 + 4 * cdBlock
+              : -1;
+          final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+          @SuppressWarnings("unchecked")
+          final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
+              ? new Long2ObjectOpenHashMap[eff]
+              : null;
+          final long[][] cdBudgets = cdBlock >= 0
+              ? new long[eff][]
+              : null;
+          parallel(eff, idx -> {
+            final int from = idx * chunkSize;
+            final int to = Math.min(from + chunkSize, rowGroupCount);
+            if (from >= to)
+              return;
+            final NumericGroupAggTable local =
+                new NumericGroupAggTable(aggColsFlat.length, Math.min(1 << 16, (to - from) << 10), true);
+            if (cdBlock >= 0) {
+              cdMaps[idx] = new Long2ObjectOpenHashMap<>();
+              cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+            }
+            ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads.subList(from, to), preds,
+                groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
+                    ? cdMaps[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdBudgets[idx]
+                    : null);
+            tables[idx] = local;
+          });
+          if (cdBudgets != null) {
+            for (final long[] b : cdBudgets) {
+              if (b != null && b[1] != 0) {
+                return null; // exact-set budget exceeded — decline, never sketch
+              }
+            }
+          }
+          long scanned = 0;
+          for (int t = 0; t < eff; t++) {
+            if (tables[t] != null) {
+              scanned += tables[t].sizeIncludingZero();
+            }
+          }
+          if (scanned == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          int partitions = 1;
+          while (partitions < Math.min(eff, 32)) {
+            partitions <<= 1;
+          }
+          final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+          final int slotWidth = 2 + 4 * aggColsFlat.length;
+          final long perPartitionEstimate = Math.max(16, scanned / partitions);
+          final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+          parallel(partitions, part -> {
+            final NumericGroupAggTable into =
+                new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
+            NumericGroupAggTable.mergePartition(tables, part, shift, into);
+            if (cdMaps != null) {
+              mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+            }
+            final int candidates = into.sizeIncludingZero();
+            if (candidates == 0) {
+              return;
+            }
+            final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+            final long[] keys = into.keysArray();
+            final long[] slots = into.slotsArray();
+            for (int i = 0; i < keys.length; i++) {
+              if (keys[i] != 0L) {
+                final int base = i * slotWidth;
+                sel.offer(slots, base, true, into.auxAtBase(base), null);
+              }
+            }
+            if (into.hasZeroKey()) {
+              sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+            }
+            partSelectors[part] = sel;
+          });
+          int winnerCount = 0;
+          for (final GroupTopKSelector sel : partSelectors) {
+            if (sel != null) {
+              winnerCount += sel.size();
+            }
+          }
+          final int k = (int) Math.min(limit, winnerCount);
+          if (k == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+          for (final GroupTopKSelector sel : partSelectors) {
+            if (sel == null) {
+              continue;
+            }
+            for (int i = 0; i < sel.size(); i++) {
+              final int base = sel.baseAt(i);
+              final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+              finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+            }
+          }
+          finalSel.sortInPlace();
+          // Winners: decode key parts from each group's first-seen row, offsets cached per leaf.
+          final int[][] offsetsByLeaf = new int[rowGroupCount][];
+          final String[] strParts = new String[keyCount];
+          final long[] longParts = new long[keyCount];
+          final boolean[] present = new boolean[keyCount];
+          final boolean[] isLong = new boolean[keyCount];
+          final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+          for (int i = 0; i < finalSel.size(); i++) {
+            final long src = finalSel.keyLongAt(i);
+            final int leaf = (int) (src >>> 20);
+            final int rowIdx = (int) (src & 0xFFFFF);
+            final byte[] payload = rowGroupPayloads.get(leaf);
+            int[] offs = offsetsByLeaf[leaf];
+            if (offs == null) {
+              offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
+            }
+            ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
+                longParts, present, isLong);
+            out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
+                aggFields, outNames, distinctFields, cdBase));
+          }
+          GROUP_AGG_SERVED.increment();
+          if (cdBlock >= 0) {
+            GROUP_DISTINCT_SERVED.increment();
+          }
+          return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+        }
+        if (anyNumericComponent) {
+          // The legacy multi-key kernels are dict-only; a numeric component without the flat
+          // path (no order plan) declines rather than throwing inside the scan.
+          return null;
+        }
         // MULTI-KEY path (gap 1a): composite GroupKey accumulators; missing components
         // ride inside the key (null part) rather than a separate null-key accumulator.
         @SuppressWarnings("unchecked")
@@ -12293,6 +12438,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ? null
         : new Str(groupKey);
     fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase);
+    return new ArrayObject(names, vals);
+  }
+
+  /** COMPOSITE (mixed-kind) per-group record: a present NUMERIC_LONG component emits {@link Int64}
+   * (matching the single-numeric-key arm), a present STRING_DICT one {@link Str}, a missing one
+   * the empty sequence — decoded from the group's first-seen row by the caller. */
+  private static ArrayObject groupAggRecordComposite(final String[] keyNames, final boolean[] present,
+      final boolean[] isLong, final String[] strParts, final long[] longParts, final long[] acc, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase) {
+    final int k = keyNames.length;
+    final QNm[] names = new QNm[k + funcs.length];
+    final Sequence[] vals = new Sequence[k + funcs.length];
+    for (int i = 0; i < k; i++) {
+      names[i] = new QNm(keyNames[i]);
+      vals[i] = !present[i]
+          ? null
+          : isLong[i]
+              ? new Int64(longParts[i])
+              : new Str(strParts[i]);
+    }
+    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase);
     return new ArrayObject(names, vals);
   }
 
