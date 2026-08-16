@@ -71,6 +71,9 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] keyCondFields;
   private final long[] keyCondLits;
   private final String[] keyCondElse;
+  /** Regex key transform (Q28's REGEXP_REPLACE shape), or {@code null}s for none. */
+  private final String[] keyRegexPattern;
+  private final String[] keyRegexRepl;
   /** HAVING over the group count ({@code long[]{op, literal}}), or {@code null}. */
   private final long[] having;
   /** Concat-emitted key entries: literal prefix/suffix decoration per annotated position. */
@@ -89,7 +92,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final long[] having,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] having,
       final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
       final String[] constEntryNames, final long[] constEntryValues, final SourceRef runtimeSourceRef,
       final Expr genericFallback) {
@@ -108,6 +112,8 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.keyCondFields = keyCondFields;
     this.keyCondLits = keyCondLits;
     this.keyCondElse = keyCondElse;
+    this.keyRegexPattern = keyRegexPattern;
+    this.keyRegexRepl = keyRegexRepl;
     this.having = having;
     this.decorPos = decorPos;
     this.decorPrefix = decorPrefix;
@@ -148,7 +154,8 @@ public final class SirixGroupAggregateExpr implements Expr {
     if (executor.canExecute(ctx)) {
       final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
           predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, having);
+          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl,
+          having);
       if (served != null) {
         if (orderIndexes == null || served.ordered()) {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to

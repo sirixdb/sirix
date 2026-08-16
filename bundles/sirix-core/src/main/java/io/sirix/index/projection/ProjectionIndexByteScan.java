@@ -7,6 +7,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -2186,6 +2187,24 @@ public final class ProjectionIndexByteScan {
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
       final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, distinctBlock, distinctOut, distinctMissing, budget, treeOrNull, null, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupStringFlat} with the REGEX key transform and/or
+   * string-length aggregate operands. {@code keyRegex} groups on the TRANSFORMED string —
+   * hashed once per dictionary entry per leaf; a matched row MISSING the key field sets
+   * {@code regexDecline[0]} (fn:replace over the empty sequence is {@code ""}, a REAL key the
+   * missing-key arm must not absorb) and the caller declines. {@code aggStrlen[a]} folds
+   * per-dict-entry CODEPOINT counts with fn:string-length's missing-is-0 semantics.
+   */
+  public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final Pattern keyRegex,
+      final String keyRegexRepl, final long[] regexDecline, final boolean[] aggStrlen) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2204,6 +2223,9 @@ public final class ProjectionIndexByteScan {
     long[] dictHash = s.dictHashCache;
     int[] dictBase = s.dictSlotBase;
     final int aggCount = aggColumns.length;
+    final int[][] strlenCpLen = aggStrlen != null
+        ? new int[aggCount][]
+        : null;
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines
@@ -2256,6 +2278,36 @@ public final class ProjectionIndexByteScan {
           : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
       for (int a = 0; a < aggCount; a++) {
         final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggStrlen != null && aggStrlen[a]) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException("strlen aggColumn " + aggColumns[a] + " is not STRING_DICT (kind="
+                + aggKind + ")");
+          }
+          final int aBase = s.columnDataOff[aggColumns[a]];
+          final int aDictSize = getIntLE(payload, aBase);
+          final int aLensOff = aBase + 4;
+          int[] cp = strlenCpLen[a];
+          if (cp == null || cp.length < aDictSize) {
+            strlenCpLen[a] = cp = new int[Math.max(64, aDictSize)];
+          }
+          int aOff = aLensOff + aDictSize * 4;
+          for (int i = 0; i < aDictSize; i++) {
+            final int len = getIntLE(payload, aLensOff + i * 4);
+            int cnt = 0;
+            for (int b = aOff; b < aOff + len; b++) {
+              if ((payload[b] & 0xC0) != 0x80) {
+                cnt++;
+              }
+            }
+            cp[i] = cnt;
+            aOff += len;
+          }
+          aggValOff[a] = aOff; // ids region
+          aggPresOff[a] = tailStart >= 0
+              ? presenceWordsOff(payload, tailStart, aggColumns[a])
+              : -1;
+          continue;
+        }
         if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
         }
@@ -2283,6 +2335,11 @@ public final class ProjectionIndexByteScan {
           final int base;
           LongOpenHashSet dset = null;
           if (groupPresOff >= 0 && (groupPresWord & 1L << bit) == 0L) {
+            if (keyRegex != null) {
+              // fn:replace over the missing field's empty sequence is "" — a REAL key.
+              regexDecline[0] = 1;
+              return;
+            }
             slotArr = missingAcc;
             base = 0;
             if (slotArr[0] == 0) {
@@ -2305,7 +2362,14 @@ public final class ProjectionIndexByteScan {
             }
             if (cached < 0) {
               if (h == 0L) {
-                h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+                if (keyRegex != null) {
+                  final String src = new String(payload, dictByteOff[dictId],
+                      getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
+                  final byte[] tb = keyRegex.matcher(src).replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
+                  h = fnv1a64(tb, 0, tb.length);
+                } else {
+                  h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+                }
                 dictHash[dictId] = h;
               }
               if (h == 0L) {
@@ -2316,7 +2380,7 @@ public final class ProjectionIndexByteScan {
                   out.setZeroAux(leafOrdinalBase | dictId);
                 }
                 if (distinctBlock < 0) {
-                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen);
                 } else {
                   foldRowDistinct(zero, 0, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
                       distinctSetFor(distinctOut, 0L), budget, w, bit, rowIdx);
@@ -2338,7 +2402,7 @@ public final class ProjectionIndexByteScan {
             base = cached;
           }
           if (distinctBlock < 0) {
-            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen);
           } else {
             foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock, dset, budget, w,
                 bit, rowIdx);
@@ -2995,6 +3059,17 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final ProjectionIndexScan.PredicateTree treeOrNull, final int groupColumn, final int[] stringAggColumns,
       final boolean[] aggIsMin, final long[] winnerHashes, final boolean winnerMissingKey, final String[][] bestOut) {
+    stringAggForWinnerGroups(rowGroupPayloads, predicates, treeOrNull, groupColumn, stringAggColumns, aggIsMin,
+        winnerHashes, winnerMissingKey, bestOut, null, null);
+  }
+
+  /** {@link #stringAggForWinnerGroups} under a REGEX-transformed key: row-to-winner matching
+   * hashes the TRANSFORMED entry — the same identity pass 1 grouped on. */
+  public static void stringAggForWinnerGroups(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final int groupColumn, final int[] stringAggColumns,
+      final boolean[] aggIsMin, final long[] winnerHashes, final boolean winnerMissingKey, final String[][] bestOut,
+      final Pattern keyRegex, final String keyRegexRepl) {
     if (predicates == null || stringAggColumns == null || aggIsMin == null || winnerHashes == null
         || bestOut == null) {
       throw new IllegalArgumentException(
@@ -3098,7 +3173,15 @@ public final class ProjectionIndexByteScan {
             final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
             slot = winnerSlotOfDict[dictId];
             if (slot == -2) {
-              final long h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+              final long h;
+              if (keyRegex != null) {
+                final String src = new String(payload, dictByteOff[dictId],
+                    getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
+                final byte[] tb = keyRegex.matcher(src).replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
+                h = fnv1a64(tb, 0, tb.length);
+              } else {
+                h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+              }
               slot = -1;
               for (int wi = 0; wi < winnerHashes.length; wi++) {
                 if (winnerHashes[wi] == h) {
@@ -3149,6 +3232,12 @@ public final class ProjectionIndexByteScan {
             : new String(bestPayload[a][sl], bestOff[a][sl], bestLen[a][sl], StandardCharsets.UTF_8);
       }
     }
+  }
+
+  /** FNV-64 of arbitrary UTF-8 bytes in the SAME domain the flat string kernels key on —
+   * for rebuilding a REGEX-transformed winner's hash from its materialized value. */
+  public static long utf8Hash(final byte[] utf8) {
+    return fnv1a64(utf8, 0, utf8.length);
   }
 
   /** FNV-64 of ONE dict entry's bytes — the flat string kernels' group identity, exposed so the
@@ -3325,12 +3414,28 @@ public final class ProjectionIndexByteScan {
   /** Shared per-row accumulate for the flat group kernels. */
   private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx) {
+    foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, null, null);
+  }
+
+  /** {@link #foldRow} with string-length operand modes: a strlen agg folds the entry's
+   * CODEPOINT count, and a row MISSING the operand folds 0 (fn:string-length(()) is 0, never
+   * empty — skipping would shrink counts and shift averages). */
+  private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
+      final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx,
+      final boolean[] aggStrlen, final int[][] strlenCpLen) {
     slotArr[base]++;
     for (int a = 0; a < aggCount; a++) {
-      if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+      final boolean strlenAgg = aggStrlen != null && aggStrlen[a];
+      final boolean present =
+          aggPresOff[a] < 0 || (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) != 0L;
+      if (!present && !strlenAgg) {
         continue;
       }
-      final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+      final long v = strlenAgg
+          ? (present
+              ? strlenCpLen[a][getIntLE(payload, aggValOff[a] + rowIdx * 4)]
+              : 0L)
+          : getLongLE(payload, aggValOff[a] + rowIdx * 8);
       final int aggBase = base + 2 + 4 * a;
       slotArr[aggBase]++;
       slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);

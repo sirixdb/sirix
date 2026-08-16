@@ -142,6 +142,18 @@ public final class GroupAggregateDetectionStage implements Stage {
   public static final String GROUP_AGG_KEY_COND_LITS = "SIRIX_GROUP_AGG_KEY_COND_LITS";
   public static final String GROUP_AGG_KEY_COND_ELSE = "SIRIX_GROUP_AGG_KEY_COND_ELSE";
   /**
+   * REGEX key transform (the Q28 {@code REGEXP_REPLACE} port): {@code let $k :=
+   * replace($r.f, 'pattern', 'replacement')} with LITERAL pattern/replacement. Two String[]
+   * properties parallel to the keys ({@code null} = key not regex-transformed). Grouping
+   * happens on the TRANSFORMED string (FNV of its bytes); winners re-apply the transform at
+   * emission. The executor validates the pattern through brackit's own Regex once (an invalid
+   * pattern or a zero-length-matching one raises/declines) and precompiles a java Pattern —
+   * brackit's REPLACE mode with no flags appends the pattern verbatim and substitutes with
+   * Matcher semantics, so the precompiled application is byte-identical.
+   */
+  public static final String GROUP_AGG_KEY_REGEX_PATTERN = "SIRIX_GROUP_AGG_KEY_REGEX_PATTERN";
+  public static final String GROUP_AGG_KEY_REGEX_REPL = "SIRIX_GROUP_AGG_KEY_REGEX_REPL";
+  /**
    * HAVING (SQL) / post-group {@code where}: {@code long[]{op, literal}} filtering groups by
    * their COUNT — {@code where $c > 100000} with {@code $c := count($r)}. Op encoding:
    * 0 {@code >}, 1 {@code >=}, 2 {@code <}, 3 {@code <=}, 4 {@code =}, 5 {@code !=}. Applied
@@ -213,6 +225,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     final List<int[]> letSubstr = new ArrayList<>();
     // Per pre-group let: the conditional shape `if (cond) then $r.f else "lit"`, or null.
     final List<CondDeref> letCond = new ArrayList<>();
+    // Per pre-group let: the regex shape `replace($r.f, 'pat', 'repl')`, or null.
+    final List<String[]> letRegex = new ArrayList<>();
     final String[] subField = new String[1];
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
@@ -283,7 +297,7 @@ public final class GroupAggregateDetectionStage implements Stage {
               return;
             }
             final Agg agg = aggregateCall(current.getChild(1), loopVar, letVars, letFields, letOffsets, letSubstr,
-                letCond);
+                letCond, letRegex);
             if (agg == null) {
               return;
             }
@@ -306,6 +320,7 @@ public final class GroupAggregateDetectionStage implements Stage {
               letOffsets.add(0L);
               letSubstr.add(null);
               letCond.add(null);
+              letRegex.add(null);
             } else if (bound.getType() == XQ.Int) {
               // A literal binding: a CONSTANT group key candidate (`let $g := 1`). Only a
               // group-by spec (and the record entry echoing it) may consume it.
@@ -323,6 +338,17 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letOffsets.add(shifted.offset());
                 letSubstr.add(null);
                 letCond.add(null);
+                letRegex.add(null);
+                continue;
+              }
+              final String[] regex = regexReplaceCall(bound, loopVar, subField);
+              if (regex != null) {
+                letVars.add(letVar);
+                letFields.add(subField[0]);
+                letOffsets.add(0L);
+                letSubstr.add(null);
+                letCond.add(null);
+                letRegex.add(regex);
                 continue;
               }
               // string-length($r.f): encoded as the "len:" field prefix — every later layer
@@ -336,6 +362,7 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letOffsets.add(0L);
                 letSubstr.add(null);
                 letCond.add(null);
+                letRegex.add(null);
                 continue;
               }
               final CondDeref cond = conditionalDeref(bound, loopVar);
@@ -345,6 +372,7 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letOffsets.add(0L);
                 letSubstr.add(null);
                 letCond.add(cond);
+                letRegex.add(null);
                 continue;
               }
               int[] sub = integerOfSubstring(bound, loopVar, subField);
@@ -361,6 +389,7 @@ public final class GroupAggregateDetectionStage implements Stage {
               letOffsets.add(0L);
               letSubstr.add(new int[] {sub[0], sub[1], subKind});
               letCond.add(null);
+              letRegex.add(null);
             }
           }
         }
@@ -487,7 +516,10 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String[] keyCondFields = new String[2 * keyCount];
     final long[] keyCondLits = new long[2 * keyCount];
     final String[] keyCondElse = new String[keyCount];
+    final String[] keyRegexPattern = new String[keyCount];
+    final String[] keyRegexRepl = new String[keyCount];
     boolean anyCondKey = false;
+    boolean anyRegexKey = false;
     final QNm[] realKeyVars = new QNm[keyCount];
     final List<Integer> decorPos = new ArrayList<>();
     final List<String> decorPrefixes = new ArrayList<>();
@@ -562,6 +594,12 @@ public final class GroupAggregateDetectionStage implements Stage {
       keySubstr[2 * realIdx + 1] = sub == null
           ? 0
           : sub[1];
+      final String[] keyRegex = letRegex.get(letIdx);
+      if (keyRegex != null) {
+        keyRegexPattern[realIdx] = keyRegex[0];
+        keyRegexRepl[realIdx] = keyRegex[1];
+        anyRegexKey = true;
+      }
       final CondDeref keyCond = letCond.get(letIdx);
       if (keyCond != null) {
         keyCondFields[2 * realIdx] = keyCond.condField1();
@@ -615,7 +653,7 @@ public final class GroupAggregateDetectionStage implements Stage {
         emittedPostGroupVars.add(valueVar);
         emittedPostGroupAt.add(keyCount + i);
       } else {
-        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets, letSubstr, letCond);
+        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets, letSubstr, letCond, letRegex);
         if (agg == null) {
           return;
         }
@@ -684,6 +722,13 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_KEY_COND_FIELDS, keyCondFields);
       pipeExpr.setProperty(GROUP_AGG_KEY_COND_LITS, keyCondLits);
       pipeExpr.setProperty(GROUP_AGG_KEY_COND_ELSE, keyCondElse);
+    }
+    if (anyRegexKey) {
+      if (keyCount > 1 || anyKeyTransform || anyCondKey) {
+        return; // the regex route is the single-string-key flat arm only (v1)
+      }
+      pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_PATTERN, keyRegexPattern);
+      pipeExpr.setProperty(GROUP_AGG_KEY_REGEX_REPL, keyRegexRepl);
     }
     if (!decorPos.isEmpty()) {
       final int[] dp = new int[decorPos.size()];
@@ -765,6 +810,29 @@ public final class GroupAggregateDetectionStage implements Stage {
     return f1 == null
         ? null
         : new CondDeref(f1, lit[0], null, 0L, thenField, elseLit.stringValue());
+  }
+
+  /** {@code fn:replace($loop.field, 'pattern', 'replacement')} with LITERAL pattern and
+   * replacement (built-in namespace, no flags argument) → {@code {pattern, replacement}} with
+   * the field in {@code fieldOut[0]}; else {@code null}. */
+  private static String[] regexReplaceCall(final AST expr, final QNm loopVar, final String[] fieldOut) {
+    if (expr == null || expr.getType() != XQ.FunctionCall || expr.getChildCount() != 3
+        || !(expr.getValue() instanceof QNm fn) || !"replace".equals(fn.getLocalName())) {
+      return null;
+    }
+    final String ns = fn.getNamespaceURI();
+    if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns) && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      return null;
+    }
+    final String field = loopVarDerefField(expr.getChild(0), loopVar);
+    final AST pat = expr.getChild(1);
+    final AST repl = expr.getChild(2);
+    if (field == null || pat.getType() != XQ.Str || !(pat.getValue() instanceof Str p) || repl.getType() != XQ.Str
+        || !(repl.getValue() instanceof Str r)) {
+      return null;
+    }
+    fieldOut[0] = field;
+    return new String[] {p.stringValue(), r.stringValue()};
   }
 
   /** {@code fn:string-length($loop.field)} (built-in namespace only) → the field name, else
@@ -869,7 +937,7 @@ public final class GroupAggregateDetectionStage implements Stage {
    */
   private static Agg aggregateCall(final AST call, final QNm loopVar, final List<QNm> letVars,
       final List<String> letFields, final List<Long> letOffsets, final List<int[]> letSubstr,
-      final List<CondDeref> letCond) {
+      final List<CondDeref> letCond, final List<String[]> letRegex) {
     if (call == null || call.getType() != XQ.FunctionCall || call.getChildCount() != 1
         || !(call.getValue() instanceof QNm fn)) {
       return null;
@@ -879,7 +947,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     // cast flows through every annotation layer unchanged; emission applies Brackit's own cast to
     // the exact value, digit-for-digit what the interpreter's constructor function computes.
     if (Namespaces.XS_NSURI.equals(fn.getNamespaceURI()) && "double".equals(fn.getLocalName())) {
-      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets, letSubstr, letCond);
+      final Agg inner =
+          aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets, letSubstr, letCond, letRegex);
       return inner == null || inner.func().startsWith("dbl:")
           ? null
           : new Agg("dbl:" + inner.func(), inner.field(), inner.offset());
@@ -911,7 +980,8 @@ public final class GroupAggregateDetectionStage implements Stage {
           }
           if (dArg.getType() == XQ.VariableRef && dArg.getValue() instanceof QNm dv) {
             final int li = letVars.indexOf(dv);
-            if (li >= 0 && letOffsets.get(li) == 0L && letSubstr.get(li) == null && letCond.get(li) == null) {
+            if (li >= 0 && letOffsets.get(li) == 0L && letSubstr.get(li) == null && letCond.get(li) == null
+                && letRegex.get(li) == null) {
               // A SHIFTED let stays declined: distinct-count is shift-invariant in principle,
               // but proving that here buys nothing ClickBench-shaped.
               return new Agg("count-distinct", letFields.get(li), 0L);
@@ -930,7 +1000,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm argVar) {
       final int letIdx = letVars.indexOf(argVar);
-      if (letIdx >= 0 && letSubstr.get(letIdx) == null && letCond.get(letIdx) == null) {
+      if (letIdx >= 0 && letSubstr.get(letIdx) == null && letCond.get(letIdx) == null
+          && letRegex.get(letIdx) == null) {
         // A substring- or conditionally-transformed let as an operand would fold the RAW column.
         return new Agg(func, letFields.get(letIdx), letOffsets.get(letIdx));
       }
