@@ -847,6 +847,84 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void numericTopKGroupAggregatesServeFromColumnSlices() throws IOException {
+    // The SLICED twin of the numeric group test above: an ordered + capped (top-K) numeric
+    // single-key grouping over a PERSISTED catalog must be served by the column-slice group
+    // kernel — no whole-leaf payload assembly. The dedicated counter is the proof: the byte
+    // route would serve the identical bytes, so equality alone cannot tell the routes apart.
+    // Fixture covers the three key regimes the kernel special-cases: a zero-valued key (the
+    // table's zero side slot), a record MISSING the key (the missing-key side accumulator),
+    // and a negative key, plus a predicate so the mask path is exercised.
+    query("""
+          jn:store('json-path1','slicedgroup.jn','[
+            {"grp": 7,  "age": 30},
+            {"grp": 7,  "age": 45},
+            {"grp": 0,  "age": 20},
+            {"grp": 3,  "age": 8},
+            {"grp": 7,  "age": 12},
+            {"grp": 3,  "age": 15},
+            {"age": 99},
+            {"grp": -5, "age": 60},
+            {"grp": 4,  "age": 2}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','slicedgroup.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/grp', '/[]/age'),
+              ('long', 'long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    // `age gt 5` also drops the grp-4 record entirely — a group that must never surface.
+    final String topKQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','slicedgroup.jn')[]
+            where $r.age gt 5
+            let $g := $r.grp
+            group by $g
+            let $c := count($r)
+            order by $c descending
+            return {"g": $g, "c": $c, "total": sum($r.age), "hi": max($r.age)}, 1, 3)
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("slicedgroup.jn");
+      // Generic (no executor): the parity oracle, computed BEFORE the executor exists so the
+      // auto-wiring cannot silently serve this leg too.
+      final String generic = evaluateQuery(chain, ctx, topKQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final String served = evaluateQuery(chain, ctx, topKQuery);
+        Assertions.assertEquals(generic, served,
+            "sliced-served top-K numeric grouping must match the generic pipeline exactly");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "the top-K numeric group-aggregate query must be SERVED from the projection");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the COLUMN-SLICE group kernel specifically must have served it (whole-leaf would "
+                + "produce identical bytes, so this counter is the only route-level evidence)");
+        // Stable count-descending over first-appearance order 7, 0, 3, null, -5:
+        // 7 (3 rows) > 3 (2 rows) > 0 (1 row, first-seen before the other singletons).
+        Assertions.assertEquals("{\"g\":7,\"c\":3,\"total\":87,\"hi\":45}"
+            + " {\"g\":3,\"c\":2,\"total\":23,\"hi\":15}" + " {\"g\":0,\"c\":1,\"total\":20,\"hi\":20}", served);
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void multiKeyGroupAggregatesServeAndMatchTheGenericPipeline() throws IOException {
     // Gap item 1a: N group keys. Fixture exercises every composite-missing combination
     // (both present / missing city / missing dept / missing both), plus a filtered
