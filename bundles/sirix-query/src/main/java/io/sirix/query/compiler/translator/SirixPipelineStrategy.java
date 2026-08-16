@@ -80,6 +80,25 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             rowConsts, runtimeRef(rowSourceRef), generic);
       }
     }
+    // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
+    if (Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor constExecutor) {
+      final SourceRef constRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
+      final String[] constSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+      final String[] constFuncs = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
+      final String[] constFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FIELDS);
+      final String[] constOutNames = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OUT_NAMES);
+      final long[] constOffsets = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OFFSETS);
+      if (constSourcePath != null && constFuncs != null && constFields != null && constOutNames != null
+          && constOffsets != null && constOffsets.length == constFuncs.length
+          && acceptsOrRuntimeCheckable(constExecutor, constRef)) {
+        return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath,
+            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), constFuncs, constFields, constOffsets,
+            constOutNames, runtimeRef(constRef), generic);
+      }
+      return generic;
+    }
     if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))) {
       return generic;
     }

@@ -10572,6 +10572,147 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
+  private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
+
+  /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
+  public static long constGroupAggServedCount() {
+    return CONST_GROUP_AGG_SERVED.sum();
+  }
+
+  /**
+   * CONSTANT-key group-by ({@code let $g := 1 ... group by $g}): the grouping partitions nothing,
+   * so N aggregates fold over their operand columns in ONE parallel pass and emit a single record
+   * — Q29's ninety shifted sums become one column scan plus ninety O(1) offset applications
+   * ({@code sum(f+k) = sum(f) + k·presentCount(f)}, min/max/avg shift by {@code k}; a shifted let
+   * over a MISSING field binds the empty sequence, so exactly the present rows contribute — the
+   * same population the plain aggregate folds). Zero matching rows emit ZERO records, which is
+   * what {@code for … group by} does over an empty stream (and SQL's SELECT-with-aggregates does
+   * not — a translation property, not a serving one).
+   *
+   * @return the served single-record sequence (or the empty sequence), or {@code null} to decline
+   */
+  public Sequence executeConstGroupAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
+      final String[] outNames) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
+      final ArrayList<String> distinctFields = new ArrayList<>();
+      for (final String f : aggFields) {
+        if (f != null && !distinctFields.contains(f)) {
+          distinctFields.add(f);
+        }
+      }
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(distinctFields.toArray(new String[0]), cp));
+      if (handle == null) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      final int[] aggCols = new int[distinctFields.size()];
+      for (int i = 0; i < aggCols.length; i++) {
+        final int col = handle.columnOf(distinctFields.get(i));
+        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        aggCols[i] = col;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null;
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
+        return null;
+      }
+      if (rowGroupPayloads.isEmpty()) {
+        CONST_GROUP_AGG_SERVED.increment();
+        return new ItemSequence();
+      }
+      final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
+      if (summedCols.length > 0) {
+        ProjectionIndexByteScan.requireGroupSumsFitLong(rowGroupPayloads, summedCols);
+      }
+      final int rowGroupCount = rowGroupPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      final long[][] perThread = new long[eff][];
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to)
+          return;
+        final long[] local = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(rowGroupPayloads.subList(from, to), preds, aggCols,
+            local);
+        perThread[idx] = local;
+      });
+      final long[] acc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      for (int t = 0; t < eff; t++) {
+        if (perThread[t] != null) {
+          mergeGroupAgg(acc, perThread[t], aggCols.length);
+        }
+      }
+      if (acc[0] == 0) {
+        CONST_GROUP_AGG_SERVED.increment();
+        return new ItemSequence();
+      }
+      final QNm[] names = new QNm[funcs.length];
+      final Sequence[] vals = new Sequence[funcs.length];
+      for (int i = 0; i < funcs.length; i++) {
+        names[i] = new QNm(outNames[i]);
+        if ("count".equals(funcs[i])) {
+          vals[i] = new Int64(acc[0]);
+          continue;
+        }
+        final int a = distinctFields.indexOf(aggFields[i]);
+        final int base = 2 + 4 * a;
+        final long cnt = acc[base];
+        final long k = offsets[i];
+        // Exact or DECLINE: the shift algebra must not wrap where the interpreter promotes.
+        final long sum = Math.addExact(acc[base + 1], Math.multiplyExact(k, cnt));
+        final long min = cnt > 0
+            ? Math.addExact(acc[base + 2], k)
+            : acc[base + 2];
+        final long max = cnt > 0
+            ? Math.addExact(acc[base + 3], k)
+            : acc[base + 3];
+        final Sequence stat = longStatsToSequence(funcs[i], cnt, sum, min, max);
+        vals[i] = stat instanceof ItemSequence
+            ? null
+            : stat;
+      }
+      CONST_GROUP_AGG_SERVED.increment();
+      return new ItemSequence(new ArrayObject(names, vals));
+    } catch (final ArithmeticException overflow) {
+      // Expected decline: an overflowing sum or shift routes to the interpreter's
+      // decimal-promoting arithmetic via the generic pipeline.
+      return null;
+    } catch (final RuntimeException e) {
+      GROUP_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] const-group-aggregate serving failed, using generic pipeline: " + e);
+      }
+      return null;
+    }
+  }
+
   /**
    * Single NUMERIC_LONG group key + per-group aggregates: the numeric twin of the single-key string
    * arm of {@link #executeGroupByAggregate}. Same fan-out, the SAME key-agnostic

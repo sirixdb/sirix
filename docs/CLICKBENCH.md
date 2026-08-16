@@ -383,8 +383,14 @@ compilation context. Reproduction is one clone, one `nativeCompile`, and
   (oracle/graal#14255), not on us.
 * **Only 6 of 43 queries are projection-served.** The remaining gap is predicate vocabulary, not
   group-by machinery — see [What the projection actually serves](#what-the-projection-actually-serves).
-* **Q29** (ninety `SUM(ResolutionWidth + k)`) dominates the total in the default variant because each
-  sum is its own pass over the column. Variant 1 computes all ninety in one pass.
+* **Q29** (ninety `SUM(ResolutionWidth + k)`): the DEFAULT variant is the one-pass form
+  (`let $g := 1, $w0 …, $w89 … group by $g`); variant 1 is the ninety independent sums. (An earlier
+  revision of this bullet said the reverse — reading it, one would "fix" Q29 by switching to the
+  slower variant.) The one-pass form is now served by the constant-key group-aggregate route: every
+  key being a literal-bound let means the grouping partitions nothing, so one scalar pass folds
+  `count/sum/min/max` of `ResolutionWidth` and the ninety shifted sums are answered algebraically
+  (`sum(f+k) = sum(f) + k·presentCount(f)`). Measured hot: 9.21 s → 0.054 s at 1 M rows,
+  byte-identical to the interpreter.
 * **Q41** returns the empty result below roughly 100 M rows even on real data — its `OFFSET 10000`
   needs more than 10 000 distinct `(WindowClientWidth, WindowClientHeight)` pairs inside a single
   `URLHash` slice.
