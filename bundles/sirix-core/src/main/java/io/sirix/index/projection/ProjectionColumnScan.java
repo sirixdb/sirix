@@ -879,7 +879,7 @@ public final class ProjectionColumnScan {
    * AND. Returns the leaf's rowCount (0 = pruned/empty; the mask may still be all-zero for a live
    * rowCount).
    */
-  private static int evaluateMask(final ColumnPredicate[] predicates, final ColumnSlice[][] cols, final int leaf,
+  static int evaluateMask(final ColumnPredicate[] predicates, final ColumnSlice[][] cols, final int leaf,
       final int rowCount, final long[] mask) {
     if (rowCount <= 0) {
       return 0;

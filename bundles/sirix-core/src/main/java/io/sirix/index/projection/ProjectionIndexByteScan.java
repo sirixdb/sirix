@@ -1827,7 +1827,10 @@ public final class ProjectionIndexByteScan {
    * builder already clears the final word's tail bits), cheaper, and it is what lets the hot loop
    * tally MISSING rows with one {@link Long#bitCount} instead of branching per row.
    */
-  private static long validRowsMask(final int w, final int stride, final int rowCount) {
+  /** Composite missing-component sentinel — part of the key identity, shared with the sliced kernels. */
+  static final long MISSING_COMPONENT_HASH = 0x9E3779B97F4A7C15L;
+
+  static long validRowsMask(final int w, final int stride, final int rowCount) {
     final int lastBits = rowCount & 63;
     return lastBits != 0 && w == stride - 1
         ? -1L >>> 64 - lastBits
@@ -4710,7 +4713,9 @@ public final class ProjectionIndexByteScan {
    * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder / decoder agree on key space when
    * interop is needed.
    */
-  private static long fnv1a64(final byte[] data, final int off, final int len) {
+  /** THE group-identity hash — shared by the byte and sliced kernel families so the domains
+   * can never drift (table keys, winner hashes, distinct-set keys all ride it). */
+  static long fnv1a64(final byte[] data, final int off, final int len) {
     long h = 0xcbf29ce484222325L;
     final int end = off + len;
     for (int i = off; i < end; i++) {

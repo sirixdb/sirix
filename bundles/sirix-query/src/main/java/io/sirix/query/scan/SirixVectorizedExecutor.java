@@ -38,6 +38,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.NumericGroupAggTable;
+import io.sirix.index.projection.ProjectionColumnGroupScan;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
@@ -505,6 +506,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Total per-group aggregate queries SERVED from a projection so far. */
   public static long groupAggServedCount() {
     return GROUP_AGG_SERVED.sum();
+  }
+
+  /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
+  private static final LongAdder GROUP_AGG_SLICED_SERVED = new LongAdder();
+
+  /** Test observability for {@link #GROUP_AGG_SLICED_SERVED}. */
+  public static long groupAggSlicedServedCount() {
+    return GROUP_AGG_SLICED_SERVED.sum();
   }
 
   /**
@@ -1541,12 +1550,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       try {
         final long[] wide = projectionAggregate128OrNull(sourcePath, field, predicateOrNull);
         if (PROJ_DIAG) {
-          System.err.println("[proj] 128 retry field=" + field + " -> " + java.util.Arrays.toString(wide));
+          System.err.println("[proj] 128 retry field=" + field + " -> " + Arrays.toString(wide));
         }
-        if (wide != null) {
-          PROJECTION_AGGREGATES_SERVED.increment();
+        if (wide == null) {
+          return null;
         }
-        return wide;
+        PROJECTION_AGGREGATES_SERVED.increment();
+        // Widen to the TAGGED shape statsToSequence dispatches on — a bare 5-lane array is
+        // indistinguishable from the row path's [count, sum, min, max, visited] accumulator.
+        final long[] tagged = Arrays.copyOf(wide, 6);
+        tagged[5] = AGG128_TAG;
+        return tagged;
       } catch (final RuntimeException declined) {
         if (PROJ_DIAG) {
           System.err.println("[proj] 128 retry THREW: " + declined);
@@ -1994,6 +2008,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * hydrating whole leaves, which used to be the one predicate kind that forced the whole-leaf byte
    * scan.
    */
+  /** Escape hatch for A/B timing: {@code -Dsirix.projection.groupSliced=false} forces the
+   * whole-leaf group route in the same build. */
+  private static final boolean GROUP_SLICED_ENABLED =
+      !"false".equals(System.getProperty("sirix.projection.groupSliced"));
+
+  /** Every listed column servable from slices (fail-closed gate for the sliced group route). */
+  private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
+    for (final int col : cols) {
+      if (!store.columnSliceable(col)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
@@ -10860,11 +10889,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
       final ProjectionIndexScan.PredicateTree tree = predTree;
-      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-      if (rowGroupPayloads == null) {
-        return null;
-      }
-      if (rowGroupPayloads.isEmpty()) {
+      // SLICED serving (unit 1: the numeric single-key flat arm, conjunctive predicates): read
+      // only the group/aggregate/predicate columns' decoded slices instead of assembling every
+      // leaf. The escape hatch flips the whole route back for A/B timing in one build.
+      final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
+      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && tree == null && !anyStrlenAgg
+          && predsSliceable(groupStore, preds) && allColumnsSliceable(groupStore, groupCols)
+          && allColumnsSliceable(groupStore, aggColsFlat);
+      final List<byte[]> rowGroupPayloads = groupSliced
+          ? null
+          : leafPayloadsOrNull(handle);
+      if (!groupSliced) {
+        if (rowGroupPayloads == null) {
+          return null;
+        }
+        if (rowGroupPayloads.isEmpty()) {
+          return new ServedGroups(new ItemSequence(), true);
+        }
+      } else if (groupStore.rowGroupCount() == 0) {
         return new ServedGroups(new ItemSequence(), true);
       }
       // In-kernel ordering: resolvable only when every order spec reads a primitive accumulator
@@ -10928,18 +10970,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // all, and those shapes SERVED before this pre-flight existed.
       final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
       if (summedCols.length > 0) {
-        ProjectionIndexByteScan.requireGroupSumsFitLong(rowGroupPayloads, summedCols);
+        if (groupSliced) {
+          ProjectionColumnGroupScan.requireGroupSumsFitLong(groupStore, summedCols);
+        } else {
+          ProjectionIndexByteScan.requireGroupSumsFitLong(rowGroupPayloads, summedCols);
+        }
       }
-      final int rowGroupCount = rowGroupPayloads.size();
+      final int rowGroupCount = groupSliced
+          ? groupStore.rowGroupCount()
+          : rowGroupPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
+      // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
+      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null;
+      // Arms not yet ported to slices materialize here (the sliced gate above skipped it for
+      // the numeric flat arm, which never touches payloads).
+      final List<byte[]> armPayloads;
+      if (groupSliced && !numericSlicedArm) {
+        armPayloads = leafPayloadsOrNull(handle);
+        if (armPayloads == null) {
+          return null;
+        }
+        if (armPayloads.isEmpty()) {
+          return new ServedGroups(new ItemSequence(), true);
+        }
+      } else {
+        armPayloads = rowGroupPayloads;
+      }
       if (packedStringKey) {
-        return packedSubstringGroupAggregate(rowGroupPayloads, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
+        return packedSubstringGroupAggregate(armPayloads, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
             aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit,
             having);
       }
       if (numericSingleKey && !anyKeyTransform) {
-        return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
+        return numericGroupAggregate(armPayloads, numericSlicedArm
+            ? groupStore
+            : null, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
             outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock, tree, having, anyStrlenAgg
                 ? aggStrlenFlat
                 : null);
@@ -10984,7 +11051,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               cdMaps[idx] = new Long2ObjectOpenHashMap<>();
               cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
             }
-            ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads.subList(from, to), preds,
+            ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(from, to), preds,
                 groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
                     ? cdMaps[idx]
                     : null,
@@ -11095,7 +11162,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int rowIdx = (int) (src & 0xFFFFF);
-            final byte[] payload = rowGroupPayloads.get(leaf);
+            final byte[] payload = armPayloads.get(leaf);
             int[] offs = offsetsByLeaf[leaf];
             if (offs == null) {
               offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
@@ -11128,7 +11195,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             return;
           final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> local =
               new Object2ObjectOpenHashMap<>();
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(rowGroupPayloads.subList(from, to), preds, groupCols,
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(armPayloads.subList(from, to), preds, groupCols,
               aggCols, local, from);
           perThreadMulti[idx] = local;
         });
@@ -11225,7 +11292,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             cdMissingSets[idx] = new LongOpenHashSet();
             cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
           }
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(rowGroupPayloads.subList(from, to), preds,
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(from, to), preds,
               groupCol, aggColsFlat, local, missing, from, cdBlock, cdBlock >= 0
                   ? cdMaps[idx]
                   : null,
@@ -11370,7 +11437,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final long src = finalSel.keyLongAt(i);
               final int leaf = (int) (src >>> 20);
               final int dictId = (int) (src & 0xFFFFF);
-              final byte[] payload = rowGroupPayloads.get(leaf);
+              final byte[] payload = armPayloads.get(leaf);
               int columnBase = leafColumnBase[leaf];
               if (columnBase < 0) {
                 columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
@@ -11405,7 +11472,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (from >= to)
               return;
             final String[][] best = new String[deferredColsArr.length][slotsTotal];
-            ProjectionIndexByteScan.stringAggForWinnerGroups(rowGroupPayloads.subList(from, to), preds, tree, groupCol,
+            ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
                 deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
             perThreadBest[idx] = best;
           });
@@ -11437,7 +11504,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long src = finalSel.keyLongAt(i);
             final int leaf = (int) (src >>> 20);
             final int dictId = (int) (src & 0xFFFFF);
-            final byte[] payload = rowGroupPayloads.get(leaf);
+            final byte[] payload = armPayloads.get(leaf);
             int columnBase = leafColumnBase[leaf];
             if (columnBase < 0) {
               columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
@@ -11477,7 +11544,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return;
         final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateByGroup(rowGroupPayloads.subList(from, to), preds, groupCol,
+        ProjectionIndexByteScan.conjunctiveAggregateByGroup(armPayloads.subList(from, to), preds, groupCol,
             aggCols, local, missing, from);
         perThread[idx] = local;
         perThreadMissing[idx] = missing;
@@ -11635,19 +11702,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-      if (rowGroupPayloads == null) {
+      final List<byte[]> armPayloads = leafPayloadsOrNull(handle);
+      if (armPayloads == null) {
         return null;
       }
-      if (rowGroupPayloads.isEmpty()) {
+      if (armPayloads.isEmpty()) {
         CONST_GROUP_AGG_SERVED.increment();
         return new ItemSequence();
       }
       final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
       if (summedCols.length > 0) {
-        ProjectionIndexByteScan.requireGroupSumsFitLong(rowGroupPayloads, summedCols);
+        ProjectionIndexByteScan.requireGroupSumsFitLong(armPayloads, summedCols);
       }
-      final int rowGroupCount = rowGroupPayloads.size();
+      final int rowGroupCount = armPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       final long[][] perThread = new long[eff][];
@@ -11657,7 +11724,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (from >= to)
           return;
         final long[] local = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(rowGroupPayloads.subList(from, to), preds, aggCols,
+        ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols,
             local);
         perThread[idx] = local;
       });
@@ -11851,12 +11918,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads,
-      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
-      final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
-      final ArrayList<String> distinctFields, final int eff, final int chunkSize, final GroupOrderPlan orderPlan,
-      final long limit, final int cdBlockIdx, final ProjectionIndexScan.PredicateTree predTree, final long[] having,
-      final boolean[] aggStrlen) {
-    final int rowGroupCount = rowGroupPayloads.size();
+      final ProjectionColumnStore slicedStore, final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol,
+      final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
+      final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
+      final ProjectionIndexScan.PredicateTree predTree, final long[] having, final boolean[] aggStrlen) {
+    final int rowGroupCount = slicedStore != null
+        ? slicedStore.rowGroupCount()
+        : rowGroupPayloads.size();
     if (orderPlan != null) {
       // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
       // per group), a hash-PARTITIONED parallel merge (no thread ever folds the full group
@@ -11877,6 +11946,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final long[][] cdBudgets = cdBlockIdx >= 0
           ? new long[eff][]
           : null;
+      // SLICED arm: resolve every column ONCE on the calling thread — the slice arrays are
+      // immutable and shared, and letting the fan-out race the first fill would multiply the
+      // segment I/O by the worker count.
+      final ProjectionColumnStore.ColumnSlice[][] slicedPredCols;
+      final ProjectionColumnStore.ColumnSlice[] slicedGroupCol;
+      final ProjectionColumnStore.ColumnSlice[][] slicedAggCols;
+      if (slicedStore != null) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+        slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher);
+        slicedGroupCol = slicedStore.column(groupCol, fetcher);
+        slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+        for (int a = 0; a < aggCols.length; a++) {
+          if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+          }
+          slicedAggCols[a] = slicedStore.column(aggCols[a], fetcher);
+        }
+      } else {
+        slicedPredCols = null;
+        slicedGroupCol = null;
+        slicedAggCols = null;
+      }
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
@@ -11890,17 +11981,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           cdMissingSets[idx] = new LongOpenHashSet();
           cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
         }
-        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(from, to), preds,
-            groupCol, aggCols, local, missing, from, cdBlockIdx, cdBlockIdx >= 0
-                ? cdMaps[idx]
-                : null,
-            cdBlockIdx >= 0
-                ? cdMissingSets[idx]
-                : null,
-            cdBlockIdx >= 0
-                ? cdBudgets[idx]
-                : null,
-            predTree, aggStrlen);
+        if (slicedStore != null) {
+          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, slicedGroupCol,
+              slicedAggCols, from, to, local, missing, cdBlockIdx, cdBlockIdx >= 0
+                  ? cdMaps[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdMissingSets[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdBudgets[idx]
+                  : null);
+        } else {
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(from, to), preds,
+              groupCol, aggCols, local, missing, from, cdBlockIdx, cdBlockIdx >= 0
+                  ? cdMaps[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdMissingSets[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdBudgets[idx]
+                  : null,
+              predTree, aggStrlen);
+        }
         tables[idx] = local;
         perThreadMissing[idx] = missing;
       });
@@ -11933,6 +12037,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (scanned == 0 && missingMerged[0] == 0) {
         GROUP_AGG_SERVED.increment();
         NUMERIC_GROUPBY_SERVED.increment();
+        if (slicedStore != null) {
+          GROUP_AGG_SLICED_SERVED.increment();
+        }
         return new ServedGroups(new ItemSequence(), true);
       }
       int partitions = 1;
@@ -11992,6 +12099,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (k == 0) {
         GROUP_AGG_SERVED.increment();
         NUMERIC_GROUPBY_SERVED.increment();
+        if (slicedStore != null) {
+          GROUP_AGG_SLICED_SERVED.increment();
+        }
         return new ServedGroups(new ItemSequence(), true);
       }
       final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
@@ -12021,6 +12131,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       GROUP_AGG_SERVED.increment();
       NUMERIC_GROUPBY_SERVED.increment();
+      if (slicedStore != null) {
+        GROUP_AGG_SLICED_SERVED.increment();
+      }
       if (cdBlockIdx >= 0) {
         GROUP_DISTINCT_SERVED.increment();
       }
@@ -13516,12 +13629,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /** Dispatch on the accumulator width: 4 lanes = exact long stats, 5 = the 128-bit-sum
-   * fallback's {@code [count, sumHi, sumLo, min, max]}. Every consumer of
-   * {@code tryProjectionAggregate} must come through here — reading a 5-lane array with the
-   * 4-lane layout serves {@code sumHi} as the sum. */
+  /**
+   * Tag lane marking a 128-bit-sum accumulator ({@code [count, sumHi, sumLo, min, max, TAG]}).
+   * Length alone CANNOT discriminate: the row path's {@code parallelAggregate} accumulator is
+   * also 5 lanes — {@code [count, sum, min, max, visited]} — and reading it with the 128 layout
+   * served {@code sum·2^64 + min} as the sum (caught by TypedGroupByDifferentialTest).
+   */
+  private static final long AGG128_TAG = 0x1288_1288_1288_1288L;
+
+  /** Dispatch on the accumulator SHAPE: the tagged 6-lane 128-bit-sum form, else the exact
+   * long layout whose first four lanes are {@code [count, sum, min, max]}. Every consumer of
+   * {@code tryProjectionAggregate} must come through here. */
   private static Sequence statsToSequence(final String func, final long[] stats) {
-    return stats.length == 5
+    return stats.length == 6 && stats[5] == AGG128_TAG
         ? longStats128ToSequence(func, stats)
         : longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
   }
