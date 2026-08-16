@@ -123,8 +123,15 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         || orderEmptyLeast.length != orderIndexes.length)) {
       return generic;
     }
+    // Same sole-consumer fn:subsequence cap the sorted-scan route uses (gap 3): an ordered
+    // group-by whose only consumer slices the first K records never needs more than K groups
+    // materialized — the executor then heap-selects top-K instead of sort-all + emit-all.
+    final Long groupTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
-        outNames, orderIndexes, orderAsc, orderEmptyLeast, runtimeRef(sourceRef), generic);
+        outNames, orderIndexes, orderAsc, orderEmptyLeast, orderIndexes != null && groupTopK != null
+            ? groupTopK
+            : -1L,
+        runtimeRef(sourceRef), generic);
   }
 
   /**
