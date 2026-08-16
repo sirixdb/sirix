@@ -2467,6 +2467,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!min && !"max".equals(func)) {
       return null;
     }
+    if (predicateOrNull == null) {
+      // Unfiltered: the projection's dictionaries answer without materializing a single row
+      // value — presence-gated, so a phantom entry interned by a missing row can never win.
+      final Sequence viaDict = tryProjectionStringMinMax(sourcePath, field, min);
+      if (viaDict != null) {
+        return viaDict;
+      }
+    }
     final Object2LongOpenHashMap<String> groups =
         typedGroupKeyCounts(sourcePath, predicateOrNull, new String[] {field});
     String best = null;
@@ -2504,6 +2512,61 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return best == null
         ? null
         : new ComputedStrJsonItem(best);
+  }
+
+  /** Scalar string MIN/MAX served from the projection dictionaries (test oracle). */
+  private static final LongAdder STRING_MINMAX_SERVED = new LongAdder();
+
+  /** Test observability for {@link #STRING_MINMAX_SERVED}. */
+  public static long stringMinMaxServedCount() {
+    return STRING_MINMAX_SERVED.sum();
+  }
+
+  /**
+   * Unfiltered scalar {@code min}/{@code max} over a STRING_DICT projection column, answered from
+   * the per-leaf dictionaries (presence-gated — see the kernel). {@code null} = decline; the
+   * typed row-scan fallback answers identically, only slower. {@code columnSparseClean} is the
+   * JSON-null/mixed-type gate: fn:min over a null-bearing column is the interpreter's type error,
+   * which this route must never replace with a value.
+   */
+  private Sequence tryProjectionStringMinMax(final String[] sourcePath, final String field, final boolean min) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable() || field == null) {
+        return null;
+      }
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(new String[] {field}, null));
+      if (handle == null) {
+        return null;
+      }
+      final int col = handle.columnOf(field);
+      if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      if (!handle.columnSparseClean(col, fetcher, materializer)) {
+        return null;
+      }
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
+        return null;
+      }
+      final String best = ProjectionIndexByteScan.stringDictMinMax(rowGroupPayloads, col, min);
+      if (best == null) {
+        // No present value anywhere: fn:min/max of the empty sequence IS the empty sequence,
+        // and the typed fallback would say the same — serve it directly.
+        STRING_MINMAX_SERVED.increment();
+        return new ItemSequence();
+      }
+      STRING_MINMAX_SERVED.increment();
+      return new ComputedStrJsonItem(best);
+    } catch (final RuntimeException e) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] string min/max serving failed, using typed scan: " + e);
+      }
+      return null;
+    }
   }
 
   private Object2LongOpenHashMap<String> typedGroupKeyCounts(final String[] sourcePath,
