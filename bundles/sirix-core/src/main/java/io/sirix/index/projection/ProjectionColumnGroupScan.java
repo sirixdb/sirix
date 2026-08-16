@@ -524,6 +524,56 @@ public final class ProjectionColumnGroupScan {
       }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
+      // NO-TRANSFORM fast loop (the common suite shape): no conditional keys, no substring
+      // casts, no shifts — per row each component is one presence test + one load + one mix,
+      // no per-row flag re-derivation. Transform-bearing queries take the general loop below
+      // (extract BRANCHES, not emissions — the per-row flag checks were 17.8% of cold CPU's
+      // biggest frame).
+      if (keyCondCols == null && keySubstr == null && keyOffsets == null) {
+        for (int w = 0; w < stride; w++) {
+          long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+          final int rowBase = w << 6;
+          while (word != 0L) {
+            final int bit = Long.numberOfTrailingZeros(word);
+            word &= word - 1L;
+            final int rowIdx = rowBase + bit;
+            long h = ProjectionIndexByteScan.FNV_SEED;
+            for (int k = 0; k < keyCount; k++) {
+              final long compHash;
+              if ((compPresence[k][w] & 1L << bit) == 0L) {
+                compHash = ProjectionIndexByteScan.MISSING_COMPONENT_HASH;
+              } else if (compValues[k] != null) {
+                compHash = HashCommon.mix(compValues[k][rowIdx]);
+              } else {
+                compHash = compDictHash[k][compIds[k][rowIdx]];
+              }
+              h = h * ProjectionIndexByteScan.FNV_PRIME ^ compHash;
+            }
+            final long[] slotArr;
+            final int base;
+            if (h == 0L) {
+              final boolean fresh = !out.hasZeroKey();
+              slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
+              base = 0;
+              if (fresh) {
+                out.setZeroAux(leafOrdinalBase | rowIdx);
+              }
+            } else {
+              base = out.acquire(h, leafOrdinalBase | rowIdx);
+              slotArr = out.slotsArray();
+              if (slotArr[base] == 0L) {
+                out.setAuxAtBase(base, leafOrdinalBase | rowIdx);
+              }
+            }
+            foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+                distinctBlock, distinctBlock >= 0
+                    ? distinctSetFor(distinctOut, h)
+                    : null,
+                budget);
+          }
+        }
+        continue;
+      }
       for (int w = 0; w < stride; w++) {
         long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
         final int rowBase = w << 6;
