@@ -128,6 +128,9 @@ final class ProjectionVectorKernels {
       case GT, LT, GE, LE, EQ, NE -> compareWordSingleBound(vals, rowBase, op, lit);
       case BETWEEN_GT_LT, BETWEEN_GT_LE, BETWEEN_GE_LT, BETWEEN_GE_LE ->
         compareWordBetween(vals, rowBase, op, lit, high);
+      // A string op here is a routing defect — an all-zero mask would silently drop every row.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op in the numeric compare kernel: " + op);
     };
   }
 
@@ -172,9 +175,10 @@ final class ProjectionVectorKernels {
           out |= LongVector.fromArray(SPECIES, vals, rowBase + k).compare(VectorOperators.NE, lit).toLong() << k;
         }
       }
-      default -> {
-        // unreachable: the caller dispatches the range operators elsewhere
-      }
+      default ->
+        // A default that RETURNS is a default that answers: an unlisted op would yield the
+        // all-zero mask — "no row matched" — instead of failing. Throw.
+        throw new IllegalStateException("non-single-bound op in compareWordSingleBound: " + op);
     }
     return out;
   }
@@ -208,9 +212,10 @@ final class ProjectionVectorKernels {
           out |= v.compare(VectorOperators.GE, lit).and(v.compare(VectorOperators.LE, high)).toLong() << k;
         }
       }
-      default -> {
-        // unreachable: the caller dispatches the one-sided operators elsewhere
-      }
+      default ->
+        // Same discipline as the single-bound switch: an unlisted op must fail, not answer
+        // with the all-zero "no row matched" mask.
+        throw new IllegalStateException("non-range op in compareWordBetween: " + op);
     }
     return out;
   }

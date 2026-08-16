@@ -603,12 +603,21 @@ public final class ProjectionColumnScan {
       // against non-string column" into the caller's fail-soft catch, and every query silently
       // took the whole-leaf byte scan instead.
       final byte columnKind = store.columnKind(p.column);
-      final boolean stringColumn = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
-      if (stringColumn) {
-        // The one string shape these kernels serve, mirroring the byte kernel's evaluator.
+      if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        // Every per-value string op the dict evaluator serves. NE used to be wrongly excluded
+        // here — the whole query silently lost the slice path and took the whole-leaf byte scan.
+        if (p.stringLitBytes == null) {
+          throw new IllegalStateException("String column " + p.column + " needs a string literal");
+        }
+        switch (p.op) {
+          case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+            /* servable */ }
+          default -> throw new IllegalStateException("String column " + p.column + " cannot serve op " + p.op);
+        }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        // Membership only: ordering/substring over a SEQUENCE is a different question.
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
-          throw new IllegalStateException("String column " + p.column + " only serves equality with a string literal");
+          throw new IllegalStateException("String-set column " + p.column + " only serves EQ membership");
         }
       } else if (p.stringLitBytes != null) {
         throw new IllegalStateException("String literal against non-string column " + p.column);
@@ -686,6 +695,10 @@ public final class ProjectionColumnScan {
         }
       } else if (p.stringLitBytes != null && p.op == ProjectionIndexScan.Op.EQ
           && kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        // Op.EQ ONLY, and load-bearing: bloom fingerprints hash WHOLE values, so pruning a leaf
+        // on a CONTAINS or ordering literal is a false negative — a leaf whose every URL
+        // contains "google" fingerprints none of them as the string "google". Rows would be
+        // silently dropped on the one path the byte kernel does not take.
         final long literalHash = ProjectionIndexColumnSegmentCodec.bloomHash(p.stringLitBytes);
         dropped |= store.applyBloomPrune(p.column, literalHash, keep, fetcher) > 0;
       }
@@ -743,7 +756,7 @@ public final class ProjectionColumnScan {
         evalStringSetContains(slice.stringDict(), slice.setCounts(), slice.stringDictIds(), rows, p.stringLitBytes,
             presence, mask);
       } else if (slice.stringDictIds() != null) {
-        evalStringEq(slice.stringDict(), slice.stringDictIds(), rows, p.stringLitBytes, presence, mask);
+        evalStringDict(slice.stringDict(), slice.stringDictIds(), rows, p, presence, mask);
       } else {
         evalBoolean(slice.boolWords(), stride, p.boolLit, presence, mask);
       }
@@ -814,6 +827,9 @@ public final class ProjectionColumnScan {
           case BETWEEN_GT_LE -> v > lit && v <= high;
           case BETWEEN_GE_LT -> v >= lit && v < high;
           case BETWEEN_GE_LE -> v >= lit && v <= high;
+          // Routing defect — checkPredicates admits string ops onto STRING_DICT slices only.
+          case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+            throw new IllegalStateException("string op in the numeric slice kernel: " + p.op);
         };
         if (match) {
           out |= 1L << bit;
@@ -1051,20 +1067,34 @@ public final class ProjectionColumnScan {
     return false;
   }
 
-  private static void evalStringEq(final byte[][] dict, final int[] ids, final int rowCount, final byte[] literal,
-      final long[] presence, final long[] mask) {
-    int targetDictId = -1;
-    for (int i = 0; i < dict.length && dict[i] != null; i++) {
-      if (Arrays.equals(dict[i], literal)) {
-        targetDictId = i;
-        break;
+  private static void evalStringDict(final byte[][] dict, final int[] ids, final int rowCount,
+      final ColumnPredicate p, final long[] presence, final long[] mask) {
+    // Two-phase like the byte kernel: the predicate evaluates once per dict entry into an id
+    // bitset, the rows test one bit each. The single-matching-id EQ case keeps the SIMD
+    // equalsIdWord specialization the old equality-only kernel had.
+    int dictSize = 0;
+    while (dictSize < dict.length && dict[dictSize] != null) {
+      dictSize++;
+    }
+    final long[] idBits = new long[dictSize + 63 >>> 6];
+    int matches = 0;
+    int lastMatch = -1;
+    final byte[] lit = p.stringLitBytes;
+    final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(lit, 0, lit.length);
+    for (int i = 0; i < dictSize; i++) {
+      if (ProjectionIndexScan.stringDictEntryMatches(dict[i], 0, dict[i].length, p.op, lit, litHasSupplementary)) {
+        idBits[i >>> 6] |= 1L << (i & 63);
+        matches++;
+        lastMatch = i;
       }
     }
     final int stride = (rowCount + 63) >>> 6;
-    if (targetDictId < 0) {
+    if (matches == 0) {
       Arrays.fill(mask, 0, stride, 0L);
       return;
     }
+    final boolean singleId = matches == 1;
+    final int targetDictId = lastMatch;
     for (int w = 0; w < stride; w++) {
       final long m = mask[w] & presence[w];
       if (m == 0L) {
@@ -1074,8 +1104,9 @@ public final class ProjectionColumnScan {
       final int rowBase = w << 6;
       // Same dispatch as evalNumeric, on int lanes: the branch-free id compare (measured 8x
       // over the walk on dense words — see ProjectionVectorKernels.equalsIdWord) serves full
-      // 64-id windows; the tail word takes the guarded walk below.
-      if (rowBase + 64 <= rowCount) {
+      // 64-id windows when exactly one dict id matches; the general case and the tail word
+      // take the guarded walk below.
+      if (singleId && rowBase + 64 <= rowCount) {
         if (m == -1L) {
           mask[w] = ProjectionVectorKernels.equalsIdWord(ids, rowBase, targetDictId);
           continue;
@@ -1094,7 +1125,8 @@ public final class ProjectionColumnScan {
         if (rowIdx >= rowCount) {
           break;
         }
-        if (ids[rowIdx] == targetDictId) {
+        final int id = ids[rowIdx];
+        if ((idBits[id >>> 6] & 1L << (id & 63)) != 0L) {
           out |= 1L << bit;
         }
       }

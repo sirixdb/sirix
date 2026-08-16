@@ -586,6 +586,9 @@ final class ProjectionColumnScanParityTest {
       case BETWEEN_GT_LE -> v > p.longLit && v <= p.highLit;
       case BETWEEN_GE_LT -> v >= p.longLit && v < p.highLit;
       case BETWEEN_GE_LE -> v >= p.longLit && v <= p.highLit;
+      // This oracle reads numericValues(); the string ops never apply to it.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op in the numeric oracle: " + p.op);
     };
   }
 
