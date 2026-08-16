@@ -4,9 +4,12 @@ import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.expr.Cast;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;
@@ -63,6 +66,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   /** Per-key transform annotations (see the detection stage), or {@code null} for plain keys. */
   private final long[] keyOffsets;
   private final int[] keySubstr;
+  /** CONSTANT key entries to splice back into each served record, or {@code null}. */
+  private final int[] constEntryPos;
+  private final String[] constEntryNames;
+  private final long[] constEntryValues;
   /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
   private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
@@ -71,6 +78,7 @@ public final class SirixGroupAggregateExpr implements Expr {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
       final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
@@ -84,6 +92,9 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.genericFallback = genericFallback;
     this.keyOffsets = keyOffsets;
     this.keySubstr = keySubstr;
+    this.constEntryPos = constEntryPos;
+    this.constEntryNames = constEntryNames;
+    this.constEntryValues = constEntryValues;
     if (orderIndexes == null || orderIndexes.length == 0) {
       this.orderIndexes = null;
       this.orderAsc = null;
@@ -121,11 +132,11 @@ public final class SirixGroupAggregateExpr implements Expr {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to
           // the first `limit` groups of the stable order — the downstream fn:subsequence still
           // slices its window out of that prefix, which is all it can ever pull).
-          return served.groups();
+          return spliceConstEntries(served.groups());
         }
         final Sequence sorted = sort(served.groups());
         if (sorted != null) {
-          return sorted;
+          return spliceConstEntries(sorted);
         }
         // Unsortable here (a key that is not an atomic, incomparable types across groups). The
         // generic pipeline re-derives the same groups and either orders them or raises the very
@@ -188,6 +199,43 @@ public final class SirixGroupAggregateExpr implements Expr {
       // TimSort raises IllegalArgumentException on a comparator that is not a total order.
       return null;
     }
+  }
+
+  /**
+   * Weave the CONSTANT key entries (`group by $one, $k` with `$one := 1`) back into each served
+   * record at their annotated positions. They partition nothing, so the kernels never see them;
+   * K records at most, so this is emission cost, not scan cost.
+   */
+  private Sequence spliceConstEntries(final Sequence served) throws QueryException {
+    if (constEntryPos == null) {
+      return served;
+    }
+    final List<Item> out = new ArrayList<>();
+    try (final Iter iter = served.iterate()) {
+      for (Item item = iter.next(); item != null; item = iter.next()) {
+        if (!(item instanceof final Object record)) {
+          return served; // not the annotated shape — leave untouched (fail-soft)
+        }
+        final int total = record.len() + constEntryPos.length;
+        final QNm[] names = new QNm[total];
+        final Sequence[] vals = new Sequence[total];
+        int src = 0;
+        int constIdx = 0;
+        for (int pos = 0; pos < total; pos++) {
+          if (constIdx < constEntryPos.length && constEntryPos[constIdx] == pos) {
+            names[pos] = new QNm(constEntryNames[constIdx]);
+            vals[pos] = new Int64(constEntryValues[constIdx]);
+            constIdx++;
+          } else {
+            names[pos] = record.name(src);
+            vals[pos] = record.value(src);
+            src++;
+          }
+        }
+        out.add(new ArrayObject(names, vals));
+      }
+    }
+    return new ItemSequence(out.toArray(new Item[0]));
   }
 
   @Override

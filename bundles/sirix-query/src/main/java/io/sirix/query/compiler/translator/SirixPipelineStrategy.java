@@ -152,11 +152,20 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final int[] constEntryPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_POS);
+    final String[] constEntryNames =
+        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_NAMES);
+    final long[] constEntryValues =
+        (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_VALUES);
+    if (constEntryPos != null && (constEntryNames == null || constEntryValues == null
+        || constEntryNames.length != constEntryPos.length || constEntryValues.length != constEntryPos.length)) {
+      return generic;
+    }
     return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
         outNames, orderIndexes, orderAsc, orderEmptyLeast, orderIndexes != null && groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, runtimeRef(sourceRef), generic);
+        keyOffsets, keySubstr, constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
   }
 
   /**
