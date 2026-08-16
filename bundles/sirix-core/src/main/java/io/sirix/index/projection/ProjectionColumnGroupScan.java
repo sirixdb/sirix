@@ -2,6 +2,7 @@ package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionColumnStore.ColumnSlice;
 import io.sirix.index.projection.ProjectionIndexScan.ColumnPredicate;
+import it.unimi.dsi.fastutil.HashCommon;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
@@ -401,4 +402,258 @@ public final class ProjectionColumnGroupScan {
       }
     }
   }
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupCompositeFlat}
+   * (v1: conjunctive predicates; the caller gates trees to the whole-leaf path). Components
+   * chain leaf-independently into ONE 64-bit identity through the SHARED FNV seed/prime, dict
+   * entries pre-hash once per leaf from the slice dict (a substring-cast component hashes the
+   * TRANSFORMED integer; {@code Long.MIN_VALUE} marks a raise-case entry — referenced by a row,
+   * the serve DECLINES), and the aux lane carries each group's first-seen
+   * {@code (leaf << 20) | rowIdx} so winners re-read key parts from slices.
+   */
+  public static void aggregateByGroupCompositeFlat(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[][] keyCols,
+      final byte[] keyKinds, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
+      final NumericGroupAggTable out, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
+      final int[] keySubstr, final long[] declineFlag, final int[] keyCondCols, final ColumnSlice[][] condCols,
+      final long[] keyCondLits, final byte[][] keyCondElseBytes) {
+    if (predicates == null || out == null || aggCols == null || keyCols == null) {
+      throw new IllegalArgumentException("predicates, out, aggCols and keyCols must not be null");
+    }
+    final long[] mask = MASK.get();
+    final int keyCount = keyCols.length;
+    final int aggCount = aggCols.length;
+    final long[][] compDictHash = new long[keyCount][];
+    final long[][] compValues = new long[keyCount][];
+    final int[][] compIds = new int[keyCount][];
+    final long[][] compPresence = new long[keyCount][];
+    final long[] condElseHash = keyCondCols != null
+        ? new long[keyCount]
+        : null;
+    final long[][] condValues = keyCondCols != null
+        ? new long[2 * keyCount][]
+        : null;
+    final long[][] condPresence = keyCondCols != null
+        ? new long[2 * keyCount][]
+        : null;
+    if (keyCondCols != null) {
+      for (int k = 0; k < keyCount; k++) {
+        if (keyCondCols[2 * k] >= 0) {
+          condElseHash[k] = ProjectionIndexByteScan.fnv1a64(keyCondElseBytes[k], 0, keyCondElseBytes[k].length);
+        }
+      }
+    }
+    final long[][] aggValues = new long[aggCount][];
+    final long[][] aggPresence = new long[aggCount][];
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines
+      }
+      if (declineFlag != null && declineFlag[0] != 0) {
+        return; // a transform case the interpreter raises on — the caller declines
+      }
+      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      for (int k = 0; k < keyCount; k++) {
+        final ColumnSlice slice = keyCols[k][leaf];
+        compPresence[k] = slice.presenceWords();
+        if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          compValues[k] = slice.numericValues();
+          compIds[k] = null;
+        } else {
+          final byte[][] dict = slice.stringDict();
+          int dictSize = dict == null
+              ? 0
+              : dict.length;
+          while (dictSize > 0 && dict[dictSize - 1] == null) {
+            dictSize--; // null-padded dict tail (codec floor of 16)
+          }
+          long[] hashes = compDictHash[k];
+          if (hashes == null || hashes.length < dictSize) {
+            hashes = compDictHash[k] = new long[Math.max(64, dictSize)];
+          }
+          final int subStart = keySubstr != null
+              ? keySubstr[2 * k]
+              : 0;
+          final int subLen = keySubstr != null
+              ? keySubstr[2 * k + 1]
+              : 0;
+          for (int i = 0; i < dictSize; i++) {
+            final byte[] entry = dict[i];
+            if (subStart > 0) {
+              final long tv = ProjectionIndexByteScan.xsIntegerOfSubstring(entry, 0, entry.length, subStart, subLen);
+              hashes[i] = tv == Long.MIN_VALUE
+                  ? Long.MIN_VALUE
+                  : HashCommon.mix(tv);
+            } else {
+              hashes[i] = ProjectionIndexByteScan.fnv1a64(entry, 0, entry.length);
+            }
+          }
+          compIds[k] = slice.stringDictIds();
+          compValues[k] = null;
+        }
+      }
+      if (keyCondCols != null) {
+        for (int c2 = 0; c2 < 2 * keyCount; c2++) {
+          if (keyCondCols[c2] >= 0) {
+            final ColumnSlice cs = condCols[c2][leaf];
+            condValues[c2] = cs.numericValues();
+            condPresence[c2] = cs.presenceWords();
+          }
+        }
+      }
+      for (int a = 0; a < aggCount; a++) {
+        final ColumnSlice agg = aggCols[a][leaf];
+        aggValues[a] = agg.numericValues();
+        aggPresence[a] = agg.presenceWords();
+      }
+      final long leafOrdinalBase = (long) leaf << 20;
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          long h = ProjectionIndexByteScan.FNV_SEED;
+          for (int k = 0; k < keyCount; k++) {
+            final boolean subTransformed = keySubstr != null && keySubstr[2 * k] > 0;
+            final long compHash;
+            if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+              boolean condTrue = true;
+              for (int j = 0; j < 2 && condTrue; j++) {
+                final int c2 = 2 * k + j;
+                if (keyCondCols[c2] < 0) {
+                  continue;
+                }
+                if ((condPresence[c2][w] & 1L << bit) == 0L) {
+                  condTrue = false; // missing condition operand: the comparison is false
+                } else if (condValues[c2][rowIdx] != keyCondLits[c2]) {
+                  condTrue = false;
+                }
+              }
+              if (!condTrue) {
+                compHash = condElseHash[k];
+              } else if ((compPresence[k][w] & 1L << bit) == 0L) {
+                // then-branch over a missing field: empty-sequence key
+                compHash = ProjectionIndexByteScan.MISSING_COMPONENT_HASH;
+              } else {
+                compHash = compDictHash[k][compIds[k][rowIdx]];
+              }
+            } else if ((compPresence[k][w] & 1L << bit) == 0L) {
+              if (subTransformed) {
+                // xs:integer(substring((), s, l)) = xs:integer("") — the interpreter RAISES.
+                declineFlag[0] = 1;
+                return;
+              }
+              // Missing component: a fixed sentinel — part of the identity, not a side group.
+              compHash = ProjectionIndexByteScan.MISSING_COMPONENT_HASH;
+            } else if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+              long v = compValues[k][rowIdx];
+              if (keyOffsets != null && keyOffsets[k] != 0L) {
+                final long shifted = v + keyOffsets[k];
+                if (((v ^ shifted) & (keyOffsets[k] ^ shifted)) < 0) {
+                  declineFlag[0] = 1; // overflow: the interpreter promotes to decimal
+                  return;
+                }
+                v = shifted;
+              }
+              compHash = HashCommon.mix(v);
+            } else {
+              compHash = compDictHash[k][compIds[k][rowIdx]];
+              if (subTransformed && compHash == Long.MIN_VALUE) {
+                declineFlag[0] = 1; // a row references a slice the cast raises on
+                return;
+              }
+            }
+            h = h * ProjectionIndexByteScan.FNV_PRIME ^ compHash;
+          }
+          final long[] slotArr;
+          final int base;
+          if (h == 0L) {
+            final boolean fresh = !out.hasZeroKey();
+            slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
+            base = 0;
+            if (fresh) {
+              out.setZeroAux(leafOrdinalBase | rowIdx);
+            }
+          } else {
+            base = out.acquire(h, leafOrdinalBase | rowIdx);
+            slotArr = out.slotsArray();
+            if (slotArr[base] == 0L) {
+              out.setAuxAtBase(base, leafOrdinalBase | rowIdx);
+            }
+          }
+          foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx,
+              distinctBlock, distinctBlock >= 0
+                  ? distinctSetFor(distinctOut, h)
+                  : null,
+              budget);
+        }
+      }
+    }
+  }
+
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#readRowKeyParts}: materialize ONE winner row's
+   * key parts from slices, applying the SAME transforms the kernel grouped by (winners emit the
+   * TRANSFORMED value; a raise-case cannot appear — the kernel declined before a winner existed).
+   */
+  public static void readRowKeyPartsSliced(final ColumnSlice[][] keyCols, final byte[] keyKinds,
+      final ColumnSlice[][] condCols, final int leaf, final int rowIdx, final String[] outStrings,
+      final long[] outLongs, final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets,
+      final int[] keySubstr, final int[] keyCondCols, final long[] keyCondLits, final String[] keyCondElse) {
+    for (int k = 0; k < keyCols.length; k++) {
+      final ColumnSlice slice = keyCols[k][leaf];
+      if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+        boolean condTrue = true;
+        for (int j = 0; j < 2 && condTrue; j++) {
+          final int c2 = 2 * k + j;
+          if (keyCondCols[c2] < 0) {
+            continue;
+          }
+          final ColumnSlice cs = condCols[c2][leaf];
+          if ((cs.presenceWords()[rowIdx >>> 6] & 1L << (rowIdx & 63)) == 0L) {
+            condTrue = false;
+          } else if (cs.numericValues()[rowIdx] != keyCondLits[c2]) {
+            condTrue = false;
+          }
+        }
+        if (!condTrue) {
+          outPresent[k] = true;
+          outIsLong[k] = false;
+          outStrings[k] = keyCondElse[k];
+          continue;
+        }
+        // Condition holds: fall through to the plain read below (missing => absent part).
+      }
+      if ((slice.presenceWords()[rowIdx >>> 6] & 1L << (rowIdx & 63)) == 0L) {
+        outPresent[k] = false;
+        continue;
+      }
+      outPresent[k] = true;
+      if (keyKinds[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        outIsLong[k] = true;
+        outLongs[k] = slice.numericValues()[rowIdx] + (keyOffsets != null
+            ? keyOffsets[k]
+            : 0L);
+      } else {
+        final byte[] entry = slice.stringDict()[slice.stringDictIds()[rowIdx]];
+        if (keySubstr != null && keySubstr[2 * k] > 0) {
+          outIsLong[k] = true;
+          outLongs[k] =
+              ProjectionIndexByteScan.xsIntegerOfSubstring(entry, 0, entry.length, keySubstr[2 * k],
+                  keySubstr[2 * k + 1]);
+        } else {
+          outIsLong[k] = false;
+          outStrings[k] = new String(entry, StandardCharsets.UTF_8);
+        }
+      }
+    }
+  }
+
 }
