@@ -64,6 +64,25 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             returnField, sortExecutor.boundDatabaseName(), runtimeRef(sortSourceRef), generic);
       }
     }
+    // P5b stage 7d: predicate scan — filtered rows (or one field of them) in document order,
+    // record keys straight from the projection's predicate mask. Null orderFields selects the
+    // scan-without-sort branch inside the shared expr.
+    if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.PREDICATE_SCAN))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor predExecutor) {
+      final String[] predSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+      final PredicateNode predTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
+      final SourceRef predSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
+      final Long predTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+      final String predReturnField =
+          (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
+      if (predSourcePath != null && predTree != null && acceptsOrRuntimeCheckable(predExecutor, predSourceRef)) {
+        return new SirixSortedScanExpr(predExecutor, predSourcePath, predTree, null, null, predTopK == null
+            ? -1L
+            : predTopK,
+            predReturnField, predExecutor.boundDatabaseName(), runtimeRef(predSourceRef), generic);
+      }
+    }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
     if (Boolean.TRUE.equals(node.getProperty(RowMaterializeDetectionStage.ROW_MAT))
         && !(generic instanceof VectorizedGroupByExpr)

@@ -52,6 +52,15 @@ public final class SortedScanDetectionStage implements Stage {
   public static final String SORTED_RETURN_FIELD = "SIRIX_SORTED_RETURN_FIELD";
 
   /**
+   * PREDICATE SCAN (stage 7d): the same chain WITHOUT an order-by — {@code for $r in P where p
+   * return $r [.field]}. Matching rows emit in DOCUMENT order, which is exactly the order the
+   * predicate mask yields record keys in, so no sort machinery runs at all. A selection is
+   * REQUIRED: an unfiltered full-table materialization through per-record navigation would be
+   * slower than the row path it replaces.
+   */
+  public static final String PREDICATE_SCAN = "SIRIX_PREDICATE_SCAN";
+
+  /**
    * TOP-K pushdown (gap item 3): when a sorted pipe's SOLE consumer is
    * {@code fn:subsequence(pipe, start, length)} with positive integer literals, the pipe
    * only ever needs its first {@code start+length-1} items — {@code fn:subsequence} never
@@ -197,7 +206,7 @@ public final class SortedScanDetectionStage implements Stage {
         }
       }
     }
-    if (orderBy == null || current == null || current.getChildCount() < 1) {
+    if (current == null || current.getChildCount() < 1) {
       return;
     }
     if (hasSelection && pipeExpr.getProperty(PREDICATE_TREE) == null) {
@@ -217,6 +226,17 @@ public final class SortedScanDetectionStage implements Stage {
       if (returnField == null) {
         return;
       }
+    }
+    if (orderBy == null) {
+      // PREDICATE SCAN (stage 7d): filtered rows in document order — selection required.
+      if (!hasSelection) {
+        return;
+      }
+      pipeExpr.setProperty(PREDICATE_SCAN, Boolean.TRUE);
+      if (returnField != null) {
+        pipeExpr.setProperty(SORTED_RETURN_FIELD, returnField);
+      }
+      return;
     }
     final List<String> fields = new ArrayList<>(4);
     final List<Boolean> descList = new ArrayList<>(4);

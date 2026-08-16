@@ -69,9 +69,11 @@ public final class SirixSortedScanExpr implements Expr {
       return genericFallback.evaluate(ctx, tuple);
     }
     if (executor.canExecute(ctx) && ctx instanceof SirixQueryContext sirixCtx) {
-      final long[] keys =
-          executor.sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending,
-              limit);
+      // A null orderFields is the PREDICATE SCAN (stage 7d): same materialization, keys in
+      // document order straight from the predicate mask — no sort columns at all.
+      final long[] keys = orderFields == null
+          ? executor.predicateScanRecordKeys(sourcePath, predicateOrNull, limit)
+          : executor.sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit);
       if (keys != null) {
         final JsonDBCollection collection =
             (JsonDBCollection) sirixCtx.getJsonItemStore().lookup(databaseName);
@@ -117,7 +119,11 @@ public final class SirixSortedScanExpr implements Expr {
               }
               items.add(fieldItem);
             }
-            SirixVectorizedExecutor.markSortedScanServed();
+            if (orderFields == null) {
+              SirixVectorizedExecutor.markPredicateScanServed();
+            } else {
+              SirixVectorizedExecutor.markSortedScanServed();
+            }
             return new ItemSequence(items.toArray(new Item[0]));
           } catch (final RuntimeException e) {
             SirixVectorizedExecutor.markSortedScanFailed(e);
