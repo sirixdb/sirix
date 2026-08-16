@@ -11060,14 +11060,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
       // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
-      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform && orderPlan != null;
+      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform;
       // The string flat arm slices too (regex + strlen + distinct included); deferred string
       // extrema keep whole-leaf — pass 2's winner matching scans payloads.
       final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null && !anyDeferred;
+      // The LEGACY string emission arm (no order plan) slices too — by construction it is the
+      // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
+      final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null;
       // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
       // the flat arms, which never touch payloads).
       final List<byte[]> armPayloads;
-      if (groupSliced && !numericSlicedArm && !stringSlicedArm) {
+      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced) {
         armPayloads = leafPayloadsOrNull(handle);
         if (armPayloads == null) {
           return null;
@@ -11673,16 +11676,50 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       @SuppressWarnings("unchecked")
       final Object2ObjectOpenHashMap<String, long[]>[] perThread = new Object2ObjectOpenHashMap[eff];
       final long[][] perThreadMissing = new long[eff][];
+      // SLICED legacy arm: resolve every column ONCE on the calling thread (workers share the
+      // immutable slice arrays); the drain materializes group strings from the slice dict via
+      // each group's aux (leaf, dictId) ref. Emission below is untouched — slot lane 1 already
+      // carries the first-seen ROW ordinal (NumericGroupAggTable.initBlock).
+      final ProjectionColumnStore.ColumnSlice[][] legPredCols;
+      final ProjectionColumnStore.ColumnSlice[] legGroupCol;
+      final ProjectionColumnStore.ColumnSlice[][] legAggCols;
+      if (stringLegacySliced) {
+        final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
+        if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+        }
+        legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, legFetcher);
+        legGroupCol = groupStore.column(groupCol, legFetcher);
+        legAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+        for (int a = 0; a < aggColsFlat.length; a++) {
+          if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+          }
+          legAggCols[a] = groupStore.column(aggColsFlat[a], legFetcher);
+        }
+      } else {
+        legPredCols = null;
+        legGroupCol = null;
+        legAggCols = null;
+      }
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to)
           return;
-        final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateByGroup(armPayloads.subList(from, to), preds, groupCol,
-            aggCols, local, missing, from);
-        perThread[idx] = local;
+        if (stringLegacySliced) {
+          final NumericGroupAggTable localT =
+              new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
+          ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, legPredCols, legGroupCol,
+              legAggCols, null, from, to, localT, missing, -1, null, null, null, null, null, null);
+          perThread[idx] = drainStringGroupTable(localT, aggCols.length, legGroupCol);
+        } else {
+          final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
+          ProjectionIndexByteScan.conjunctiveAggregateByGroup(armPayloads.subList(from, to), preds, groupCol,
+              aggCols, local, missing, from);
+          perThread[idx] = local;
+        }
         perThreadMissing[idx] = missing;
       });
       final Object2ObjectOpenHashMap<String, long[]> merged = new Object2ObjectOpenHashMap<>();
@@ -11719,6 +11756,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
       }
       GROUP_AGG_SERVED.increment();
+      if (stringLegacySliced) {
+        GROUP_AGG_SLICED_SERVED.increment();
+      }
       return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
     } catch (final ArithmeticException overflow) {
       // Expected decline, not a defect: an overflowing per-group sum routes to the
@@ -12281,16 +12321,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
     final long[][] perThreadMissing = new long[eff][];
+    // SLICED legacy arm — resolve ONCE, scan slices, drain each worker's table into the same
+    // map shape; merge and emission below are untouched (slot lane 1 carries the first-seen
+    // row ordinal the emission sorts by).
+    final ProjectionColumnStore.ColumnSlice[][] legPredCols;
+    final ProjectionColumnStore.ColumnSlice[] legGroupCol;
+    final ProjectionColumnStore.ColumnSlice[][] legAggCols;
+    if (slicedStore != null) {
+      final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
+      legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher);
+      legGroupCol = slicedStore.column(groupCol, legFetcher);
+      legAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+      for (int a = 0; a < aggCols.length; a++) {
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        }
+        legAggCols[a] = slicedStore.column(aggCols[a], legFetcher);
+      }
+    } else {
+      legPredCols = null;
+      legGroupCol = null;
+      legAggCols = null;
+    }
     parallel(eff, idx -> {
       final int from = idx * chunkSize;
       final int to = Math.min(from + chunkSize, rowGroupCount);
       if (from >= to)
         return;
-      final Long2ObjectOpenHashMap<long[]> local = new Long2ObjectOpenHashMap<>();
       final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-      ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(rowGroupPayloads.subList(from, to), preds, groupCol,
-          aggCols, local, missing, from);
-      perThread[idx] = local;
+      if (slicedStore != null) {
+        final NumericGroupAggTable localT =
+            new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10));
+        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, legPredCols, legGroupCol,
+            legAggCols, null, from, to, localT, missing, -1, null, null, null);
+        perThread[idx] = drainNumericGroupTable(localT, aggCols.length);
+      } else {
+        final Long2ObjectOpenHashMap<long[]> local = new Long2ObjectOpenHashMap<>();
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(rowGroupPayloads.subList(from, to), preds, groupCol,
+            aggCols, local, missing, from);
+        perThread[idx] = local;
+      }
       perThreadMissing[idx] = missing;
     });
     final Long2ObjectOpenHashMap<long[]> merged = new Long2ObjectOpenHashMap<>();
@@ -12330,7 +12400,57 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     GROUP_AGG_SERVED.increment();
     NUMERIC_GROUPBY_SERVED.increment();
+    if (slicedStore != null) {
+      GROUP_AGG_SLICED_SERVED.increment();
+    }
     return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
+  }
+
+  /** Drain a worker's flat table into the legacy map shape: key = group VALUE, acc lane 1 =
+   * first-seen row ordinal ({@code initBlock} stamped it), zero-key slot under key 0. */
+  private static Long2ObjectOpenHashMap<long[]> drainNumericGroupTable(final NumericGroupAggTable t,
+      final int aggColumns) {
+    final Long2ObjectOpenHashMap<long[]> map = new Long2ObjectOpenHashMap<>();
+    final long[] keys = t.keysArray();
+    final long[] slots = t.slotsArray();
+    final int w = t.slotWidth();
+    for (int i = 0; i < keys.length; i++) {
+      if (keys[i] != 0L) {
+        map.put(keys[i], Arrays.copyOfRange(slots, i * w, i * w + w));
+      }
+    }
+    if (t.hasZeroKey()) {
+      map.put(0L, Arrays.copyOf(t.zeroSlot(), w));
+    }
+    return map;
+  }
+
+  /** String twin of {@link #drainNumericGroupTable}: keys materialize from the slice dict via
+   * each group's aux {@code (leaf, dictId)} ref; the zero side slot holds the value whose FNV
+   * hash IS the empty-bucket sentinel. */
+  private static Object2ObjectOpenHashMap<String, long[]> drainStringGroupTable(final NumericGroupAggTable t,
+      final int aggColumns, final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
+    final Object2ObjectOpenHashMap<String, long[]> map = new Object2ObjectOpenHashMap<>();
+    final long[] keys = t.keysArray();
+    final long[] slots = t.slotsArray();
+    final int w = t.slotWidth();
+    for (int i = 0; i < keys.length; i++) {
+      if (keys[i] == 0L) {
+        continue;
+      }
+      final int base = i * w;
+      final long src = t.auxAtBase(base);
+      final String key = new String(groupColSlices[(int) (src >>> 20)].stringDict()[(int) (src & 0xFFFFF)],
+          StandardCharsets.UTF_8);
+      map.put(key, Arrays.copyOfRange(slots, base, base + w));
+    }
+    if (t.hasZeroKey()) {
+      final long src = t.zeroAux();
+      final String key = new String(groupColSlices[(int) (src >>> 20)].stringDict()[(int) (src & 0xFFFFF)],
+          StandardCharsets.UTF_8);
+      map.put(key, Arrays.copyOf(t.zeroSlot(), w));
+    }
+    return map;
   }
 
   /**
