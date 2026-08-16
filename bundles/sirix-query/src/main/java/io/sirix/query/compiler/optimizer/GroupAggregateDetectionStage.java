@@ -99,13 +99,26 @@ public final class GroupAggregateDetectionStage implements Stage {
    */
   public static final String GROUP_AGG_KEY_OFFSETS = "SIRIX_GROUP_AGG_KEY_OFFSETS";
   /**
-   * {@code int[]} of {@code 2 * keyCount}: per group key, the (start, length) of an
-   * {@code xs:integer(substring($r.f, start, length))} key transform, or {@code (-1, -1)}. The
-   * kernel evaluates it once per dictionary entry per leaf; a MISSING field or a lexically
-   * invalid substring makes the interpreter RAISE (xs:integer("")), so the serve DECLINES on
-   * either and the generic pipeline raises identically.
+   * {@code int[]} of {@code 2 * keyCount}: per group key, the substring transform — slot
+   * {@code 2k} is {@code 0} for none, {@code +start} for {@code xs:integer(substring(f, s, l))}
+   * (grouping on the CAST integer), or {@code -start} for a bare {@code substring(f, s, l)}
+   * (grouping on the STRING, served via an order-preserving digit pack over validated ISO-minute
+   * windows); slot {@code 2k+1} is the length. The kernel evaluates transforms once per
+   * dictionary entry per leaf. RAISE/unpackable cases DECLINE: for the int cast the interpreter
+   * raises on a bad slice; for the string variant a window failing the ISO shape (including the
+   * {@code ""} a MISSING field produces — a REAL group key, never the null-key group) would
+   * corrupt the packed order, so the generic pipeline serves it instead.
    */
   public static final String GROUP_AGG_KEY_SUBSTR = "SIRIX_GROUP_AGG_KEY_SUBSTR";
+  /**
+   * {@code int[]} / {@code String[]} / {@code String[]}: canonical record positions of KEY
+   * entries emitted through {@code concat($key, "lit")} / {@code concat("lit", $key)}, with the
+   * literal prefix/suffix to decorate the served key value with — applied by the serving
+   * expression over the K emitted records, before constant-entry splicing.
+   */
+  public static final String GROUP_AGG_KEY_DECOR_POS = "SIRIX_GROUP_AGG_KEY_DECOR_POS";
+  public static final String GROUP_AGG_KEY_DECOR_PREFIX = "SIRIX_GROUP_AGG_KEY_DECOR_PREFIX";
+  public static final String GROUP_AGG_KEY_DECOR_SUFFIX = "SIRIX_GROUP_AGG_KEY_DECOR_SUFFIX";
   /** {@code int[]} / {@code String[]} / {@code long[]}: record positions, field names and integer
    * literals of CONSTANT key entries ({@code group by $one, $k} with {@code $one := 1}) — they
    * partition nothing, and the serving expression splices them back into each record. */
@@ -269,14 +282,19 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letSubstr.add(null);
                 continue;
               }
-              final int[] sub = integerOfSubstring(bound, loopVar, subField);
+              int[] sub = integerOfSubstring(bound, loopVar, subField);
+              int subKind = 0;
+              if (sub == null) {
+                sub = substringCall(bound, loopVar, subField);
+                subKind = 1; // bare substring: a STRING-valued key transform
+              }
               if (sub == null) {
                 return; // a let we can't model — the served scan would not see it
               }
               letVars.add(letVar);
               letFields.add(subField[0]);
               letOffsets.add(0L);
-              letSubstr.add(sub);
+              letSubstr.add(new int[] {sub[0], sub[1], subKind});
             }
           }
         }
@@ -401,6 +419,9 @@ public final class GroupAggregateDetectionStage implements Stage {
     final long[] keyOffsets = new long[keyCount];
     final int[] keySubstr = new int[2 * keyCount];
     final QNm[] realKeyVars = new QNm[keyCount];
+    final List<Integer> decorPos = new ArrayList<>();
+    final List<String> decorPrefixes = new ArrayList<>();
+    final List<String> decorSuffixes = new ArrayList<>();
     final List<Integer> constEntryPos = new ArrayList<>();
     final List<String> constEntryNames = new ArrayList<>();
     final List<Long> constEntryVals = new ArrayList<>();
@@ -415,14 +436,35 @@ public final class GroupAggregateDetectionStage implements Stage {
       if (keyName == null || !seenNames.add(keyName)) {
         return;
       }
-      final AST keyValue = keyEntry.getChild(1);
+      AST keyValue = keyEntry.getChild(1);
+      String decorPrefix = null;
+      String decorSuffix = null;
+      if (keyValue.getType() == XQ.FunctionCall && keyValue.getChildCount() == 2
+          && keyValue.getValue() instanceof QNm cfn && "concat".equals(cfn.getLocalName())) {
+        final String cns = cfn.getNamespaceURI();
+        if (cns != null && !cns.isEmpty() && !Namespaces.FN_NSURI.equals(cns)
+            && !Namespaces.DEFAULT_FN_NSURI.equals(cns)) {
+          return;
+        }
+        final AST a0 = keyValue.getChild(0);
+        final AST a1 = keyValue.getChild(1);
+        if (a0.getType() == XQ.VariableRef && a1.getType() == XQ.Str && a1.getValue() instanceof Str sfx) {
+          decorSuffix = sfx.stringValue();
+          keyValue = a0;
+        } else if (a1.getType() == XQ.VariableRef && a0.getType() == XQ.Str && a0.getValue() instanceof Str pfx) {
+          decorPrefix = pfx.stringValue();
+          keyValue = a1;
+        } else {
+          return;
+        }
+      }
       if (keyValue.getType() != XQ.VariableRef || !(keyValue.getValue() instanceof QNm keyVar)) {
         return;
       }
       if (constKeySpecs.contains(keyVar)) {
         // A CONSTANT key entry: it partitions nothing — the expression splices the literal
         // back into every served record at this position.
-        if (!seenConstVars.add(keyVar)) {
+        if (decorPrefix != null || decorSuffix != null || !seenConstVars.add(keyVar)) {
           return;
         }
         constEntryPos.add(i);
@@ -443,12 +485,23 @@ public final class GroupAggregateDetectionStage implements Stage {
       keyOffsets[realIdx] = letOffsets.get(letIdx);
       final int[] sub = letSubstr.get(letIdx);
       keySubstr[2 * realIdx] = sub == null
-          ? -1
-          : sub[0];
+          ? 0
+          : sub[2] == 1
+              ? -sub[0]
+              : sub[0];
       keySubstr[2 * realIdx + 1] = sub == null
-          ? -1
+          ? 0
           : sub[1];
       anyKeyTransform |= keyOffsets[realIdx] != 0L || sub != null;
+      if (decorPrefix != null || decorSuffix != null) {
+        decorPos.add(realIdx);
+        decorPrefixes.add(decorPrefix == null
+            ? ""
+            : decorPrefix);
+        decorSuffixes.add(decorSuffix == null
+            ? ""
+            : decorSuffix);
+      }
       realIdx++;
     }
     if (realIdx != keyCount || (!constMode && constEntryPos.size() != constKeySpecs.size())) {
@@ -541,6 +594,15 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (anyKeyTransform) {
       pipeExpr.setProperty(GROUP_AGG_KEY_OFFSETS, keyOffsets);
       pipeExpr.setProperty(GROUP_AGG_KEY_SUBSTR, keySubstr);
+    }
+    if (!decorPos.isEmpty()) {
+      final int[] dp = new int[decorPos.size()];
+      for (int i = 0; i < dp.length; i++) {
+        dp[i] = decorPos.get(i);
+      }
+      pipeExpr.setProperty(GROUP_AGG_KEY_DECOR_POS, dp);
+      pipeExpr.setProperty(GROUP_AGG_KEY_DECOR_PREFIX, decorPrefixes.toArray(new String[0]));
+      pipeExpr.setProperty(GROUP_AGG_KEY_DECOR_SUFFIX, decorSuffixes.toArray(new String[0]));
     }
     if (!constEntryPos.isEmpty()) {
       final int[] posArr = new int[constEntryPos.size()];
@@ -703,9 +765,14 @@ public final class GroupAggregateDetectionStage implements Stage {
         || !Namespaces.XS_NSURI.equals(outer.getNamespaceURI())) {
       return null;
     }
-    final AST sub = expr.getChild(0);
-    if (sub.getType() != XQ.FunctionCall || sub.getChildCount() != 3 || !(sub.getValue() instanceof QNm fn)
-        || !"substring".equals(fn.getLocalName())) {
+    return substringCall(expr.getChild(0), loopVar, fieldOut);
+  }
+
+  /** The bare {@code substring($loopVar.f, startLit, lenLit)} — the DATE_TRUNC idiom's STRING
+   * form. Positive int literals only; the field lands in {@code fieldOut[0]}. */
+  private static int[] substringCall(final AST sub, final QNm loopVar, final String[] fieldOut) {
+    if (sub == null || sub.getType() != XQ.FunctionCall || sub.getChildCount() != 3
+        || !(sub.getValue() instanceof QNm fn) || !"substring".equals(fn.getLocalName())) {
       return null;
     }
     final String ns = fn.getNamespaceURI();

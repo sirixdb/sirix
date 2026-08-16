@@ -6,6 +6,7 @@ import io.brackit.query.Tuple;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.expr.Cast;
@@ -66,6 +67,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   /** Per-key transform annotations (see the detection stage), or {@code null} for plain keys. */
   private final long[] keyOffsets;
   private final int[] keySubstr;
+  /** Concat-emitted key entries: literal prefix/suffix decoration per annotated position. */
+  private final int[] decorPos;
+  private final String[] decorPrefix;
+  private final String[] decorSuffix;
   /** CONSTANT key entries to splice back into each served record, or {@code null}. */
   private final int[] constEntryPos;
   private final String[] constEntryNames;
@@ -78,8 +83,9 @@ public final class SirixGroupAggregateExpr implements Expr {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
-      final SourceRef runtimeSourceRef, final Expr genericFallback) {
+      final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
+      final String[] constEntryNames, final long[] constEntryValues, final SourceRef runtimeSourceRef,
+      final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -92,6 +98,9 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.genericFallback = genericFallback;
     this.keyOffsets = keyOffsets;
     this.keySubstr = keySubstr;
+    this.decorPos = decorPos;
+    this.decorPrefix = decorPrefix;
+    this.decorSuffix = decorSuffix;
     this.constEntryPos = constEntryPos;
     this.constEntryNames = constEntryNames;
     this.constEntryValues = constEntryValues;
@@ -134,11 +143,11 @@ public final class SirixGroupAggregateExpr implements Expr {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to
           // the first `limit` groups of the stable order — the downstream fn:subsequence still
           // slices its window out of that prefix, which is all it can ever pull).
-          return spliceConstEntries(served.groups());
+          return postProcess(served.groups());
         }
         final Sequence sorted = sort(served.groups());
         if (sorted != null) {
-          return spliceConstEntries(sorted);
+          return postProcess(sorted);
         }
         // Unsortable here (a key that is not an atomic, incomparable types across groups). The
         // generic pipeline re-derives the same groups and either orders them or raises the very
@@ -201,6 +210,53 @@ public final class SirixGroupAggregateExpr implements Expr {
       // TimSort raises IllegalArgumentException on a comparator that is not a total order.
       return null;
     }
+  }
+
+  /** Key decoration (concat literals) then constant-entry splicing — K records, emission cost. */
+  private Sequence postProcess(final Sequence served) throws QueryException {
+    return spliceConstEntries(decorateKeys(served));
+  }
+
+  /**
+   * Rewrite each concat-emitted key entry's value to {@code prefix + key + suffix} — the record
+   * carried the RAW served key (which is also what any order-by compared); the concat is pure
+   * emission decoration.
+   */
+  private Sequence decorateKeys(final Sequence served) throws QueryException {
+    if (decorPos == null) {
+      return served;
+    }
+    final List<Item> out = new ArrayList<>();
+    try (final Iter iter = served.iterate()) {
+      for (Item item = iter.next(); item != null; item = iter.next()) {
+        if (!(item instanceof final Object record)) {
+          return served; // not the annotated shape — fail-soft
+        }
+        final int total = record.len();
+        final QNm[] names = new QNm[total];
+        final Sequence[] vals = new Sequence[total];
+        for (int pos = 0; pos < total; pos++) {
+          names[pos] = record.name(pos);
+          vals[pos] = record.value(pos);
+        }
+        for (int d = 0; d < decorPos.length; d++) {
+          final int pos = decorPos[d];
+          final Sequence v = vals[pos];
+          if (v == null) {
+            // concat over the missing key's empty sequence: fn:concat((), lit) = lit.
+            vals[pos] = new Str(decorPrefix[d] + decorSuffix[d]);
+          } else if (v instanceof final Atomic atomic) {
+            vals[pos] = new Str(decorPrefix[d] + atomic.stringValue() + decorSuffix[d]);
+          } else {
+            // Key entries are Str/Int64/null by construction — anything else is a defect, and
+            // emitting the UNDECORATED record here would be a silent wrong answer.
+            throw new IllegalStateException("non-atomic key entry under a concat decoration");
+          }
+        }
+        out.add(new ArrayObject(names, vals));
+      }
+    }
+    return new ItemSequence(out.toArray(new Item[0]));
   }
 
   /**

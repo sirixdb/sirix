@@ -156,6 +156,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final int[] decorPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_POS);
+    final String[] decorPrefix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_PREFIX);
+    final String[] decorSuffix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_SUFFIX);
+    if (decorPos != null && (decorPrefix == null || decorSuffix == null || decorPrefix.length != decorPos.length
+        || decorSuffix.length != decorPos.length)) {
+      return generic;
+    }
     final int[] constEntryPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_POS);
     final String[] constEntryNames =
         (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_NAMES);
@@ -169,7 +176,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
+        keyOffsets, keySubstr, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
+        runtimeRef(sourceRef), generic);
   }
 
   /**

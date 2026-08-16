@@ -2462,16 +2462,19 @@ public final class ProjectionIndexByteScan {
           if (hashes == null || hashes.length < dictSize) {
             hashes = compDictHash[k] = new long[Math.max(64, dictSize)];
           }
+          // POSITIVE start = the xs:integer(substring(...)) cast; 0 = none. The STRING
+          // substring variant (negative start) never reaches this kernel — it routes to the
+          // packed single-key arm, and the executor gate declines it for composites.
           final int subStart = keySubstr != null
               ? keySubstr[2 * k]
-              : -1;
+              : 0;
           final int subLen = keySubstr != null
               ? keySubstr[2 * k + 1]
-              : -1;
+              : 0;
           int off = lenHeaderOff + dictSize * 4;
           for (int i = 0; i < dictSize; i++) {
             final int len = getIntLE(payload, lenHeaderOff + i * 4);
-            if (subStart >= 0) {
+            if (subStart > 0) {
               final long tv = xsIntegerOfSubstring(payload, off, len, subStart, subLen);
               hashes[i] = tv == Long.MIN_VALUE
                   ? Long.MIN_VALUE
@@ -2514,7 +2517,7 @@ public final class ProjectionIndexByteScan {
           final int rowIdx = rowBase + bit;
           long h = 0xcbf29ce484222325L;
           for (int k = 0; k < keyCount; k++) {
-            final boolean subTransformed = keySubstr != null && keySubstr[2 * k] >= 0;
+            final boolean subTransformed = keySubstr != null && keySubstr[2 * k] > 0;
             final long compHash;
             if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
               if (subTransformed) {
@@ -2625,7 +2628,7 @@ public final class ProjectionIndexByteScan {
           entryOff += getIntLE(payload, lenHeaderOff + i * 4);
         }
         final int entryLen = getIntLE(payload, lenHeaderOff + dictId * 4);
-        if (keySubstr != null && keySubstr[2 * k] >= 0) {
+        if (keySubstr != null && keySubstr[2 * k] > 0) {
           outIsLong[k] = true;
           outLongs[k] = xsIntegerOfSubstring(payload, entryOff, entryLen, keySubstr[2 * k], keySubstr[2 * k + 1]);
         } else {
@@ -2827,6 +2830,154 @@ public final class ProjectionIndexByteScan {
           .compareTo(new String(b, bOff, bLen, StandardCharsets.UTF_8));
     }
     return Arrays.compareUnsigned(a, aOff, aOff + aLen, b, bOff, bOff + bLen);
+  }
+
+  /**
+   * Order-preserving digit pack of an ISO-minute substring window: the {@code len == 16} window
+   * {@code dddd-dd-ddTdd:dd} packs its 12 digits as {@code yyyyMMddHHmm + 1} (the bias keeps the
+   * degenerate all-zero string off the table's zero sentinel). Lexicographic order over the
+   * validated set equals numeric order over the packs — the property that lets ORD_KEY serve
+   * {@code order by} on the substring. {@code Long.MIN_VALUE} = the window fails the shape
+   * (including the {@code ""} a MISSING field produces, a REAL group key the interpreter emits)
+   * — ONE such entry referenced by a row corrupts the packed order, so the caller declines.
+   */
+  static long packIsoMinuteSubstring(final byte[] bytes, final int off, final int len, final int start,
+      final int subLen) {
+    if (subLen != 16) {
+      return Long.MIN_VALUE;
+    }
+    final int s0 = start - 1;
+    if (s0 + 16 > len) {
+      return Long.MIN_VALUE; // fn:substring clamps to a SHORTER window — not the ISO shape
+    }
+    final int b = off + s0;
+    if (bytes[b + 4] != '-' || bytes[b + 7] != '-' || bytes[b + 10] != 'T' || bytes[b + 13] != ':') {
+      return Long.MIN_VALUE;
+    }
+    long v = 0;
+    for (final int i : ISO_MINUTE_DIGITS) {
+      final int d = bytes[b + i] - '0';
+      if (d < 0 || d > 9) {
+        return Long.MIN_VALUE;
+      }
+      v = v * 10 + d;
+    }
+    return v + 1;
+  }
+
+  private static final int[] ISO_MINUTE_DIGITS = {0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15};
+
+  /**
+   * Single STRING_DICT group key transformed by a bare {@code substring(f, s, 16)} over ISO
+   * timestamps: groups AND orders on {@link #packIsoMinuteSubstring}'s long (an ORD_KEY the heap
+   * compares directly), with the aux lane carrying {@code (leaf << 20) | dictId} so the K winners
+   * emit the ORIGINAL substring bytes. Structure mirrors the numeric flat kernel; a single
+   * unpackable entry REFERENCED BY A MATCHING ROW sets {@code declineFlag} and aborts.
+   */
+  public static void conjunctiveAggregateByGroupPackedSubstringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int subStart,
+      final int subLen, final int[] aggColumns, final NumericGroupAggTable out, final int leafIndexBase,
+      final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || aggColumns == null || declineFlag == null) {
+      throw new IllegalArgumentException("out, aggColumns and declineFlag must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    if (s.dictHashCache == null) {
+      s.dictHashCache = new long[64];
+      s.dictSlotBase = new int[64];
+    }
+    long[] dictPacked = s.dictHashCache;
+    final int aggCount = aggColumns.length;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (declineFlag[0] != 0) {
+        return;
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (dictPacked.length < dictSize) {
+        dictPacked = s.dictHashCache = new long[Math.max(dictPacked.length * 2, dictSize)];
+      }
+      final int lenHeaderOff = groupBase + 4;
+      int off = lenHeaderOff + dictSize * 4;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        dictPacked[i] = packIsoMinuteSubstring(payload, off, len, subStart, subLen);
+        off += len;
+      }
+      final int idsOff = off;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int groupPresOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, groupColumn)
+          : -1;
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long groupPresWord = groupPresOff >= 0
+            ? getLongLE(payload, groupPresOff + (w << 3))
+            : -1L;
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (groupPresOff >= 0 && (groupPresWord & 1L << bit) == 0L) {
+            // substring((), s, l) is "" — a REAL group key that fails the ISO shape: decline,
+            // never the null-key group (the interpreter emits "" here, not JSON null).
+            declineFlag[0] = 1;
+            return;
+          }
+          final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+          final long packed = dictPacked[dictId];
+          if (packed == Long.MIN_VALUE) {
+            declineFlag[0] = 1;
+            return;
+          }
+          final int base = out.acquire(packed, leafOrdinalBase | rowIdx);
+          final long[] slotArr = out.slotsArray();
+          if (slotArr[base] == 0L) {
+            out.setAuxAtBase(base, leafOrdinalBase | dictId);
+          }
+          foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+        }
+      }
+    }
   }
 
   /** Shared per-row accumulate for the flat group kernels. */

@@ -76,6 +76,14 @@ public final class GroupTopKDifferentialTest {
       sb.append(",\"amount\":").append(rng.nextInt(1000));
       sb.append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)]).append('"');
       sb.append(",\"name\":\"n").append(i % 401).append('"'); // 401 distinct strings
+      // ISO timestamps across two days, minute-granular — the packed-substring key's corpus.
+      sb.append(",\"ts\":\"2013-07-")
+        .append(String.format("%02d", 14 + i % 2))
+        .append('T')
+        .append(String.format("%02d", i / 60 % 24))
+        .append(':')
+        .append(String.format("%02d", i % 60))
+        .append(":30\"");
       if (i % 3 != 0) {
         // ~2/3 present: the MISSING-tier population (~1/3) outcounts every tier group,
         // so under count-descending the null-key group must WIN the window.
@@ -305,6 +313,32 @@ public final class GroupTopKDifferentialTest {
         + "return {\"k\": $k, \"a\": xs:double(avg($u.amount)), \"c\": $c}, 1, 7)");
   }
 
+  // ---- packed substring keys and concat-decorated emission -----------------------------------
+
+  @Test
+  void substringKeyOrderedByItselfWithConcatEmission() throws Exception {
+    // Q42's exact shape: DATE_TRUNC-minute key, ordered BY the key, emitted through concat,
+    // with an OFFSET window. The kernel groups and orders on the ISO-minute digit pack;
+    // lexicographic order over validated windows must equal numeric order over packs.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $m := substring($u.ts, 1, 16) "
+        + "group by $m let $c := count($u) order by $m "
+        + "return {\"M\": concat($m, \":00\"), \"c\": $c}, 5, 9)");
+  }
+
+  @Test
+  void substringKeyDescendingAndPlainEmission() throws Exception {
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $m := substring($u.ts, 1, 16) "
+        + "group by $m let $c := count($u) order by $m descending return {\"M\": $m, \"c\": $c}, 1, 7)");
+  }
+
+  @Test
+  void concatDecorationOnAPlainStringKey() throws Exception {
+    // The decoration is emission-only and general: a plain dict key served by the string flat
+    // arm, emitted through concat with a prefix.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "let $c := count($u) order by $c descending return {\"d\": concat(\"dept-\", $d), \"c\": $c}, 1, 3)");
+  }
+
   // ---- unlimited ordered group-by must still match (expression-level sort path) --------------
 
   @Test
@@ -362,9 +396,9 @@ public final class GroupTopKDifferentialTest {
 
   private static void installProjection(final JsonResourceSession session) {
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
-    final String[] fields = {"id", "k7", "k40", "amount", "dept", "name", "tier", "bonus", "bk", "big"};
-    final Type[] types =
-        {Type.LON, Type.LON, Type.LON, Type.LON, Type.STR, Type.STR, Type.STR, Type.LON, Type.LON, Type.LON};
+    final String[] fields = {"id", "k7", "k40", "amount", "dept", "name", "tier", "bonus", "bk", "big", "ts"};
+    final Type[] types = {Type.LON, Type.LON, Type.LON, Type.LON, Type.STR, Type.STR, Type.STR, Type.LON, Type.LON,
+        Type.LON, Type.STR};
     final List<Path<QNm>> fieldPaths = new ArrayList<>(fields.length);
     final List<Type> typeList = new ArrayList<>(fields.length);
     for (int i = 0; i < fields.length; i++) {
