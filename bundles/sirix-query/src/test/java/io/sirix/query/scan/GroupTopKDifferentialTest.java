@@ -362,6 +362,53 @@ public final class GroupTopKDifferentialTest {
 
   // ---- harness --------------------------------------------------------------------------------
 
+  // ---- conditional keys (the Q39 CASE WHEN shape) ---------------------------------------------
+
+  @Test
+  void conditionalKeyAmongPlainCompositeKeys() throws Exception {
+    // The Q39 shape: numeric keys + a two-conjunct conditional string key + a plain string key,
+    // ordered by count under a subsequence cap.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $t := $u.k7, $src := (if ($u.k7 = 0 and $u.k40 = 0) then $u.name else \"\"), $d := $u.dept "
+        + "group by $t, $src, $d let $c := count($u) order by $c descending "
+        + "return {\"t\": $t, \"src\": $src, \"d\": $d, \"c\": $c}, 1, 8)");
+  }
+
+  @Test
+  void conditionalKeyElseLiteralMergesWithStoredValues() throws Exception {
+    // else "Eng" COLLIDES with a stored dept: rows failing the condition and rows passing it
+    // with dept = "Eng" are ONE group to the interpreter — the else branch must hash into the
+    // same domain as dict entries or the served route splits them.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := (if ($u.k7 = 0) then $u.dept else \"Eng\") group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
+  }
+
+  @Test
+  void conditionalKeyOverMissingOperands() throws Exception {
+    // bonus is missing on ~92% of rows: a missing condition operand is FALSE (else branch).
+    // tier is missing on ~1/3: a TRUE condition over a missing then-field is the
+    // empty-sequence key — the same null-key group a plain deref produces.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := (if ($u.bonus = 100) then $u.dept else \"nb\") group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " let $k := (if ($u.k7 = 1) then $u.tier else \"other\") group by $k "
+        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
+  }
+
+  @Test
+  void aggregateOverConditionalLetDeclines() throws Exception {
+    // min($src) would fold the RAW column, ignoring the condition — must decline whole.
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertOrderedDifferential("subsequence(for $u in " + SRC
+        + " let $d := $u.dept, $src := (if ($u.k7 = 0) then $u.name else \"\") group by $d, $src "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"d\": $d, \"src\": $src, \"m\": min($src), \"c\": $c}, 1, 3)", false);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "an aggregate over a conditional let must DECLINE to the interpreter");
+  }
+
   // ---- deferred string extrema (pass 2) -----------------------------------------------------
 
   @Test

@@ -2407,6 +2407,28 @@ public final class ProjectionIndexByteScan {
       final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
       final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out,
+        leafIndexBase, distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, treeOrNull, null, null,
+        null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupCompositeFlat} with the CONDITIONAL key transform
+   * ({@code if ($r.c1 = L1 [and $r.c2 = L2]) then $r.f else "lit"} — the Q39 CASE WHEN port):
+   * {@code keyCondCols[2k]} ({@code -1} = key {@code k} unconditional) and {@code 2k+1} name the
+   * NUMERIC condition columns, {@code keyCondLits} the literals, {@code keyCondElse[k]} the else
+   * literal's UTF-8 bytes. Condition truth per row is {@code present AND value == literal} — the
+   * general comparison's existential (missing ⇒ false). The then-branch reads the dict component
+   * exactly like an untransformed key (missing field ⇒ the empty-sequence key); the else branch
+   * hashes the literal bytes in the SAME FNV domain as dict entries, so a stored value equal to
+   * the literal merges into the interpreter's group.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
+      final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull,
+      final int[] keyCondCols, final long[] keyCondLits, final byte[][] keyCondElse) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2421,6 +2443,22 @@ public final class ProjectionIndexByteScan {
     final int[] compPresOff = new int[keyCount];
     final int[] compValOff = new int[keyCount];
     final byte[] compKind = new byte[keyCount];
+    final long[] condElseHash = keyCondCols != null
+        ? new long[keyCount]
+        : null;
+    final int[] condPresOff = keyCondCols != null
+        ? new int[2 * keyCount]
+        : null;
+    final int[] condValOff = keyCondCols != null
+        ? new int[2 * keyCount]
+        : null;
+    if (keyCondCols != null) {
+      for (int k = 0; k < keyCount; k++) {
+        if (keyCondCols[2 * k] >= 0) {
+          condElseHash[k] = fnv1a64(keyCondElse[k], 0, keyCondElse[k].length);
+        }
+      }
+    }
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines
@@ -2489,6 +2527,22 @@ public final class ProjectionIndexByteScan {
           throw new IllegalStateException("composite key component " + col + " has unsupported kind " + kind);
         }
       }
+      if (keyCondCols != null) {
+        for (int c2 = 0; c2 < 2 * keyCount; c2++) {
+          final int cc = keyCondCols[c2];
+          if (cc >= 0) {
+            final byte condKind = payload[24 + cc];
+            if (condKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+              throw new IllegalStateException("condition column " + cc + " is not NUMERIC_LONG (kind=" + condKind
+                  + ")");
+            }
+            condPresOff[c2] = tailStart >= 0
+                ? presenceWordsOff(payload, tailStart, cc)
+                : -1;
+            condValOff[c2] = s.columnDataOff[cc];
+          }
+        }
+      }
       final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
           ? s.groupAggPresOff
           : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
@@ -2519,7 +2573,28 @@ public final class ProjectionIndexByteScan {
           for (int k = 0; k < keyCount; k++) {
             final boolean subTransformed = keySubstr != null && keySubstr[2 * k] > 0;
             final long compHash;
-            if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+            if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+              boolean condTrue = true;
+              for (int j = 0; j < 2 && condTrue; j++) {
+                final int cc = keyCondCols[2 * k + j];
+                if (cc < 0) {
+                  continue;
+                }
+                if (condPresOff[2 * k + j] >= 0
+                    && (getLongLE(payload, condPresOff[2 * k + j] + (w << 3)) & 1L << bit) == 0L) {
+                  condTrue = false; // missing condition operand: the comparison is false
+                } else if (getLongLE(payload, condValOff[2 * k + j] + rowIdx * 8) != keyCondLits[2 * k + j]) {
+                  condTrue = false;
+                }
+              }
+              if (!condTrue) {
+                compHash = condElseHash[k];
+              } else if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+                compHash = 0x9E3779B97F4A7C15L; // then-branch over a missing field: empty-sequence key
+              } else {
+                compHash = compDictHash[k][getIntLE(payload, compValOff[k] + rowIdx * 4)];
+              }
+            } else if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
               if (subTransformed) {
                 // xs:integer(substring((), s, l)) = xs:integer("") — the interpreter RAISES.
                 declineFlag[0] = 1;
@@ -2594,9 +2669,46 @@ public final class ProjectionIndexByteScan {
   public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
       final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
       final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets, final int[] keySubstr) {
+    readRowKeyParts(payload, columnDataOff, leafDataEnd, groupColumns, rowIdx, outStrings, outLongs, outPresent,
+        outIsLong, keyOffsets, keySubstr, null, null, null);
+  }
+
+  /** {@link #readRowKeyParts} with the CONDITIONAL key transform — the winner-side companion of
+   * the kernel's conditional arm: the same per-row condition picks the dict entry or the else
+   * literal, so the emitted key part is byte-for-byte the value the row grouped under. */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets, final int[] keySubstr,
+      final int[] keyCondCols, final long[] keyCondLits, final String[] keyCondElse) {
     final int tailStart = presenceTailStart(payload, leafDataEnd);
     for (int k = 0; k < groupColumns.length; k++) {
       final int col = groupColumns[k];
+      if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+        boolean condTrue = true;
+        for (int j = 0; j < 2 && condTrue; j++) {
+          final int cc = keyCondCols[2 * k + j];
+          if (cc < 0) {
+            continue;
+          }
+          if (tailStart >= 0) {
+            final int cPresOff = presenceWordsOff(payload, tailStart, cc);
+            if ((getLongLE(payload, cPresOff + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+              condTrue = false;
+              continue;
+            }
+          }
+          if (getLongLE(payload, columnDataOff[cc] + rowIdx * 8) != keyCondLits[2 * k + j]) {
+            condTrue = false;
+          }
+        }
+        if (!condTrue) {
+          outPresent[k] = true;
+          outIsLong[k] = false;
+          outStrings[k] = keyCondElse[k];
+          continue;
+        }
+        // Condition holds: fall through to the plain dict read below (missing ⇒ absent part).
+      }
       if (tailStart >= 0) {
         final int presOff = presenceWordsOff(payload, tailStart, col);
         if ((getLongLE(payload, presOff + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {

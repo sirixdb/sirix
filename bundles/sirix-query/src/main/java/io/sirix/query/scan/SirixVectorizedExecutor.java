@@ -10445,13 +10445,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr) {
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
       }
       final int keyCount = groupFields.length;
       if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] groupAgg decline: keyCount " + keyCount + " vs max "
+              + ProjectionIndexByteScan.MAX_GROUP_COLUMNS);
+        }
         return null;
       }
       // Unanchored: this route's kernels visit every row of every row group with per-leaf
@@ -10461,6 +10466,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           ? null
           : compile(predicateOrNull, false);
       final ArrayList<String> required = new ArrayList<>();
+      if (keyCondFields != null) {
+        for (final String cf : keyCondFields) {
+          if (cf != null && !required.contains(cf)) {
+            required.add(cf);
+          }
+        }
+      }
       for (final String g : groupFields) {
         if (!required.contains(g)) {
           required.add(g);
@@ -10485,6 +10497,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // NUMERIC_DOUBLE, STRING_SET, BOOLEAN — declines.
       boolean numericSingleKey = false;
       boolean anyNumericComponent = false;
+      final int[] keyCondCols = keyCondElse != null
+          ? new int[2 * keyCount]
+          : null;
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
         if (col < 0) {
@@ -10495,11 +10510,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final byte kind = handle.columnKindOf(col);
         final boolean keyShifted = keyOffsets != null && keyOffsets[g] != 0L;
         final boolean keySubstring = keySubstr != null && keySubstr[2 * g] != 0;
+        final boolean keyConditional = keyCondElse != null && keyCondElse[g] != null;
         if (keyShifted && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           return null; // an arithmetic shift needs a numeric component
         }
         if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return null; // a substring transform needs a dict component
+        }
+        if (keyCondCols != null) {
+          keyCondCols[2 * g] = -1;
+          keyCondCols[2 * g + 1] = -1;
+        }
+        if (keyConditional) {
+          // The then-branch reads the dict component; the else branch is a string literal —
+          // a numeric then-branch would emit mixed-type keys and stays declined.
+          if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT || keyShifted || keySubstring) {
+            return null;
+          }
+          for (int j = 0; j < 2; j++) {
+            final String cf = keyCondFields[2 * g + j];
+            if (cf == null) {
+              continue;
+            }
+            final int cc = handle.columnOf(cf);
+            // Equality against the column's truncated longs: a known-non-integral column
+            // (0.5 stored as 0) would satisfy `= 0` the interpreter rejects. Null-bearing
+            // condition columns order differently from missing — the sparse gate declines.
+            if (cc < 0 || handle.columnKindOf(cc) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+                || handle.numericColumnKnownNonIntegral(cc, fetcher)
+                || !handle.columnSparseClean(cc, fetcher, materializer)) {
+              return null;
+            }
+            keyCondCols[2 * g + j] = cc;
+          }
+          if (keyCondCols[2 * g] < 0) {
+            return null; // a conditional key with no condition column is not this shape
+          }
         }
         if (keySubstr != null && keySubstr[2 * g] < 0 && keyCount > 1) {
           return null; // the STRING substring variant serves single keys via the packed arm only
@@ -10697,6 +10743,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           final long[] transformDecline = anyKeyTransform
               ? new long[1]
               : null;
+          final byte[][] keyCondElseBytes = keyCondElse != null
+              ? new byte[keyCount][]
+              : null;
+          if (keyCondElseBytes != null) {
+            for (int g = 0; g < keyCount; g++) {
+              if (keyCondElse[g] != null) {
+                keyCondElseBytes[g] = keyCondElse[g].getBytes(StandardCharsets.UTF_8);
+              }
+            }
+          }
           @SuppressWarnings("unchecked")
           final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
               ? new Long2ObjectOpenHashMap[eff]
@@ -10722,7 +10778,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 cdBlock >= 0
                     ? cdBudgets[idx]
                     : null,
-                keyOffsets, keySubstr, transformDecline, tree);
+                keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes);
             tables[idx] = local;
           });
           if (transformDecline != null && transformDecline[0] != 0) {
@@ -10821,7 +10877,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
             }
             ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
-                longParts, present, isLong, keyOffsets, keySubstr);
+                longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keyCondElse);
             out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
                 aggFields, outNames, distinctFields, cdBase));
           }

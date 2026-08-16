@@ -125,6 +125,22 @@ public final class GroupAggregateDetectionStage implements Stage {
   public static final String GROUP_AGG_CONST_ENTRY_POS = "SIRIX_GROUP_AGG_CONST_ENTRY_POS";
   public static final String GROUP_AGG_CONST_ENTRY_NAMES = "SIRIX_GROUP_AGG_CONST_ENTRY_NAMES";
   public static final String GROUP_AGG_CONST_ENTRY_VALUES = "SIRIX_GROUP_AGG_CONST_ENTRY_VALUES";
+  /**
+   * CONDITIONAL key transform (the Q39 {@code CASE WHEN} port):
+   * {@code let $k := if ($r.c1 = L1 [and $r.c2 = L2]) then $r.f else "lit"}. Three parallel
+   * properties: {@code String[2*keyCount]} condition fields (slot {@code 2k+1} {@code null} for a
+   * single-conjunct condition; both {@code null} = key not conditional), {@code long[2*keyCount]}
+   * the integer literals compared against, and {@code String[keyCount]} the else-branch string
+   * literal ({@code null} = key not conditional — the authoritative marker). The kernel evaluates
+   * the condition per row from the numeric condition columns (missing ⇒ false, the general
+   * comparison's existential); the then-branch reads the dict component (missing ⇒ the
+   * empty-sequence key, exactly the untransformed deref's behavior); the else branch hashes the
+   * literal's bytes in the SAME domain as dict entries, so a stored value equal to the literal
+   * lands in the same group the interpreter puts it in.
+   */
+  public static final String GROUP_AGG_KEY_COND_FIELDS = "SIRIX_GROUP_AGG_KEY_COND_FIELDS";
+  public static final String GROUP_AGG_KEY_COND_LITS = "SIRIX_GROUP_AGG_KEY_COND_LITS";
+  public static final String GROUP_AGG_KEY_COND_ELSE = "SIRIX_GROUP_AGG_KEY_COND_ELSE";
 
   /** Mirrors the kernel's packed-key bound (ProjectionIndexByteScan.MAX_GROUP_COLUMNS). */
   private static final int MAX_GROUP_KEYS = 5;
@@ -187,6 +203,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     final List<Long> letOffsets = new ArrayList<>();
     // Per pre-group let: (start, length) of an xs:integer(substring(...)) binding, or null.
     final List<int[]> letSubstr = new ArrayList<>();
+    // Per pre-group let: the conditional shape `if (cond) then $r.f else "lit"`, or null.
+    final List<CondDeref> letCond = new ArrayList<>();
     final String[] subField = new String[1];
     // Pre-group lets bound to a LITERAL: constant group keys (`let $g := 1 ... group by $g`).
     final List<QNm> constLetVars = new ArrayList<>();
@@ -248,7 +266,8 @@ public final class GroupAggregateDetectionStage implements Stage {
             if (groupSpecVars.contains(letVar)) {
               return;
             }
-            final Agg agg = aggregateCall(current.getChild(1), loopVar, letVars, letFields, letOffsets, letSubstr);
+            final Agg agg = aggregateCall(current.getChild(1), loopVar, letVars, letFields, letOffsets, letSubstr,
+                letCond);
             if (agg == null) {
               return;
             }
@@ -257,13 +276,20 @@ public final class GroupAggregateDetectionStage implements Stage {
             postGroupFields.add(agg.field());
             postGroupOffsets.add(agg.offset());
           } else {
-            final AST bound = current.getChild(1);
+            AST bound = current.getChild(1);
+            // `let $x := (expr)` arrives ParenthesizedExpr-wrapped (the Q40 lesson: the parser
+            // keeps parens until later stages). A SINGLE-child wrap is transparent; a
+            // multi-child one is a sequence literal and stays — no recognizer claims it.
+            while (bound.getType() == XQ.ParenthesizedExpr && bound.getChildCount() == 1) {
+              bound = bound.getChild(0);
+            }
             final String field = loopVarDerefField(bound, loopVar);
             if (field != null) {
               letVars.add(letVar);
               letFields.add(field);
               letOffsets.add(0L);
               letSubstr.add(null);
+              letCond.add(null);
             } else if (bound.getType() == XQ.Int) {
               // A literal binding: a CONSTANT group key candidate (`let $g := 1`). Only a
               // group-by spec (and the record entry echoing it) may consume it.
@@ -280,6 +306,16 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letFields.add(shifted.field());
                 letOffsets.add(shifted.offset());
                 letSubstr.add(null);
+                letCond.add(null);
+                continue;
+              }
+              final CondDeref cond = conditionalDeref(bound, loopVar);
+              if (cond != null) {
+                letVars.add(letVar);
+                letFields.add(cond.thenField());
+                letOffsets.add(0L);
+                letSubstr.add(null);
+                letCond.add(cond);
                 continue;
               }
               int[] sub = integerOfSubstring(bound, loopVar, subField);
@@ -295,6 +331,7 @@ public final class GroupAggregateDetectionStage implements Stage {
               letFields.add(subField[0]);
               letOffsets.add(0L);
               letSubstr.add(new int[] {sub[0], sub[1], subKind});
+              letCond.add(null);
             }
           }
         }
@@ -418,6 +455,10 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String[] groupFields = new String[keyCount];
     final long[] keyOffsets = new long[keyCount];
     final int[] keySubstr = new int[2 * keyCount];
+    final String[] keyCondFields = new String[2 * keyCount];
+    final long[] keyCondLits = new long[2 * keyCount];
+    final String[] keyCondElse = new String[keyCount];
+    boolean anyCondKey = false;
     final QNm[] realKeyVars = new QNm[keyCount];
     final List<Integer> decorPos = new ArrayList<>();
     final List<String> decorPrefixes = new ArrayList<>();
@@ -492,7 +533,16 @@ public final class GroupAggregateDetectionStage implements Stage {
       keySubstr[2 * realIdx + 1] = sub == null
           ? 0
           : sub[1];
-      anyKeyTransform |= keyOffsets[realIdx] != 0L || sub != null;
+      final CondDeref keyCond = letCond.get(letIdx);
+      if (keyCond != null) {
+        keyCondFields[2 * realIdx] = keyCond.condField1();
+        keyCondLits[2 * realIdx] = keyCond.condLit1();
+        keyCondFields[2 * realIdx + 1] = keyCond.condField2();
+        keyCondLits[2 * realIdx + 1] = keyCond.condLit2();
+        keyCondElse[realIdx] = keyCond.elseLit();
+        anyCondKey = true;
+      }
+      anyKeyTransform |= keyOffsets[realIdx] != 0L || sub != null || keyCond != null;
       if (decorPrefix != null || decorSuffix != null) {
         decorPos.add(realIdx);
         decorPrefixes.add(decorPrefix == null
@@ -536,7 +586,7 @@ public final class GroupAggregateDetectionStage implements Stage {
         emittedPostGroupVars.add(valueVar);
         emittedPostGroupAt.add(keyCount + i);
       } else {
-        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets, letSubstr);
+        agg = aggregateCall(value, loopVar, letVars, letFields, letOffsets, letSubstr, letCond);
         if (agg == null) {
           return;
         }
@@ -595,6 +645,11 @@ public final class GroupAggregateDetectionStage implements Stage {
       pipeExpr.setProperty(GROUP_AGG_KEY_OFFSETS, keyOffsets);
       pipeExpr.setProperty(GROUP_AGG_KEY_SUBSTR, keySubstr);
     }
+    if (anyCondKey) {
+      pipeExpr.setProperty(GROUP_AGG_KEY_COND_FIELDS, keyCondFields);
+      pipeExpr.setProperty(GROUP_AGG_KEY_COND_LITS, keyCondLits);
+      pipeExpr.setProperty(GROUP_AGG_KEY_COND_ELSE, keyCondElse);
+    }
     if (!decorPos.isEmpty()) {
       final int[] dp = new int[decorPos.size()];
       for (int i = 0; i < dp.length; i++) {
@@ -635,6 +690,66 @@ public final class GroupAggregateDetectionStage implements Stage {
   private record ShiftedDeref(String field, long offset) {
   }
 
+  /** A pre-group let's conditional key {@code if ($loop.c1 = L1 [and $loop.c2 = L2]) then
+   * $loop.f else "lit"} — the SQL {@code CASE WHEN} port. {@code condField2} is {@code null}
+   * for a single-conjunct condition. */
+  private record CondDeref(String condField1, long condLit1, String condField2, long condLit2, String thenField,
+      String elseLit) {
+  }
+
+  /**
+   * Recognize the conditional key shape. Strict on purpose: the condition is one or two
+   * {@code $loop.field = <int literal>} GENERAL comparisons (missing ⇒ false, the kernel's
+   * existential), the then-branch a direct deref, the else-branch a string literal. Anything
+   * wider (value comparisons, nested conditions, non-literal branches) declines the let.
+   */
+  private static CondDeref conditionalDeref(final AST expr, final QNm loopVar) {
+    if (expr == null || expr.getType() != XQ.IfExpr || expr.getChildCount() != 3) {
+      return null;
+    }
+    final AST cond = expr.getChild(0);
+    final String thenField = loopVarDerefField(expr.getChild(1), loopVar);
+    final AST elseBranch = expr.getChild(2);
+    if (thenField == null || elseBranch.getType() != XQ.Str || !(elseBranch.getValue() instanceof Str elseLit)) {
+      return null;
+    }
+    final long[] lit = new long[1];
+    if (cond.getType() == XQ.AndExpr && cond.getChildCount() == 2) {
+      final String f1 = eqCondField(cond.getChild(0), loopVar, lit);
+      final long l1 = lit[0];
+      if (f1 == null) {
+        return null;
+      }
+      final String f2 = eqCondField(cond.getChild(1), loopVar, lit);
+      if (f2 == null) {
+        return null;
+      }
+      return new CondDeref(f1, l1, f2, lit[0], thenField, elseLit.stringValue());
+    }
+    final String f1 = eqCondField(cond, loopVar, lit);
+    return f1 == null
+        ? null
+        : new CondDeref(f1, lit[0], null, 0L, thenField, elseLit.stringValue());
+  }
+
+  /** {@code $loop.field = <int literal>} (either operand order, general {@code =} only) →
+   * the field name, with the literal in {@code litOut[0]}; else {@code null}. */
+  private static String eqCondField(final AST cmp, final QNm loopVar, final long[] litOut) {
+    if (cmp == null || cmp.getType() != XQ.ComparisonExpr || cmp.getChildCount() != 3
+        || cmp.getChild(0).getType() != XQ.GeneralCompEQ) {
+      return null;
+    }
+    for (int side = 0; side < 2; side++) {
+      final String field = loopVarDerefField(cmp.getChild(1 + side), loopVar);
+      final long lit = intValue(cmp.getChild(2 - side));
+      if (field != null && lit != Long.MIN_VALUE) {
+        litOut[0] = lit;
+        return field;
+      }
+    }
+    return null;
+  }
+
   /**
    * Parse an aggregate call over the grouped loop variable.
    *
@@ -649,7 +764,8 @@ public final class GroupAggregateDetectionStage implements Stage {
    * @return the aggregate, or {@code null} when the expression is not servable
    */
   private static Agg aggregateCall(final AST call, final QNm loopVar, final List<QNm> letVars,
-      final List<String> letFields, final List<Long> letOffsets, final List<int[]> letSubstr) {
+      final List<String> letFields, final List<Long> letOffsets, final List<int[]> letSubstr,
+      final List<CondDeref> letCond) {
     if (call == null || call.getType() != XQ.FunctionCall || call.getChildCount() != 1
         || !(call.getValue() instanceof QNm fn)) {
       return null;
@@ -659,7 +775,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     // cast flows through every annotation layer unchanged; emission applies Brackit's own cast to
     // the exact value, digit-for-digit what the interpreter's constructor function computes.
     if (Namespaces.XS_NSURI.equals(fn.getNamespaceURI()) && "double".equals(fn.getLocalName())) {
-      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets, letSubstr);
+      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets, letSubstr, letCond);
       return inner == null || inner.func().startsWith("dbl:")
           ? null
           : new Agg("dbl:" + inner.func(), inner.field(), inner.offset());
@@ -691,7 +807,7 @@ public final class GroupAggregateDetectionStage implements Stage {
           }
           if (dArg.getType() == XQ.VariableRef && dArg.getValue() instanceof QNm dv) {
             final int li = letVars.indexOf(dv);
-            if (li >= 0 && letOffsets.get(li) == 0L && letSubstr.get(li) == null) {
+            if (li >= 0 && letOffsets.get(li) == 0L && letSubstr.get(li) == null && letCond.get(li) == null) {
               // A SHIFTED let stays declined: distinct-count is shift-invariant in principle,
               // but proving that here buys nothing ClickBench-shaped.
               return new Agg("count-distinct", letFields.get(li), 0L);
@@ -710,8 +826,8 @@ public final class GroupAggregateDetectionStage implements Stage {
     }
     if (arg.getType() == XQ.VariableRef && arg.getValue() instanceof QNm argVar) {
       final int letIdx = letVars.indexOf(argVar);
-      if (letIdx >= 0 && letSubstr.get(letIdx) == null) {
-        // A substring-transformed let as an aggregate operand would fold the RAW column.
+      if (letIdx >= 0 && letSubstr.get(letIdx) == null && letCond.get(letIdx) == null) {
+        // A substring- or conditionally-transformed let as an operand would fold the RAW column.
         return new Agg(func, letFields.get(letIdx), letOffsets.get(letIdx));
       }
     }

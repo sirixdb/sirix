@@ -67,6 +67,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   /** Per-key transform annotations (see the detection stage), or {@code null} for plain keys. */
   private final long[] keyOffsets;
   private final int[] keySubstr;
+  /** Conditional key transform (Q39's CASE WHEN shape), or {@code null}s for none. */
+  private final String[] keyCondFields;
+  private final long[] keyCondLits;
+  private final String[] keyCondElse;
   /** Concat-emitted key entries: literal prefix/suffix decoration per annotated position. */
   private final int[] decorPos;
   private final String[] decorPrefix;
@@ -83,7 +87,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
-      final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse, final int[] decorPos,
+      final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
       final String[] constEntryNames, final long[] constEntryValues, final SourceRef runtimeSourceRef,
       final Expr genericFallback) {
     this.executor = executor;
@@ -98,6 +103,9 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.genericFallback = genericFallback;
     this.keyOffsets = keyOffsets;
     this.keySubstr = keySubstr;
+    this.keyCondFields = keyCondFields;
+    this.keyCondLits = keyCondLits;
+    this.keyCondElse = keyCondElse;
     this.decorPos = decorPos;
     this.decorPrefix = decorPrefix;
     this.decorSuffix = decorSuffix;
@@ -137,7 +145,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     if (executor.canExecute(ctx)) {
       final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
           predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit, keyOffsets, keySubstr);
+          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse);
       if (served != null) {
         if (orderIndexes == null || served.ordered()) {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to
