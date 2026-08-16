@@ -318,18 +318,27 @@ Measured at 1 M rows: the index costs **51.6 s to build** and takes data size fr
 | projection + numeric group-by kernels + widened detection | 3 |
 | \+ NE in the mask algebra | 6 |
 | \+ string NE | 7 |
-| \+ top-K group selection, flat partitioned tables, string ordering + contains predicates, grouped COUNT(DISTINCT), composite + transformed + constant group keys (2026-08-16) | **29 of 43 at ≤ 0.35 s hot** |
+| \+ top-K group selection, flat partitioned tables, string ordering + contains predicates, grouped COUNT(DISTINCT), composite + transformed + constant group keys (2026-08-16) | 29 of 43 at ≤ 0.35 s hot |
+| \+ string sorted scans + return-field, deferred grouped string MIN/MAX, `fn:not` in the mask algebra, conditional (CASE WHEN) keys, HAVING, `string-length` operands, ORDER BY `xs:double(avg)`, regex keys, 128-bit-sum aggregates, predicate scans (2026-08-16, later) | **every query serves; 43-query hot total 2.06 s** |
 
-The 2026-08-16 kernel campaign took the 43-query hot total from **69.0 s to 24.16 s** (DuckDB:
-0.351 s on the same box — 197× down to 69×). The ordered-group-by cap (`fn:subsequence` as the sole
-consumer) now reaches the kernel, which heap-selects the first K groups of the stable order instead
+The 2026-08-16 kernel campaign took the 43-query hot total from **69.0 s to 2.06 s** (DuckDB:
+0.351 s on the same box — 197× down to 5.9×). The ordered-group-by cap (`fn:subsequence` as the sole
+consumer) reaches the kernel, which heap-selects the first K groups of the stable order instead
 of sorting and materializing them all; group accumulators live in flat open-addressed tables merged
 partition-parallel; the string arm groups by the 64-bit FNV hash of the value bytes and decodes
-strings for the K winners only. Every served query is byte-identical to the interpreter (Q17
-excepted, as below). The remaining ~24 s is itemized in the session memory
-(`clickbench-kernel-campaign`): Q39/Q42 computed keys, Q40's OR predicate, Q24-26 string sorted
-scans, Q28 regex keys, Q27 HAVING, string min/max routes, and per-query JIT warmup under the
-3-try protocol.
+strings for the K winners only. Every served query is byte-identical to the interpreter.
+
+The COLD regimes were then attacked separately (all three matter: cold one-shot, cold cache, warm).
+The finding that reframed the work: SirixDB's cold cost was CPU, not I/O — the first query to fall
+back to the row path deserialized every record page (~5.8 s at 1 M rows, identical with a cold and
+a warm OS cache), while loading the projection itself costs ~0.3-0.5 s. Three declines triggered
+that hydration and all three now serve: `avg(UserID)` (long-sum overflow → a 128-bit-sum kernel;
+the interpreter merely promotes), `min/max(EventDate)` (the dict route now probes BEFORE the
+type-discovery row scan), and Q19's point lookup (a predicate-scan route: mask → record keys in
+document order → per-record materialization of just the matches). Fresh-process per-query
+latencies after: 0.14-2.3 s with an fadvise-evicted cache, 0.13-1.9 s warm — the residual is the
+JVM/JIT floor plus projection materialization, not data I/O (DuckDB: 0.02-0.10 s / 0.01-0.07 s;
+its AOT-compiled binary has no such floor, and ours is blocked by oracle/graal#14255).
 
 Q7 (`AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC`) is the clearest single case:
 warm **1.318 s -> 0.032 s**, a 41x improvement, once NE stopped forcing it onto the row path.
@@ -394,8 +403,9 @@ compilation context. Reproduction is one clone, one `nativeCompile`, and
 * **Scale.** 1 M measured; 100 M not yet run.
 * **No AOT/PGO number** — see the native-image section; that one is blocked on a GraalVM bug
   (oracle/graal#14255), not on us.
-* **Only 6 of 43 queries are projection-served.** The remaining gap is predicate vocabulary, not
-  group-by machinery — see [What the projection actually serves](#what-the-projection-actually-serves).
+* ~~Only 6 of 43 queries are projection-served.~~ As of the end of the 2026-08-16 campaign every
+  query serves from the projection (group aggregates, sorted/predicate scans, scalar aggregates);
+  no ClickBench query touches the row path anymore.
 * **Q29** (ninety `SUM(ResolutionWidth + k)`): the DEFAULT variant is the one-pass form
   (`let $g := 1, $w0 …, $w89 … group by $g`); variant 1 is the ninety independent sums. (An earlier
   revision of this bullet said the reverse — reading it, one would "fix" Q29 by switching to the
