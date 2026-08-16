@@ -12013,21 +12013,56 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> armPayloads = leafPayloadsOrNull(handle);
-      if (armPayloads == null) {
-        return null;
-      }
-      if (armPayloads.isEmpty()) {
+      // SLICED first (regime-gated): the const-group fold reads only its operand columns —
+      // this route was the suite's LAST payload materializer once the keyed arms sliced.
+      final ProjectionColumnStore constStore = handle.columnStoreOrNull();
+      final boolean constSliced = GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg
+          && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
+          && allColumnsSliceable(constStore, aggCols);
+      final List<byte[]> armPayloads = constSliced
+          ? null
+          : leafPayloadsOrNull(handle);
+      if (!constSliced) {
+        if (armPayloads == null) {
+          return null;
+        }
+        if (armPayloads.isEmpty()) {
+          CONST_GROUP_AGG_SERVED.increment();
+          return new ItemSequence();
+        }
+      } else if (constStore.rowGroupCount() == 0) {
         CONST_GROUP_AGG_SERVED.increment();
         return new ItemSequence();
       }
       final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
       if (summedCols.length > 0) {
-        ProjectionIndexByteScan.requireGroupSumsFitLong(armPayloads, summedCols);
+        if (constSliced) {
+          ProjectionColumnGroupScan.requireGroupSumsFitLong(constStore, summedCols);
+        } else {
+          ProjectionIndexByteScan.requireGroupSumsFitLong(armPayloads, summedCols);
+        }
       }
-      final int rowGroupCount = armPayloads.size();
+      final int rowGroupCount = constSliced
+          ? constStore.rowGroupCount()
+          : armPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      final ProjectionColumnStore.ColumnSlice[][] kPredCols;
+      final ProjectionColumnStore.ColumnSlice[][] kAggCols;
+      if (constSliced) {
+        final ProjectionColumnStore.ColumnSegmentFetcher kFetcher = columnFetcher();
+        kPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(constStore, preds, kFetcher);
+        kAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+        for (int a = 0; a < aggCols.length; a++) {
+          if (constStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+          }
+          kAggCols[a] = constStore.column(aggCols[a], kFetcher);
+        }
+      } else {
+        kPredCols = null;
+        kAggCols = null;
+      }
       final long[][] perThread = new long[eff][];
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
@@ -12035,8 +12070,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (from >= to)
           return;
         final long[] local = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols,
-            local);
+        if (constSliced) {
+          ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds, kPredCols, kAggCols, from, to, local);
+        } else {
+          ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols,
+              local);
+        }
         perThread[idx] = local;
       });
       final long[] acc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
