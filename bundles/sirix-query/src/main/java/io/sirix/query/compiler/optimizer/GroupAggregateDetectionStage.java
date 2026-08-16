@@ -383,7 +383,11 @@ public final class GroupAggregateDetectionStage implements Stage {
     if (pipeExpr.getProperty(SOURCE_PATH) == null) {
       return;
     }
-    final int keyTotal = keyCount + constKeySpecs.size();
+    // Pure constant grouping (Q29) does NOT emit its keys — the record is aggregates only.
+    // MIXED grouping (Q34) must emit every key, constant entries included.
+    final int keyTotal = constMode
+        ? 0
+        : keyCount + constKeySpecs.size();
     final AST returnExpr = current.getChild(0);
     if (returnExpr == null || returnExpr.getType() != XQ.ObjectConstructor
         || returnExpr.getChildCount() < keyTotal + 1) {
@@ -447,8 +451,10 @@ public final class GroupAggregateDetectionStage implements Stage {
       anyKeyTransform |= keyOffsets[realIdx] != 0L || sub != null;
       realIdx++;
     }
-    if (realIdx != keyCount || constEntryPos.size() != constKeySpecs.size()) {
-      return; // some spec var was never emitted — the record does not echo the grouping
+    if (realIdx != keyCount || (!constMode && constEntryPos.size() != constKeySpecs.size())) {
+      // Some spec var was never emitted — the record does not echo the grouping. Pure const
+      // mode is exempt: its keys are legitimately unemitted (the record is aggregates only).
+      return;
     }
     final int aggCount = returnExpr.getChildCount() - keyTotal;
     final String[] funcs = new String[aggCount];
@@ -483,7 +489,6 @@ public final class GroupAggregateDetectionStage implements Stage {
         }
       }
       if (agg.offset() != 0L && !constMode) {
-        // The per-group kernels do not apply offsets; only the single-group route does.
         return;
       }
       funcs[i] = agg.func();
