@@ -1807,6 +1807,67 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void overflowingSumServesThroughTheWideAccumulator() throws IOException {
+    // 64-bit-id-scale values: the exact long sum overflows after two rows, where the
+    // interpreter promotes to big-integer arithmetic. The 128-bit-sum fallback must serve
+    // the identical digits for sum and avg (and untouched min/max/count) instead of
+    // declining to the row path — the cold-regime whale this exists for.
+    query("""
+          jn:store('json-path1','wide.jn','[
+            {"uid": 4611686018427387904},
+            {"uid": 4611686018427387903},
+            {"uid": 4611686018427387902},
+            {"uid": 1},
+            {"uid": -4611686018427387900}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','wide.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid'),
+              ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String[] queries = {
+        "avg(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
+        "sum(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
+        "min(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
+        "max(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)"};
+    // HAND-COMPUTED oracles, not a "generic" leg: aggregate claims serve through the
+    // AUTO-WIRED executor even before this test installs its own, so a generic run would
+    // take the same projection route and agree with any bug vacuously (the trap
+    // auto-wired-vectorized-executor already documented). sum = 2*2^62 + 2; avg divides
+    // exactly (ends in 0/5), so the interpreter emits the bare integer.
+    final String[] expected =
+        {"1844674407370955162", "9223372036854775810", "-4611686018427387900", "4611686018427387904"};
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("wide.jn");
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.projectionAggregatesServed();
+        for (int i = 0; i < queries.length; i++) {
+          Assertions.assertEquals(expected[i], evaluateQuery(chain, ctx, queries[i]).trim(),
+              "wide-accumulator exact value, query " + i);
+        }
+        Assertions.assertTrue(SirixVectorizedExecutor.projectionAggregatesServed() > servedBefore,
+            "the overflowing aggregate must SERVE through the wide accumulator, not fall back");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void sortedScanReturnFieldGuardsTheSubsequenceWindow() throws IOException {
     // fn:subsequence counts ITEMS, not rows: a top-K winner whose return field is
     // MISSING yields empty and shifts the window into rows the scan never fetched.
