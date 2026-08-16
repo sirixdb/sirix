@@ -1001,6 +1001,10 @@ public final class ProjectionColumnSegmentFoldScan {
           case BETWEEN_GT_LE -> v > lit && v <= high;
           case BETWEEN_GE_LT -> v >= lit && v < high;
           case BETWEEN_GE_LE -> v >= lit && v <= high;
+          // Unreachable by construction — `eligible` rejects any predicate carrying
+          // stringLitBytes, which every string op does. Kept loud, not silent.
+          case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+            throw new IllegalStateException("string op in the fold-scan kernel: " + p.op);
         };
         if (match) {
           out |= 1L << bit;

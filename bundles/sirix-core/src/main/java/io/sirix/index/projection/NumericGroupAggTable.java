@@ -131,6 +131,14 @@ public final class NumericGroupAggTable {
     return keys[slotBase / slotWidth];
   }
 
+  /** The partition {@link #mergePartition} assigns {@code key} to under {@code shift} — the ONE
+   * hash policy, so side structures (per-group distinct sets) split identically. */
+  public static int partitionOf(final long key, final int shift) {
+    return shift >= 64
+        ? 0
+        : (int) (HashCommon.mix(key) >>> shift);
+  }
+
   /** Source reference of the entry at {@code slotBase} (aux lane only). */
   public long auxAtBase(final int slotBase) {
     return aux[slotBase / slotWidth];

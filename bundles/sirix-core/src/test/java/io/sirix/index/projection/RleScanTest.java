@@ -58,6 +58,11 @@ final class RleScanTest {
     return mask;
   }
 
+  /** The ops the numeric run kernel refuses by contract. */
+  private static boolean isStringOp(final Op op) {
+    return op == Op.STR_LT || op == Op.STR_LE || op == Op.STR_GT || op == Op.STR_GE || op == Op.STR_CONTAINS;
+  }
+
   /** One row against one operator — the definition the run-aware kernel has to agree with. */
   private static boolean satisfies(final long v, final Op op, final long lit, final long high) {
     return switch (op) {
@@ -71,6 +76,9 @@ final class RleScanTest {
       case BETWEEN_GT_LE -> v > lit && v <= high;
       case BETWEEN_GE_LT -> v >= lit && v < high;
       case BETWEEN_GE_LE -> v >= lit && v <= high;
+      // The RLE kernel throws on string ops; this oracle mirrors that they never apply here.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op in the RLE oracle: " + op);
     };
   }
 
@@ -89,6 +97,9 @@ final class RleScanTest {
   void agreesWithPositionalOnEveryOp() {
     final long[] values = expand();
     for (final Op op : Op.values()) {
+      if (isStringOp(op)) {
+        continue; // RLE runs are numeric; the kernel (and the oracle) throw on string ops
+      }
       for (final long lit : new long[] {4, 5, 7, 9, 100, 101}) {
         final long high = lit + 90;
         final long[] mine = allTrue();
@@ -105,6 +116,9 @@ final class RleScanTest {
   void countMatchesTheMask() {
     final long[] values = expand();
     for (final Op op : Op.values()) {
+      if (isStringOp(op)) {
+        continue; // same contract as the mask sweep above
+      }
       for (final long lit : new long[] {5, 9, 100}) {
         final long high = lit + 90;
         long expected = 0;

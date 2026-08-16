@@ -72,6 +72,9 @@ public final class FpCmpIntegralRewriteTest {
       case BETWEEN_GT_LE -> v > p.longLit && v <= p.highLit;
       case BETWEEN_GE_LT -> v >= p.longLit && v < p.highLit;
       case BETWEEN_GE_LE -> v >= p.longLit && v <= p.highLit;
+      // The FpCmp rewrite only ever produces numeric ops.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op from the FpCmp rewrite: " + p.op);
     };
   }
 

@@ -14,6 +14,7 @@ import java.util.List;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
@@ -1995,6 +1996,25 @@ public final class ProjectionIndexByteScan {
   public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
+    conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, -1, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupNumericFlat} with an optional COUNT(DISTINCT) lane: agg
+   * block {@code distinctBlock} is not folded — instead each present value enters the group's
+   * {@link LongOpenHashSet} in {@code distinctOut} (keyed by the group value; the missing-key
+   * group's set is {@code distinctMissing}). {@code budget} is {@code [remaining, exceededFlag]}:
+   * once remaining goes negative the flag is set and the scan stops — the CALLER declines, a
+   * budget stop must never look like an answer. The block's lanes stay zero; the caller writes
+   * the exact set size into its sum lane after the partition-wise union (merging partial SIZES
+   * would double-count values shared between threads).
+   */
+  public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2005,6 +2025,9 @@ public final class ProjectionIndexByteScan {
     final int aggCount = aggColumns.length;
     final int slotWidth = out.slotWidth();
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines; nothing here is an answer
+      }
       final byte[] payload = rowGroupPayloads.get(leaf);
       ensureOffsetScratch(s, columnCountOf(payload));
       final int rowCount = evaluateRowGroupMask(payload, predicates, s);
@@ -2041,12 +2064,14 @@ public final class ProjectionIndexByteScan {
           final int rowIdx = rowBase + bit;
           final long[] slotArr;
           final int base;
+          LongOpenHashSet dset = null;
           if ((groupPresWord & 1L << bit) == 0L) {
             slotArr = missingAcc;
             base = 0;
             if (slotArr[0] == 0) {
               slotArr[1] = leafOrdinalBase | rowIdx;
             }
+            dset = distinctMissing;
           } else {
             final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
             if (gv == 0L) {
@@ -2056,6 +2081,9 @@ public final class ProjectionIndexByteScan {
               slotArr = out.slotsArray();
               base = out.acquire(gv, leafOrdinalBase | rowIdx);
             }
+            if (distinctBlock >= 0) {
+              dset = distinctSetFor(distinctOut, gv);
+            }
           }
           slotArr[base]++;
           for (int a = 0; a < aggCount; a++) {
@@ -2063,6 +2091,12 @@ public final class ProjectionIndexByteScan {
               continue;
             }
             final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+            if (a == distinctBlock) {
+              if (dset.add(v) && --budget[0] < 0) {
+                budget[1] = 1;
+              }
+              continue;
+            }
             final int aggBase = base + 2 + 4 * a;
             slotArr[aggBase]++;
             // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum.
@@ -2091,6 +2125,20 @@ public final class ProjectionIndexByteScan {
   public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
+    conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, -1, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupStringFlat} with the optional COUNT(DISTINCT) lane — the
+   * string twin of the numeric overload's contract, with the group's set keyed by the SAME 64-bit
+   * hash the table keys on.
+   */
+  public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2110,6 +2158,9 @@ public final class ProjectionIndexByteScan {
     int[] dictBase = s.dictSlotBase;
     final int aggCount = aggColumns.length;
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines
+      }
       final byte[] payload = rowGroupPayloads.get(leaf);
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
@@ -2181,12 +2232,14 @@ public final class ProjectionIndexByteScan {
           }
           final long[] slotArr;
           final int base;
+          LongOpenHashSet dset = null;
           if (groupPresOff >= 0 && (groupPresWord & 1L << bit) == 0L) {
             slotArr = missingAcc;
             base = 0;
             if (slotArr[0] == 0) {
               slotArr[1] = leafOrdinalBase | rowIdx;
             }
+            dset = distinctMissing;
           } else {
             final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
             final long ordinal = leafOrdinalBase | rowIdx;
@@ -2213,7 +2266,12 @@ public final class ProjectionIndexByteScan {
                 if (fresh) {
                   out.setZeroAux(leafOrdinalBase | dictId);
                 }
-                foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+                if (distinctBlock < 0) {
+                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+                } else {
+                  foldRowDistinct(zero, 0, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
+                      distinctSetFor(distinctOut, 0L), budget, w, bit, rowIdx);
+                }
                 continue;
               }
               cached = out.acquire(h, ordinal);
@@ -2224,10 +2282,18 @@ public final class ProjectionIndexByteScan {
               }
               dictBase[dictId] = cached;
             }
+            if (distinctBlock >= 0) {
+              dset = distinctSetFor(distinctOut, h);
+            }
             slotArr = out.slotsArray();
             base = cached;
           }
-          foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+          if (distinctBlock < 0) {
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx);
+          } else {
+            foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock, dset, budget, w,
+                bit, rowIdx);
+          }
         }
       }
     }
@@ -2309,6 +2375,45 @@ public final class ProjectionIndexByteScan {
         slotArr[aggBase + 3] = v;
       }
     }
+  }
+
+  /** {@link #foldRow} with block {@code distinctBlock} feeding the group's distinct SET instead
+   * of the fold lanes; its lanes stay zero until the caller writes the merged set size. */
+  private static void foldRowDistinct(final long[] slotArr, final int base, final byte[] payload,
+      final int[] aggPresOff, final int[] aggValOff, final int aggCount, final int distinctBlock,
+      final LongOpenHashSet dset, final long[] budget, final int w, final int bit, final int rowIdx) {
+    slotArr[base]++;
+    for (int a = 0; a < aggCount; a++) {
+      if (aggPresOff[a] >= 0 && (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+        continue;
+      }
+      final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+      if (a == distinctBlock) {
+        if (dset.add(v) && --budget[0] < 0) {
+          budget[1] = 1;
+        }
+        continue;
+      }
+      final int aggBase = base + 2 + 4 * a;
+      slotArr[aggBase]++;
+      slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+      if (v < slotArr[aggBase + 2]) {
+        slotArr[aggBase + 2] = v;
+      }
+      if (v > slotArr[aggBase + 3]) {
+        slotArr[aggBase + 3] = v;
+      }
+    }
+  }
+
+  /** The group's distinct set, created on first sight. */
+  private static LongOpenHashSet distinctSetFor(final Long2ObjectOpenHashMap<LongOpenHashSet> out, final long key) {
+    LongOpenHashSet s = out.get(key);
+    if (s == null) {
+      s = new LongOpenHashSet();
+      out.put(key, s);
+    }
+    return s;
   }
 
   /**
@@ -3299,18 +3404,10 @@ public final class ProjectionIndexByteScan {
               numericFlags, colMask);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
           evalBooleanBytes(payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
-          // This arm used to ignore p.op and always evaluate equality, which was harmless while EQ
-          // was the only string op and becomes a wrong answer the moment another one exists.
-          evalStringEqBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
-          if (p.op == ProjectionIndexScan.Op.NE) {
-            // Complement WITHIN the row group only: bits at and beyond rowCount must stay 0, and
-            // presence is ANDed in below, so a missing cell cannot survive the flip.
-            invertMaskRows(colMask, rowCount);
-          } else if (p.op != ProjectionIndexScan.Op.EQ) {
-            throw new IllegalStateException("STRING_DICT column supports EQ/NE only, got " + p.op);
-          }
-        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+          // Per-entry two-phase evaluation: NE is an ordinary per-entry outcome now (no
+          // complement pass, no tail-mask hazard), and ordering/contains ride the same path.
+          evalStringDictBytes(payload, columnDataOff[p.column], rowCount, p, colMask);
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
           if (p.op != ProjectionIndexScan.Op.EQ) {
             // `!= lit` over a SET is not the complement of membership — the interpreter compares a
@@ -3375,6 +3472,9 @@ public final class ProjectionIndexByteScan {
       case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
       case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
       case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
+      // NEVER skip on string ops: a STRING_DICT column's zone map holds min/max DICT IDS, which
+      // say nothing about the values' order or content — pruning here drops matching leaves.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
     };
   }
 
@@ -3586,27 +3686,34 @@ public final class ProjectionIndexByteScan {
     }
   }
 
-  private static void evalStringEqBytes(final byte[] payload, final int baseOff, final int rowCount,
-      final byte[] literal, final long[] out) {
-    // Dict header: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids]
+  private static void evalStringDictBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final ProjectionIndexScan.ColumnPredicate p, final long[] out) {
+    // Dict header: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids].
+    // Two-phase: the predicate evaluates ONCE per dict entry into an id bitset — a walk this
+    // method already paid to locate the ids region — then the row sweep is one bit test each.
+    // All op semantics live in ProjectionIndexScan#stringDictEntryMatches, shared with the
+    // hydrated and sliced kernels.
     final int dictSize = getIntLE(payload, baseOff);
+    final long[] idBits = new long[dictSize + 63 >>> 6];
+    boolean any = false;
+    final byte[] lit = p.stringLitBytes;
+    final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(lit, 0, lit.length);
     int concatOff = baseOff + 4 + dictSize * 4;
-    int targetDictId = -1;
     for (int i = 0; i < dictSize; i++) {
       final int len = getIntLE(payload, baseOff + 4 + i * 4);
-      if (bytesEqualAt(payload, concatOff, len, literal)) {
-        targetDictId = i;
-        // Don't break — still need concatOff to advance past all dict entries
-        // to find the ids region. Take shortcut: we know ids start at
-        // concatOff + totalLengthsRemaining from here.
+      if (ProjectionIndexScan.stringDictEntryMatches(payload, concatOff, len, p.op, lit, litHasSupplementary)) {
+        idBits[i >>> 6] |= 1L << (i & 63);
+        any = true;
       }
       concatOff += len;
     }
-    if (targetDictId < 0)
+    if (!any) {
       return;
+    }
     final int idsOff = concatOff;
     for (int i = 0; i < rowCount; i++) {
-      if (getIntLE(payload, idsOff + i * 4) == targetDictId) {
+      final int id = getIntLE(payload, idsOff + i * 4);
+      if ((idBits[id >>> 6] & 1L << (id & 63)) != 0L) {
         out[i >>> 6] |= 1L << (i & 63);
       }
     }

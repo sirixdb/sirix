@@ -505,6 +505,16 @@ public final class GroupAggregateDetectionStage implements Stage {
         || !(call.getValue() instanceof QNm fn)) {
       return null;
     }
+    // xs:double(<aggregate>) — SQL AVG is a double, so every ported benchmark wraps avg this way,
+    // and the wrap must not decline the whole pipeline. The token is PREFIXED ("dbl:avg") so the
+    // cast flows through every annotation layer unchanged; emission applies Brackit's own cast to
+    // the exact value, digit-for-digit what the interpreter's constructor function computes.
+    if (Namespaces.XS_NSURI.equals(fn.getNamespaceURI()) && "double".equals(fn.getLocalName())) {
+      final Agg inner = aggregateCall(call.getChild(0), loopVar, letVars, letFields, letOffsets);
+      return inner == null || inner.func().startsWith("dbl:")
+          ? null
+          : new Agg("dbl:" + inner.func(), inner.field(), inner.offset());
+    }
     // Built-in aggregates ONLY: a user-defined function whose LOCAL name is sum/min/max/avg/count
     // (say local:sum) must never be served with fn:* semantics. Unprefixed calls resolve to
     // Brackit's JSONiq default-function namespace; fn:* stays the XQuery namespace — both builtins.
@@ -515,9 +525,32 @@ public final class GroupAggregateDetectionStage implements Stage {
     final String func = fn.getLocalName();
     final AST arg = call.getChild(0);
     if ("count".equals(func)) {
-      return arg.getType() == XQ.VariableRef && loopVar.equals(arg.getValue())
-          ? new Agg(func, null, 0L)
-          : null;
+      if (arg.getType() == XQ.VariableRef && loopVar.equals(arg.getValue())) {
+        return new Agg(func, null, 0L);
+      }
+      // count(distinct-values($r.f)) — the grouped COUNT(DISTINCT). Emitted as its own token,
+      // deliberately NOT in VALUE_FUNCS: a user function literally named `count-distinct` can
+      // never produce it, and the single-argument value funcs never see a nested call.
+      if (arg.getType() == XQ.FunctionCall && arg.getChildCount() == 1 && arg.getValue() instanceof QNm inner
+          && "distinct-values".equals(inner.getLocalName())) {
+        final String ins = inner.getNamespaceURI();
+        if (ins == null || ins.isEmpty() || Namespaces.FN_NSURI.equals(ins) || Namespaces.DEFAULT_FN_NSURI.equals(ins)) {
+          final AST dArg = arg.getChild(0);
+          final String direct = loopVarDerefField(dArg, loopVar);
+          if (direct != null) {
+            return new Agg("count-distinct", direct, 0L);
+          }
+          if (dArg.getType() == XQ.VariableRef && dArg.getValue() instanceof QNm dv) {
+            final int li = letVars.indexOf(dv);
+            if (li >= 0 && letOffsets.get(li) == 0L) {
+              // A SHIFTED let stays declined: distinct-count is shift-invariant in principle,
+              // but proving that here buys nothing ClickBench-shaped.
+              return new Agg("count-distinct", letFields.get(li), 0L);
+            }
+          }
+        }
+      }
+      return null;
     }
     if (!VALUE_FUNCS.contains(func)) {
       return null;

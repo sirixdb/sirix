@@ -261,6 +261,50 @@ public final class GroupTopKDifferentialTest {
         + "let $a := avg($u.bonus) order by $a descending return {\"d\": $d, \"a\": $a}, 1, 9)");
   }
 
+  // ---- grouped COUNT(DISTINCT) ----------------------------------------------------------------
+
+  @Test
+  void countDistinctOrderedByItself() throws Exception {
+    final long before = SirixVectorizedExecutor.groupDistinctServedCount();
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k40 group by $k "
+        + "let $d := count(distinct-values($u.amount)) order by $d descending return {\"k\": $k, \"d\": $d}, 1, 8)");
+    assertTrue(SirixVectorizedExecutor.groupDistinctServedCount() > before,
+        "the distinct route did not serve — agreement would be vacuous");
+  }
+
+  @Test
+  void countDistinctAlongsideValueAggregates() throws Exception {
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k40 group by $k "
+        + "let $c := count($u), $s := sum($u.amount), $d := count(distinct-values($u.id)) "
+        + "order by $c descending return {\"k\": $k, \"c\": $c, \"s\": $s, \"d\": $d}, 1, 6)");
+  }
+
+  @Test
+  void countDistinctOverSparseOperandAnswersZeroNotNull() throws Exception {
+    // 37 of 40 k40 groups have NO bonus: fn:count of the empty distinct-values sequence is 0 —
+    // an Int64 zero, never the JSON null avg/min/max emit for the same emptiness.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k40 group by $k "
+        + "let $c := count($u), $d := count(distinct-values($u.bonus)) order by $c descending "
+        + "return {\"k\": $k, \"c\": $c, \"d\": $d}, 1, 40)");
+  }
+
+  @Test
+  void countDistinctUnderStringGroupKey() throws Exception {
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $t := $u.tier group by $t "
+        + "let $d := count(distinct-values($u.id)) order by $d descending return {\"t\": $t, \"d\": $d}, 1, 4)");
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $n := $u.name group by $n "
+        + "let $d := count(distinct-values($u.k7)) order by $d descending return {\"n\": $n, \"d\": $d}, 1, 9)");
+  }
+
+  @Test
+  void doubleCastAvgServes() throws Exception {
+    // The SQL-AVG idiom: xs:double(avg(...)) must serve, cast digit-for-digit like the
+    // interpreter's constructor function.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k40 group by $k "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"k\": $k, \"a\": xs:double(avg($u.amount)), \"c\": $c}, 1, 7)");
+  }
+
   // ---- unlimited ordered group-by must still match (expression-level sort path) --------------
 
   @Test
