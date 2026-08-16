@@ -39,7 +39,6 @@ import io.sirix.settings.StringCompressionType;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
-import io.sirix.page.KeyValueLeafPage;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -379,9 +378,10 @@ public final class FileChannelReader extends AbstractReader {
       chunk.flip();
       // The bitmap is copied out of the thread-local scratch: the page outlives this call and the
       // scratch is reused by the next page this thread reads.
+      // probe[3] is the page's FSST dictionary id, which only a chunked body states this early; a
+      // monolith page reports "none" here and is kept off this path by regionChunkEligible.
       return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk), probe[0],
-          (int) probe[1], (int) probe[2], KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, regionKindMask, regionDeferMask,
-          bitmap.clone());
+          (int) probe[1], (int) probe[2], probe[3], regionKindMask, regionDeferMask, bitmap.clone());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
