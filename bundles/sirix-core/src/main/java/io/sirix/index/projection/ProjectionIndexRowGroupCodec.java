@@ -104,7 +104,13 @@ public final class ProjectionIndexRowGroupCodec {
    * Manual assembly has no access-mode check to elide, so it costs the same interpreted, in C1 and in
    * C2.
    */
-  private static final boolean MANUAL_LE = !"false".equals(System.getProperty("sirix.projection.manualLE"));
+  private static final boolean MANUAL_LE = System.getProperty("sirix.projection.manualLE") != null
+      ? !"false".equals(System.getProperty("sirix.projection.manualLE"))
+      // Default: manual on the JVM (the cold one-shot rationale above), VarHandle under a NATIVE
+      // IMAGE — AOT compilation removes the interpreter/C1 access-mode checks the manual form
+      // exists to avoid, so manual is a pure 5-8x loss per value there, and the bulk hydrate
+      // executes these loads tens of millions of times.
+      : System.getProperty("org.graalvm.nativeimage.imagecode") == null;
 
   static long getLongLE(final byte[] b, final int off) {
     if (MANUAL_LE) {
