@@ -36,6 +36,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.io.HashAlgorithm;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
@@ -121,22 +122,17 @@ public enum PageKind {
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-
-      switch (binaryVersion) {
-        case V0 -> {
-          return deserializeSlottedPage(resourceConfig, source);
-        }
-        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
+      // Envelope flag bit 0x01 is the body discriminator: set = chunk-framed body, clear = monolith.
+      // Any other bit still fails the fence every page kind applies to unknown extensions.
+      final byte flags = readVersionAndFlagsAllowing(source, ChunkedBodyConfig.FLAG_CHUNKED_BODY);
+      return deserializeSlottedPage(resourceConfig, source, (flags & ChunkedBodyConfig.FLAG_CHUNKED_BODY) != 0);
     }
 
     @Override
     public long probeRegionTableOffset(final BytesIn<?> source, final long[] out, final long @Nullable [] bitmapOut) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-      if (binaryVersion != BinaryEncodingVersion.V0) {
-        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
+      final byte flags = readVersionAndFlagsAllowing(source, ChunkedBodyConfig.FLAG_CHUNKED_BODY);
+      final boolean chunkedBody = (flags & ChunkedBodyConfig.FLAG_CHUNKED_BODY) != 0;
+      out[3] = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
       out[0] = Utils.getVarLong(source); // recordPageKey
       out[1] = source.readInt(); // revision
       IndexType.getType(source.readByte());
@@ -162,6 +158,19 @@ public enum PageKind {
         source.readByte(); // structural flags
       }
       source.readInt(); // templatePoolBytes
+      if (chunkedBody) {
+        // A chunked body says where the tail begins in one field, so the probe steps over META
+        // frame, chunk table and every chunk payload without parsing any of them. The FSST
+        // dictionary id is hoisted into the prefix precisely so this read can surface it: on a
+        // monolith page it lives behind the region table, which is why a bounded read of an FSST
+        // resource has to decline.
+        out[3] = Utils.getVarLong(source); // fsstDictId, 0 = none
+        final int bodyTotalLen = source.readInt();
+        if (bodyTotalLen < 0) {
+          throw new SirixIOException("implausible chunked body length " + bodyTotalLen);
+        }
+        return source.position() + bodyTotalLen;
+      }
       final int compressedLen = source.readInt();
       source.readByte(); // body codec
       if (compressedLen < 0) {
@@ -181,10 +190,8 @@ public enum PageKind {
     @Override
     public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfig,
         final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
-      final BinaryEncodingVersion binaryVersion = readVersionAndFlags(source);
-      if (binaryVersion != BinaryEncodingVersion.V0) {
-        throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
-      }
+      final byte flags = readVersionAndFlagsAllowing(source, ChunkedBodyConfig.FLAG_CHUNKED_BODY);
+      final boolean chunkedBody = (flags & ChunkedBodyConfig.FLAG_CHUNKED_BODY) != 0;
       final long recordPageKey = Utils.getVarLong(source);
       final int revision = source.readInt();
       // indexType: read (not skipped) so the byte is consumed exactly like the full parse does.
@@ -211,40 +218,52 @@ public enum PageKind {
         source.readByte(); // structural flags: hash/parentKey/pathNodeKey/value/nameKey elision
       }
       source.readInt(); // templatePoolBytes
-      final int compressedLen = source.readInt();
-      source.readByte(); // body codec
-      if (compressedLen < 0 || compressedLen > source.remaining()) {
-        throw new SirixIOException("implausible body length " + compressedLen + " on page " + recordPageKey);
+      long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+      final int bodyBytes;
+      if (chunkedBody) {
+        // Prefix-hoisted dictionary id (D7): a chunked page carries no tail marker, so this read is
+        // the only place the id appears — and the one that makes a bounded read of an FSST resource
+        // possible at all.
+        fsstSymbolTableId = Utils.getVarLong(source);
+        bodyBytes = source.readInt(); // bodyTotalLen: META frame + chunk table + every payload
+      } else {
+        bodyBytes = source.readInt(); // compressedLen
+        source.readByte(); // body codec
       }
-      source.skip(compressedLen);
+      if (bodyBytes < 0 || bodyBytes > source.remaining()) {
+        throw new SirixIOException("implausible body length " + bodyBytes + " on page " + recordPageKey);
+      }
+      source.skip(bodyBytes);
 
       final long beforeRegions = source.position();
       final RegionTable regionTable = RegionTable.read(source, regionKindMask, regionDeferMask);
 
-      // Tail: overlong-entry references, then the FSST symbol-table reference. Only the latter is
-      // wanted — a string predicate encodes its literal against that table so it can compare the
-      // dictionary's STORED bytes — but the overlong section has to be stepped over to reach it.
-      long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
+      // Tail: overlong-entry references, then — on a monolith page only — the FSST symbol-table
+      // reference. A string predicate encodes its literal against that table so it can compare the
+      // dictionary's STORED bytes; the overlong section has to be stepped over to reach it.
       SerializationType.deserializeBitSet(source);
       final int overlongEntrySize = source.readInt();
       for (int i = 0; i < overlongEntrySize; i++) {
         source.readLong();
       }
-      final int fsstMarker = source.readInt();
-      if (fsstMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
-        fsstSymbolTableId = Utils.getVarLong(source);
+      if (!chunkedBody) {
+        final int fsstMarker = source.readInt();
+        if (fsstMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
+          fsstSymbolTableId = Utils.getVarLong(source);
+        }
       }
       if (REGION_READ_DIAG) {
         // What share of a page a column-only read actually needs. The body is read off the disk
         // and thrown away unexamined, so this ratio is the headroom left in the I/O itself.
-        REGION_BODY_BYTES_SKIPPED.add(compressedLen);
+        REGION_BODY_BYTES_SKIPPED.add(bodyBytes);
         REGION_TABLE_BYTES_READ.add(source.position() - beforeRegions);
         REGION_PAGES_DECODED.increment();
       }
       return new RegionsOnlyPage(recordPageKey, revision, populatedCount, fsstSymbolTableId, regionTable, slotBitmap);
     }
 
-    private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source) {
+    private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final boolean chunkedBody) {
       // The offset-table template dedup (and the compressed heap codec) is
       // always active on the KVL on-disk wire format. A page with a
       // {@code templateCount == 0} marker falls back to the plain heap-copy
@@ -312,6 +331,9 @@ public enum PageKind {
       final byte[] nameKeyWidths; // per-slot nameKey width on the in-memory heap
       final int[] compactDir = compactDirScratch.get();
       int inMemHeapSize;
+      // A chunked page carries its FSST dictionary id in the body prefix instead of the tail marker,
+      // so the value is read here and consumed where the tail would otherwise have supplied it.
+      long chunkedFsstDictId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
       if (offsetTableDedup) {
         templateCount = source.readByte() & 0xFF;
 
@@ -348,42 +370,57 @@ public enum PageKind {
 
           final int compactDirBytes = 4 * populatedCount;
           final int totalBlobBytes = compactDirBytes + onDiskHeapSize;
-          final int compressedLen = source.readInt();
-          final byte codec = source.readByte();
-
-          final MemorySegment blobStaging = v1StagingScratch(totalBlobBytes);
-          if (codec == 0) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
+          final MemorySegment blobStaging;
+          if (chunkedBody) {
+            // Degenerate twin of the chunked body: META is the compact dir alone and the chunks
+            // hold the verbatim inline records. One framing, two semantics — mirroring the
+            // dedup/inline split the monolith body already has.
+            chunkedFsstDictId = Utils.getVarLong(source);
+            final int bodyTotalLen = source.readInt();
+            blobStaging = readChunkedBody(source, recordPageKey, populatedCount, onDiskHeapSize, bodyTotalLen);
+            final int metaRawLen = READ_CHUNK_TABLE.get().metaRawLen;
+            if (metaRawLen != compactDirBytes) {
+              throw new SirixIOException("page " + recordPageKey + " has a degenerate META section of " + metaRawLen
+                  + " bytes, expected the " + compactDirBytes + "-byte compact dir");
             }
-            source.read(rle, 0, compressedLen);
-            ZeroRunByteCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
-          } else if (codec == 2) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
-            }
-            source.read(rle, 0, compressedLen);
-            ByteRunCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
-          } else if (codec == 3) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
-            }
-            source.read(rle, 0, compressedLen);
-            SirixLZ77Codec.decode(rle, 0, compressedLen, blobStaging, 0L);
           } else {
-            throw new SirixIOException("unknown inline-body codec: " + codec);
+            final int compressedLen = source.readInt();
+            final byte codec = source.readByte();
+
+            blobStaging = v1StagingScratch(totalBlobBytes);
+            if (codec == 0) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              ZeroRunByteCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else if (codec == 2) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              ByteRunCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else if (codec == 3) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              SirixLZ77Codec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else {
+              throw new SirixIOException("unknown inline-body codec: " + codec);
+            }
           }
 
           // Parse compactDir from the first section of the blob.
@@ -416,32 +453,9 @@ public enum PageKind {
           final int hashBitmapBytes = hashElisionActive
               ? ((populatedCount + 7) >>> 3)
               : 0;
-          // parentKey column length is inside the blob, but we need to know
-          // the blob size upfront to decompress. Read the column-length int
-          // (after the fixed-size sections) by pre-reading the first 4 bytes
-          // of the column chunk after decompression — we don't need a separate
-          // header because the column length is stored inside the blob
-          // immediately after zeroHashBitmap.
-          final int compressedLen = source.readInt();
-          final byte codec = source.readByte();
-
-          // Two-phase decompress: we don't know the parentKey column bytes
-          // until we've decoded enough of the blob to parse its 4-byte length
-          // prefix. Since the blob is always decompressed in full, we size
-          // the staging buffer pessimistically and trust totalBlobBytes to
-          // match after the fact.
-          //
-          // Total blob bytes we'll verify:
-          // structural = compactDir + templatePool + slotTemplateIds + hashBitmap + (4 + colLen)
-          // blob = structural + onDiskHeapSize
-          //
-          // Because colLen is inside the compressed blob, we size upper bound
-          // via uncompressedSize embedded in the codec's frame header.
-          // ZeroRunByteCodec uses an explicit uncompressedSize varint, and
-          // LZ4 gives us the exact uncompressed length via decompress's
-          // return value. We therefore allocate using onDiskHeapSize +
-          // maxStructural where maxStructural includes a worst-case
-          // parentKey column of populatedCount × 10 bytes.
+          // Upper bounds for the optional sections. The monolith body needs them to size its
+          // staging buffer before the real section lengths are known; both bodies then use them to
+          // bound the length prefixes they parse out of the decoded sections.
           final int maxParentKeyColBytes = parentKeyColumnActive
               ? 4 + populatedCount * 11
               : 0;
@@ -458,67 +472,104 @@ public enum PageKind {
           final int maxNameKeyElisionBytes = nameKeyElisionActive
               ? 4 + populatedCount
               : 0;
-          final int maxBlobBytes =
-              compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes + maxParentKeyColBytes
-                  + maxPathNodeKeyColBytes + maxValueElisionBytes + maxNameKeyElisionBytes + onDiskHeapSize;
-
-          final MemorySegment blobStaging = v1StagingScratch(maxBlobBytes);
-          final int actualBlobBytes;
-          if (codec == 1) {
-            final MemorySegment compressedIn = v1Lz4OutScratch(compressedLen);
-            final byte[] tmp = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] tmpBuf = tmp.length >= compressedLen
-                ? tmp
-                : new byte[compressedLen];
-            if (tmpBuf != tmp) {
-              V1_HEAP_RLE_SCRATCH.set(tmpBuf);
-            }
-            source.read(tmpBuf, 0, compressedLen);
-            MemorySegment.copy(tmpBuf, 0, compressedIn, ValueLayout.JAVA_BYTE, 0L, compressedLen);
-            final FFILz4Compressor lz4 = V1_HEAP_LZ4.get();
-            final MemorySegment blobView = blobStaging.asSlice(0, maxBlobBytes);
-            if (lz4 == null) {
-              // Pure-Java fallback: LZ4-bodied pages stay readable without liblz4.
-              actualBlobBytes =
-                  JavaLz4BlockDecoder.decompressSafe(compressedIn, 0L, compressedLen, blobView, 0L, maxBlobBytes);
-            } else {
-              actualBlobBytes = lz4.decompressSegment(compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
-              if (actualBlobBytes < 0) {
-                throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
-              }
-            }
-          } else if (codec == 0) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
-            }
-            source.read(rle, 0, compressedLen);
-            actualBlobBytes = ZeroRunByteCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
-          } else if (codec == 2) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
-            }
-            source.read(rle, 0, compressedLen);
-            actualBlobBytes = ByteRunCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
-          } else if (codec == 3) {
-            final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
-            final byte[] rle = rleBuf.length >= compressedLen
-                ? rleBuf
-                : new byte[compressedLen];
-            if (rle != rleBuf) {
-              V1_HEAP_RLE_SCRATCH.set(rle);
-            }
-            source.read(rle, 0, compressedLen);
-            actualBlobBytes = SirixLZ77Codec.decode(rle, 0, compressedLen, blobStaging, 0L);
+          final MemorySegment blobStaging;
+          if (chunkedBody) {
+            // Chunked body: the META frame states its own decoded length, so the staging buffer is
+            // sized exactly rather than by the worst-case dance the monolith arm does below. The
+            // FSST dictionary id rides the prefix here instead of the tail marker (D7).
+            chunkedFsstDictId = Utils.getVarLong(source);
+            final int bodyTotalLen = source.readInt();
+            blobStaging = readChunkedBody(source, recordPageKey, populatedCount, onDiskHeapSize, bodyTotalLen);
           } else {
-            throw new SirixIOException("unknown body codec: " + codec);
+            // parentKey column length is inside the blob, but we need to know
+            // the blob size upfront to decompress. Read the column-length int
+            // (after the fixed-size sections) by pre-reading the first 4 bytes
+            // of the column chunk after decompression — we don't need a separate
+            // header because the column length is stored inside the blob
+            // immediately after zeroHashBitmap.
+            final int compressedLen = source.readInt();
+            final byte codec = source.readByte();
+
+            // Two-phase decompress: we don't know the parentKey column bytes
+            // until we've decoded enough of the blob to parse its 4-byte length
+            // prefix. Since the blob is always decompressed in full, we size
+            // the staging buffer pessimistically and trust totalBlobBytes to
+            // match after the fact.
+            //
+            // Total blob bytes we'll verify:
+            // structural = compactDir + templatePool + slotTemplateIds + hashBitmap + (4 + colLen)
+            // blob = structural + onDiskHeapSize
+            //
+            // Because colLen is inside the compressed blob, we size upper bound
+            // via uncompressedSize embedded in the codec's frame header.
+            // ZeroRunByteCodec uses an explicit uncompressedSize varint, and
+            // LZ4 gives us the exact uncompressed length via decompress's
+            // return value. We therefore allocate using onDiskHeapSize +
+            // maxStructural where maxStructural includes a worst-case
+            // parentKey column of populatedCount × 10 bytes.
+            final int maxBlobBytes =
+                compactDirBytes + templatePoolBytes + populatedCount + hashBitmapBytes + maxParentKeyColBytes
+                    + maxPathNodeKeyColBytes + maxValueElisionBytes + maxNameKeyElisionBytes + onDiskHeapSize;
+
+            blobStaging = v1StagingScratch(maxBlobBytes);
+            final int actualBlobBytes;
+            if (codec == 1) {
+              final MemorySegment compressedIn = v1Lz4OutScratch(compressedLen);
+              final byte[] tmp = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] tmpBuf = tmp.length >= compressedLen
+                  ? tmp
+                  : new byte[compressedLen];
+              if (tmpBuf != tmp) {
+                V1_HEAP_RLE_SCRATCH.set(tmpBuf);
+              }
+              source.read(tmpBuf, 0, compressedLen);
+              MemorySegment.copy(tmpBuf, 0, compressedIn, ValueLayout.JAVA_BYTE, 0L, compressedLen);
+              final FFILz4Compressor lz4 = V1_HEAP_LZ4.get();
+              final MemorySegment blobView = blobStaging.asSlice(0, maxBlobBytes);
+              if (lz4 == null) {
+                // Pure-Java fallback: LZ4-bodied pages stay readable without liblz4.
+                actualBlobBytes =
+                    JavaLz4BlockDecoder.decompressSafe(compressedIn, 0L, compressedLen, blobView, 0L, maxBlobBytes);
+              } else {
+                actualBlobBytes =
+                    lz4.decompressSegment(compressedIn.asSlice(0, compressedLen), blobView, compressedLen);
+                if (actualBlobBytes < 0) {
+                  throw new SirixIOException("body LZ4 decompress returned " + actualBlobBytes);
+                }
+              }
+            } else if (codec == 0) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              actualBlobBytes = ZeroRunByteCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else if (codec == 2) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              actualBlobBytes = ByteRunCodec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else if (codec == 3) {
+              final byte[] rleBuf = V1_HEAP_RLE_SCRATCH.get();
+              final byte[] rle = rleBuf.length >= compressedLen
+                  ? rleBuf
+                  : new byte[compressedLen];
+              if (rle != rleBuf) {
+                V1_HEAP_RLE_SCRATCH.set(rle);
+              }
+              source.read(rle, 0, compressedLen);
+              actualBlobBytes = SirixLZ77Codec.decode(rle, 0, compressedLen, blobStaging, 0L);
+            } else {
+              throw new SirixIOException("unknown body codec: " + codec);
+            }
           }
 
           // Parse compactDir from the decompressed blob (big-endian 4-byte ints).
@@ -737,6 +788,17 @@ public enum PageKind {
               valueWidths);
           deriver.bindNameKeyElision(nameKeyElisionActive, nameKeyElidedWidthsPacked, nameKeyOffs, nameKeyWidths);
           inMemHeapSize = deriver.deriveAll(headerBitmapSeg, populatedCount);
+
+          // Where the sections end is where the heap begins. A chunked body states that boundary on
+          // the wire, so the two must agree: a mismatch means the sections were written by rules
+          // this reader no longer applies, and every heap offset below it would be shifted.
+          if (chunkedBody) {
+            final int metaRawLen = READ_CHUNK_TABLE.get().metaRawLen;
+            if (blobPos != metaRawLen) {
+              throw new SirixIOException("page " + recordPageKey + " parsed " + blobPos
+                  + " bytes of META sections, frame declares " + metaRawLen);
+            }
+          }
 
           // Expose the blob-heap offset so the record-expansion loop below can
           // consume from the correct position.
@@ -1321,18 +1383,27 @@ public enum PageKind {
 
       // Read the FSST symbol-table reference — see writeFsstSymbolTable for the two cases.
       // Anything else, including the positive length an embedded table would have carried, is a
-      // corrupt or foreign page and is rejected rather than guessed at.
+      // corrupt or foreign page and is rejected rather than guessed at. A chunked page has no tail
+      // marker at all: its id was read from the body prefix, where a bounded read can reach it.
       long fsstSymbolTableId = KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID;
-      final int fsstSymbolTableMarker = source.readInt();
-      if (fsstSymbolTableMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
-        fsstSymbolTableId = Utils.getVarLong(source);
-        if (fsstSymbolTableId <= 0) {
-          throw new SirixIOException("page " + recordPageKey + " references FSST symbol table id " + fsstSymbolTableId
-              + ", which is not a valid" + " id — ids start at 1 and 0 means the page has no table");
+      if (chunkedBody) {
+        if (chunkedFsstDictId < 0) {
+          throw new SirixIOException("page " + recordPageKey + " references FSST symbol table id " + chunkedFsstDictId
+              + ", which is not a valid id — ids start at 1 and 0 means the page has no table");
         }
-      } else if (fsstSymbolTableMarker != 0) {
-        throw new SirixIOException(
-            "page " + recordPageKey + " has an unrecognised FSST symbol-table marker " + fsstSymbolTableMarker);
+        fsstSymbolTableId = chunkedFsstDictId;
+      } else {
+        final int fsstSymbolTableMarker = source.readInt();
+        if (fsstSymbolTableMarker == FSST_SYMBOL_TABLE_REFERENCE_MARKER) {
+          fsstSymbolTableId = Utils.getVarLong(source);
+          if (fsstSymbolTableId <= 0) {
+            throw new SirixIOException("page " + recordPageKey + " references FSST symbol table id " + fsstSymbolTableId
+                + ", which is not a valid" + " id — ids start at 1 and 0 means the page has no table");
+          }
+        } else if (fsstSymbolTableMarker != 0) {
+          throw new SirixIOException(
+              "page " + recordPageKey + " has an unrecognised FSST symbol-table marker " + fsstSymbolTableMarker);
+        }
       }
 
       // Create page with dummy slotMemory; slotted page overrides all slot operations
@@ -1378,8 +1449,15 @@ public enum PageKind {
       // Ensure slotted page exists — ALL pages use slotted page format V0
       keyValueLeafPage.ensureSlottedPage();
 
+      // Which body format this page gets is decided once, here, because the envelope flag has to be
+      // written before a single body byte. Everything downstream — dedup or degenerate, aborted or
+      // not — stays inside the chosen framing.
+      final boolean chunkedBody = ChunkedBodyConfig.enabled();
+
       sink.writeByte(KEYVALUELEAFPAGE.id);
-      writeVersionAndFlags(sink);
+      writeVersionAndFlags(sink, chunkedBody
+          ? ChunkedBodyConfig.FLAG_CHUNKED_BODY
+          : (byte) 0);
 
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
@@ -1472,7 +1550,7 @@ public enum PageKind {
       // | compressedLen(int) | codec(byte) | compressed bytes
       // | if templateCount == 0: heapBytes (inline, uncompressed)
       writeEncodedBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, slotBits,
-          slotRegionAbsIdx);
+          slotRegionAbsIdx, chunkedBody, keyValueLeafPage.getFsstSymbolTableId());
 
       final long afterEncodedBody = sectionDiag
           ? sink.writePosition()
@@ -1506,7 +1584,7 @@ public enum PageKind {
           : 0L;
 
       // Write FSST symbol table
-      writeFsstSymbolTable(sink, keyValueLeafPage);
+      writeFsstSymbolTable(sink, keyValueLeafPage, chunkedBody);
 
       final long afterFsst = sectionDiag
           ? sink.writePosition()
@@ -1620,10 +1698,13 @@ public enum PageKind {
      * @param slotKindIds per-slot nodeKindId (length populatedCount)
      * @param slotHeapOffs per-slot in-memory heap offsets (length populatedCount)
      * @param slotDataLens per-slot in-memory dataLengths (length populatedCount)
+     * @param chunkedBody whether the body is chunk-framed ({@link ChunkedBodyConfig}); the staged
+     *        sections are identical either way, only the framing around them differs
+     * @param fsstDictId the page's FSST dictionary id, hoisted into a chunked body's prefix
      */
     private static void writeEncodedBody(final BytesOut<?> sink, final MemorySegment slottedPage,
         final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
-        final short[] slotBits, final int[] slotRegionAbsIdx) {
+        final short[] slotBits, final int[] slotRegionAbsIdx, final boolean chunkedBody, final long fsstDictId) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
           ? sink.writePosition()
@@ -2201,7 +2282,8 @@ public enum PageKind {
             if (onDiskLen < 2) {
               // A record that's shorter than kindId+templateId means the in-memory layout
               // is inconsistent. Fall back to inline to avoid corrupting disk bytes.
-              writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens);
+              writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
+                  fsstDictId);
               return;
             }
             if (hashElisionActive && ((zeroHashBitmap[i >>> 3] >>> (i & 7)) & 1) == 1) {
@@ -2566,6 +2648,20 @@ public enum PageKind {
               && sections.metaLength() + sections.heapLength() == totalStagingBytes
               : "staged " + sections.totalLength() + " body bytes, sized for " + totalStagingBytes;
 
+          if (chunkedBody) {
+            // Same staged bytes, framed apart: the metadata sections become one META frame and the
+            // heap is split at entry boundaries, each frame compressed and checksummed on its own.
+            emitChunkedFrames(sink, staging, (int) sections.metaLength(), sections.heapLength(), populatedCount,
+                slotOnDiskLens, fsstDictId);
+            CHUNKED_DEDUP_BODIES_WRITTEN.increment();
+            if (finerDiag) {
+              final long diagS3 = sink.writePosition();
+              PageSectionDiag.recordEncodedBody(compactDirBytes, br.templatesByteLength + populatedCount,
+                  diagS3 - diagS0 - 9 /* populatedCount + heapSize + templateCount headers */);
+            }
+            return;
+          }
+
           // Compress the combined staging blob with LZ4 (HC when configured) or
           // ZeroRunByteCodec fallback. Emit: int compressedLen, 1 byte codec,
           // compressed bytes. Reader decompresses once and parses the 4-section
@@ -2605,7 +2701,8 @@ public enum PageKind {
         }
       }
       // Fallback path (also used when dedup aborts).
-      writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens);
+      writeInlineBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, chunkedBody,
+          fsstDictId);
       if (finerDiag) {
         final long diagS3 = sink.writePosition();
         PageSectionDiag.recordEncodedBody(0L, 0L, diagS3 - diagS0);
@@ -2631,7 +2728,8 @@ public enum PageKind {
      * here closes the largest remaining gap vs LZ4 HC's whole-page compression.
      */
     private static void writeInlineBody(final BytesOut<?> sink, final MemorySegment slottedPage,
-        final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens) {
+        final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
+        final boolean chunkedBody, final long fsstDictId) {
       int totalHeapSize = 0;
       for (int i = 0; i < populatedCount; i++) {
         totalHeapSize += slotDataLens[i];
@@ -2666,9 +2764,434 @@ public enum PageKind {
         stagePos += slotDataLens[i];
       }
 
+      if (chunkedBody) {
+        // Degenerate chunked twin: META is the compact dir alone, the chunks are the verbatim
+        // inline records. The reader's degenerate branch checks exactly that shape.
+        emitChunkedFrames(sink, staging, compactDirBytes, totalHeapSize, populatedCount, slotDataLens, fsstDictId);
+        return;
+      }
+
       // Smallest-of-codecs bake-off with sticky-winner election — shared with the
       // dedup path, see emitSmallestBody.
       emitSmallestBody(sink, staging, totalBlobBytes);
+    }
+
+    /**
+     * Emit a chunk-framed body over the staged sections: the two prefix fields only a chunked body
+     * carries, the META frame, the chunk table, then every payload.
+     *
+     * <p>
+     * The staged bytes are the monolith body's bytes — same sections, same order. What changes is the
+     * framing: metadata becomes one independently compressed META frame, and the heap is cut at entry
+     * boundaries into chunks that each compress and checksum on their own, so a reader that wants one
+     * record can decode one chunk instead of the page.
+     *
+     * @param staging the staged body, metadata in {@code [0, metaLen)} and heap behind it
+     * @param metaLen bytes of page-global metadata
+     * @param heapLen bytes of record heap, equal to the sum of {@code entryOnDiskLens}
+     * @param entryOnDiskLens per-entry on-disk record length, in populated-bitmap rank order
+     * @param fsstDictId the page's FSST dictionary id, hoisted here out of the tail (D7)
+     */
+    private static void emitChunkedFrames(final BytesOut<?> sink, final MemorySegment staging, final int metaLen,
+        final int heapLen, final int populatedCount, final int[] entryOnDiskLens, final long fsstDictId) {
+      final ChunkTable table = WRITE_CHUNK_TABLE.get();
+      planChunks(entryOnDiskLens, populatedCount, heapLen, table);
+      final int chunkCount = table.count;
+
+      // One election per page, on the monolith body's probe cadence: a probe page bakes off every
+      // codec per frame and keeps the smallest — which is what makes probeInterval=1 byte-pure — and
+      // elects the winner of its largest frame, the one whose ratio actually decides the page size.
+      // Pages in between encode every frame with that codec outright.
+      final int[] sticky = STICKY_CODEC.get();
+      final boolean warmup = sticky[1] < STICKY_WARMUP_PAGES;
+      if (warmup) {
+        sticky[1]++;
+      }
+      final boolean probe = STICKY_PROBE_INTERVAL <= 1 || warmup || sticky[2] >= STICKY_PROBE_INTERVAL - 1;
+      if (probe) {
+        sticky[2] = 0;
+      } else {
+        sticky[2]++;
+      }
+      final int elected = sticky[0];
+      int electedFrom = -1;
+      int nextElected = elected;
+
+      // One growth check for the whole page: every frame's worst case is arithmetic, so the output
+      // buffer is sized once and never moves under the encode loop.
+      long worstCase = maxFrameBytes(metaLen);
+      for (int c = 0; c < chunkCount; c++) {
+        worstCase += maxFrameBytes(table.rawLen[c]);
+      }
+      final byte[] out = chunkedOutScratch(worstCase, populatedCount);
+
+      final int[] frame = FRAME_ENCODE_SCRATCH.get();
+      final int metaOff = 0;
+      encodeChunkedFrame(staging, 0L, metaLen, out, metaOff, probe, elected, frame);
+      final int metaEncLen = frame[0];
+      final int metaCodec = frame[1];
+      final long metaHash = metaEncLen == 0
+          ? 0L
+          : HashAlgorithm.XXH3.computeHashLong(out, metaOff, metaEncLen);
+      if (probe && metaLen > electedFrom) {
+        electedFrom = metaLen;
+        nextElected = frame[2];
+      }
+
+      int outLen = metaOff + metaEncLen;
+      long srcOff = metaLen;
+      long encSum = 0;
+      for (int c = 0; c < chunkCount; c++) {
+        final int rawLen = table.rawLen[c];
+        encodeChunkedFrame(staging, srcOff, rawLen, out, outLen, probe, elected, frame);
+        table.encLen[c] = frame[0];
+        table.codec[c] = frame[1];
+        table.payloadOff[c] = outLen;
+        // An empty frame is described, never hashed — mirroring the META frame, and the only shape
+        // a chunk of zero-length records can take.
+        table.hash[c] = frame[0] == 0
+            ? 0L
+            : HashAlgorithm.XXH3.computeHashLong(out, outLen, frame[0]);
+        if (probe && rawLen > electedFrom) {
+          electedFrom = rawLen;
+          nextElected = frame[2];
+        }
+        outLen += frame[0];
+        encSum += frame[0];
+        srcOff += rawLen;
+      }
+      if (probe) {
+        sticky[0] = nextElected;
+      }
+
+      // Everything the body occupies, counted from the byte after this field to the region table.
+      // Computed, never backpatched: all frame lengths are known before the first byte is written.
+      final long bodyTotalLen = (long) ChunkedBodyConfig.META_FRAME_HEADER_BYTES + 1
+          + (long) chunkCount * ChunkedBodyConfig.CHUNK_TABLE_ROW_BYTES + metaEncLen + encSum;
+      if (bodyTotalLen > Integer.MAX_VALUE) {
+        // The field is an int, and a truncated one would send every reader into the middle of the
+        // body looking for the region table. A page caps at 256 KiB, so this is unreachable — which
+        // is exactly why it should say so rather than wrap.
+        throw new SirixIOException("chunked body of " + bodyTotalLen + " bytes does not fit its length field");
+      }
+      Utils.putVarLong(sink, fsstDictId);
+      sink.writeInt((int) bodyTotalLen);
+      sink.writeInt(metaLen);
+      sink.writeInt(metaEncLen);
+      sink.writeByte((byte) metaCodec);
+      sink.writeLong(metaHash);
+      sink.writeByte((byte) chunkCount);
+      for (int c = 0; c < chunkCount; c++) {
+        sink.writeShort((short) table.firstEntry[c]);
+        sink.writeShort((short) table.entryCount[c]);
+        sink.writeInt(table.rawLen[c]);
+        sink.writeInt(table.encLen[c]);
+        sink.writeByte((byte) table.codec[c]);
+        sink.writeLong(table.hash[c]);
+      }
+      if (metaEncLen > 0) {
+        sink.write(out, metaOff, metaEncLen);
+      }
+      for (int c = 0; c < chunkCount; c++) {
+        sink.write(out, table.payloadOff[c], table.encLen[c]);
+      }
+      CHUNKED_BODIES_WRITTEN.increment();
+    }
+
+    /**
+     * Cut the page's entries into chunks: walk them in rank order, adding on-disk lengths, and close a
+     * chunk once it has reached the target. A record at least as large as the target lands in a chunk
+     * of its own, which is why the table's length fields are ints.
+     *
+     * <p>
+     * Boundaries live in ENTRY space, not slot space: the compact dir is a run of lengths with no slot
+     * ids in it, so under a holey bitmap only the populated-rank order is well defined.
+     *
+     * <p>
+     * The chunk count is a single byte. Rather than truncate a page that would need more, the planner
+     * doubles the target and replans — reachable only for pages near the 256 KiB capacity whose records
+     * are all tiny.
+     */
+    private static void planChunks(final int[] entryOnDiskLens, final int populatedCount, final int heapLen,
+        final ChunkTable table) {
+      int target = ChunkedBodyConfig.targetChunkBytes();
+      for (;;) {
+        int count = 0;
+        int acc = 0;
+        int start = 0;
+        boolean overflow = false;
+        for (int i = 0; i < populatedCount; i++) {
+          acc += entryOnDiskLens[i];
+          if (acc >= target) {
+            if (count == ChunkedBodyConfig.MAX_CHUNKS) {
+              overflow = true;
+              break;
+            }
+            table.firstEntry[count] = start;
+            table.entryCount[count] = i - start + 1;
+            table.rawLen[count] = acc;
+            count++;
+            start = i + 1;
+            acc = 0;
+          }
+        }
+        if (!overflow && start < populatedCount) {
+          if (count == ChunkedBodyConfig.MAX_CHUNKS) {
+            overflow = true;
+          } else {
+            table.firstEntry[count] = start;
+            table.entryCount[count] = populatedCount - start;
+            table.rawLen[count] = acc;
+            count++;
+          }
+        }
+        if (!overflow) {
+          long planned = 0;
+          for (int c = 0; c < count; c++) {
+            planned += table.rawLen[c];
+          }
+          if (planned != heapLen) {
+            throw new SirixIOException("chunk plan covers " + planned + " heap bytes, the staged heap is " + heapLen);
+          }
+          table.count = count;
+          return;
+        }
+        if (target > (1 << 28)) {
+          throw new SirixIOException("cannot fit " + populatedCount + " entries into " + ChunkedBodyConfig.MAX_CHUNKS
+              + " chunks at a " + target + "-byte target");
+        }
+        target <<= 1;
+      }
+    }
+
+    /**
+     * Encode one frame into {@code out} at {@code outOff}.
+     *
+     * <p>
+     * A frame whose winning codec does not actually shrink it is stored verbatim instead: the codec
+     * byte says so, and the reader copies rather than decodes.
+     *
+     * @param frame receives {@code [encLen, wire codec, bake-off winner]} — the winner is the codec the
+     *        page may elect, which is never the STORED pseudo-codec
+     */
+    private static void encodeChunkedFrame(final MemorySegment src, final long srcOff, final int rawLen,
+        final byte[] out, final int outOff, final boolean probe, final int elected, final int[] frame) {
+      if (rawLen == 0) {
+        frame[0] = 0;
+        frame[1] = ChunkedBodyConfig.CODEC_STORED;
+        frame[2] = elected;
+        return;
+      }
+      final int winnerCodec;
+      final int winnerLen;
+      final byte[] winnerBuf;
+      if (probe) {
+        final byte[] zeroRunBuf = zeroRunScratch(rawLen);
+        final int v0Len = ZeroRunByteCodec.encode(src, srcOff, rawLen, zeroRunBuf, 0);
+        final byte[] byteRunBuf = byteRunScratch(rawLen);
+        final int v2Len = BYTE_RUN_CODEC_ENABLED
+            ? ByteRunCodec.encode(src, srcOff, rawLen, byteRunBuf, 0)
+            : Integer.MAX_VALUE;
+        final byte[] lz77Buf = lz77Scratch(rawLen);
+        final int v3Len = LZ77_CODEC_ENABLED
+            ? SirixLZ77Codec.encode(src, srcOff, rawLen, lz77Buf, 0)
+            : Integer.MAX_VALUE;
+        final int bestLen = Math.min(v0Len, Math.min(v2Len, v3Len));
+        // Tie order mirrors emitSmallestBody: LZ77 > ByteRun > ZeroRun.
+        if (bestLen == v3Len) {
+          winnerCodec = 3;
+          winnerLen = v3Len;
+          winnerBuf = lz77Buf;
+        } else if (bestLen == v2Len) {
+          winnerCodec = 2;
+          winnerLen = v2Len;
+          winnerBuf = byteRunBuf;
+        } else {
+          winnerCodec = 0;
+          winnerLen = v0Len;
+          winnerBuf = zeroRunBuf;
+        }
+      } else if (elected == 3) {
+        winnerBuf = lz77Scratch(rawLen);
+        winnerLen = SirixLZ77Codec.encode(src, srcOff, rawLen, winnerBuf, 0);
+        winnerCodec = 3;
+      } else if (elected == 2) {
+        winnerBuf = byteRunScratch(rawLen);
+        winnerLen = ByteRunCodec.encode(src, srcOff, rawLen, winnerBuf, 0);
+        winnerCodec = 2;
+      } else {
+        winnerBuf = zeroRunScratch(rawLen);
+        winnerLen = ZeroRunByteCodec.encode(src, srcOff, rawLen, winnerBuf, 0);
+        winnerCodec = 0;
+      }
+      frame[2] = winnerCodec;
+      if (winnerLen >= rawLen) {
+        MemorySegment.copy(src, ValueLayout.JAVA_BYTE, srcOff, out, outOff, rawLen);
+        frame[0] = rawLen;
+        frame[1] = ChunkedBodyConfig.CODEC_STORED;
+      } else {
+        System.arraycopy(winnerBuf, 0, out, outOff, winnerLen);
+        frame[0] = winnerLen;
+        frame[1] = winnerCodec;
+      }
+    }
+
+    /** Output bytes a frame of {@code rawLen} can occupy, whichever codec wins — STORED included. */
+    private static int maxFrameBytes(final int rawLen) {
+      if (rawLen == 0) {
+        return 0;
+      }
+      int max = Math.max(rawLen, ZeroRunByteCodec.maxEncodedSize(rawLen));
+      max = Math.max(max, ByteRunCodec.maxEncodedSize(rawLen));
+      return Math.max(max, SirixLZ77Codec.maxEncodedSize(rawLen));
+    }
+
+    /**
+     * Read a chunk-framed body into the staging buffer, laid out exactly as the monolith blob is:
+     * metadata sections first, record heap behind them. Nothing downstream — section parse, record
+     * expansion, heap copy — learns that the bytes arrived framed.
+     *
+     * <p>
+     * Every field the table states is cross-checked against what the page's own header already says,
+     * because a chunk table that disagrees with the bitmap would hand a record's bytes to the wrong
+     * slot rather than fail: the entry ranges must partition the populated entries contiguously, the
+     * raw lengths must sum to the heap, and the frames must occupy exactly the declared body.
+     *
+     * @param bodyTotalLen the prefix's account of the body size, checked against the frames
+     * @return the staging segment holding {@code META || heap}; the META length lands in the thread's
+     *         {@link ChunkTable}
+     */
+    private static MemorySegment readChunkedBody(final BytesIn<?> source, final long recordPageKey,
+        final int populatedCount, final int onDiskHeapSize, final int bodyTotalLen) {
+      final long bodyStart = source.position();
+      final ChunkTable table = READ_CHUNK_TABLE.get();
+      final int metaRawLen = source.readInt();
+      final int metaEncLen = source.readInt();
+      final int metaCodec = source.readByte() & 0xFF;
+      final long metaHash = source.readLong();
+      if (metaRawLen < 0 || metaEncLen < 0) {
+        throw new SirixIOException("page " + recordPageKey + " has a negative META frame length: rawLen=" + metaRawLen
+            + " encLen=" + metaEncLen);
+      }
+      table.metaRawLen = metaRawLen;
+      final int chunkCount = source.readByte() & 0xFF;
+      if (chunkCount > ChunkedBodyConfig.MAX_CHUNKS) {
+        throw new SirixIOException("page " + recordPageKey + " declares " + chunkCount + " chunks, more than the "
+            + ChunkedBodyConfig.MAX_CHUNKS + " a chunk table can hold");
+      }
+      table.count = chunkCount;
+      int entrySum = 0;
+      long rawSum = 0;
+      long encSum = 0;
+      for (int c = 0; c < chunkCount; c++) {
+        final int firstEntry = source.readShort() & 0xFFFF;
+        final int entryCount = source.readShort() & 0xFFFF;
+        final int rawLen = source.readInt();
+        final int encLen = source.readInt();
+        final int codec = source.readByte() & 0xFF;
+        final long hash = source.readLong();
+        if (firstEntry != entrySum) {
+          throw new SirixIOException("page " + recordPageKey + " chunk " + c + " starts at entry " + firstEntry
+              + ", expected " + entrySum + " — chunk entry ranges must be contiguous and ascending");
+        }
+        // Every chunk covers at least one entry and every record carries at least its kind byte, so
+        // a chunk with nothing in it is a corrupt table, not a page shape the writer can produce.
+        if (entryCount <= 0 || rawLen <= 0 || encLen <= 0) {
+          throw new SirixIOException("page " + recordPageKey + " chunk " + c + " is empty: entries=" + entryCount
+              + " rawLen=" + rawLen + " encLen=" + encLen);
+        }
+        entrySum += entryCount;
+        rawSum += rawLen;
+        encSum += encLen;
+        table.firstEntry[c] = firstEntry;
+        table.entryCount[c] = entryCount;
+        table.rawLen[c] = rawLen;
+        table.encLen[c] = encLen;
+        table.codec[c] = codec;
+        table.hash[c] = hash;
+      }
+      if (entrySum != populatedCount) {
+        throw new SirixIOException("page " + recordPageKey + " chunk table covers " + entrySum + " entries, the page"
+            + " has " + populatedCount);
+      }
+      if (rawSum != onDiskHeapSize) {
+        throw new SirixIOException("page " + recordPageKey + " chunk table covers " + rawSum + " heap bytes, the"
+            + " header says " + onDiskHeapSize);
+      }
+      final long framed = source.position() - bodyStart + metaEncLen + encSum;
+      if (framed != bodyTotalLen) {
+        throw new SirixIOException("page " + recordPageKey + " frames occupy " + framed + " bytes, the prefix declares"
+            + " a body of " + bodyTotalLen);
+      }
+
+      final MemorySegment staging = v1StagingScratch(metaRawLen + onDiskHeapSize);
+      readChunkedFrame(source, metaEncLen, metaCodec, metaRawLen, metaHash, staging, 0L, recordPageKey, -1);
+      long dstOff = metaRawLen;
+      for (int c = 0; c < chunkCount; c++) {
+        readChunkedFrame(source, table.encLen[c], table.codec[c], table.rawLen[c], table.hash[c], staging, dstOff,
+            recordPageKey, c);
+        dstOff += table.rawLen[c];
+      }
+      CHUNKED_BODIES_READ.increment();
+      return staging;
+    }
+
+    /**
+     * Read one frame's stored bytes, verify them against the checksum the table carries, and decode
+     * them into {@code dst}.
+     *
+     * <p>
+     * The checksum is verified before the decode, not after: a corrupted frame must be named as corrupt
+     * rather than produce whatever a codec makes of damaged input.
+     *
+     * @param chunkIndex the chunk's index, or {@code -1} for the META frame
+     */
+    private static void readChunkedFrame(final BytesIn<?> source, final int encLen, final int codec, final int rawLen,
+        final long expectedHash, final MemorySegment dst, final long dstOff, final long recordPageKey,
+        final int chunkIndex) {
+      if (encLen == 0) {
+        if (rawLen != 0) {
+          throw new SirixIOException("page " + recordPageKey + " " + frameName(chunkIndex) + " has no stored bytes but"
+              + " claims to decode to " + rawLen);
+        }
+        return;
+      }
+      byte[] buf = V1_HEAP_RLE_SCRATCH.get();
+      if (buf.length < encLen) {
+        buf = new byte[Math.max(encLen, buf.length * 2)];
+        V1_HEAP_RLE_SCRATCH.set(buf);
+      }
+      source.read(buf, 0, encLen);
+      final long actualHash = HashAlgorithm.XXH3.computeHashLong(buf, 0, encLen);
+      if (actualHash != expectedHash) {
+        throw new SirixIOException("page " + recordPageKey + " " + frameName(chunkIndex) + " fails its checksum:"
+            + " expected 0x" + Long.toHexString(expectedHash) + ", computed 0x" + Long.toHexString(actualHash)
+            + " over " + encLen + " stored bytes");
+      }
+      final int decoded;
+      if (codec == 0) {
+        decoded = ZeroRunByteCodec.decode(buf, 0, encLen, dst, dstOff);
+      } else if (codec == 2) {
+        decoded = ByteRunCodec.decode(buf, 0, encLen, dst, dstOff);
+      } else if (codec == 3) {
+        decoded = SirixLZ77Codec.decode(buf, 0, encLen, dst, dstOff);
+      } else if (codec == ChunkedBodyConfig.CODEC_STORED) {
+        MemorySegment.copy(buf, 0, dst, ValueLayout.JAVA_BYTE, dstOff, encLen);
+        decoded = encLen;
+      } else {
+        throw new SirixIOException(
+            "page " + recordPageKey + " " + frameName(chunkIndex) + " uses unsupported codec " + codec);
+      }
+      if (decoded != rawLen) {
+        throw new SirixIOException("page " + recordPageKey + " " + frameName(chunkIndex) + " decoded " + decoded
+            + " bytes, the chunk table says " + rawLen);
+      }
+    }
+
+    private static String frameName(final int chunkIndex) {
+      return chunkIndex < 0
+          ? "META frame"
+          : "chunk " + chunkIndex;
     }
 
     /**
@@ -3453,11 +3976,16 @@ public enum PageKind {
      * process, garbage after a reopen — so the write fails at the moment the state exists rather than
      * the read failing silently later.
      */
-    private static void writeFsstSymbolTable(final BytesOut<?> sink, final KeyValueLeafPage page) {
+    private static void writeFsstSymbolTable(final BytesOut<?> sink, final KeyValueLeafPage page,
+        final boolean chunkedBody) {
       final long symbolTableId = page.getFsstSymbolTableId();
       if (symbolTableId != KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID) {
-        sink.writeInt(FSST_SYMBOL_TABLE_REFERENCE_MARKER);
-        Utils.putVarLong(sink, symbolTableId);
+        // A chunked page already carries the id in its body prefix; emitting it again here would
+        // put a second, unreferenced copy behind the region table.
+        if (!chunkedBody) {
+          sink.writeInt(FSST_SYMBOL_TABLE_REFERENCE_MARKER);
+          Utils.putVarLong(sink, symbolTableId);
+        }
         return;
       }
       final byte[] fsstSymbolTable = page.getFsstSymbolTable();
@@ -3466,7 +3994,9 @@ public enum PageKind {
             + " dictionary id; serializing it would strand its compressed strings with no way to"
             + " name the symbols they were encoded against");
       }
-      sink.writeInt(0);
+      if (!chunkedBody) {
+        sink.writeInt(0);
+      }
     }
 
     private static void compressAndCache(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
@@ -5422,6 +5952,144 @@ public enum PageKind {
   private static final ThreadLocal<byte[]> V1_HEAP_V3_SCRATCH = ThreadLocal.withInitial(() -> new byte[128 * 1024]);
 
   /**
+   * The chunk table of one page: a row per chunk, plus the META frame's decoded length. Reused across
+   * pages, one instance per thread and direction, so framing a page allocates nothing.
+   */
+  static final class ChunkTable {
+    /** Entry rank the chunk starts at, in populated-bitmap order. */
+    final int[] firstEntry = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Entries the chunk covers; the ranges partition the page's entries. */
+    final int[] entryCount = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Heap bytes the chunk decodes to. An int because one record can reach 150 KB. */
+    final int[] rawLen = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Bytes the chunk occupies on the wire. */
+    final int[] encLen = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Wire codec id, {@link ChunkedBodyConfig#CODEC_STORED} when the chunk is stored verbatim. */
+    final int[] codec = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** XXH3-64 over the chunk's stored bytes. */
+    final long[] hash = new long[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Write side only: where the chunk's encoded bytes sit in the frame-output scratch. */
+    final int[] payloadOff = new int[ChunkedBodyConfig.MAX_CHUNKS];
+    /** Chunks in the table. */
+    int count;
+    /** Decoded length of the page's META section run. */
+    int metaRawLen;
+  }
+
+  /**
+   * Record pages written with a chunk-framed body, and read back from one, since the last
+   * {@link #resetChunkedBodyStats()}.
+   *
+   * <p>
+   * Counted unconditionally rather than behind a diagnostic flag: the format is selected by a system
+   * property, so "did the writer actually use it" is not otherwise observable — and a test that
+   * cannot tell passes just as happily when the flag never reached the writer.
+   */
+  private static final LongAdder CHUNKED_BODIES_WRITTEN = new LongAdder();
+
+  private static final LongAdder CHUNKED_BODIES_READ = new LongAdder();
+
+  /**
+   * The subset of {@link #CHUNKED_BODIES_WRITTEN} whose body took the deduped shape — template pool,
+   * column and elision sections — rather than the degenerate one. Kept apart because the two shapes
+   * frame very different META content, and a test that only ever produced the degenerate shape would
+   * look like coverage it is not.
+   */
+  private static final LongAdder CHUNKED_DEDUP_BODIES_WRITTEN = new LongAdder();
+
+  /** Record-page bodies written chunk-framed since the last {@link #resetChunkedBodyStats()}. */
+  public static long chunkedBodiesWritten() {
+    return CHUNKED_BODIES_WRITTEN.sum();
+  }
+
+  /** Chunk-framed bodies whose sections came from offset-table dedup, not the degenerate fallback. */
+  public static long chunkedDedupBodiesWritten() {
+    return CHUNKED_DEDUP_BODIES_WRITTEN.sum();
+  }
+
+  /**
+   * Record-page bodies decoded from chunk framing since the last {@link #resetChunkedBodyStats()}.
+   */
+  public static long chunkedBodiesRead() {
+    return CHUNKED_BODIES_READ.sum();
+  }
+
+  /** Reset both chunked-body counters. */
+  public static void resetChunkedBodyStats() {
+    CHUNKED_BODIES_WRITTEN.reset();
+    CHUNKED_BODIES_READ.reset();
+    CHUNKED_DEDUP_BODIES_WRITTEN.reset();
+  }
+
+  /** Chunk table being built by this thread's serializer. */
+  private static final ThreadLocal<ChunkTable> WRITE_CHUNK_TABLE = ThreadLocal.withInitial(ChunkTable::new);
+
+  /** Chunk table being parsed by this thread's deserializer. Kept apart from the write side. */
+  private static final ThreadLocal<ChunkTable> READ_CHUNK_TABLE = ThreadLocal.withInitial(ChunkTable::new);
+
+  /**
+   * Per-frame encode result: {@code [encLen, wire codec, bake-off winner]}. The winner is what the
+   * page may elect and is never the STORED pseudo-codec, which describes a frame rather than a way of
+   * encoding one.
+   */
+  private static final ThreadLocal<int[]> FRAME_ENCODE_SCRATCH = ThreadLocal.withInitial(() -> new int[3]);
+
+  /**
+   * Per-thread buffer holding every encoded frame of the page being serialized. The frames are
+   * written to the sink only after the chunk table that describes them, so they have to survive each
+   * other — which the shared per-codec scratches, overwritten by the next frame, cannot do.
+   */
+  private static final ThreadLocal<byte[]> CHUNKED_FRAME_OUT_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[64 * 1024]);
+
+  /** Per-thread {@link ZeroRunByteCodec} output, grown to fit a frame of {@code rawLen}. */
+  private static byte[] zeroRunScratch(final int rawLen) {
+    final int needed = ZeroRunByteCodec.maxEncodedSize(rawLen);
+    byte[] buf = V1_HEAP_RLE_SCRATCH.get();
+    if (buf.length < needed) {
+      buf = new byte[Math.max(needed, buf.length * 2)];
+      V1_HEAP_RLE_SCRATCH.set(buf);
+    }
+    return buf;
+  }
+
+  /** Per-thread {@link ByteRunCodec} output, grown to fit a frame of {@code rawLen}. */
+  private static byte[] byteRunScratch(final int rawLen) {
+    final int needed = ByteRunCodec.maxEncodedSize(rawLen);
+    byte[] buf = V1_HEAP_V2_SCRATCH.get();
+    if (buf.length < needed) {
+      buf = new byte[Math.max(needed, buf.length * 2)];
+      V1_HEAP_V2_SCRATCH.set(buf);
+    }
+    return buf;
+  }
+
+  /** Per-thread {@link SirixLZ77Codec} output, grown to fit a frame of {@code rawLen}. */
+  private static byte[] lz77Scratch(final int rawLen) {
+    final int needed = SirixLZ77Codec.maxEncodedSize(rawLen);
+    byte[] buf = V1_HEAP_V3_SCRATCH.get();
+    if (buf.length < needed) {
+      buf = new byte[Math.max(needed, buf.length * 2)];
+      V1_HEAP_V3_SCRATCH.set(buf);
+    }
+    return buf;
+  }
+
+  /** Per-thread frame-output buffer, grown once per page to the worst case of all its frames. */
+  private static byte[] chunkedOutScratch(final long needed, final int populatedCount) {
+    if (needed > Integer.MAX_VALUE) {
+      throw new SirixIOException(
+          "a page of " + populatedCount + " entries would need " + needed + " bytes of frame output");
+    }
+    byte[] buf = CHUNKED_FRAME_OUT_SCRATCH.get();
+    if (buf.length < needed) {
+      buf = new byte[(int) Math.max(needed, Math.min((long) buf.length * 2, Integer.MAX_VALUE))];
+      CHUNKED_FRAME_OUT_SCRATCH.set(buf);
+    }
+    return buf;
+  }
+
+  /**
    * Per-thread template-pool bytes scratch. Worst case: SLOT_COUNT templates × (2 header bytes + 15
    * max field bytes) = ~17 KB.
    */
@@ -5885,7 +6553,9 @@ public enum PageKind {
    * instead of the whole page. A few hundred bytes of header decide the range of the second read.
    *
    * @param source positioned at the page envelope (kind byte already consumed)
-   * @param out receives {@code [recordPageKey, revision, populatedCount]}
+   * @param out receives {@code [recordPageKey, revision, populatedCount, fsstDictId]}. The dictionary
+   *        id is only knowable this early on a chunked page, which hoists it into the body prefix; a
+   *        monolith page keeps it in the tail and reports {@code 0} here
    * @param bitmapOut receives the page's {@link PageLayout#BITMAP_WORDS} slot-bitmap words; pass
    *        {@code null} to skip the bitmap. A caller that may have to merge page fragments MUST pass
    *        one: the bitmap is what says which slots a fragment defines, and a fragment without it is

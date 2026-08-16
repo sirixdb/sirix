@@ -288,8 +288,15 @@ public abstract class AbstractReader implements Reader {
   protected static final int REGION_CHUNK_BYTES =
       Integer.getInteger("sirix.page.regionChunkBytes", 4096);
 
-  /** Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount]}. */
-  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[3]);
+  /**
+   * Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount, fsstDictId]}.
+   *
+   * <p>
+   * The dictionary id is the reason a bounded read can ever serve an FSST resource: on a monolith
+   * page it sits in the tail, behind everything the probe is trying not to read, so those pages have
+   * to decline; a chunked page carries it in the body prefix, which the probe passes through anyway.
+   */
+  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[4]);
 
   /**
    * Per-thread scratch for the probe's slot bitmap.
