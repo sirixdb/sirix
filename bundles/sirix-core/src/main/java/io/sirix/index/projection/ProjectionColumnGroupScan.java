@@ -882,4 +882,44 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#conjunctiveAggregateAllNumeric}: fold every
+   * matching row into ONE accumulator block ({@code newGroupAggAcc} layout, ordinal lane
+   * unused) — the single-group kernel behind {@code group by <constant>}. No group column is
+   * read at all; the caller merges per-worker accumulators.
+   */
+  public static void aggregateAllNumericFlat(final ProjectionColumnStore store, final ColumnPredicate[] predicates,
+      final ColumnSlice[][] predCols, final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf,
+      final long[] acc) {
+    if (predicates == null || acc == null || aggCols == null) {
+      throw new IllegalArgumentException("predicates, acc and aggCols must not be null");
+    }
+    final long[] mask = MASK.get();
+    final int aggCount = aggCols.length;
+    final long[][] aggValues = new long[aggCount][];
+    final long[][] aggPresence = new long[aggCount][];
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      for (int a = 0; a < aggCount; a++) {
+        final ColumnSlice agg = aggCols[a][leaf];
+        aggValues[a] = agg.numericValues();
+        aggPresence[a] = agg.presenceWords();
+      }
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          foldSliced(acc, 0, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowBase + bit, -1, null,
+              null);
+        }
+      }
+    }
+  }
+
 }
