@@ -2821,6 +2821,194 @@ public final class ProjectionIndexByteScan {
         : new String(bestPayload, bestOff, bestLen, StandardCharsets.UTF_8);
   }
 
+  /**
+   * PASS 2 of the deferred string-aggregate route: fold {@code min}/{@code max} over STRING_DICT
+   * operand columns for the K WINNING groups only. Pass 1 (numeric kernel + top-K) selected the
+   * winners; an aggregate that appears only in the emission record cannot change which groups win
+   * or their order, so its exact value is computed afterwards for K groups instead of all of them.
+   * Group membership matches pass 1's identity exactly: the FNV-64 of the key entry bytes
+   * ({@code winnerHashes}), plus the missing-key group as slot {@code winnerHashes.length} when
+   * {@code winnerMissingKey}. Comparison authority: {@link #compareStrSlices} — the collation every
+   * dict kernel shares. Best-so-far is held as (payload, off, len) slices, so a row costs one
+   * early-exit byte compare against its group's current best; rows whose operand is MISSING
+   * contribute nothing (min over present values only, the interpreter's fn:min semantics).
+   *
+   * <p>{@code bestOut[a][slot]} receives the materialized best value, or stays {@code null} when
+   * no row of the group carries the operand (min over the empty sequence). Thread-partials merge
+   * caller-side via {@link String#compareTo} — the identical collation on materialized values.
+   */
+  public static void stringAggForWinnerGroups(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final ProjectionIndexScan.PredicateTree treeOrNull, final int groupColumn, final int[] stringAggColumns,
+      final boolean[] aggIsMin, final long[] winnerHashes, final boolean winnerMissingKey, final String[][] bestOut) {
+    if (predicates == null || stringAggColumns == null || aggIsMin == null || winnerHashes == null
+        || bestOut == null) {
+      throw new IllegalArgumentException(
+          "predicates, stringAggColumns, aggIsMin, winnerHashes and bestOut must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = stringAggColumns.length;
+    final int slots = winnerHashes.length + (winnerMissingKey
+        ? 1
+        : 0);
+    final byte[][][] bestPayload = new byte[aggCount][slots][];
+    final int[][] bestOff = new int[aggCount][slots];
+    final int[][] bestLen = new int[aggCount][slots];
+    final int[][] aggEntryOff = new int[aggCount][];
+    final int[] aggIdsOff = new int[aggCount];
+    final int[] aggPresOff = new int[aggCount];
+    final int[] aggLensOff = new int[aggCount];
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (s.dictByteOff == null || s.dictByteOff.length < dictSize) {
+        s.dictByteOff = new int[Math.max(64, dictSize)];
+      }
+      if (s.dictSlotBase == null || s.dictSlotBase.length < dictSize) {
+        s.dictSlotBase = new int[Math.max(64, dictSize)];
+      }
+      final int[] dictByteOff = s.dictByteOff;
+      final int[] winnerSlotOfDict = s.dictSlotBase;
+      final int lenHeaderOff = groupBase + 4;
+      int running = lenHeaderOff + dictSize * 4;
+      for (int i = 0; i < dictSize; i++) {
+        dictByteOff[i] = running;
+        running += getIntLE(payload, lenHeaderOff + i * 4);
+        winnerSlotOfDict[i] = -2; // unresolved for THIS leaf
+      }
+      final int idsOff = running;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int groupPresOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, groupColumn)
+          : -1;
+      for (int a = 0; a < aggCount; a++) {
+        final int col = stringAggColumns[a];
+        final byte kind = payload[24 + col];
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("stringAggColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
+        }
+        final int base = s.columnDataOff[col];
+        final int aDictSize = getIntLE(payload, base);
+        aggLensOff[a] = base + 4;
+        int[] offs = aggEntryOff[a];
+        if (offs == null || offs.length < aDictSize) {
+          aggEntryOff[a] = offs = new int[Math.max(64, aDictSize)];
+        }
+        int run = aggLensOff[a] + aDictSize * 4;
+        for (int i = 0; i < aDictSize; i++) {
+          offs[i] = run;
+          run += getIntLE(payload, aggLensOff[a] + i * 4);
+        }
+        aggIdsOff[a] = run;
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, col)
+            : -1;
+      }
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final long groupPresWord = groupPresOff >= 0
+            ? getLongLE(payload, groupPresOff + w * 8)
+            : -1L;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          int slot;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            if (!winnerMissingKey) {
+              continue;
+            }
+            slot = winnerHashes.length;
+          } else {
+            final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+            slot = winnerSlotOfDict[dictId];
+            if (slot == -2) {
+              final long h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+              slot = -1;
+              for (int wi = 0; wi < winnerHashes.length; wi++) {
+                if (winnerHashes[wi] == h) {
+                  slot = wi;
+                  break;
+                }
+              }
+              winnerSlotOfDict[dictId] = slot;
+            }
+            if (slot < 0) {
+              continue;
+            }
+          }
+          for (int a = 0; a < aggCount; a++) {
+            if (aggPresOff[a] >= 0
+                && (getLongLE(payload, aggPresOff[a] + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+              continue; // operand missing on this row — contributes nothing
+            }
+            final int id = getIntLE(payload, aggIdsOff[a] + rowIdx * 4);
+            final int off = aggEntryOff[a][id];
+            final int len = getIntLE(payload, aggLensOff[a] + id * 4);
+            final byte[] cur = bestPayload[a][slot];
+            if (cur == null) {
+              bestPayload[a][slot] = payload;
+              bestOff[a][slot] = off;
+              bestLen[a][slot] = len;
+              continue;
+            }
+            if (cur == payload && bestOff[a][slot] == off) {
+              continue; // the group's best IS this dict entry
+            }
+            final int cmp = compareStrSlices(payload, off, len, cur, bestOff[a][slot], bestLen[a][slot]);
+            if (aggIsMin[a]
+                ? cmp < 0
+                : cmp > 0) {
+              bestPayload[a][slot] = payload;
+              bestOff[a][slot] = off;
+              bestLen[a][slot] = len;
+            }
+          }
+        }
+      }
+    }
+    for (int a = 0; a < aggCount; a++) {
+      for (int sl = 0; sl < slots; sl++) {
+        bestOut[a][sl] = bestPayload[a][sl] == null
+            ? null
+            : new String(bestPayload[a][sl], bestOff[a][sl], bestLen[a][sl], StandardCharsets.UTF_8);
+      }
+    }
+  }
+
+  /** FNV-64 of ONE dict entry's bytes — the flat string kernels' group identity, exposed so the
+   * executor can rebuild a winner's hash from its {@code (leaf, dictId)} source reference. */
+  public static long dictEntryHash(final byte[] payload, final int columnBase, final int dictId) {
+    final int dictSize = getIntLE(payload, columnBase);
+    final int lenHeaderOff = columnBase + 4;
+    int off = lenHeaderOff + dictSize * 4;
+    for (int i = 0; i < dictId; i++) {
+      off += getIntLE(payload, lenHeaderOff + i * 4);
+    }
+    return fnv1a64(payload, off, getIntLE(payload, lenHeaderOff + dictId * 4));
+  }
+
   /** Slice comparison under the interpreter's collation ({@code Str#cmp} = UTF-16 code units):
    * unsigned bytes unless either side carries a 4-byte UTF-8 lead, then decoded compareTo. */
   private static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
