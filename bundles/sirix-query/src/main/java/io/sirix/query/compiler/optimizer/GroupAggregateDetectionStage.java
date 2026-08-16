@@ -141,6 +141,14 @@ public final class GroupAggregateDetectionStage implements Stage {
   public static final String GROUP_AGG_KEY_COND_FIELDS = "SIRIX_GROUP_AGG_KEY_COND_FIELDS";
   public static final String GROUP_AGG_KEY_COND_LITS = "SIRIX_GROUP_AGG_KEY_COND_LITS";
   public static final String GROUP_AGG_KEY_COND_ELSE = "SIRIX_GROUP_AGG_KEY_COND_ELSE";
+  /**
+   * HAVING (SQL) / post-group {@code where}: {@code long[]{op, literal}} filtering groups by
+   * their COUNT — {@code where $c > 100000} with {@code $c := count($r)}. Op encoding:
+   * 0 {@code >}, 1 {@code >=}, 2 {@code <}, 3 {@code <=}, 4 {@code =}, 5 {@code !=}. Applied
+   * BEFORE top-K selection (a filtered group must not occupy a window slot). v1 recognizes ONE
+   * such selection over a post-group count let; anything else declines the pipeline.
+   */
+  public static final String GROUP_AGG_HAVING = "SIRIX_GROUP_AGG_HAVING";
 
   /** Mirrors the kernel's packed-key bound (ProjectionIndexByteScan.MAX_GROUP_COLUMNS). */
   private static final int MAX_GROUP_KEYS = 5;
@@ -210,6 +218,7 @@ public final class GroupAggregateDetectionStage implements Stage {
     final List<QNm> constLetVars = new ArrayList<>();
     final List<Long> constLetVals = new ArrayList<>();
     final List<QNm> groupSpecVars = new ArrayList<>();
+    long[] havingOpLit = null;
     // POST-group aggregate lets: `group by $k let $c := count($r)`. After the group-by, brackit
     // binds the loop var to the GROUPED sequence (the GroupBy node's AggregateSpec/SequenceAgg),
     // so `count($r)` / `sum($r.f)` here mean exactly what the same call means inside the return
@@ -230,11 +239,18 @@ public final class GroupAggregateDetectionStage implements Stage {
     for (; current != null && current.getType() != XQ.End; current = current.getLastChild()) {
       switch (current.getType()) {
         case XQ.Selection -> {
-          // A selection AFTER group-by is HAVING-shaped (existential over the grouped
-          // sequence) — serving it as a pre-group ROW filter changes counts and group
-          // membership. Only pre-group selections are servable.
+          // A selection AFTER group-by is HAVING-shaped. ONE `$countVar OP intLiteral`
+          // over a post-group count let serves as a group filter (applied before top-K);
+          // anything else declines — serving it as a ROW filter would change counts.
           if (hasGroupBy) {
-            return;
+            if (havingOpLit != null || !orderVars.isEmpty()) {
+              return; // one HAVING, and only between the aggregate lets and the order-by
+            }
+            havingOpLit = havingCountFilter(current.getChild(0), postGroupVars, postGroupFuncs, postGroupFields);
+            if (havingOpLit == null) {
+              return;
+            }
+            continue;
           }
           // The predicate tree brackit annotates records FIELD names only, not deref
           // BASES — a where over some OTHER variable's field would be silently served
@@ -305,6 +321,19 @@ public final class GroupAggregateDetectionStage implements Stage {
                 letVars.add(letVar);
                 letFields.add(shifted.field());
                 letOffsets.add(shifted.offset());
+                letSubstr.add(null);
+                letCond.add(null);
+                continue;
+              }
+              // string-length($r.f): encoded as the "len:" field prefix — every later layer
+              // (agg roster, accumulator blocks, ordering) treats "len:f" as its own operand.
+              // fn:string-length(()) is 0, NOT empty: a row missing f contributes 0 to the
+              // aggregate, which the kernel's strlen mode reproduces (fold 0, never skip).
+              final String strlenField = strlenCall(bound, loopVar);
+              if (strlenField != null) {
+                letVars.add(letVar);
+                letFields.add("len:" + strlenField);
+                letOffsets.add(0L);
                 letSubstr.add(null);
                 letCond.add(null);
                 continue;
@@ -630,6 +659,9 @@ public final class GroupAggregateDetectionStage implements Stage {
       orderAscending[i] = orderAsc.get(i);
       orderEmptyLeastFlags[i] = orderEmptyLeast.get(i);
     }
+    if (constMode && havingOpLit != null) {
+      return; // one group + HAVING: honoring it means maybe-empty output — not this shape (v1)
+    }
     if (constMode) {
       pipeExpr.setProperty(GROUP_AGG_CONST, Boolean.TRUE);
       pipeExpr.setProperty(GROUP_AGG_FUNCS, funcs);
@@ -639,6 +671,9 @@ public final class GroupAggregateDetectionStage implements Stage {
       return;
     }
     pipeExpr.setProperty(GROUP_AGG, Boolean.TRUE);
+    if (havingOpLit != null) {
+      pipeExpr.setProperty(GROUP_AGG_HAVING, havingOpLit);
+    }
     pipeExpr.setProperty(GROUP_AGG_GROUP_FIELDS, groupFields);
     pipeExpr.setProperty(GROUP_AGG_KEY_NAMES, keyNames);
     if (anyKeyTransform) {
@@ -730,6 +765,75 @@ public final class GroupAggregateDetectionStage implements Stage {
     return f1 == null
         ? null
         : new CondDeref(f1, lit[0], null, 0L, thenField, elseLit.stringValue());
+  }
+
+  /** {@code fn:string-length($loop.field)} (built-in namespace only) → the field name, else
+   * {@code null}. */
+  private static String strlenCall(final AST expr, final QNm loopVar) {
+    if (expr == null || expr.getType() != XQ.FunctionCall || expr.getChildCount() != 1
+        || !(expr.getValue() instanceof QNm fn) || !"string-length".equals(fn.getLocalName())) {
+      return null;
+    }
+    final String ns = fn.getNamespaceURI();
+    if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns) && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+      return null;
+    }
+    return loopVarDerefField(expr.getChild(0), loopVar);
+  }
+
+  /**
+   * {@code $countVar OP <int literal>} (either operand order, general comparisons only) where
+   * {@code $countVar} is a post-group {@code count($loop)} let → {@code long[]{op, literal}}
+   * under {@link #GROUP_AGG_HAVING}'s encoding; else {@code null}. Counts are the only v1
+   * operand: every other aggregate's lane may be absent for a group (empty min over a missing
+   * field), and a filter over an empty operand needs the interpreter's comparison semantics.
+   */
+  private static long[] havingCountFilter(final AST pred, final List<QNm> postGroupVars,
+      final List<String> postGroupFuncs, final List<String> postGroupFields) {
+    if (pred == null || pred.getType() != XQ.ComparisonExpr || pred.getChildCount() != 3) {
+      return null;
+    }
+    final int cmp = pred.getChild(0).getType();
+    for (int side = 0; side < 2; side++) {
+      final AST varSide = pred.getChild(1 + side);
+      final long lit = intValue(pred.getChild(2 - side));
+      if (lit == Long.MIN_VALUE || varSide.getType() != XQ.VariableRef
+          || !(varSide.getValue() instanceof QNm var)) {
+        continue;
+      }
+      final int at = postGroupVars.indexOf(var);
+      if (at < 0 || !"count".equals(postGroupFuncs.get(at)) || postGroupFields.get(at) != null) {
+        return null;
+      }
+      long op;
+      if (cmp == XQ.GeneralCompGT) {
+        op = 0;
+      } else if (cmp == XQ.GeneralCompGE) {
+        op = 1;
+      } else if (cmp == XQ.GeneralCompLT) {
+        op = 2;
+      } else if (cmp == XQ.GeneralCompLE) {
+        op = 3;
+      } else if (cmp == XQ.GeneralCompEQ) {
+        op = 4;
+      } else if (cmp == XQ.GeneralCompNE) {
+        op = 5;
+      } else {
+        return null;
+      }
+      if (side == 1) {
+        // literal OP $c — mirror the relation.
+        op = switch ((int) op) {
+          case 0 -> 2L;
+          case 1 -> 3L;
+          case 2 -> 0L;
+          case 3 -> 1L;
+          default -> op;
+        };
+      }
+      return new long[] {op, lit};
+    }
+    return null;
   }
 
   /** {@code $loop.field = <int literal>} (either operand order, general {@code =} only) →

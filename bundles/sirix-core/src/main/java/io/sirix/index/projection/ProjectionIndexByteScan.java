@@ -2000,7 +2000,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
     conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
-        leafIndexBase, -1, null, null, null, null);
+        leafIndexBase, -1, null, null, null, null, null);
   }
 
   /**
@@ -2017,7 +2017,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
-      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final boolean[] aggStrlen) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2027,6 +2027,12 @@ public final class ProjectionIndexByteScan {
     final ScanScratch s = SCRATCH.get();
     final int aggCount = aggColumns.length;
     final int slotWidth = out.slotWidth();
+    // Per-agg codepoint-count caches for string-length operands (one int per dict entry, per
+    // leaf); UTF-8 codepoints = non-continuation bytes, matching fn:string-length's
+    // codePointCount contract for every plane.
+    final int[][] strlenCpLen = aggStrlen != null
+        ? new int[aggCount][]
+        : null;
     for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
@@ -2050,6 +2056,34 @@ public final class ProjectionIndexByteScan {
           : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
       for (int a = 0; a < aggCount; a++) {
         final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggStrlen != null && aggStrlen[a]) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException("strlen aggColumn " + aggColumns[a] + " is not STRING_DICT (kind="
+                + aggKind + ")");
+          }
+          final int base = s.columnDataOff[aggColumns[a]];
+          final int dictSize = getIntLE(payload, base);
+          final int lenHeaderOff = base + 4;
+          int[] cp = strlenCpLen[a];
+          if (cp == null || cp.length < dictSize) {
+            strlenCpLen[a] = cp = new int[Math.max(64, dictSize)];
+          }
+          int off = lenHeaderOff + dictSize * 4;
+          for (int i = 0; i < dictSize; i++) {
+            final int len = getIntLE(payload, lenHeaderOff + i * 4);
+            int cnt = 0;
+            for (int b = off; b < off + len; b++) {
+              if ((payload[b] & 0xC0) != 0x80) {
+                cnt++;
+              }
+            }
+            cp[i] = cnt;
+            off += len;
+          }
+          aggValOff[a] = off; // ids region
+          aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+          continue;
+        }
         if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
         }
@@ -2092,10 +2126,18 @@ public final class ProjectionIndexByteScan {
           }
           slotArr[base]++;
           for (int a = 0; a < aggCount; a++) {
-            if ((getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+            final boolean strlenAgg = aggStrlen != null && aggStrlen[a];
+            final boolean present = (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) != 0L;
+            if (!present && !strlenAgg) {
               continue;
             }
-            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+            // fn:string-length(()) is 0, never empty: a row MISSING the operand still
+            // contributes 0 — skipping it would shrink counts and shift averages.
+            final long v = strlenAgg
+                ? (present
+                    ? strlenCpLen[a][getIntLE(payload, aggValOff[a] + rowIdx * 4)]
+                    : 0L)
+                : getLongLE(payload, aggValOff[a] + rowIdx * 8);
             if (a == distinctBlock) {
               if (dset.add(v) && --budget[0] < 0) {
                 budget[1] = 1;

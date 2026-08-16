@@ -158,6 +158,10 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final long[] having = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_HAVING);
+    if (having != null && having.length != 2) {
+      return generic; // not an annotation this strategy wrote
+    }
     final String[] keyCondFields =
         (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_FIELDS);
     final long[] keyCondLits = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_LITS);
@@ -187,7 +191,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, decorPos, decorPrefix, decorSuffix,
+        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, having, decorPos, decorPrefix, decorSuffix,
         constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef), generic);
   }
 
