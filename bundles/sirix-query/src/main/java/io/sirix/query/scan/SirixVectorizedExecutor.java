@@ -2013,6 +2013,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final boolean GROUP_SLICED_ENABLED =
       !"false".equals(System.getProperty("sirix.projection.groupSliced"));
 
+  /** Sliced serves per handle before HOT promotion (materialize once, byte kernels take over).
+   * Above one cold pass's serve count (16 in the 43-query suite) so a one-shot stays pure
+   * sliced; a repeated-tries protocol crosses it and gets the faster warm scan. */
+  private static final int SLICED_PROMOTE_AFTER =
+      Integer.getInteger("sirix.projection.slicedPromoteAfter", 24);
+
   /** Every listed column servable from slices (fail-closed gate for the sliced group route). */
   private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
     for (final int col : cols) {
@@ -10996,7 +11002,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
       // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
       final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null
-          && !handle.payloadsMaterialized() && (tree == null
+          && !handle.payloadsMaterialized() && handle.slicedServeTick() < SLICED_PROMOTE_AFTER && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
@@ -12017,7 +12023,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // this route was the suite's LAST payload materializer once the keyed arms sliced.
       final ProjectionColumnStore constStore = handle.columnStoreOrNull();
       final boolean constSliced = GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg
-          && !handle.payloadsMaterialized() && predsSliceable(constStore, preds)
+          && !handle.payloadsMaterialized() && handle.slicedServeTick() < SLICED_PROMOTE_AFTER
+          && predsSliceable(constStore, preds)
           && allColumnsSliceable(constStore, aggCols);
       final List<byte[]> armPayloads = constSliced
           ? null

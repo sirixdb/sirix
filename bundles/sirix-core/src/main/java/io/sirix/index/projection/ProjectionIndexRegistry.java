@@ -651,6 +651,17 @@ public final class ProjectionIndexRegistry {
       return rowGroupPayloads != null;
     }
 
+    /** Sliced group serves so far — the PROMOTION signal: a handle that keeps serving sliced is
+     * in a hot loop, where the contiguous byte-kernel scan over materialized leaves wins (~2x on
+     * 1M-row string groupings). Racy increments are benign (a promotion one serve late). */
+    private final java.util.concurrent.atomic.AtomicInteger slicedServes =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Count one sliced serve attempt; returns the count BEFORE the increment. */
+    public int slicedServeTick() {
+      return slicedServes.getAndIncrement();
+    }
+
     /**
      * Whole raw leaves of an ALREADY-materialized handle (eager handles, or a lazy handle a prior
      * consumer already hydrated). Does NO I/O and never needs a session-bound source.
