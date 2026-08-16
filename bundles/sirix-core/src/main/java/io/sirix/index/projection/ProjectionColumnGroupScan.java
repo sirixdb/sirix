@@ -50,6 +50,10 @@ public final class ProjectionColumnGroupScan {
     }
     final long[] mask = MASK.get();
     final int aggCount = aggCols.length;
+    // Hoisted per leaf — the record accessors and double indirection must stay out of the
+    // per-row loop (1M-row group scans pay every load in it).
+    final long[][] aggValues = new long[aggCount][];
+    final long[][] aggPresence = new long[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
@@ -61,6 +65,11 @@ public final class ProjectionColumnGroupScan {
       final ColumnSlice group = groupCol[leaf];
       final long[] groupValues = group.numericValues();
       final long[] groupPresence = group.presenceWords();
+      for (int a = 0; a < aggCount; a++) {
+        final ColumnSlice agg = aggCols[a][leaf];
+        aggValues[a] = agg.numericValues();
+        aggPresence[a] = agg.presenceWords();
+      }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
       for (int w = 0; w < stride; w++) {
@@ -96,11 +105,10 @@ public final class ProjectionColumnGroupScan {
           }
           slotArr[base]++;
           for (int a = 0; a < aggCount; a++) {
-            final ColumnSlice agg = aggCols[a][leaf];
-            if ((agg.presenceWords()[w] & 1L << bit) == 0L) {
+            if ((aggPresence[a][w] & 1L << bit) == 0L) {
               continue;
             }
-            final long v = agg.numericValues()[rowIdx];
+            final long v = aggValues[a][rowIdx];
             if (a == distinctBlock) {
               if (dset.add(v) && --budget[0] < 0) {
                 budget[1] = 1;
