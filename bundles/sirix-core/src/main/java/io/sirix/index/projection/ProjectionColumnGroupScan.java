@@ -171,6 +171,9 @@ public final class ProjectionColumnGroupScan {
     }
     final long[] mask = MASK.get();
     final DictScratch ds = DICT_SCRATCH.get();
+    final ProjectionIndexByteScan.RegexHashCache regexCache = keyRegex != null
+        ? new ProjectionIndexByteScan.RegexHashCache()
+        : null;
     final int aggCount = aggCols.length;
     if (aggStrlen != null && (ds.strlenCp == null || ds.strlenCp.length < aggCount)) {
       ds.strlenCp = new int[Math.max(4, aggCount)][];
@@ -255,9 +258,8 @@ public final class ProjectionColumnGroupScan {
               if (h == 0L) {
                 final byte[] entry = dict[dictId];
                 if (keyRegex != null) {
-                  final byte[] tb = keyRegex.matcher(new String(entry, StandardCharsets.UTF_8))
-                      .replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
-                  h = ProjectionIndexByteScan.fnv1a64(tb, 0, tb.length);
+                  h = ProjectionIndexByteScan.transformedKeyHash(regexCache, keyRegex, keyRegexRepl, entry, 0,
+                      entry.length);
                 } else {
                   h = ProjectionIndexByteScan.fnv1a64(entry, 0, entry.length);
                 }

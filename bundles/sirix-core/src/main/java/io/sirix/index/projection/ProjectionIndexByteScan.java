@@ -1833,6 +1833,45 @@ public final class ProjectionIndexByteScan {
   static final long FNV_SEED = 0xcbf29ce484222325L;
   static final long FNV_PRIME = 0x100000001b3L;
 
+  /**
+   * Per-call CROSS-LEAF regex transform cache: raw entry FNV → transformed-key FNV. Dict hashes
+   * reset per leaf, but dictionary content repeats heavily ACROSS leaves — without this, a
+   * regex-keyed 1M-row scan runs ~1M Matcher+replaceAll+getBytes rounds against ~100k distinct
+   * strings. Keying on the raw 64-bit FNV is the same trust level the group identity already
+   * ships. One instance per kernel call (worker × query) — a regex/replacement pair never
+   * outlives its query.
+   */
+  static final class RegexHashCache {
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap map =
+        new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap(256);
+    java.util.regex.Matcher matcher;
+
+    RegexHashCache() {
+      map.defaultReturnValue(Long.MIN_VALUE);
+    }
+  }
+
+  /** The transformed-key hash of one dict entry, served from {@code cache} across leaves. */
+  static long transformedKeyHash(final RegexHashCache cache, final java.util.regex.Pattern keyRegex,
+      final String keyRegexRepl, final byte[] bytes, final int off, final int len) {
+    final long raw = fnv1a64(bytes, off, len);
+    final long cached = cache.map.get(raw);
+    if (cached != Long.MIN_VALUE) {
+      return cached;
+    }
+    final String src = new String(bytes, off, len, StandardCharsets.UTF_8);
+    java.util.regex.Matcher m = cache.matcher;
+    if (m == null) {
+      m = cache.matcher = keyRegex.matcher(src);
+    } else {
+      m.reset(src);
+    }
+    final byte[] tb = m.replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
+    final long h = fnv1a64(tb, 0, tb.length);
+    cache.map.put(raw, h);
+    return h;
+  }
+
   static long validRowsMask(final int w, final int stride, final int rowCount) {
     final int lastBits = rowCount & 63;
     return lastBits != 0 && w == stride - 1
@@ -2303,6 +2342,9 @@ public final class ProjectionIndexByteScan {
     int[] dictByteOff = s.dictByteOff;
     long[] dictHash = s.dictHashCache;
     int[] dictBase = s.dictSlotBase;
+    final RegexHashCache regexCache = keyRegex != null
+        ? new RegexHashCache()
+        : null;
     final int aggCount = aggColumns.length;
     final int[][] strlenCpLen = aggStrlen != null
         ? new int[aggCount][]
@@ -2444,10 +2486,8 @@ public final class ProjectionIndexByteScan {
             if (cached < 0) {
               if (h == 0L) {
                 if (keyRegex != null) {
-                  final String src = new String(payload, dictByteOff[dictId],
-                      getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
-                  final byte[] tb = keyRegex.matcher(src).replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
-                  h = fnv1a64(tb, 0, tb.length);
+                  h = transformedKeyHash(regexCache, keyRegex, keyRegexRepl, payload, dictByteOff[dictId],
+                      getIntLE(payload, lenHeaderOff + dictId * 4));
                 } else {
                   h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
                 }
@@ -3157,6 +3197,9 @@ public final class ProjectionIndexByteScan {
           "predicates, stringAggColumns, aggIsMin, winnerHashes and bestOut must not be null");
     }
     final ScanScratch s = SCRATCH.get();
+    final RegexHashCache regexCache2 = keyRegex != null
+        ? new RegexHashCache()
+        : null;
     final int aggCount = stringAggColumns.length;
     final int slots = winnerHashes.length + (winnerMissingKey
         ? 1
@@ -3256,10 +3299,8 @@ public final class ProjectionIndexByteScan {
             if (slot == -2) {
               final long h;
               if (keyRegex != null) {
-                final String src = new String(payload, dictByteOff[dictId],
-                    getIntLE(payload, lenHeaderOff + dictId * 4), StandardCharsets.UTF_8);
-                final byte[] tb = keyRegex.matcher(src).replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
-                h = fnv1a64(tb, 0, tb.length);
+                h = transformedKeyHash(regexCache2, keyRegex, keyRegexRepl, payload, dictByteOff[dictId],
+                    getIntLE(payload, lenHeaderOff + dictId * 4));
               } else {
                 h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
               }
