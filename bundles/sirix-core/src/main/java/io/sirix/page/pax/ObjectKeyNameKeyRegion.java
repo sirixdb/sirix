@@ -48,8 +48,7 @@ public final class ObjectKeyNameKeyRegion {
    * (the imagecode property is set during build-time class initialization) and stays a dead
    * branch for JIT compilation on the JVM.
    */
-  private static final boolean VECTOR_OK =
-      System.getProperty("org.graalvm.nativeimage.imagecode") == null && !Boolean.getBoolean("sirix.pax.scalarOnly");
+  private static final boolean VECTOR_OK = !Boolean.getBoolean("sirix.pax.scalarOnly");
 
   // Array VarHandles for the ENCODE path, which builds its output in a byte[] before the region
   // table copies it off-heap. Reads go through the payload segment instead (see the accessors
