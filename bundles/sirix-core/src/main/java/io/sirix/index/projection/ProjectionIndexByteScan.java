@@ -2735,6 +2735,100 @@ public final class ProjectionIndexByteScan {
     return result;
   }
 
+  /**
+   * MIN or MAX over a STRING_DICT column, from the dictionaries: per leaf, mark the entries a
+   * PRESENT row references (a dictionary may hold phantom entries interned by missing rows — an
+   * unreferenced {@code ""} must never win a MIN), then compare only those. Collation follows the
+   * interpreter's {@code Str#cmp}: unsigned byte order unless either side carries a 4-byte UTF-8
+   * lead, then decoded {@code String.compareTo}. Cost is the ids sweep plus at most dictSize
+   * comparisons per leaf — no row value is ever materialized.
+   *
+   * @return the extremum, or {@code null} when no present row carries the field anywhere (the
+   *         caller emits the empty sequence or falls back)
+   */
+  public static String stringDictMinMax(final List<byte[]> rowGroupPayloads, final int column, final boolean min) {
+    final ScanScratch s = SCRATCH.get();
+    byte[] bestPayload = null;
+    int bestOff = 0;
+    int bestLen = 0;
+    long[] referenced = null;
+    for (final byte[] payload : rowGroupPayloads) {
+      final int rowCount = getIntLE(payload, 0);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      // Offsets + presence tail via the conjunctive builder with zero predicates.
+      evaluateRowGroupMask(payload, NO_PREDICATES, s);
+      final byte kind = payload[24 + column];
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("column " + column + " is not STRING_DICT (kind=" + kind + ")");
+      }
+      final int groupBase = s.columnDataOff[column];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (dictSize <= 0) {
+        continue;
+      }
+      final int lenHeaderOff = groupBase + 4;
+      int concatOff = lenHeaderOff + dictSize * 4;
+      int total = 0;
+      for (int i = 0; i < dictSize; i++) {
+        total += getIntLE(payload, lenHeaderOff + i * 4);
+      }
+      final int idsOff = concatOff + total;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int presOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, column)
+          : -1;
+      final int refWords = dictSize + 63 >>> 6;
+      if (referenced == null || referenced.length < refWords) {
+        referenced = new long[Math.max(16, refWords)];
+      } else {
+        Arrays.fill(referenced, 0, refWords, 0L);
+      }
+      for (int r = 0; r < rowCount; r++) {
+        if (presOff >= 0 && (getLongLE(payload, presOff + (r >>> 6) * 8) & 1L << (r & 63)) == 0L) {
+          continue;
+        }
+        final int id = getIntLE(payload, idsOff + r * 4);
+        referenced[id >>> 6] |= 1L << (id & 63);
+      }
+      int off = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        if ((referenced[i >>> 6] & 1L << (i & 63)) != 0L) {
+          if (bestPayload == null
+              || compareStrSlices(payload, off, len, bestPayload, bestOff, bestLen) * (min
+                  ? 1
+                  : -1) < 0) {
+            bestPayload = payload;
+            bestOff = off;
+            bestLen = len;
+          }
+        }
+        off += len;
+      }
+    }
+    return bestPayload == null
+        ? null
+        : new String(bestPayload, bestOff, bestLen, StandardCharsets.UTF_8);
+  }
+
+  /** Slice comparison under the interpreter's collation ({@code Str#cmp} = UTF-16 code units):
+   * unsigned bytes unless either side carries a 4-byte UTF-8 lead, then decoded compareTo. */
+  private static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
+      final int bLen) {
+    if (ProjectionIndexScan.hasFourByteUtf8(a, aOff, aLen) || ProjectionIndexScan.hasFourByteUtf8(b, bOff, bLen)) {
+      return new String(a, aOff, aLen, StandardCharsets.UTF_8)
+          .compareTo(new String(b, bOff, bLen, StandardCharsets.UTF_8));
+    }
+    return Arrays.compareUnsigned(a, aOff, aOff + aLen, b, bOff, bOff + bLen);
+  }
+
   /** Shared per-row accumulate for the flat group kernels. */
   private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
       final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx) {
