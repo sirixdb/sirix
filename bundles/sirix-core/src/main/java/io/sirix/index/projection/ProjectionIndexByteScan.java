@@ -3332,7 +3332,7 @@ public final class ProjectionIndexByteScan {
 
   /** Slice comparison under the interpreter's collation ({@code Str#cmp} = UTF-16 code units):
    * unsigned bytes unless either side carries a 4-byte UTF-8 lead, then decoded compareTo. */
-  private static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
+  static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
       final int bLen) {
     if (ProjectionIndexScan.hasFourByteUtf8(a, aOff, aLen) || ProjectionIndexScan.hasFourByteUtf8(b, bOff, bLen)) {
       return new String(a, aOff, aLen, StandardCharsets.UTF_8)

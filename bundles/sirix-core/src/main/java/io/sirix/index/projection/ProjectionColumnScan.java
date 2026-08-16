@@ -1387,4 +1387,67 @@ public final class ProjectionColumnScan {
     return distinct;
   }
 
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#stringDictMinMax}: the presence-gated extremum
+   * of a dict column's REFERENCED entries over leaves {@code [fromLeaf, toLeaf)} — a dictionary
+   * holds PHANTOM entries interned by missing rows, so an unreferenced entry must never win.
+   * Comparison authority is the byte kernel's own {@code compareStrSlices} (UTF-16 collation
+   * fallback on 4-byte leads). Returns the winning entry's bytes, or {@code null} when no present
+   * value exists in the range; a slice missing its dict/id lanes throws — the caller declines.
+   */
+  public static byte @Nullable [] stringDictMinMax(final ColumnSlice[] slices, final int fromLeaf, final int toLeaf,
+      final boolean min) {
+    byte[] best = null;
+    long[] referenced = null;
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      final ColumnSlice slice = slices[leaf];
+      if (slice == null || slice.rowCount() <= 0) {
+        continue;
+      }
+      final byte[][] dict = slice.stringDict();
+      final int[] ids = slice.stringDictIds();
+      if (dict == null || ids == null) {
+        throw new IllegalStateException("string min/max slice without dict/id lanes at leaf " + leaf);
+      }
+      int dictSize = dict.length;
+      while (dictSize > 0 && dict[dictSize - 1] == null) {
+        dictSize--; // null-padded dict tail (codec floor of 16)
+      }
+      if (dictSize == 0) {
+        continue;
+      }
+      final long[] presence = slice.presenceWords();
+      final int rowCount = slice.rowCount();
+      final int refWords = (dictSize + 63) >>> 6;
+      if (referenced == null || referenced.length < refWords) {
+        referenced = new long[Math.max(16, refWords)];
+      } else {
+        Arrays.fill(referenced, 0, refWords, 0L);
+      }
+      for (int r = 0; r < rowCount; r++) {
+        if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+          continue;
+        }
+        final int id = ids[r];
+        referenced[id >>> 6] |= 1L << (id & 63);
+      }
+      for (int i = 0; i < dictSize; i++) {
+        if ((referenced[i >>> 6] & 1L << (i & 63)) == 0L) {
+          continue;
+        }
+        final byte[] entry = dict[i];
+        if (best == null || ProjectionIndexByteScan.compareStrSlices(entry, 0, entry.length, best, 0, best.length)
+            * (min ? 1 : -1) < 0) {
+          best = entry;
+        }
+      }
+    }
+    return best;
+  }
+
+  /** The dict-entry comparison authority, exposed for callers merging per-chunk winners. */
+  public static int compareDictEntries(final byte[] a, final byte[] b) {
+    return ProjectionIndexByteScan.compareStrSlices(a, 0, a.length, b, 0, b.length);
+  }
+
 }

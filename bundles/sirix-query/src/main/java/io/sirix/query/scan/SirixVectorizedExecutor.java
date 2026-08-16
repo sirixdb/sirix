@@ -2726,6 +2726,42 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!handle.columnSparseClean(col, fetcher, materializer)) {
         return null;
       }
+      // SLICED first (regime-gated): the payload route hydrates every column of every leaf to
+      // read ONE dict column's entries — a first-touch materializer in a fresh process (Q6).
+      final ProjectionColumnStore mmStore = handle.columnStoreOrNull();
+      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnSliceable(col)) {
+        try {
+          final ProjectionColumnStore.ColumnSlice[] mmSlices = mmStore.column(col, fetcher);
+          final int n = mmStore.rowGroupCount();
+          final int effS = Math.min(threads, Math.max(1, (n + 63) / 64));
+          final int chunkS = (n + effS - 1) / effS;
+          final byte[][] perThreadBest = new byte[effS][];
+          parallel(effS, idx -> {
+            final int from = idx * chunkS;
+            final int to = Math.min(from + chunkS, n);
+            if (from >= to)
+              return;
+            perThreadBest[idx] = ProjectionColumnScan.stringDictMinMax(mmSlices, from, to, min);
+          });
+          byte[] bestBytes = null;
+          for (final byte[] cand : perThreadBest) {
+            if (cand == null) {
+              continue;
+            }
+            if (bestBytes == null || ProjectionColumnScan.compareDictEntries(cand, bestBytes) * (min
+                ? 1
+                : -1) < 0) {
+              bestBytes = cand;
+            }
+          }
+          STRING_MINMAX_SERVED.increment();
+          return bestBytes == null
+              ? new ItemSequence()
+              : new ComputedStrJsonItem(new String(bestBytes, StandardCharsets.UTF_8));
+        } catch (final IllegalStateException slicedFailed) {
+          // corrupt/missing slices — the payload route below re-surfaces the condition
+        }
+      }
       final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
       if (rowGroupPayloads == null) {
         return null;
