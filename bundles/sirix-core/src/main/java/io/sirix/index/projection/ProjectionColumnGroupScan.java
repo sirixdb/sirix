@@ -41,22 +41,30 @@ public final class ProjectionColumnGroupScan {
    * Sliced twin of {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupNumericFlat}. Leaf
    * range {@code [fromLeaf, toLeaf)} in ABSOLUTE store indices; the caller resolves every column
    * ONCE before the parallel fan-out (twenty workers racing the first fill would multiply the
-   * I/O) and hands the shared immutable slice arrays in.
+   * I/O) and hands the shared immutable slice arrays in. {@code aggStrlen[a]} marks string-length
+   * operands: their slices are STRING_DICT and fold per-dict-entry codepoint counts with
+   * fn:string-length's missing-is-0 semantics (null = all-numeric aggregates).
    */
   public static void aggregateByGroupNumericFlat(final ProjectionColumnStore store,
       final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
-      final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf, final NumericGroupAggTable out,
-      final long[] missingAcc, final int distinctBlock, final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut,
-      final LongOpenHashSet distinctMissing, final long[] budget) {
+      final ColumnSlice[][] aggCols, final boolean[] aggStrlen, final int fromLeaf, final int toLeaf,
+      final NumericGroupAggTable out, final long[] missingAcc, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget) {
     if (predicates == null || out == null || missingAcc == null || aggCols == null) {
       throw new IllegalArgumentException("predicates, out, missingAcc and aggCols must not be null");
     }
     final long[] mask = MASK.get();
+    final DictScratch ds = DICT_SCRATCH.get();
     final int aggCount = aggCols.length;
+    if (aggStrlen != null && (ds.strlenCp == null || ds.strlenCp.length < aggCount)) {
+      ds.strlenCp = new int[Math.max(4, aggCount)][];
+    }
     // Hoisted per leaf — the record accessors and double indirection must stay out of the
     // per-row loop (1M-row group scans pay every load in it).
     final long[][] aggValues = new long[aggCount][];
     final long[][] aggPresence = new long[aggCount][];
+    final int[][] aggIds = new int[aggCount][];
     for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
       if (budget != null && budget[1] != 0) {
         return; // distinct budget exceeded — the caller declines; nothing here is an answer
@@ -70,8 +78,15 @@ public final class ProjectionColumnGroupScan {
       final long[] groupPresence = group.presenceWords();
       for (int a = 0; a < aggCount; a++) {
         final ColumnSlice agg = aggCols[a][leaf];
-        aggValues[a] = agg.numericValues();
         aggPresence[a] = agg.presenceWords();
+        if (aggStrlen != null && aggStrlen[a]) {
+          precomputeStrlen(ds, a, agg);
+          aggIds[a] = agg.stringDictIds();
+          aggValues[a] = null;
+        } else {
+          aggValues[a] = agg.numericValues();
+          aggIds[a] = null;
+        }
       }
       final long leafOrdinalBase = (long) leaf << 20;
       final int stride = (rowCount + 63) >>> 6;
@@ -106,29 +121,8 @@ public final class ProjectionColumnGroupScan {
               dset = distinctSetFor(distinctOut, gv);
             }
           }
-          slotArr[base]++;
-          for (int a = 0; a < aggCount; a++) {
-            if ((aggPresence[a][w] & 1L << bit) == 0L) {
-              continue;
-            }
-            final long v = aggValues[a][rowIdx];
-            if (a == distinctBlock) {
-              if (dset.add(v) && --budget[0] < 0) {
-                budget[1] = 1;
-              }
-              continue;
-            }
-            final int aggBase = base + 2 + 4 * a;
-            slotArr[aggBase]++;
-            // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum.
-            slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
-            if (v < slotArr[aggBase + 2]) {
-              slotArr[aggBase + 2] = v;
-            }
-            if (v > slotArr[aggBase + 3]) {
-              slotArr[aggBase + 3] = v;
-            }
-          }
+          foldSliced(slotArr, base, aggValues, aggPresence, aggIds, ds.strlenCp, aggStrlen, aggCount, w, bit, rowIdx,
+              distinctBlock, dset, budget);
         }
       }
     }
@@ -209,27 +203,7 @@ public final class ProjectionColumnGroupScan {
         final ColumnSlice agg = aggCols[a][leaf];
         aggPresence[a] = agg.presenceWords();
         if (aggStrlen != null && aggStrlen[a]) {
-          final byte[][] aDict = agg.stringDict();
-          final int aDictSize = aDict == null
-              ? 0
-              : aDict.length;
-          int[] cp = ds.strlenCp[a];
-          if (cp == null || cp.length < aDictSize) {
-            ds.strlenCp[a] = cp = new int[Math.max(64, aDictSize)];
-          }
-          for (int i = 0; i < aDictSize; i++) {
-            final byte[] e = aDict[i];
-            if (e == null) {
-              break; // null-padded dict tail (codec pads to a floor of 16) — no id references it
-            }
-            int cnt = 0;
-            for (final byte b : e) {
-              if ((b & 0xC0) != 0x80) {
-                cnt++;
-              }
-            }
-            cp[i] = cnt;
-          }
+          precomputeStrlen(ds, a, agg);
           aggIds[a] = agg.stringDictIds();
           aggValues[a] = null;
         } else {
@@ -320,6 +294,35 @@ public final class ProjectionColumnGroupScan {
               distinctBlock, dset, budget);
         }
       }
+    }
+  }
+
+  /**
+   * Per-dict-entry CODEPOINT counts for a string-length operand column (UTF-8 codepoints =
+   * non-continuation bytes, fn:string-length's codePointCount contract for every plane). Stops at
+   * the dict's null-padded tail (codec floor of 16) — no row id references it.
+   */
+  private static void precomputeStrlen(final DictScratch ds, final int a, final ColumnSlice agg) {
+    final byte[][] aDict = agg.stringDict();
+    final int aDictSize = aDict == null
+        ? 0
+        : aDict.length;
+    int[] cp = ds.strlenCp[a];
+    if (cp == null || cp.length < aDictSize) {
+      ds.strlenCp[a] = cp = new int[Math.max(64, aDictSize)];
+    }
+    for (int i = 0; i < aDictSize; i++) {
+      final byte[] e = aDict[i];
+      if (e == null) {
+        break; // null-padded dict tail (codec floor 16) — no id references it
+      }
+      int cnt = 0;
+      for (final byte b : e) {
+        if ((b & 0xC0) != 0x80) {
+          cnt++;
+        }
+      }
+      cp[i] = cnt;
     }
   }
 
