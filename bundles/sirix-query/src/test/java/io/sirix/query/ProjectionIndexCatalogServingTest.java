@@ -925,6 +925,92 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
   }
 
   @Test
+  public void stringTopKGroupAggregatesServeFromColumnSlices() throws IOException {
+    // The STRING flat twin: group identity is the FNV of the slice dict entry's bytes, winners
+    // materialize from the slice dict (no payload assembly), strlen operands fold codepoint
+    // counts from the slice dict, and a regex-transformed key hashes the TRANSFORMED bytes.
+    query("""
+          jn:store('json-path1','slicedgroupstr.jn','[
+            {"dept": "Eng",   "age": 30, "city": "Berlin"},
+            {"dept": "Eng",   "age": 45, "city": "Muc"},
+            {"dept": "Sales", "age": 50, "city": "Ulm"},
+            {"age": 99, "city": "Bonn"},
+            {"dept": "HR",    "age": 23},
+            {"dept": "Eng",   "age": 4,  "city": "X"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','slicedgroupstr.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/dept', '/[]/age', '/[]/city'),
+              ('string', 'long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    // Missing dept (99) forms the null-key group; missing city (HR) folds strlen 0; age gt 5
+    // drops the Eng/4 record entirely.
+    final String topKQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','slicedgroupstr.jn')[]
+            where $r.age gt 5
+            let $d := $r.dept, $len := fn:string-length($r.city)
+            group by $d
+            let $c := count($r)
+            order by $c descending
+            return {"d": $d, "c": $c, "total": sum($r.age),
+                    "slen": sum($len)}, 1, 3)
+        """;
+    // Regex key: the where filters the missing-dept record OUT — fn:replace over a missing key
+    // is "" (a real key), which the kernel declines; this query must stay servable.
+    final String regexQuery = """
+          subsequence(
+            for $r in jn:doc('json-path1','slicedgroupstr.jn')[]
+            where $r.age lt 60
+            let $k := fn:replace($r.dept, 'ng', 'X')
+            group by $k
+            let $c := count($r)
+            order by $c descending
+            return {"k": $k, "c": $c}, 1, 2)
+        """;
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("slicedgroupstr.jn");
+      final String genericTopK = evaluateQuery(chain, ctx, topKQuery);
+      final String genericRegex = evaluateQuery(chain, ctx, regexQuery);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long aggBefore = SirixVectorizedExecutor.groupAggServedCount();
+        final long slicedBefore = SirixVectorizedExecutor.groupAggSlicedServedCount();
+        final String servedTopK = evaluateQuery(chain, ctx, topKQuery);
+        final String servedRegex = evaluateQuery(chain, ctx, regexQuery);
+        Assertions.assertEquals(genericTopK, servedTopK,
+            "sliced-served string top-K grouping must match the generic pipeline exactly");
+        Assertions.assertEquals(genericRegex, servedRegex,
+            "sliced-served regex-keyed grouping must match the generic pipeline exactly");
+        Assertions.assertEquals(2L, SirixVectorizedExecutor.groupAggServedCount() - aggBefore,
+            "both string group-aggregate queries must be SERVED from the projection");
+        Assertions.assertEquals(2L, SirixVectorizedExecutor.groupAggSlicedServedCount() - slicedBefore,
+            "the COLUMN-SLICE string kernel specifically must have served both");
+        Assertions.assertEquals("{\"d\":\"Eng\",\"c\":2,\"total\":75,\"slen\":9}"
+            + " {\"d\":\"Sales\",\"c\":1,\"total\":50,\"slen\":3}" + " {\"d\":null,\"c\":1,\"total\":99,\"slen\":4}",
+            servedTopK);
+        Assertions.assertEquals("{\"k\":\"EX\",\"c\":3} {\"k\":\"Sales\",\"c\":1}", servedRegex);
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
   public void multiKeyGroupAggregatesServeAndMatchTheGenericPipeline() throws IOException {
     // Gap item 1a: N group keys. Fixture exercises every composite-missing combination
     // (both present / missing city / missing dept / missing both), plus a filtered
