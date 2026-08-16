@@ -51,7 +51,15 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final String[] outNames;
   /** Emitted-entry index per order-by spec, or {@code null} when the pipeline had no order by. */
   private final int[] orderIndexes;
+  private final boolean[] orderAsc;
+  private final boolean[] orderEmptyLeast;
   private final Ordering.OrderModifier[] orderModifiers;
+  /**
+   * Sole-consumer {@code fn:subsequence} cap over the ORDERED groups ({@code start+length-1}), or
+   * {@code -1}: with a cap the executor may heap-select the first {@code limit} groups of the
+   * stable order instead of sorting and materializing every group.
+   */
+  private final long limit;
   /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
   private final SourceRef runtimeSourceRef;
   private final Expr genericFallback;
@@ -59,7 +67,7 @@ public final class SirixGroupAggregateExpr implements Expr {
   public SirixGroupAggregateExpr(final SirixVectorizedExecutor executor, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
-      final boolean[] orderEmptyLeast, final SourceRef runtimeSourceRef, final Expr genericFallback) {
+      final boolean[] orderEmptyLeast, final long limit, final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -72,15 +80,21 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.genericFallback = genericFallback;
     if (orderIndexes == null || orderIndexes.length == 0) {
       this.orderIndexes = null;
+      this.orderAsc = null;
+      this.orderEmptyLeast = null;
       this.orderModifiers = null;
+      this.limit = -1L;
     } else {
       this.orderIndexes = orderIndexes.clone();
+      this.orderAsc = orderAsc.clone();
+      this.orderEmptyLeast = orderEmptyLeast.clone();
       this.orderModifiers = new Ordering.OrderModifier[orderIndexes.length];
       for (int i = 0; i < orderIndexes.length; i++) {
         // Collation stays null: the detection stage declines every non-default collation, and
         // null is what Brackit's own compiler passes for the codepoint default.
         this.orderModifiers[i] = new Ordering.OrderModifier(orderAsc[i], orderEmptyLeast[i], null);
       }
+      this.limit = limit;
     }
   }
 
@@ -93,13 +107,17 @@ public final class SirixGroupAggregateExpr implements Expr {
       return genericFallback.evaluate(ctx, tuple);
     }
     if (executor.canExecute(ctx)) {
-      final Sequence served = executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames,
-          funcs, aggFields, outNames);
+      final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
+          predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
+          limit);
       if (served != null) {
-        if (orderIndexes == null) {
-          return served;
+        if (orderIndexes == null || served.ordered()) {
+          // Either no order-by, or the kernel already ordered (and under a limit, truncated to
+          // the first `limit` groups of the stable order — the downstream fn:subsequence still
+          // slices its window out of that prefix, which is all it can ever pull).
+          return served.groups();
         }
-        final Sequence sorted = sort(served);
+        final Sequence sorted = sort(served.groups());
         if (sorted != null) {
           return sorted;
         }

@@ -34,6 +34,7 @@ import io.sirix.index.IndexType;
 import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.index.pageskip.PageSkipRegistry;
+import io.sirix.index.projection.NumericGroupAggTable;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
@@ -10206,9 +10207,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return summed;
   }
 
-  public Sequence executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
+  public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
-      final String[] aggFields, final String[] outNames) {
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -10297,8 +10299,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         return null;
       }
       if (rowGroupPayloads.isEmpty()) {
-        return new ItemSequence();
+        return new ServedGroups(new ItemSequence(), true);
       }
+      // In-kernel ordering: resolvable only when every order spec reads a primitive accumulator
+      // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
+      // first `limit` groups of the stable order instead of sorting and materializing them all.
+      final GroupOrderPlan orderPlan = orderIndexes == null || limit < 1
+          ? null
+          : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount, numericSingleKey, funcs,
+              aggFields, distinctFields);
       // Zone-map pre-flight, BEFORE a single row is read: one whole-column magnitude bound
       // covers every group (each group's sum is a sub-multiset of the column's), so a column
       // of 64-bit ids declines here instead of scanning to completion and only then hitting
@@ -10317,7 +10326,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       if (numericSingleKey) {
         return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggCols, keyNames, funcs, aggFields, outNames,
-            distinctFields, eff, chunkSize);
+            distinctFields, eff, chunkSize, orderPlan, limit);
       }
       if (keyCount > 1) {
         // MULTI-KEY path (gap 1a): composite GroupKey accumulators; missing components
@@ -10351,6 +10360,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             }
           }
         }
+        if (orderPlan != null) {
+          // Bounded selection: only the first `limit` groups of the stable order materialize.
+          final int k = (int) Math.min(limit, mergedMulti.size());
+          if (k == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, k);
+          for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : mergedMulti.object2ObjectEntrySet()) {
+            sel.offer(e.getValue(), 0, true, 0L, e.getKey());
+          }
+          sel.sortInPlace();
+          final ArrayList<Item> outMulti = new ArrayList<>(sel.size());
+          for (int i = 0; i < sel.size(); i++) {
+            outMulti.add(groupAggRecordMulti((ProjectionIndexByteScan.GroupKey) sel.keyObjAt(i), sel.accAt(i), keyNames,
+                funcs, aggFields, outNames, distinctFields));
+          }
+          GROUP_AGG_SERVED.increment();
+          return new ServedGroups(new ItemSequence(outMulti.toArray(new Item[0])), true);
+        }
         // Emit in document first-appearance order — the interpreter's grouping order.
         final ArrayList<Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]>> orderedMulti =
             new ArrayList<>(mergedMulti.object2ObjectEntrySet());
@@ -10361,7 +10390,122 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields, outNames, distinctFields));
         }
         GROUP_AGG_SERVED.increment();
-        return new ItemSequence(outMulti.toArray(new Item[0]));
+        return new ServedGroups(new ItemSequence(outMulti.toArray(new Item[0])), false);
+      }
+      if (orderPlan != null) {
+        // Flat hash-keyed path (no ORD_KEY spec can be in the plan here — a string group key
+        // declines plan resolution — so the selector's key lane is free to carry each group's
+        // source reference instead). Strings materialize for the K winners ONLY.
+        final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+        final long[][] flatMissing = new long[eff][];
+        parallel(eff, idx -> {
+          final int from = idx * chunkSize;
+          final int to = Math.min(from + chunkSize, rowGroupCount);
+          if (from >= to)
+            return;
+          final NumericGroupAggTable local =
+              new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
+          final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(rowGroupPayloads.subList(from, to), preds,
+              groupCol, aggCols, local, missing, from);
+          tables[idx] = local;
+          flatMissing[idx] = missing;
+        });
+        final long[] missingMergedFlat = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        long scanned = 0;
+        for (int t = 0; t < eff; t++) {
+          if (flatMissing[t] != null && flatMissing[t][0] > 0) {
+            mergeGroupAgg(missingMergedFlat, flatMissing[t], aggCols.length);
+          }
+          if (tables[t] != null) {
+            scanned += tables[t].sizeIncludingZero();
+          }
+        }
+        if (scanned == 0 && missingMergedFlat[0] == 0) {
+          GROUP_AGG_SERVED.increment();
+          return new ServedGroups(new ItemSequence(), true);
+        }
+        int partitions = 1;
+        while (partitions < Math.min(eff, 32)) {
+          partitions <<= 1;
+        }
+        final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+        final int slotWidth = 2 + 4 * aggCols.length;
+        final long perPartitionEstimate = Math.max(16, scanned / partitions);
+        final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+        parallel(partitions, part -> {
+          final NumericGroupAggTable into =
+              new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
+          NumericGroupAggTable.mergePartition(tables, part, shift, into);
+          final int candidates = into.sizeIncludingZero();
+          if (candidates == 0) {
+            return;
+          }
+          final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+          final long[] keys = into.keysArray();
+          final long[] slots = into.slotsArray();
+          for (int i = 0; i < keys.length; i++) {
+            if (keys[i] != 0L) {
+              final int base = i * slotWidth;
+              sel.offer(slots, base, true, into.auxAtBase(base), null);
+            }
+          }
+          if (into.hasZeroKey()) {
+            sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+          }
+          partSelectors[part] = sel;
+        });
+        int winnerCount = missingMergedFlat[0] > 0
+            ? 1
+            : 0;
+        for (final GroupTopKSelector sel : partSelectors) {
+          if (sel != null) {
+            winnerCount += sel.size();
+          }
+        }
+        final int k = (int) Math.min(limit, winnerCount);
+        if (k == 0) {
+          GROUP_AGG_SERVED.increment();
+          return new ServedGroups(new ItemSequence(), true);
+        }
+        final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+        for (final GroupTopKSelector sel : partSelectors) {
+          if (sel == null) {
+            continue;
+          }
+          for (int i = 0; i < sel.size(); i++) {
+            final int base = sel.baseAt(i);
+            final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+            finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+          }
+        }
+        if (missingMergedFlat[0] > 0) {
+          finalSel.offer(missingMergedFlat, 0, false, 0L, null);
+        }
+        finalSel.sortInPlace();
+        // Winner strings: resolve (leaf, dictId) source refs, caching the column base per leaf.
+        final int[] leafColumnBase = new int[rowGroupCount];
+        Arrays.fill(leafColumnBase, -1);
+        final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+        for (int i = 0; i < finalSel.size(); i++) {
+          final String key;
+          if (finalSel.hasKeyAt(i)) {
+            final long src = finalSel.keyLongAt(i);
+            final int leaf = (int) (src >>> 20);
+            final int dictId = (int) (src & 0xFFFFF);
+            final byte[] payload = rowGroupPayloads.get(leaf);
+            int columnBase = leafColumnBase[leaf];
+            if (columnBase < 0) {
+              columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+            }
+            key = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+          } else {
+            key = null;
+          }
+          out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields));
+        }
+        GROUP_AGG_SERVED.increment();
+        return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
       }
       @SuppressWarnings("unchecked")
       final Object2ObjectOpenHashMap<String, long[]>[] perThread = new Object2ObjectOpenHashMap[eff];
@@ -10411,7 +10555,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields));
       }
       GROUP_AGG_SERVED.increment();
-      return new ItemSequence(out.toArray(new Item[0]));
+      return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
     } catch (final ArithmeticException overflow) {
       // Expected decline, not a defect: an overflowing per-group sum routes to the
       // interpreter's decimal-promoting arithmetic via the generic pipeline.
@@ -10435,11 +10579,114 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * in {@code acc[1]}, with the null-key group interleaved at its own ordinal) — only the accumulator
    * key and the emitted key type differ.
    */
-  private Sequence numericGroupAggregate(final List<byte[]> rowGroupPayloads,
+  private ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
-      final ArrayList<String> distinctFields, final int eff, final int chunkSize) {
+      final ArrayList<String> distinctFields, final int eff, final int chunkSize, final GroupOrderPlan orderPlan,
+      final long limit) {
     final int rowGroupCount = rowGroupPayloads.size();
+    if (orderPlan != null) {
+      // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
+      // per group), a hash-PARTITIONED parallel merge (no thread ever folds the full group
+      // count), per-partition bounded selection while the partition is cache-hot, and a final
+      // merge over at most partitions × K winners. Only the K survivors materialize records.
+      final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+      final long[][] perThreadMissing = new long[eff][];
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to)
+          return;
+        final NumericGroupAggTable local =
+            new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10));
+        final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(from, to), preds,
+            groupCol, aggCols, local, missing, from);
+        tables[idx] = local;
+        perThreadMissing[idx] = missing;
+      });
+      final long[] missingMerged = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      long scanned = 0;
+      for (int t = 0; t < eff; t++) {
+        if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
+          mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length);
+        }
+        if (tables[t] != null) {
+          scanned += tables[t].sizeIncludingZero();
+        }
+      }
+      if (scanned == 0 && missingMerged[0] == 0) {
+        GROUP_AGG_SERVED.increment();
+        NUMERIC_GROUPBY_SERVED.increment();
+        return new ServedGroups(new ItemSequence(), true);
+      }
+      int partitions = 1;
+      while (partitions < Math.min(eff, 32)) {
+        partitions <<= 1;
+      }
+      final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+      final int slotWidth = 2 + 4 * aggCols.length;
+      final long perPartitionEstimate = Math.max(16, scanned / partitions);
+      final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+      parallel(partitions, part -> {
+        final NumericGroupAggTable into =
+            new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate));
+        NumericGroupAggTable.mergePartition(tables, part, shift, into);
+        final int candidates = into.sizeIncludingZero();
+        if (candidates == 0) {
+          return;
+        }
+        final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+        final long[] keys = into.keysArray();
+        final long[] slots = into.slotsArray();
+        for (int i = 0; i < keys.length; i++) {
+          if (keys[i] != 0L) {
+            sel.offer(slots, i * slotWidth, true, keys[i], null);
+          }
+        }
+        if (into.hasZeroKey()) {
+          sel.offer(into.zeroSlot(), 0, true, 0L, null);
+        }
+        partSelectors[part] = sel;
+      });
+      int winnerCount = missingMerged[0] > 0
+          ? 1
+          : 0;
+      for (final GroupTopKSelector sel : partSelectors) {
+        if (sel != null) {
+          winnerCount += sel.size();
+        }
+      }
+      final int k = (int) Math.min(limit, winnerCount);
+      if (k == 0) {
+        GROUP_AGG_SERVED.increment();
+        NUMERIC_GROUPBY_SERVED.increment();
+        return new ServedGroups(new ItemSequence(), true);
+      }
+      final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+      for (final GroupTopKSelector sel : partSelectors) {
+        if (sel == null) {
+          continue;
+        }
+        for (int i = 0; i < sel.size(); i++) {
+          final int base = sel.baseAt(i);
+          final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+          finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+        }
+      }
+      if (missingMerged[0] > 0) {
+        finalSel.offer(missingMerged, 0, false, 0L, null);
+      }
+      finalSel.sortInPlace();
+      final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+      for (int i = 0; i < finalSel.size(); i++) {
+        out.add(groupAggRecordNumeric(finalSel.keyLongAt(i), finalSel.hasKeyAt(i), finalSel.accAt(i), keyNames[0],
+            funcs, aggFields, outNames, distinctFields));
+      }
+      GROUP_AGG_SERVED.increment();
+      NUMERIC_GROUPBY_SERVED.increment();
+      return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+    }
     @SuppressWarnings("unchecked")
     final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
     final long[][] perThreadMissing = new long[eff][];
@@ -10490,7 +10737,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
     GROUP_AGG_SERVED.increment();
     NUMERIC_GROUPBY_SERVED.increment();
-    return new ItemSequence(out.toArray(new Item[0]));
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
   }
 
   /**
@@ -11209,6 +11456,316 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         into[base + 2] = from[base + 2];
       if (from[base + 3] > into[base + 3])
         into[base + 3] = from[base + 3];
+    }
+  }
+
+  /** The served result of a group-by aggregate: the group records, and whether the kernel already
+   * emitted them in the pipeline's order (truncated to the sole-consumer subsequence cap when one
+   * was annotated). {@code ordered == false} leaves ordering to the caller's Brackit sort. */
+  public record ServedGroups(Sequence groups, boolean ordered) {
+  }
+
+  /**
+   * An order-by over served group records resolved to ACCUMULATOR slots, so the kernel can order
+   * (and under a subsequence cap, heap-select) groups without materializing records. Resolvable
+   * only when every spec reads a value the accumulator holds as a primitive: the single NUMERIC
+   * group key, or a count/sum/min/max/avg over a NUMERIC_LONG aggregate column. Everything else —
+   * string keys, composite key components — returns {@code null} and the caller keeps Brackit's
+   * comparator.
+   *
+   * <p>
+   * The comparator below mirrors {@code Ordering#compare} exactly: per spec, both-empty falls
+   * through, one-empty places by {@code EMPTY_LEAST} (NOT flipped by descending), values compare
+   * exactly (avg as a 128-bit cross-multiplied fraction — the interpreter's {@code Int64.div} is
+   * exact decimal, so a double rounding here could invert an order the interpreter defines), and
+   * full ties resolve by first-seen ordinal — the stable-sort insertion order Brackit's
+   * {@code TupleSort} preserves over the kernel's document-first-appearance emission.
+   */
+  private static final class GroupOrderPlan {
+    static final int ORD_KEY = 0;
+    static final int ORD_COUNT = 1;
+    static final int ORD_SUM = 2;
+    static final int ORD_MIN = 3;
+    static final int ORD_MAX = 4;
+    static final int ORD_AVG = 5;
+
+    final int[] kinds;
+    final int[] aggBase;
+    final boolean[] asc;
+    final boolean[] emptyLeast;
+
+    private GroupOrderPlan(final int[] kinds, final int[] aggBase, final boolean[] asc, final boolean[] emptyLeast) {
+      this.kinds = kinds;
+      this.aggBase = aggBase;
+      this.asc = asc;
+      this.emptyLeast = emptyLeast;
+    }
+
+    /**
+     * @param keyIsNumeric single NUMERIC_LONG group key — the only key kind with a primitive order
+     * @return the resolved plan, or {@code null} when any spec cannot be ordered in-kernel
+     */
+    static GroupOrderPlan resolve(final int[] orderIndexes, final boolean[] orderAsc, final boolean[] orderEmptyLeast,
+        final int keyCount, final boolean keyIsNumeric, final String[] funcs, final String[] aggFields,
+        final ArrayList<String> distinctFields) {
+      final int n = orderIndexes.length;
+      final int[] kinds = new int[n];
+      final int[] aggBase = new int[n];
+      for (int i = 0; i < n; i++) {
+        final int oi = orderIndexes[i];
+        if (oi < keyCount) {
+          if (!keyIsNumeric || keyCount != 1) {
+            return null; // string/composite key components need Brackit's comparator
+          }
+          kinds[i] = ORD_KEY;
+        } else {
+          final int j = oi - keyCount;
+          if (j >= funcs.length) {
+            return null;
+          }
+          final String func = funcs[j];
+          if ("count".equals(func)) {
+            kinds[i] = ORD_COUNT;
+          } else {
+            final int a = distinctFields.indexOf(aggFields[j]);
+            if (a < 0) {
+              return null;
+            }
+            aggBase[i] = 2 + 4 * a;
+            switch (func) {
+              case "sum" -> kinds[i] = ORD_SUM;
+              case "min" -> kinds[i] = ORD_MIN;
+              case "max" -> kinds[i] = ORD_MAX;
+              case "avg" -> kinds[i] = ORD_AVG;
+              default -> {
+                return null;
+              }
+            }
+          }
+        }
+      }
+      return new GroupOrderPlan(kinds, aggBase, orderAsc.clone(), orderEmptyLeast.clone());
+    }
+
+    /**
+     * Full ordering over two group accumulator blocks addressed as {@code (array, base)} — a
+     * standalone {@code long[]} at base 0, or an inline block of a
+     * {@link io.sirix.index.projection.NumericGroupAggTable}. Negative = {@code a} emits first.
+     * Never returns 0 for distinct groups — the first-seen ordinal ({@code block[1]}) breaks every
+     * tie, exactly the stable-sort order the interpreter produces over first-appearance emission.
+     */
+    int compare(final long[] arrA, final int baseA, final boolean hasKeyA, final long keyA, final long[] arrB,
+        final int baseB, final boolean hasKeyB, final long keyB) {
+      for (int i = 0; i < kinds.length; i++) {
+        final int kind = kinds[i];
+        final boolean presentA;
+        final boolean presentB;
+        long valA = 0L;
+        long valB = 0L;
+        switch (kind) {
+          case ORD_KEY -> {
+            presentA = hasKeyA;
+            presentB = hasKeyB;
+            valA = keyA;
+            valB = keyB;
+          }
+          case ORD_COUNT -> {
+            presentA = true;
+            presentB = true;
+            valA = arrA[baseA];
+            valB = arrB[baseB];
+          }
+          default -> {
+            final int base = aggBase[i];
+            presentA = arrA[baseA + base] > 0;
+            presentB = arrB[baseB + base] > 0;
+            if (presentA && presentB && kind != ORD_AVG) {
+              final int off = kind == ORD_SUM
+                  ? 1
+                  : kind == ORD_MIN
+                      ? 2
+                      : 3;
+              valA = arrA[baseA + base + off];
+              valB = arrB[baseB + base + off];
+            }
+          }
+        }
+        if (!presentA || !presentB) {
+          if (presentA == presentB) {
+            continue; // both empty: equal on this spec — consult the next one
+          }
+          // Empty placement follows EMPTY_LEAST alone; descending does NOT flip it
+          // (Ordering#compare returns before the ASC negation).
+          if (!presentA) {
+            return emptyLeast[i]
+                ? -1
+                : 1;
+          }
+          return emptyLeast[i]
+              ? 1
+              : -1;
+        }
+        final int res = kind == ORD_AVG
+            ? compareFraction(arrA[baseA + aggBase[i] + 1], arrA[baseA + aggBase[i]], arrB[baseB + aggBase[i] + 1],
+                arrB[baseB + aggBase[i]])
+            : Long.compare(valA, valB);
+        if (res != 0) {
+          return asc[i]
+              ? res
+              : -res;
+        }
+      }
+      return Long.compare(arrA[baseA + 1], arrB[baseB + 1]);
+    }
+
+    /**
+     * Exact {@code s1/c1 <=> s2/c2} with {@code c1, c2 >= 1}: signed 128-bit cross-multiply,
+     * {@code sign(s1*c2 - s2*c1)} without overflow or double rounding.
+     */
+    static int compareFraction(final long s1, final long c1, final long s2, final long c2) {
+      final long h1 = Math.multiplyHigh(s1, c2);
+      final long l1 = s1 * c2;
+      final long h2 = Math.multiplyHigh(s2, c1);
+      final long l2 = s2 * c1;
+      if (h1 != h2) {
+        return Long.compare(h1, h2);
+      }
+      return Long.compareUnsigned(l1, l2);
+    }
+  }
+
+  /**
+   * Bounded top-K selection over group accumulators under a {@link GroupOrderPlan}: a max-heap of
+   * the K best-so-far, "max" = the entry that orders LAST among them — a candidate ordering before
+   * the root evicts it. Draining heap-sorts in place, so the survivors come out in emission order.
+   * Selects exactly the first K entries of the stable full sort, at {@code n log K} with zero
+   * allocation per candidate (the accumulators already exist; only the K-slot arrays are new).
+   */
+  private static final class GroupTopKSelector {
+    private final GroupOrderPlan plan;
+    private final int capacity;
+    private final long[][] accs;
+    private final int[] bases;
+    private final Object[] keyObjs;
+    private final long[] keyLongs;
+    private final boolean[] hasKeys;
+    private int size;
+
+    GroupTopKSelector(final GroupOrderPlan plan, final int capacity) {
+      this.plan = plan;
+      this.capacity = capacity;
+      this.accs = new long[capacity][];
+      this.bases = new int[capacity];
+      this.keyObjs = new Object[capacity];
+      this.keyLongs = new long[capacity];
+      this.hasKeys = new boolean[capacity];
+    }
+
+    void offer(final long[] acc, final int base, final boolean hasKey, final long keyLong, final Object keyObj) {
+      if (size < capacity) {
+        final int at = size++;
+        accs[at] = acc;
+        bases[at] = base;
+        keyObjs[at] = keyObj;
+        keyLongs[at] = keyLong;
+        hasKeys[at] = hasKey;
+        siftUp(at);
+        return;
+      }
+      // Full: only a candidate ordering BEFORE the current worst can be in the first K.
+      if (plan.compare(acc, base, hasKey, keyLong, accs[0], bases[0], hasKeys[0], keyLongs[0]) < 0) {
+        accs[0] = acc;
+        bases[0] = base;
+        keyObjs[0] = keyObj;
+        keyLongs[0] = keyLong;
+        hasKeys[0] = hasKey;
+        siftDown(0, size);
+      }
+    }
+
+    /** Heap-sort drain; afterwards slots {@code 0..size()-1} are in emission order. */
+    void sortInPlace() {
+      for (int end = size - 1; end > 0; end--) {
+        swap(0, end);
+        siftDown(0, end);
+      }
+    }
+
+    int size() {
+      return size;
+    }
+
+    long[] accAt(final int i) {
+      return accs[i];
+    }
+
+    int baseAt(final int i) {
+      return bases[i];
+    }
+
+    boolean hasKeyAt(final int i) {
+      return hasKeys[i];
+    }
+
+    long keyLongAt(final int i) {
+      return keyLongs[i];
+    }
+
+    Object keyObjAt(final int i) {
+      return keyObjs[i];
+    }
+
+    /** Negative when slot {@code i} orders after slot {@code j} — the heap keeps the LAST first. */
+    private int heapCmp(final int i, final int j) {
+      return plan.compare(accs[j], bases[j], hasKeys[j], keyLongs[j], accs[i], bases[i], hasKeys[i], keyLongs[i]);
+    }
+
+    private void siftUp(int at) {
+      while (at > 0) {
+        final int parent = at - 1 >>> 1;
+        if (heapCmp(parent, at) <= 0) {
+          return;
+        }
+        swap(parent, at);
+        at = parent;
+      }
+    }
+
+    private void siftDown(int at, final int end) {
+      while (true) {
+        final int left = (at << 1) + 1;
+        if (left >= end) {
+          return;
+        }
+        final int right = left + 1;
+        int worst = left;
+        if (right < end && heapCmp(left, right) > 0) {
+          worst = right;
+        }
+        if (heapCmp(at, worst) <= 0) {
+          return;
+        }
+        swap(at, worst);
+        at = worst;
+      }
+    }
+
+    private void swap(final int i, final int j) {
+      final long[] acc = accs[i];
+      accs[i] = accs[j];
+      accs[j] = acc;
+      final int b = bases[i];
+      bases[i] = bases[j];
+      bases[j] = b;
+      final Object ko = keyObjs[i];
+      keyObjs[i] = keyObjs[j];
+      keyObjs[j] = ko;
+      final long kl = keyLongs[i];
+      keyLongs[i] = keyLongs[j];
+      keyLongs[j] = kl;
+      final boolean hk = hasKeys[i];
+      hasKeys[i] = hasKeys[j];
+      hasKeys[j] = hk;
     }
   }
 
