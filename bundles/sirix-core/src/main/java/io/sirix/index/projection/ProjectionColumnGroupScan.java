@@ -658,4 +658,89 @@ public final class ProjectionColumnGroupScan {
     }
   }
 
+  /**
+   * Sliced twin of {@link ProjectionIndexByteScan#conjunctiveAggregateByGroupPackedSubstringFlat}
+   * (v1: conjunctive predicates — trees stay whole-leaf). Groups AND orders on the SHARED
+   * {@link ProjectionIndexByteScan#packIsoMinuteSubstring} long (pack-domain parity is
+   * structural — both families pack the same decoded entry bytes); aux carries
+   * {@code (leaf << 20) | dictId} so winners decode originals from the slice dict. Decline
+   * points verbatim: a matching row MISSING the key field (substring of the empty sequence is
+   * {@code ""}, a REAL key failing the ISO shape) and a row referencing an entry the pack
+   * validator rejected.
+   */
+  public static void aggregateByGroupPackedSubstringFlat(final ProjectionColumnStore store,
+      final ColumnPredicate[] predicates, final ColumnSlice[][] predCols, final ColumnSlice[] groupCol,
+      final ColumnSlice[][] aggCols, final int fromLeaf, final int toLeaf, final int subStart, final int subLen,
+      final NumericGroupAggTable out, final long[] declineFlag) {
+    if (predicates == null || out == null || aggCols == null || declineFlag == null) {
+      throw new IllegalArgumentException("predicates, out, aggCols and declineFlag must not be null");
+    }
+    final long[] mask = MASK.get();
+    final DictScratch ds = DICT_SCRATCH.get();
+    final int aggCount = aggCols.length;
+    final long[][] aggValues = new long[aggCount][];
+    final long[][] aggPresence = new long[aggCount][];
+    for (int leaf = fromLeaf; leaf < toLeaf; leaf++) {
+      if (declineFlag[0] != 0) {
+        return;
+      }
+      final int rowCount = ProjectionColumnScan.evaluateMask(predicates, predCols, leaf, store.rowCount(leaf), mask);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final ColumnSlice group = groupCol[leaf];
+      final byte[][] dict = group.stringDict();
+      final int[] ids = group.stringDictIds();
+      final long[] groupPresence = group.presenceWords();
+      int dictSize = dict == null
+          ? 0
+          : dict.length;
+      while (dictSize > 0 && dict[dictSize - 1] == null) {
+        dictSize--; // null-padded dict tail (codec floor of 16)
+      }
+      ds.ensure(dictSize);
+      final long[] dictPacked = ds.hash;
+      for (int i = 0; i < dictSize; i++) {
+        final byte[] entry = dict[i];
+        dictPacked[i] = ProjectionIndexByteScan.packIsoMinuteSubstring(entry, 0, entry.length, subStart, subLen);
+      }
+      for (int a = 0; a < aggCount; a++) {
+        final ColumnSlice agg = aggCols[a][leaf];
+        aggValues[a] = agg.numericValues();
+        aggPresence[a] = agg.presenceWords();
+      }
+      final long leafOrdinalBase = (long) leaf << 20;
+      final int stride = (rowCount + 63) >>> 6;
+      for (int w = 0; w < stride; w++) {
+        long word = mask[w] & ProjectionIndexByteScan.validRowsMask(w, stride, rowCount);
+        final long groupPresWord = groupPresence[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            // substring((), s, l) is "" — a REAL group key failing the ISO shape: decline,
+            // never the null-key group (the interpreter emits "" here, not JSON null).
+            declineFlag[0] = 1;
+            return;
+          }
+          final int dictId = ids[rowIdx];
+          final long packed = dictPacked[dictId];
+          if (packed == Long.MIN_VALUE) {
+            declineFlag[0] = 1;
+            return;
+          }
+          final int base = out.acquire(packed, leafOrdinalBase | rowIdx);
+          final long[] slotArr = out.slotsArray();
+          if (slotArr[base] == 0L) {
+            out.setAuxAtBase(base, leafOrdinalBase | dictId);
+          }
+          foldSliced(slotArr, base, aggValues, aggPresence, null, null, null, aggCount, w, bit, rowIdx, -1, null,
+              null);
+        }
+      }
+    }
+  }
+
 }
