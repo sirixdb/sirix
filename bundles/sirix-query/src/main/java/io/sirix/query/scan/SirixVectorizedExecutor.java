@@ -10893,9 +10893,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // only the group/aggregate/predicate columns' decoded slices instead of assembling every
       // leaf. The escape hatch flips the whole route back for A/B timing in one build.
       final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
+      // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
+      // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
+      // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
       final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && tree == null
-          && predsSliceable(groupStore, preds) && allColumnsSliceable(groupStore, groupCols)
-          && allColumnsSliceable(groupStore, aggColsFlat);
+          && !handle.payloadsMaterialized() && predsSliceable(groupStore, preds)
+          && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
       final List<byte[]> rowGroupPayloads = groupSliced
           ? null
           : leafPayloadsOrNull(handle);
