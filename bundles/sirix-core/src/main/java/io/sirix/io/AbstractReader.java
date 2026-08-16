@@ -47,12 +47,12 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Verify page checksum for non-KeyValueLeafPage pages.
-   * 
+   * Verify the parent reference's page hash against the payload as it sits on disk.
+   *
    * <p>
-   * For non-KVLP pages, the hash is computed on compressed bytes, so verification happens BEFORE
-   * decompression. For KVLP pages, verification must happen after decompression (handled in PageKind
-   * deserialization).
+   * The hash covers the compressed payload for every page kind, {@code KeyValueLeafPage} included —
+   * the writer computes it over the serialized, byte-handler-processed bytes — so verification always
+   * happens BEFORE the payload is decoded, and nothing re-verifies a page afterwards.
    * </p>
    *
    * @param compressedData the compressed page data

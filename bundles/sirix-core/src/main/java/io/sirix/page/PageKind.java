@@ -722,199 +722,21 @@ public enum PageKind {
             nameKeyWidths = null;
           }
 
-          // Compute in-memory lengths:
-          // onDiskLen + (fc - 1) + (hashStripped ? 8 : 0) + parentKeyWidth(slot)
-          // + pnkWidth(slot) + valueWidth(slot)
-          // parentKeyWidth and pnkWidth are derived from the template for slots
-          // whose kind has the corresponding field; we compute them once per slot
-          // and stash them for the record-expansion loop below. valueWidth is
-          // read from the value-elision section when value-elision is active.
-          //
-          // The pathNodeKey column is bitmap-indexed by slot (0..1023), so we
-          // walk the page bitmap in parallel with the populated-slot loop to
-          // map entry index i → slot bit for PathNodeKeyRegion lookup.
+          // Compute in-memory lengths: on-disk length + every byte the writer stripped — the
+          // offset table it replaced with a template id, an all-zero hash, a parentKey or
+          // pathNodeKey varint that moved into its column, an elided value, an elided name key.
+          // The derivation is shared with anything that has to lay out the heap before decoding
+          // records, so bind this page's sections once and let the deriver walk the entries.
           inMemDataLengths = SLOT_DATALEN_SCRATCH.get();
-          int running = 0;
-          // Walk the bitmap in parallel to get each entry's slot bit.
-          int bmIdx = 0;
-          long bmWord = 0L;
-          // Counter into the per-elided-slot (type, width) section. Increments
-          // each time we encounter a fused-NUMBER slot when value-elision active.
-          int valueElidedReadCursor = 0;
-          // Lever 4: cursor into the nameKey-elision packed-widths section.
-          // Increments each time we encounter a fused OBJECT_NAMED_* slot
-          // when name-key-elision is active.
-          int nameKeyElidedReadCursor = 0;
-          for (int i = 0; i < populatedCount; i++) {
-            while (bmWord == 0) {
-              bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
-              if (bmIdx > PageLayout.BITMAP_WORDS) {
-                throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
-              }
-            }
-            final int slotBit = ((bmIdx - 1) << 6) | Long.numberOfTrailingZeros(bmWord);
-            bmWord &= bmWord - 1;
-            final int onDiskLen = compactDir[i] >>> 8;
-            final int kindId = compactDir[i] & 0xFF;
-            final int templateId = slotTemplateIds[i] & 0xFF;
-            final int fc = OffsetTableTemplatePool.templateFieldCount(templatePool, templateOffsets, templateId);
-            if (OffsetTableTemplatePool.templateKindId(templatePool, templateOffsets, templateId) != kindId) {
-              throw new SirixIOException("V1 kindId mismatch at slot " + i + ": compactDir=" + kindId + " template="
-                  + OffsetTableTemplatePool.templateKindId(templatePool, templateOffsets, templateId));
-            }
-            int inMemLen = onDiskLen + (fc - 1);
-            if (hashElisionActive && ((zeroHashBitmap[i >>> 3] >>> (i & 7)) & 1) == 1) {
-              inMemLen += NodeFieldLayout.HASH_WIDTH;
-            }
-            // parentKey width reconstruction. The writer strips a slot's parentKey varint
-            // whenever the kind has the field, the field is non-terminal, and the width the
-            // record's offset table implies is sane. The template IS that offset table, so
-            // re-deriving the same predicate from it keeps writer and reader in lockstep.
-            // Deciding on the decoded value instead would come apart the day a node
-            // legitimately holds NULL_NODE_KEY in a field it does have: the writer would strip
-            // those bytes and the reader would never put them back.
-            int pkWidth = 0;
-            if (parentKeyColumnActive) {
-              final int pkFieldIdx = NodeFieldLayout.parentKeyFieldIndexForKind(kindId);
-              if (pkFieldIdx >= 0 && pkFieldIdx + 1 < fc) {
-                final int computed = OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
-                    templateId, pkFieldIdx + 1)
-                    - OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId,
-                        pkFieldIdx);
-                if (computed > 0 && computed <= 10) {
-                  pkWidth = computed;
-                  inMemLen += pkWidth;
-                }
-              }
-            }
-            // pathNodeKey width reconstruction: read from the template via its
-            // offset-table entries. pnk is at a kind-specific interior index,
-            // never field 0, so unlike parentKey we cannot assume pnkOff = 0.
-            // Width is template.offset[pnkFieldIdx+1] - template.offset[pnkFieldIdx]
-            // for non-terminal fields; for the (rare) case of pnk at the last
-            // field, we use templateFieldWidth with the reconstructed dataBytes.
-            int pnkWidth = 0;
-            if (pathNodeKeyColumnActive && pathNodeKeyColumnBytes != null) {
-              final int pnkFieldIdx = NodeFieldLayout.pathNodeKeyFieldIndexForKind(kindId);
-              if (pnkFieldIdx >= 0 && fc > 1) {
-                // Consult the column's bitmap: if the bit for this slot is set
-                // the writer stripped the pnk varint and we must reinject.
-                // Otherwise the pnk was not a column participant (e.g. pnk
-                // width was pathological / 0) — keep the bytes inline.
-                final int pnkLookup = PathNodeKeyRegion.pathNodeKeyForSlot(pathNodeKeyColumnBytes, slotBit);
-                if (pnkLookup >= 0) {
-                  final int pnkOff = OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
-                      templateId, pnkFieldIdx);
-                  int computed;
-                  if (pnkFieldIdx + 1 < fc) {
-                    computed = OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId,
-                        pnkFieldIdx + 1) - pnkOff;
-                  } else {
-                    // Last-field case — ALL kinds with pnk actually have it at
-                    // a non-terminal index in real data (by inspection of
-                    // NodeFieldLayout.pathNodeKeyFieldIndexForKind), so this
-                    // branch is dead. Compute via remaining-dataBytes for safety.
-                    final int postStrippedDataBytes = (onDiskLen - 2);
-                    final int reAddedHash = (hashElisionActive && ((zeroHashBitmap[i >>> 3] >>> (i & 7)) & 1) == 1)
-                        ? NodeFieldLayout.HASH_WIDTH
-                        : 0;
-                    computed = OffsetTableTemplatePool.templateFieldWidth(templatePool, templateOffsets, templateId,
-                        pnkFieldIdx, postStrippedDataBytes + reAddedHash + pkWidth);
-                  }
-                  if (computed > 0 && computed <= 10) {
-                    pnkWidth = computed;
-                    inMemLen += pnkWidth;
-                  }
-                }
-              }
-            }
-            // Value-width re-injection: for elided fused-primitive slots when
-            // value-elision is active, the on-disk record is missing the value
-            // payload bytes. The reader reads the on-disk (type, width) pair
-            // from the value-elision section and adds the width back to
-            // inMemLen so the slot's heap layout matches the unelided original.
-            //
-            // The on-disk per-slot byte 0 carries:
-            // NUMBER -> typeByte (2 or 3)
-            // STRING -> 0 (placeholder)
-            // BOOLEAN -> 0 (placeholder)
-            // The reader dispatches on compactDir kindId — typeByte is only
-            // consulted by the inject pass for NUMBER (to pick INTEGER vs LONG
-            // varint width).
-            int valueWidth = 0;
-            if (valueElisionActive && valueElidedReadCursor < valueElidedCount
-                && (valueElidedSlots[valueElidedReadCursor] & 0xFFFF) == slotBit) {
-              // This slot is named by the elision section. Per-slot elision means a fused
-              // primitive slot may equally well NOT be named — its payload is then simply
-              // inline — so matching is by explicit slot id, never by kind.
-              if (!(kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID
-                  || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID
-                  || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID)) {
-                throw new SirixIOException("value-elision names slot " + slotBit + ", whose kind " + kindId
-                    + " has no fused-primitive payload");
-              }
-              valueWidth = valueElidedWidths[valueElidedReadCursor];
-              // BOOLEAN width is exactly 1; STRING is 1 (compressed flag) +
-              // varint(length) + length bytes; NUMBER is up to 11 (1 type +
-              // up to 10 varint bytes for a long). The writer pre-scan caps at
-              // 0xFF so width is always representable in the on-disk byte.
-              if (valueWidth <= 0) {
-                throw new SirixIOException("invalid value-elision width at slot " + i + ": " + valueWidth);
-              }
-              inMemLen += valueWidth;
-              // Compute the in-data offset of the value field. All three
-              // primitive-fused kinds (48/49/50) put their value at field
-              // index 8 (NodeFieldLayout.OBJNAMEDNUM_PAYLOAD ==
-              // OBJNAMEDSTR_PAYLOAD == OBJNAMEDBOOL_VALUE == 8).
-              valueOffs[i] = (short) OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
-                  templateId, NodeFieldLayout.OBJNAMEDNUM_PAYLOAD);
-              valueWidths[i] = (short) valueWidth;
-              valueElidedReadCursor++;
-            } else if (valueElisionActive) {
-              // Not named by the section — inline payload (or no payload at all).
-              valueWidths[i] = 0;
-            }
-            // Lever 4: name-key width re-injection. For fused OBJECT_NAMED_*
-            // (48-51) slots the on-disk record has its [signed-varint nameKey]
-            // field stripped. The reader reads the per-slot 1-byte width from
-            // the packed-widths section and adds it back to inMemLen so the
-            // slot's heap layout matches the unelided original.
-            int nameKeyWidthLocal = 0;
-            if (nameKeyElisionActive && KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
-              if (nameKeyElidedReadCursor >= nameKeyElidedWidthsPacked.length) {
-                throw new SirixIOException("name-key elision section truncated at slot " + i);
-              }
-              nameKeyWidthLocal = nameKeyElidedWidthsPacked[nameKeyElidedReadCursor] & 0xFF;
-              nameKeyElidedReadCursor++;
-              if (nameKeyWidthLocal < 1 || nameKeyWidthLocal > 5) {
-                throw new SirixIOException("invalid name-key elision width at slot " + i + ": " + nameKeyWidthLocal);
-              }
-              inMemLen += nameKeyWidthLocal;
-              // The nameKey field index is kind-specific: 3 for primitives
-              // (kindIds 48-51) and 5 for the Phase 1-reserved structurals
-              // (52-53). NodeFieldLayout.nameKeyFieldIndexForKind handles
-              // both ranges; for the primitive subset that this branch hits
-              // it always returns 3.
-              final int nameKeyFieldIdx = NodeFieldLayout.nameKeyFieldIndexForKind(kindId);
-              nameKeyOffs[i] = (short) OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
-                  templateId, nameKeyFieldIdx);
-              nameKeyWidths[i] = (byte) nameKeyWidthLocal;
-            } else if (nameKeyElisionActive) {
-              // Slot's kind is not a fused OBJECT_NAMED_*: no nameKey strip,
-              // no inject. Zero out so the inject pass treats it as no-op.
-              nameKeyWidths[i] = 0;
-            }
-            inMemDataLengths[i] = inMemLen;
-            // Stash widths for the expansion loop.
-            if (parentKeyColumnActive && parentKeyWidths != null) {
-              parentKeyWidths[i] = (byte) pkWidth;
-            }
-            if (pathNodeKeyColumnActive && pathNodeKeyWidths != null) {
-              pathNodeKeyWidths[i] = (byte) pnkWidth;
-            }
-            running += inMemLen;
-          }
-          inMemHeapSize = running;
+          final InMemLengthDeriver deriver = IN_MEM_LENGTH_DERIVER.get();
+          deriver.bindTemplates(compactDir, slotTemplateIds, templatePool, templateOffsets, inMemDataLengths);
+          deriver.bindHashElision(hashElisionActive, zeroHashBitmap);
+          deriver.bindParentKeyColumn(parentKeyColumnActive, parentKeyWidths);
+          deriver.bindPathNodeKeyColumn(pathNodeKeyColumnActive, pathNodeKeyColumnBytes, pathNodeKeyWidths);
+          deriver.bindValueElision(valueElisionActive, valueElidedCount, valueElidedSlots, valueElidedWidths, valueOffs,
+              valueWidths);
+          deriver.bindNameKeyElision(nameKeyElisionActive, nameKeyElidedWidthsPacked, nameKeyOffs, nameKeyWidths);
+          inMemHeapSize = deriver.deriveAll(headerBitmapSeg, populatedCount);
 
           // Expose the blob-heap offset so the record-expansion loop below can
           // consume from the correct position.
@@ -2468,116 +2290,33 @@ public enum PageKind {
               + stagedNameKeyElisionBytes;
           final int totalStagingBytes = structuralBytes + onDiskHeapSize;
           final MemorySegment staging = v1StagingScratch(totalStagingBytes);
-          long stagePos = 0;
-
-          // compactDir — on-disk lengths, accounting for stripped hash + parentKey + pnk + value + nameKey.
-          for (int i = 0; i < populatedCount; i++) {
-            final int packed = PageLayout.packCompactDirEntry(slotOnDiskLens[i], slotKindIds[i]);
-            // Big-endian on the wire — matches sink.writeInt() semantics, kept for parity with
-            // the prior format. Emitted as ONE little-endian int of the byte-reversed value
-            // rather than four byte stores: every MemorySegment access carries its own session,
-            // bounds and alignment checks, and at four per slot across a page-per-1024-records
-            // ingest those checks were a measurable share of encode CPU on their own.
-            // Integer.reverseBytes is a bswap intrinsic, so the swap itself is free.
-            staging.set(LE.INT, stagePos, Integer.reverseBytes(packed));
-            stagePos += 4;
-          }
-          // template pool
+          final BodySections sections = BODY_SECTIONS.get();
+          sections.begin(staging);
+          sections.appendCompactDir(slotOnDiskLens, slotKindIds, populatedCount);
           if (br.templatesByteLength > 0) {
-            MemorySegment.copy(templatePool, 0, staging, ValueLayout.JAVA_BYTE, stagePos, br.templatesByteLength);
-            stagePos += br.templatesByteLength;
+            sections.appendTemplatePool(templatePool, br.templatesByteLength);
           }
-          // slotTemplateIds
           if (populatedCount > 0) {
-            MemorySegment.copy(slotTemplateIds, 0, staging, ValueLayout.JAVA_BYTE, stagePos, populatedCount);
-            stagePos += populatedCount;
+            sections.appendSlotTemplateIds(slotTemplateIds, populatedCount);
           }
-          // zeroHashBitmap (only when hash elision active)
           if (hashElisionActive) {
-            MemorySegment.copy(zeroHashBitmap, 0, staging, ValueLayout.JAVA_BYTE, stagePos, hashBitmapBytes);
-            stagePos += hashBitmapBytes;
+            sections.appendZeroHashBitmap(zeroHashBitmap, hashBitmapBytes);
           }
-          // parentKey column (only when active): int length prefix + bytes
           if (parentKeyColumnActive) {
-            staging.set(ValueLayout.JAVA_BYTE, stagePos, (byte) ((parentKeyColumnLen >>> 24) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 1, (byte) ((parentKeyColumnLen >>> 16) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 2, (byte) ((parentKeyColumnLen >>> 8) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 3, (byte) (parentKeyColumnLen & 0xFF));
-            stagePos += 4;
-            MemorySegment.copy(parentKeyColumnBytes, 0, staging, ValueLayout.JAVA_BYTE, stagePos, parentKeyColumnLen);
-            stagePos += parentKeyColumnLen;
+            sections.appendParentKeyColumn(parentKeyColumnBytes, parentKeyColumnLen);
           }
-          // pathNodeKey column (only when active): int length prefix + bytes
           if (pathNodeKeyColumnActive) {
-            staging.set(ValueLayout.JAVA_BYTE, stagePos, (byte) ((pathNodeKeyColumnLen >>> 24) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 1, (byte) ((pathNodeKeyColumnLen >>> 16) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 2, (byte) ((pathNodeKeyColumnLen >>> 8) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 3, (byte) (pathNodeKeyColumnLen & 0xFF));
-            stagePos += 4;
-            MemorySegment.copy(pathNodeKeyColumnBytes, 0, staging, ValueLayout.JAVA_BYTE, stagePos,
-                pathNodeKeyColumnLen);
-            stagePos += pathNodeKeyColumnLen;
+            sections.appendPathNodeKeyColumn(pathNodeKeyColumnBytes, pathNodeKeyColumnLen);
           }
-          // value elision section (only when active): int elidedCount + per-slot
-          // (type, width) pairs. Layout: 2 bytes/elided slot in slot-ascending
-          // order (skipping non-elided slots). The reader walks the bitmap in
-          // parallel and consumes 2 bytes per elided slot.
-          // byte 0: kind-specific type discriminator
-          // - NUMBER: NUMBER_TYPE_INTEGER (2) or NUMBER_TYPE_LONG (3)
-          // - STRING: 0 (placeholder; reader dispatches via compactDir kindId)
-          // - BOOLEAN: 0 (placeholder)
-          // byte 1: original heap width (1 type byte + payload bytes)
           if (valueElisionActive) {
-            staging.set(ValueLayout.JAVA_BYTE, stagePos, (byte) ((valueElidableSlotCount >>> 24) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 1, (byte) ((valueElidableSlotCount >>> 16) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 2, (byte) ((valueElidableSlotCount >>> 8) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 3, (byte) (valueElidableSlotCount & 0xFF));
-            stagePos += 4;
-            int prevElidedSlot = -1;
-            for (int i = 0; i < populatedCount; i++) {
-              final byte mark = slotValueElided[i];
-              if (mark != 0) {
-                final int slot = slotBits[i] & 0xFFFF;
-                // Slot id as a gap from the previous elided slot, then the type byte (NUMBER's
-                // 2/3; 0 for STRING/BOOLEAN, whose kind the reader takes from the compact dir),
-                // the original heap width, and the value's absolute index in its region — the
-                // reader decodes by that index directly, so no rank bookkeeping exists to drift.
-                stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos, slot - prevElidedSlot);
-                prevElidedSlot = slot;
-                // NUMBER carries its 2/3 subtype; STRING carries its compressed flag (0 raw,
-                // 1 FSST) so injection restores the exact heap byte; BOOLEAN carries 0.
-                final byte diskType;
-                if (mark == STRING_ELIDE_MARKER || mark == BOOLEAN_ELIDE_MARKER) {
-                  diskType = 0;
-                } else if (mark == STRING_ELIDE_COMPRESSED_MARKER) {
-                  diskType = 1;
-                } else {
-                  diskType = mark;
-                }
-                staging.set(ValueLayout.JAVA_BYTE, stagePos, diskType);
-                stagePos += 1;
-                stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos, slotValueWidths[i] & 0xFFFF);
-                stagePos += DeltaVarIntCodec.writeSignedToSegment(staging, stagePos, slotRegionAbsIdx[slot]);
-              }
-            }
-          } // Lever 4: name-key elision section (only when active): int elidedCount +
-          // per-slot 1-byte width pairs in slot-ascending order. The reader walks
-          // the bitmap in parallel and consumes 1 byte per fused-OBJECT_NAMED_*
-          // slot. nameKey value itself is recovered via
-          // ObjectKeyNameKeyRegion.nameKeyForSlot(payload, slotBit).
-          if (nameKeyElisionActive) {
-            staging.set(ValueLayout.JAVA_BYTE, stagePos, (byte) ((nameKeyElidableSlotCount >>> 24) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 1, (byte) ((nameKeyElidableSlotCount >>> 16) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 2, (byte) ((nameKeyElidableSlotCount >>> 8) & 0xFF));
-            staging.set(ValueLayout.JAVA_BYTE, stagePos + 3, (byte) (nameKeyElidableSlotCount & 0xFF));
-            stagePos += 4;
-            for (int i = 0; i < populatedCount; i++) {
-              if (slotNameKeyElided[i] != 0) {
-                staging.set(ValueLayout.JAVA_BYTE, stagePos, slotNameKeyWidths[i]);
-                stagePos++;
-              }
-            }
+            sections.appendValueElision(valueElidableSlotCount, populatedCount, slotValueElided, slotBits,
+                slotValueWidths, slotRegionAbsIdx);
           }
+          if (nameKeyElisionActive) {
+            sections.appendNameKeyElision(nameKeyElidableSlotCount, populatedCount, slotNameKeyElided,
+                slotNameKeyWidths);
+          }
+          long stagePos = sections.beginHeap();
           // heap (records with templateId replacing offset table; hash, parentKey,
           // pathNodeKey, value, and nameKey optionally stripped). Up to 5 skip
           // ranges per slot, sorted ascending by offset, so the general case
@@ -2822,6 +2561,10 @@ public enum PageKind {
               stagePos += dataBytes - cursor;
             }
           }
+          sections.endHeap(stagePos);
+          assert sections.totalLength() == totalStagingBytes
+              && sections.metaLength() + sections.heapLength() == totalStagingBytes
+              : "staged " + sections.totalLength() + " body bytes, sized for " + totalStagingBytes;
 
           // Compress the combined staging blob with LZ4 (HC when configured) or
           // ZeroRunByteCodec fallback. Emit: int compressedLen, 1 byte codec,
@@ -6194,5 +5937,537 @@ public enum PageKind {
       throw new IllegalStateException();
     }
     return page;
+  }
+
+  /**
+   * Shared per-entry in-memory length derivation; see {@link InMemLengthDeriver}. Bound per page,
+   * reused across pages so the derivation itself never allocates.
+   */
+  private static final ThreadLocal<InMemLengthDeriver> IN_MEM_LENGTH_DERIVER =
+      ThreadLocal.withInitial(InMemLengthDeriver::new);
+
+  /**
+   * Body-section staging carrier; see {@link BodySections}. One per writer thread, rebound per page.
+   */
+  private static final ThreadLocal<BodySections> BODY_SECTIONS = ThreadLocal.withInitial(BodySections::new);
+
+  /**
+   * Derives an entry's in-memory data length: the space its record occupies on the page heap once
+   * every byte the writer stripped has been added back.
+   *
+   * <p>
+   * The widths come from page metadata alone — the template's field count and offset-table deltas,
+   * the hash-elision bit, the pathNodeKey column's per-slot participation bit, and the two elision
+   * sections. No input is read from the record heap, which is what lets a page's directory be laid
+   * out before a single record byte has been decoded.
+   *
+   * <p>
+   * Bind a page's sections once with the {@code bind*} methods — one per format lever — then either
+   * call {@link #deriveAll} to walk every entry, or {@link #inMemLengthOf} per entry when the caller
+   * drives its own walk. The carrier is thread-local and reused across pages; the per-entry method
+   * allocates nothing.
+   */
+  static final class InMemLengthDeriver {
+    /** Packed (on-disk length, kindId) per entry, in populated-bitmap rank order. */
+    private int[] compactDir;
+    /** Template id per entry. */
+    private byte[] slotTemplateIds;
+    /** The page's template pool, addressed through {@link #templateOffsets}. */
+    private byte[] templatePool;
+    private int[] templateOffsets;
+    /** Receives each entry's in-memory data length. */
+    private int[] inMemDataLengths;
+
+    private boolean hashElisionActive;
+    /** Entry-indexed: bit set when the writer dropped an all-zero hash. */
+    private byte[] zeroHashBitmap;
+
+    private boolean parentKeyColumnActive;
+    /** Receives the parentKey varint width the expansion pass has to reinject. */
+    private byte[] parentKeyWidths;
+
+    private boolean pathNodeKeyColumnActive;
+    /** Raw {@link PathNodeKeyRegion} payload, slot-bitmap indexed. */
+    private byte[] pathNodeKeyColumnBytes;
+    private byte[] pathNodeKeyWidths;
+
+    private boolean valueElisionActive;
+    private int valueElidedCount;
+    private short[] valueElidedSlots;
+    private int[] valueElidedWidths;
+    private short[] valueOffs;
+    private short[] valueWidths;
+
+    private boolean nameKeyElisionActive;
+    private byte[] nameKeyElidedWidthsPacked;
+    private short[] nameKeyOffs;
+    private byte[] nameKeyWidths;
+
+    /** Cursor into the value-elision section; advances per named slot, in slot-ascending order. */
+    private int valueElidedReadCursor;
+    /** Cursor into the nameKey-elision packed-widths section; advances per fused-named slot. */
+    private int nameKeyElidedReadCursor;
+
+    void bindTemplates(final int[] compactDir, final byte[] slotTemplateIds, final byte[] templatePool,
+        final int[] templateOffsets, final int[] inMemDataLengths) {
+      this.compactDir = compactDir;
+      this.slotTemplateIds = slotTemplateIds;
+      this.templatePool = templatePool;
+      this.templateOffsets = templateOffsets;
+      this.inMemDataLengths = inMemDataLengths;
+    }
+
+    void bindHashElision(final boolean hashElisionActive, final byte[] zeroHashBitmap) {
+      this.hashElisionActive = hashElisionActive;
+      this.zeroHashBitmap = zeroHashBitmap;
+    }
+
+    void bindParentKeyColumn(final boolean parentKeyColumnActive, final byte[] parentKeyWidths) {
+      this.parentKeyColumnActive = parentKeyColumnActive;
+      this.parentKeyWidths = parentKeyWidths;
+    }
+
+    void bindPathNodeKeyColumn(final boolean pathNodeKeyColumnActive, final byte[] pathNodeKeyColumnBytes,
+        final byte[] pathNodeKeyWidths) {
+      this.pathNodeKeyColumnActive = pathNodeKeyColumnActive;
+      this.pathNodeKeyColumnBytes = pathNodeKeyColumnBytes;
+      this.pathNodeKeyWidths = pathNodeKeyWidths;
+    }
+
+    void bindValueElision(final boolean valueElisionActive, final int valueElidedCount, final short[] valueElidedSlots,
+        final int[] valueElidedWidths, final short[] valueOffs, final short[] valueWidths) {
+      this.valueElisionActive = valueElisionActive;
+      this.valueElidedCount = valueElidedCount;
+      this.valueElidedSlots = valueElidedSlots;
+      this.valueElidedWidths = valueElidedWidths;
+      this.valueOffs = valueOffs;
+      this.valueWidths = valueWidths;
+    }
+
+    void bindNameKeyElision(final boolean nameKeyElisionActive, final byte[] nameKeyElidedWidthsPacked,
+        final short[] nameKeyOffs, final byte[] nameKeyWidths) {
+      this.nameKeyElisionActive = nameKeyElisionActive;
+      this.nameKeyElidedWidthsPacked = nameKeyElidedWidthsPacked;
+      this.nameKeyOffs = nameKeyOffs;
+      this.nameKeyWidths = nameKeyWidths;
+    }
+
+    /**
+     * Derive every entry's length, stamping {@code inMemDataLengths} and the per-slot width and offset
+     * scratches the record-expansion pass consumes.
+     *
+     * <p>
+     * The pathNodeKey column is bitmap-indexed by slot (0..1023), so the page bitmap is walked in
+     * parallel with the entry loop to map entry index → slot bit. Both elision sections are
+     * slot-ascending, so their cursors advance with the same walk.
+     *
+     * @param headerBitmapSeg the page's 160-byte header + slot bitmap
+     * @param populatedCount number of populated entries
+     * @return the total in-memory heap size
+     */
+    int deriveAll(final MemorySegment headerBitmapSeg, final int populatedCount) {
+      int running = 0;
+      int bmIdx = 0;
+      long bmWord = 0L;
+      valueElidedReadCursor = 0;
+      nameKeyElidedReadCursor = 0;
+      for (int i = 0; i < populatedCount; i++) {
+        while (bmWord == 0) {
+          bmWord = PageLayout.getBitmapWord(headerBitmapSeg, bmIdx++);
+          if (bmIdx > PageLayout.BITMAP_WORDS) {
+            throw new SirixIOException("bitmap exhausted at entry " + i + " / " + populatedCount);
+          }
+        }
+        final int slotBit = ((bmIdx - 1) << 6) | Long.numberOfTrailingZeros(bmWord);
+        bmWord &= bmWord - 1;
+        running += inMemLengthOf(i, slotBit);
+      }
+      return running;
+    }
+
+    /**
+     * Derive one entry's in-memory data length and stamp its per-slot scratches.
+     *
+     * <p>
+     * Entries must be visited in ascending order: the value- and nameKey-elision sections are read
+     * through cursors that only move forward.
+     *
+     * @param entryIdx the entry's rank in populated-bitmap order
+     * @param slotBit the entry's slot id on the page
+     * @return the entry's in-memory data length
+     */
+    int inMemLengthOf(final int entryIdx, final int slotBit) {
+      final int onDiskLen = compactDir[entryIdx] >>> 8;
+      final int kindId = compactDir[entryIdx] & 0xFF;
+      final int templateId = slotTemplateIds[entryIdx] & 0xFF;
+      final int fc = OffsetTableTemplatePool.templateFieldCount(templatePool, templateOffsets, templateId);
+      if (OffsetTableTemplatePool.templateKindId(templatePool, templateOffsets, templateId) != kindId) {
+        throw new SirixIOException("V1 kindId mismatch at slot " + entryIdx + ": compactDir=" + kindId + " template="
+            + OffsetTableTemplatePool.templateKindId(templatePool, templateOffsets, templateId));
+      }
+      int inMemLen = onDiskLen + (fc - 1);
+      if (hashElisionActive && ((zeroHashBitmap[entryIdx >>> 3] >>> (entryIdx & 7)) & 1) == 1) {
+        inMemLen += NodeFieldLayout.HASH_WIDTH;
+      }
+      // parentKey width reconstruction. The writer strips a slot's parentKey varint
+      // whenever the kind has the field, the field is non-terminal, and the width the
+      // record's offset table implies is sane. The template IS that offset table, so
+      // re-deriving the same predicate from it keeps writer and reader in lockstep.
+      // Deciding on the decoded value instead would come apart the day a node
+      // legitimately holds NULL_NODE_KEY in a field it does have: the writer would strip
+      // those bytes and the reader would never put them back.
+      int pkWidth = 0;
+      if (parentKeyColumnActive) {
+        final int pkFieldIdx = NodeFieldLayout.parentKeyFieldIndexForKind(kindId);
+        if (pkFieldIdx >= 0 && pkFieldIdx + 1 < fc) {
+          final int computed =
+              OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, pkFieldIdx + 1)
+                  - OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, pkFieldIdx);
+          if (computed > 0 && computed <= 10) {
+            pkWidth = computed;
+            inMemLen += pkWidth;
+          }
+        }
+      }
+      // pathNodeKey width reconstruction: read from the template via its
+      // offset-table entries. pnk is at a kind-specific interior index,
+      // never field 0, so unlike parentKey we cannot assume pnkOff = 0.
+      // Width is template.offset[pnkFieldIdx+1] - template.offset[pnkFieldIdx]
+      // for non-terminal fields; for the (rare) case of pnk at the last
+      // field, we use templateFieldWidth with the reconstructed dataBytes.
+      int pnkWidth = 0;
+      if (pathNodeKeyColumnActive && pathNodeKeyColumnBytes != null) {
+        final int pnkFieldIdx = NodeFieldLayout.pathNodeKeyFieldIndexForKind(kindId);
+        if (pnkFieldIdx >= 0 && fc > 1) {
+          // Consult the column's bitmap: if the bit for this slot is set
+          // the writer stripped the pnk varint and we must reinject.
+          // Otherwise the pnk was not a column participant (e.g. pnk
+          // width was pathological / 0) — keep the bytes inline.
+          final int pnkLookup = PathNodeKeyRegion.pathNodeKeyForSlot(pathNodeKeyColumnBytes, slotBit);
+          if (pnkLookup >= 0) {
+            final int pnkOff =
+                OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId, pnkFieldIdx);
+            int computed;
+            if (pnkFieldIdx + 1 < fc) {
+              computed = OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets, templateId,
+                  pnkFieldIdx + 1) - pnkOff;
+            } else {
+              // Last-field case — ALL kinds with pnk actually have it at
+              // a non-terminal index in real data (by inspection of
+              // NodeFieldLayout.pathNodeKeyFieldIndexForKind), so this
+              // branch is dead. Compute via remaining-dataBytes for safety.
+              final int postStrippedDataBytes = (onDiskLen - 2);
+              final int reAddedHash =
+                  (hashElisionActive && ((zeroHashBitmap[entryIdx >>> 3] >>> (entryIdx & 7)) & 1) == 1)
+                      ? NodeFieldLayout.HASH_WIDTH
+                      : 0;
+              computed = OffsetTableTemplatePool.templateFieldWidth(templatePool, templateOffsets, templateId,
+                  pnkFieldIdx, postStrippedDataBytes + reAddedHash + pkWidth);
+            }
+            if (computed > 0 && computed <= 10) {
+              pnkWidth = computed;
+              inMemLen += pnkWidth;
+            }
+          }
+        }
+      }
+      // Value-width re-injection: for elided fused-primitive slots when
+      // value-elision is active, the on-disk record is missing the value
+      // payload bytes. The reader reads the on-disk (type, width) pair
+      // from the value-elision section and adds the width back to
+      // inMemLen so the slot's heap layout matches the unelided original.
+      //
+      // The on-disk per-slot byte 0 carries:
+      // NUMBER -> typeByte (2 or 3)
+      // STRING -> 0 (placeholder)
+      // BOOLEAN -> 0 (placeholder)
+      // The reader dispatches on compactDir kindId — typeByte is only
+      // consulted by the inject pass for NUMBER (to pick INTEGER vs LONG
+      // varint width).
+      int valueWidth = 0;
+      if (valueElisionActive && valueElidedReadCursor < valueElidedCount
+          && (valueElidedSlots[valueElidedReadCursor] & 0xFFFF) == slotBit) {
+        // This slot is named by the elision section. Per-slot elision means a fused
+        // primitive slot may equally well NOT be named — its payload is then simply
+        // inline — so matching is by explicit slot id, never by kind.
+        if (!(kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID
+            || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID
+            || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID)) {
+          throw new SirixIOException(
+              "value-elision names slot " + slotBit + ", whose kind " + kindId + " has no fused-primitive payload");
+        }
+        valueWidth = valueElidedWidths[valueElidedReadCursor];
+        // BOOLEAN width is exactly 1; STRING is 1 (compressed flag) +
+        // varint(length) + length bytes; NUMBER is up to 11 (1 type +
+        // up to 10 varint bytes for a long). The writer pre-scan caps at
+        // 0xFF so width is always representable in the on-disk byte.
+        if (valueWidth <= 0) {
+          throw new SirixIOException("invalid value-elision width at slot " + entryIdx + ": " + valueWidth);
+        }
+        inMemLen += valueWidth;
+        // Compute the in-data offset of the value field. All three
+        // primitive-fused kinds (48/49/50) put their value at field
+        // index 8 (NodeFieldLayout.OBJNAMEDNUM_PAYLOAD ==
+        // OBJNAMEDSTR_PAYLOAD == OBJNAMEDBOOL_VALUE == 8).
+        valueOffs[entryIdx] = (short) OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
+            templateId, NodeFieldLayout.OBJNAMEDNUM_PAYLOAD);
+        valueWidths[entryIdx] = (short) valueWidth;
+        valueElidedReadCursor++;
+      } else if (valueElisionActive) {
+        // Not named by the section — inline payload (or no payload at all).
+        valueWidths[entryIdx] = 0;
+      }
+      // Lever 4: name-key width re-injection. For fused OBJECT_NAMED_*
+      // (48-51) slots the on-disk record has its [signed-varint nameKey]
+      // field stripped. The reader reads the per-slot 1-byte width from
+      // the packed-widths section and adds it back to inMemLen so the
+      // slot's heap layout matches the unelided original.
+      int nameKeyWidthLocal = 0;
+      if (nameKeyElisionActive && KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
+        if (nameKeyElidedReadCursor >= nameKeyElidedWidthsPacked.length) {
+          throw new SirixIOException("name-key elision section truncated at slot " + entryIdx);
+        }
+        nameKeyWidthLocal = nameKeyElidedWidthsPacked[nameKeyElidedReadCursor] & 0xFF;
+        nameKeyElidedReadCursor++;
+        if (nameKeyWidthLocal < 1 || nameKeyWidthLocal > 5) {
+          throw new SirixIOException("invalid name-key elision width at slot " + entryIdx + ": " + nameKeyWidthLocal);
+        }
+        inMemLen += nameKeyWidthLocal;
+        // The nameKey field index is kind-specific: 3 for primitives
+        // (kindIds 48-51) and 5 for the Phase 1-reserved structurals
+        // (52-53). NodeFieldLayout.nameKeyFieldIndexForKind handles
+        // both ranges; for the primitive subset that this branch hits
+        // it always returns 3.
+        final int nameKeyFieldIdx = NodeFieldLayout.nameKeyFieldIndexForKind(kindId);
+        nameKeyOffs[entryIdx] = (short) OffsetTableTemplatePool.templateFieldOffset(templatePool, templateOffsets,
+            templateId, nameKeyFieldIdx);
+        nameKeyWidths[entryIdx] = (byte) nameKeyWidthLocal;
+      } else if (nameKeyElisionActive) {
+        // Slot's kind is not a fused OBJECT_NAMED_*: no nameKey strip,
+        // no inject. Zero out so the inject pass treats it as no-op.
+        nameKeyWidths[entryIdx] = 0;
+      }
+      inMemDataLengths[entryIdx] = inMemLen;
+      // Stash widths for the expansion loop.
+      if (parentKeyColumnActive && parentKeyWidths != null) {
+        parentKeyWidths[entryIdx] = (byte) pkWidth;
+      }
+      if (pathNodeKeyColumnActive && pathNodeKeyWidths != null) {
+        pathNodeKeyWidths[entryIdx] = (byte) pnkWidth;
+      }
+      return inMemLen;
+    }
+  }
+
+  /**
+   * The sections of a record page's body as they are staged, in wire order, with the length of each
+   * one.
+   *
+   * <p>
+   * Everything ahead of the heap — compact dir, template pool, per-slot template ids, and the four
+   * column/elision sections — is page-global metadata the reader needs before it can touch a single
+   * record; the heap that follows is the records themselves. The two are staged into one contiguous
+   * buffer and compressed together, exactly as before, but the carrier records where the boundary
+   * falls so a caller can frame metadata and records apart without re-deriving the layout.
+   *
+   * <p>
+   * Thread-local and reused: {@link #begin} rebinds it to a staging buffer and clears the lengths.
+   */
+  static final class BodySections {
+    private MemorySegment staging;
+    /** Write cursor into {@link #staging}; also the number of bytes staged so far. */
+    private long pos;
+    /** Staging offset of the first heap byte, i.e. the end of the metadata sections. */
+    private long heapStart;
+    private int compactDirLen;
+    private int templatePoolLen;
+    private int slotTemplateIdsLen;
+    private int zeroHashBitmapLen;
+    private int parentKeyColumnLen;
+    private int pathNodeKeyColumnLen;
+    private int valueElisionLen;
+    private int nameKeyElisionLen;
+    private int heapLen;
+
+    /**
+     * Bind a staging buffer and drop the previous page's lengths.
+     *
+     * @param staging the staging buffer, sized for the whole body
+     */
+    void begin(final MemorySegment staging) {
+      this.staging = staging;
+      pos = 0;
+      heapStart = 0;
+      compactDirLen = 0;
+      templatePoolLen = 0;
+      slotTemplateIdsLen = 0;
+      zeroHashBitmapLen = 0;
+      parentKeyColumnLen = 0;
+      pathNodeKeyColumnLen = 0;
+      valueElisionLen = 0;
+      nameKeyElisionLen = 0;
+      heapLen = 0;
+    }
+
+    void appendCompactDir(final int[] slotOnDiskLens, final int[] slotKindIds, final int populatedCount) {
+      final long start = pos;
+      // compactDir — on-disk lengths, accounting for stripped hash + parentKey + pnk + value + nameKey.
+      for (int i = 0; i < populatedCount; i++) {
+        final int packed = PageLayout.packCompactDirEntry(slotOnDiskLens[i], slotKindIds[i]);
+        // Big-endian on the wire — matches sink.writeInt() semantics, kept for parity with
+        // the prior format. Emitted as ONE little-endian int of the byte-reversed value
+        // rather than four byte stores: every MemorySegment access carries its own session,
+        // bounds and alignment checks, and at four per slot across a page-per-1024-records
+        // ingest those checks were a measurable share of encode CPU on their own.
+        // Integer.reverseBytes is a bswap intrinsic, so the swap itself is free.
+        staging.set(LE.INT, pos, Integer.reverseBytes(packed));
+        pos += 4;
+      }
+      compactDirLen = (int) (pos - start);
+    }
+
+    void appendTemplatePool(final byte[] templatePool, final int len) {
+      MemorySegment.copy(templatePool, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      templatePoolLen = len;
+    }
+
+    void appendSlotTemplateIds(final byte[] slotTemplateIds, final int populatedCount) {
+      MemorySegment.copy(slotTemplateIds, 0, staging, ValueLayout.JAVA_BYTE, pos, populatedCount);
+      pos += populatedCount;
+      slotTemplateIdsLen = populatedCount;
+    }
+
+    /** Entry-indexed bitmap of the slots whose all-zero hash the writer dropped. */
+    void appendZeroHashBitmap(final byte[] zeroHashBitmap, final int len) {
+      MemorySegment.copy(zeroHashBitmap, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      zeroHashBitmapLen = len;
+    }
+
+    /** parentKey column: int length prefix + {@link StructuralKeyColumnCodec} bytes. */
+    void appendParentKeyColumn(final byte[] column, final int len) {
+      putIntBE(len);
+      MemorySegment.copy(column, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      parentKeyColumnLen = 4 + len;
+    }
+
+    /** pathNodeKey column: int length prefix + {@link PathNodeKeyRegion} bytes. */
+    void appendPathNodeKeyColumn(final byte[] column, final int len) {
+      putIntBE(len);
+      MemorySegment.copy(column, 0, staging, ValueLayout.JAVA_BYTE, pos, len);
+      pos += len;
+      pathNodeKeyColumnLen = 4 + len;
+    }
+
+    /**
+     * Value-elision section: int elidedCount, then one entry per elided slot in slot-ascending order.
+     *
+     * <p>
+     * Each entry is (slot gap varint, type byte, original heap width varint, region absolute-index
+     * varint). The type byte carries NUMBER's 2/3 subtype, a string's compressed flag, or 0 for a
+     * boolean, whose kind the reader takes from the compact dir.
+     *
+     * @param elidedCount number of slots named by the section
+     */
+    void appendValueElision(final int elidedCount, final int populatedCount, final byte[] slotValueElided,
+        final short[] slotBits, final short[] slotValueWidths, final int[] slotRegionAbsIdx) {
+      final long start = pos;
+      putIntBE(elidedCount);
+      int prevElidedSlot = -1;
+      for (int i = 0; i < populatedCount; i++) {
+        final byte mark = slotValueElided[i];
+        if (mark != 0) {
+          final int slot = slotBits[i] & 0xFFFF;
+          // Slot id as a gap from the previous elided slot, then the type byte (NUMBER's
+          // 2/3; 0 for STRING/BOOLEAN, whose kind the reader takes from the compact dir),
+          // the original heap width, and the value's absolute index in its region — the
+          // reader decodes by that index directly, so no rank bookkeeping exists to drift.
+          pos += DeltaVarIntCodec.writeSignedToSegment(staging, pos, slot - prevElidedSlot);
+          prevElidedSlot = slot;
+          // NUMBER carries its 2/3 subtype; STRING carries its compressed flag (0 raw,
+          // 1 FSST) so injection restores the exact heap byte; BOOLEAN carries 0.
+          final byte diskType;
+          if (mark == STRING_ELIDE_MARKER || mark == BOOLEAN_ELIDE_MARKER) {
+            diskType = 0;
+          } else if (mark == STRING_ELIDE_COMPRESSED_MARKER) {
+            diskType = 1;
+          } else {
+            diskType = mark;
+          }
+          staging.set(ValueLayout.JAVA_BYTE, pos, diskType);
+          pos += 1;
+          pos += DeltaVarIntCodec.writeSignedToSegment(staging, pos, slotValueWidths[i] & 0xFFFF);
+          pos += DeltaVarIntCodec.writeSignedToSegment(staging, pos, slotRegionAbsIdx[slot]);
+        }
+      }
+      valueElisionLen = (int) (pos - start);
+    }
+
+    /**
+     * Name-key elision section: int elidedCount, then one width byte per elided slot in slot-ascending
+     * order. The nameKey value itself is recovered from the page's {@link ObjectKeyNameKeyRegion}.
+     *
+     * @param elidedCount number of elided fused OBJECT_NAMED_* slots
+     */
+    void appendNameKeyElision(final int elidedCount, final int populatedCount, final byte[] slotNameKeyElided,
+        final byte[] slotNameKeyWidths) {
+      final long start = pos;
+      putIntBE(elidedCount);
+      for (int i = 0; i < populatedCount; i++) {
+        if (slotNameKeyElided[i] != 0) {
+          staging.set(ValueLayout.JAVA_BYTE, pos, slotNameKeyWidths[i]);
+          pos++;
+        }
+      }
+      nameKeyElisionLen = (int) (pos - start);
+    }
+
+    /**
+     * Open the heap section. The caller stages the records itself — it walks the same slots five more
+     * times with skip ranges — and reports back through {@link #endHeap}.
+     *
+     * @return the staging offset the first heap byte goes to
+     */
+    long beginHeap() {
+      heapStart = pos;
+      return pos;
+    }
+
+    /**
+     * Close the heap section.
+     *
+     * @param heapEnd the caller's write cursor once the last record has been staged
+     */
+    void endHeap(final long heapEnd) {
+      heapLen = (int) (heapEnd - heapStart);
+      pos = heapEnd;
+    }
+
+    /** Bytes of page-global metadata staged ahead of the heap. */
+    long metaLength() {
+      return (long) compactDirLen + templatePoolLen + slotTemplateIdsLen + zeroHashBitmapLen + parentKeyColumnLen
+          + pathNodeKeyColumnLen + valueElisionLen + nameKeyElisionLen;
+    }
+
+    /** Bytes of record heap staged behind the metadata. */
+    int heapLength() {
+      return heapLen;
+    }
+
+    /** Total bytes staged. */
+    long totalLength() {
+      return pos;
+    }
+
+    /** Big-endian int, matching {@code sink.writeInt} semantics for the section length prefixes. */
+    private void putIntBE(final int value) {
+      staging.set(ValueLayout.JAVA_BYTE, pos, (byte) ((value >>> 24) & 0xFF));
+      staging.set(ValueLayout.JAVA_BYTE, pos + 1, (byte) ((value >>> 16) & 0xFF));
+      staging.set(ValueLayout.JAVA_BYTE, pos + 2, (byte) ((value >>> 8) & 0xFF));
+      staging.set(ValueLayout.JAVA_BYTE, pos + 3, (byte) (value & 0xFF));
+      pos += 4;
+    }
   }
 }
