@@ -10455,12 +10455,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // descriptors — an unservable kind must not pay for a probe it will discard.
         final byte kind = handle.columnKindOf(col);
         final boolean keyShifted = keyOffsets != null && keyOffsets[g] != 0L;
-        final boolean keySubstring = keySubstr != null && keySubstr[2 * g] >= 0;
+        final boolean keySubstring = keySubstr != null && keySubstr[2 * g] != 0;
         if (keyShifted && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
           return null; // an arithmetic shift needs a numeric component
         }
         if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
           return null; // a substring transform needs a dict component
+        }
+        if (keySubstr != null && keySubstr[2 * g] < 0 && keyCount > 1) {
+          return null; // the STRING substring variant serves single keys via the packed arm only
         }
         if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
             && handle.numericColumnIsIntegral(col, fetcher)) {
@@ -10558,12 +10561,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
       // first `limit` groups of the stable order instead of sorting and materializing them all.
       final boolean anyKeyTransform = keyOffsets != null;
+      // A single substring-transformed STRING key groups AND orders on an order-preserving
+      // digit pack (validated ISO-minute windows), so ORD_KEY is servable for it.
+      final boolean packedStringKey = keyCount == 1 && keySubstr != null && keySubstr[0] < 0;
+      if (packedStringKey && (keySubstr[1] != 16 || cdBlock >= 0)) {
+        return null; // the pack validator covers the 16-char ISO-minute window; CD stays out (v1)
+      }
       final GroupOrderPlan orderPlan = limit < 1
           ? null
           : orderIndexes == null
               ? GroupOrderPlan.ordinalOnly()
               : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
-                  numericSingleKey && !anyKeyTransform, funcs, aggFields, distinctFields, cdBlock);
+                  (numericSingleKey && !anyKeyTransform) || packedStringKey, funcs, aggFields, distinctFields,
+                  cdBlock);
       if (anyKeyTransform && orderPlan == null) {
         return null; // transformed keys serve only through the flat composite route
       }
@@ -10591,6 +10601,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int rowGroupCount = rowGroupPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      if (packedStringKey) {
+        return packedSubstringGroupAggregate(rowGroupPayloads, preds, tree, groupCol, -keySubstr[0], keySubstr[1],
+            aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize, orderPlan, limit);
+      }
       if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
             outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock, tree);
@@ -11217,6 +11231,126 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * in {@code acc[1]}, with the null-key group interleaved at its own ordinal) — only the accumulator
    * key and the emitted key type differ.
    */
+  /**
+   * The packed-substring arm: a single STRING_DICT key under a bare {@code substring(f, s, 16)}
+   * groups and orders on the ISO-minute digit pack (ORD_KEY over longs), the aux lane keeps each
+   * group's {@code (leaf, dictId)} first sighting, and the K winners decode their ORIGINAL
+   * substring from the dictionary bytes. Any unpackable window referenced by a matching row —
+   * including the {@code ""} of a missing field, a REAL group key — declines the whole serve.
+   */
+  private ServedGroups packedSubstringGroupAggregate(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree tree,
+      final int groupCol, final int subStart, final int subLen, final int[] aggCols, final String[] keyNames,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int eff, final int chunkSize, final GroupOrderPlan orderPlan, final long limit) {
+    if (orderPlan == null) {
+      return null;
+    }
+    final int rowGroupCount = rowGroupPayloads.size();
+    final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+    final long[] decline = new long[1];
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      final NumericGroupAggTable local =
+          new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true);
+      ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
+          preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
+      tables[idx] = local;
+    });
+    if (decline[0] != 0) {
+      return null;
+    }
+    long scanned = 0;
+    for (int t = 0; t < eff; t++) {
+      if (tables[t] != null) {
+        scanned += tables[t].sizeIncludingZero();
+      }
+    }
+    if (scanned == 0) {
+      GROUP_AGG_SERVED.increment();
+      return new ServedGroups(new ItemSequence(), true);
+    }
+    int partitions = 1;
+    while (partitions < Math.min(eff, 32)) {
+      partitions <<= 1;
+    }
+    final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+    final int slotWidth = 2 + 4 * aggCols.length;
+    final long perPartitionEstimate = Math.max(16, scanned / partitions);
+    final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+    final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
+    parallel(partitions, part -> {
+      final NumericGroupAggTable into =
+          new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), true);
+      NumericGroupAggTable.mergePartition(tables, part, shift, into);
+      partTables[part] = into;
+      final int candidates = into.sizeIncludingZero();
+      if (candidates == 0) {
+        return;
+      }
+      final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+      final long[] keys = into.keysArray();
+      final long[] slots = into.slotsArray();
+      for (int i = 0; i < keys.length; i++) {
+        if (keys[i] != 0L) {
+          // The key lane carries the PACK — ORD_KEY compares it, and lexicographic order over
+          // validated windows IS numeric order over packs.
+          sel.offer(slots, i * slotWidth, true, keys[i], null);
+        }
+      }
+      partSelectors[part] = sel;
+    });
+    int winnerCount = 0;
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel != null) {
+        winnerCount += sel.size();
+      }
+    }
+    final int k = (int) Math.min(limit, winnerCount);
+    if (k == 0) {
+      GROUP_AGG_SERVED.increment();
+      return new ServedGroups(new ItemSequence(), true);
+    }
+    final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel == null) {
+        continue;
+      }
+      for (int i = 0; i < sel.size(); i++) {
+        final int base = sel.baseAt(i);
+        final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+        finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+      }
+    }
+    finalSel.sortInPlace();
+    // Winners: recover each pack's aux from its partition table (no boxing during selection),
+    // then decode the ORIGINAL substring from the source dictionary entry.
+    final int[] leafColumnBase = new int[rowGroupCount];
+    Arrays.fill(leafColumnBase, -1);
+    final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+    for (int i = 0; i < finalSel.size(); i++) {
+      final long packed = finalSel.keyLongAt(i);
+      final NumericGroupAggTable into = partTables[NumericGroupAggTable.partitionOf(packed, shift)];
+      final long src = into.auxAtBase(into.acquire(packed, Long.MAX_VALUE));
+      final int leaf = (int) (src >>> 20);
+      final int dictId = (int) (src & 0xFFFFF);
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      int columnBase = leafColumnBase[leaf];
+      if (columnBase < 0) {
+        columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+      }
+      final String entry = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+      // The window validated all-ASCII, so char indexing IS codepoint indexing.
+      final String key = entry.substring(subStart - 1, subStart - 1 + subLen);
+      out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+    }
+    GROUP_AGG_SERVED.increment();
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+  }
+
   private ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
