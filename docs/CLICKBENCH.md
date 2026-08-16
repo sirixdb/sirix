@@ -316,7 +316,20 @@ Measured at 1 M rows: the index costs **51.6 s to build** and takes data size fr
 |---|---|
 | no projection (every earlier run) | 0 |
 | projection + numeric group-by kernels + widened detection | 3 |
-| \+ NE in the mask algebra | **6** |
+| \+ NE in the mask algebra | 6 |
+| \+ string NE | 7 |
+| \+ top-K group selection, flat partitioned tables, string ordering + contains predicates, grouped COUNT(DISTINCT), composite + transformed + constant group keys (2026-08-16) | **29 of 43 at ≤ 0.35 s hot** |
+
+The 2026-08-16 kernel campaign took the 43-query hot total from **69.0 s to 24.16 s** (DuckDB:
+0.351 s on the same box — 197× down to 69×). The ordered-group-by cap (`fn:subsequence` as the sole
+consumer) now reaches the kernel, which heap-selects the first K groups of the stable order instead
+of sorting and materializing them all; group accumulators live in flat open-addressed tables merged
+partition-parallel; the string arm groups by the 64-bit FNV hash of the value bytes and decodes
+strings for the K winners only. Every served query is byte-identical to the interpreter (Q17
+excepted, as below). The remaining ~24 s is itemized in the session memory
+(`clickbench-kernel-campaign`): Q39/Q42 computed keys, Q40's OR predicate, Q24-26 string sorted
+scans, Q28 regex keys, Q27 HAVING, string min/max routes, and per-query JIT warmup under the
+3-try protocol.
 
 Q7 (`AdvEngineID <> 0 GROUP BY AdvEngineID ORDER BY COUNT(*) DESC`) is the clearest single case:
 warm **1.318 s -> 0.032 s**, a 41x improvement, once NE stopped forcing it onto the row path.
