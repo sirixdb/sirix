@@ -10463,6 +10463,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int cdBlock = cdBlockIdx;
       final int[] aggColsFlat = aggColsAll;
       final ProjectionIndexScan.ColumnPredicate[] preds;
+      ProjectionIndexScan.PredicateTree predTree = null;
       if (cp == null) {
         preds = new ProjectionIndexScan.ColumnPredicate[0];
       } else {
@@ -10470,11 +10471,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return null;
         }
         final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-        if (extracted == null) {
-          return null; // OR trees on the group path: later stage
+        if (extracted != null) {
+          preds = fuseRangePredicates(extracted);
+        } else {
+          // OR shapes: the tree evaluator serves them on the flat routes — each leaf's mask
+          // ANDs its own column's presence before the combine, the tree type's contract.
+          predTree = extractPredicateTree(cp, handle);
+          if (predTree == null) {
+            return null;
+          }
+          preds = new ProjectionIndexScan.ColumnPredicate[0];
         }
-        preds = fuseRangePredicates(extracted);
       }
+      final ProjectionIndexScan.PredicateTree tree = predTree;
       final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
       if (rowGroupPayloads == null) {
         return null;
@@ -10492,6 +10501,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               numericSingleKey && !anyKeyTransform, funcs, aggFields, distinctFields, cdBlock);
       if (anyKeyTransform && orderPlan == null) {
         return null; // transformed keys serve only through the flat composite route
+      }
+      if (tree != null && orderPlan == null) {
+        return null; // the legacy emission arms take conjunctions only
       }
       // The distinct machinery exists only on the flat (ordered + capped) routes; the legacy
       // emission paths decline rather than half-serving.
@@ -10516,7 +10528,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
       if (numericSingleKey && !anyKeyTransform) {
         return numericGroupAggregate(rowGroupPayloads, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields,
-            outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock);
+            outNames, distinctFields, eff, chunkSize, orderPlan, limit, cdBlock, tree);
       }
       if (keyCount > 1 || anyKeyTransform) {
         if (orderPlan != null) {
@@ -10555,7 +10567,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 cdBlock >= 0
                     ? cdBudgets[idx]
                     : null,
-                keyOffsets, keySubstr, transformDecline);
+                keyOffsets, keySubstr, transformDecline, tree);
             tables[idx] = local;
           });
           if (transformDecline != null && transformDecline[0] != 0) {
@@ -10773,7 +10785,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   : null,
               cdBlock >= 0
                   ? cdBudgets[idx]
-                  : null);
+                  : null,
+              tree);
           tables[idx] = local;
           flatMissing[idx] = missing;
         });
@@ -11143,7 +11156,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol, final int[] aggCols,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
       final ArrayList<String> distinctFields, final int eff, final int chunkSize, final GroupOrderPlan orderPlan,
-      final long limit, final int cdBlockIdx) {
+      final long limit, final int cdBlockIdx, final ProjectionIndexScan.PredicateTree predTree) {
     final int rowGroupCount = rowGroupPayloads.size();
     if (orderPlan != null) {
       // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
@@ -11187,7 +11200,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 : null,
             cdBlockIdx >= 0
                 ? cdBudgets[idx]
-                : null);
+                : null,
+            predTree);
         tables[idx] = local;
         perThreadMissing[idx] = missing;
       });

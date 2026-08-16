@@ -166,6 +166,8 @@ public final class ProjectionIndexByteScan {
     // validated against the table key on every use (rehash-safe), so stale bases self-heal.
     long[] dictHashCache;
     int[] dictSlotBase;
+    // TREE mask builder: one mask per predicate-tree leaf (program stack depth <= MAX_LEAVES).
+    long[][] treeMaskStack;
   }
 
   private static final ThreadLocal<ScanScratch> SCRATCH = ThreadLocal.withInitial(ScanScratch::new);
@@ -1998,7 +2000,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
     conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
-        leafIndexBase, -1, null, null, null);
+        leafIndexBase, -1, null, null, null, null);
   }
 
   /**
@@ -2015,7 +2017,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
-      final long[] budget) {
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2031,7 +2033,9 @@ public final class ProjectionIndexByteScan {
       }
       final byte[] payload = rowGroupPayloads.get(leaf);
       ensureOffsetScratch(s, columnCountOf(payload));
-      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) {
         continue;
       }
@@ -2127,7 +2131,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
     conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
-        leafIndexBase, -1, null, null, null);
+        leafIndexBase, -1, null, null, null, null);
   }
 
   /**
@@ -2139,7 +2143,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
       final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
-      final long[] budget) {
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2168,7 +2172,9 @@ public final class ProjectionIndexByteScan {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) {
         continue;
       }
@@ -2372,7 +2378,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
       final NumericGroupAggTable out, final int leafIndexBase) {
     conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out,
-        leafIndexBase, -1, null, null);
+        leafIndexBase, -1, null, null, null, null, null, null);
   }
 
   /** {@link #conjunctiveAggregateByGroupCompositeFlat} with the COUNT(DISTINCT) lane, keyed by the
@@ -2383,7 +2389,7 @@ public final class ProjectionIndexByteScan {
       final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget) {
     conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out,
-        leafIndexBase, distinctBlock, distinctOut, budget, null, null, null);
+        leafIndexBase, distinctBlock, distinctOut, budget, null, null, null, null);
   }
 
   /**
@@ -2400,7 +2406,7 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
       final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
       final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
-      final int[] keySubstr, final long[] declineFlag) {
+      final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
     if (predicates == null) {
       throw new IllegalArgumentException("predicates must not be null");
     }
@@ -2428,7 +2434,9 @@ public final class ProjectionIndexByteScan {
         s.columnDataOff = new int[columnCount];
         s.columnMinMaxOff = new int[columnCount];
       }
-      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
       if (rowCount <= 0) {
         continue;
       }
@@ -3686,6 +3694,100 @@ public final class ProjectionIndexByteScan {
    * The mask is sized to {@code ceil(MAX_ROWS/64)}; only the first {@code ceil(rowCount/64)} words
    * are populated. As a side effect {@code s.leafDataEnd} records where the column stream ends.
    */
+  /** Evaluate ONE predicate leaf into {@code s.colMask} (presence NOT yet applied) — the shared
+   * per-leaf body of the conjunctive and TREE mask builders, so their semantics cannot drift. */
+  private static void evalPredicateLeafMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate p,
+      final int rowCount, final ScanScratch s) {
+    final int kindsOff = 24;
+    final byte kind = payload[kindsOff + p.column];
+    switch (kind) {
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+        evalNumericBytes(payload, s.columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, s.numericScratch,
+            s.numericFlags, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
+        evalBooleanBytes(payload, s.columnDataOff[p.column], rowCount, p.boolLit, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+        // Per-entry two-phase evaluation: NE is an ordinary per-entry outcome now (no
+        // complement pass, no tail-mask hazard), and ordering/contains ride the same path.
+        evalStringDictBytes(payload, s.columnDataOff[p.column], rowCount, p, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+        if (p.op != ProjectionIndexScan.Op.EQ) {
+          // `!= lit` over a SET is not the complement of membership — the interpreter compares a
+          // SEQUENCE to a literal, which is an existential over the elements, so its negation is
+          // not "does not contain". Decline rather than answer a different question.
+          throw new IllegalStateException("STRING_SET column supports containment (EQ) only, got " + p.op);
+        }
+        evalStringSetContainsBytes(payload, s.columnDataOff[p.column], rowCount, p.stringLitBytes, s.colMask);
+      }
+      default -> throw new IllegalStateException("Unknown column kind " + kind);
+    }
+  }
+
+  /** Zero-length predicate array for the tree evaluator's offset-filling pre-pass. */
+  private static final ProjectionIndexScan.ColumnPredicate[] NO_PREDICATES =
+      new ProjectionIndexScan.ColumnPredicate[0];
+
+  /**
+   * TREE mask builder — the disjunction-capable twin of {@link #evaluateRowGroupMask}: each tree
+   * leaf evaluates into its OWN mask with its OWN column's presence ANDed in (missing ⇒ false per
+   * leaf — the tree type's contract, which is what makes OR over sparse fields sound), then the
+   * postfix program combines masks with AND/OR. No zone pruning: a leaf's zone evidence cannot
+   * prune the GROUP under a disjunction, so the tree path conservatively reads every leaf.
+   */
+  private static int evaluateRowGroupMaskTree(final byte[] payload, final ProjectionIndexScan.PredicateTree tree,
+      final ScanScratch s) {
+    // The conjunctive builder with zero predicates fills the column offsets, leafDataEnd and the
+    // tail-masked all-true mask; its zone loop no-ops.
+    final int rowCount = evaluateRowGroupMask(payload, NO_PREDICATES, s);
+    if (rowCount <= 0) {
+      return rowCount;
+    }
+    final int stride = rowCount + 63 >>> 6;
+    final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+    long[][] stack = s.treeMaskStack;
+    if (stack == null || stack[0].length < stride) {
+      stack = s.treeMaskStack =
+          new long[ProjectionIndexScan.PredicateTree.MAX_LEAVES][(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    }
+    int top = 0;
+    final long[] colMask = s.colMask;
+    for (final byte op : tree.program) {
+      if (op >= 0) {
+        final ProjectionIndexScan.ColumnPredicate p = tree.leaves[op];
+        Arrays.fill(colMask, 0, stride, 0L);
+        evalPredicateLeafMask(payload, p, rowCount, s);
+        final long[] dst = stack[top++];
+        if (tailStart >= 0) {
+          final int presOff = presenceWordsOff(payload, tailStart, p.column);
+          for (int i = 0; i < stride; i++) {
+            dst[i] = colMask[i] & getLongLE(payload, presOff + i * 8);
+          }
+        } else {
+          System.arraycopy(colMask, 0, dst, 0, stride);
+        }
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_AND) {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] &= b[i];
+        }
+      } else {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] |= b[i];
+        }
+      }
+    }
+    final long[] result = stack[0];
+    final long[] mask = s.mask;
+    for (int i = 0; i < stride; i++) {
+      mask[i] &= result[i];
+    }
+    return rowCount;
+  }
+
   private static int evaluateRowGroupMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate[] predicates,
       final ScanScratch s) {
     final int[] columnDataOff = s.columnDataOff;
@@ -3767,29 +3869,7 @@ public final class ProjectionIndexByteScan {
       // Only clear the live prefix of colMask — tail words beyond
       // `stride` are never read.
       Arrays.fill(colMask, 0, stride, 0L);
-      final byte kind = payload[kindsOff + p.column];
-      switch (kind) {
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-          evalNumericBytes(payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch,
-              numericFlags, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
-          evalBooleanBytes(payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
-          // Per-entry two-phase evaluation: NE is an ordinary per-entry outcome now (no
-          // complement pass, no tail-mask hazard), and ordering/contains ride the same path.
-          evalStringDictBytes(payload, columnDataOff[p.column], rowCount, p, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
-          if (p.op != ProjectionIndexScan.Op.EQ) {
-            // `!= lit` over a SET is not the complement of membership — the interpreter compares a
-            // SEQUENCE to a literal, which is an existential over the elements, so its negation is
-            // not "does not contain". Decline rather than answer a different question.
-            throw new IllegalStateException("STRING_SET column supports containment (EQ) only, got " + p.op);
-          }
-          evalStringSetContainsBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
-        }
-        default -> throw new IllegalStateException("Unknown column kind " + kind);
-      }
+      evalPredicateLeafMask(payload, p, rowCount, s);
       if (tailStart >= 0) {
         // Missing field ⇒ predicate is false — AND with the column's presence.
         final int presOff = presenceWordsOff(payload, tailStart, p.column);
