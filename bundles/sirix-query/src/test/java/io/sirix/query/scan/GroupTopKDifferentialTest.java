@@ -74,8 +74,21 @@ public final class GroupTopKDifferentialTest {
       sb.append(",\"k7\":").append(i % 7); // few groups, near-equal counts (tie plateaus)
       sb.append(",\"k40\":").append(i % 40);
       sb.append(",\"amount\":").append(rng.nextInt(1000));
-      sb.append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)]).append('"');
+      final String dept = DEPTS[rng.nextInt(DEPTS.length)];
+      sb.append(",\"dept\":\"").append(dept).append('"');
       sb.append(",\"name\":\"n").append(i % 401).append('"'); // 401 distinct strings
+      if (!"Ops".equals(dept)) {
+        // Sparse STRING operand for the deferred-extremum route: absent for the ENTIRE Ops
+        // dept (an all-missing group's min/max is the EMPTY sequence), and salted with the
+        // collation adversary pair — U+FF01 vs U+10400 order OPPOSITE ways under raw UTF-8
+        // bytes vs the interpreter's UTF-16 units, so max(nick) catches a byte-order kernel.
+        final String nick = i % 97 == 0
+            ? "！"
+            : i % 89 == 0
+                ? "𐐀"
+                : "m" + i % 53;
+        sb.append(",\"nick\":\"").append(nick).append('"');
+      }
       // ISO timestamps across two days, minute-granular — the packed-substring key's corpus.
       sb.append(",\"ts\":\"2013-07-")
         .append(String.format("%02d", 14 + i % 2))
@@ -349,6 +362,65 @@ public final class GroupTopKDifferentialTest {
 
   // ---- harness --------------------------------------------------------------------------------
 
+  // ---- deferred string extrema (pass 2) -----------------------------------------------------
+
+  @Test
+  void stringMinByStringKeyOrderedByCount() throws Exception {
+    // The Q21 shape: a conjunctive predicate, a string group key, min over a second string
+    // column appearing ONLY in the emission record, ordered by count.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
+        + " where contains($u.name, \"1\") and $u.dept != \"\" let $d := $u.dept group by $d "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c}, 1, 3)");
+  }
+
+  @Test
+  void stringMinAndMaxWithCollationAdversariesAndAllMissingGroup() throws Exception {
+    // All four depts win: Ops carries NO nick at all (empty min/max → JSON null), and the
+    // other depts contain both U+FF01 and U+10400 — max(nick) inverts if the kernel compares
+    // raw UTF-8 bytes without the UTF-16 fallback.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"d\": $d, \"lo\": min($u.nick), \"hi\": max($u.nick), \"c\": $c}, 1, 4)");
+  }
+
+  @Test
+  void stringMinUnderTheMissingKeyWinner() throws Exception {
+    // tier is missing on ~1/3 of rows, so the null-key group WINS count-descending: its
+    // extremum folds through the kernel's missing-key slot, not a hash match.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $t := $u.tier group by $t "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"t\": $t, \"m\": min($u.name), \"c\": $c}, 1, 2)");
+  }
+
+  @Test
+  void stringMinWithCountDistinctRides() throws Exception {
+    // The Q22 emission shape: a deferred extremum and an exact COUNT(DISTINCT) in one record.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "let $c := count($u) order by $c descending "
+        + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c, "
+        + "\"uniq\": count(distinct-values($u.k7))}, 1, 3)");
+  }
+
+  @Test
+  void stringMinUnderOrdinalOnlyLimit() throws Exception {
+    // No order-by at all: the ordinal-only plan takes the first K groups by appearance and
+    // the deferred pass still fills their extrema.
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "return {\"d\": $d, \"m\": min($u.name)}, 1, 3)");
+  }
+
+  @Test
+  void orderByStringMinDeclines() throws Exception {
+    // Ordering BY the string extremum would need the selector to compare strings — the plan
+    // must fail to resolve and the whole query fall back, never half-serve.
+    final long before = SirixVectorizedExecutor.groupAggServedCount();
+    assertOrderedDifferential("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
+        + "let $m := min($u.name) order by $m descending return {\"d\": $d, \"m\": $m}, 1, 3)", false);
+    assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
+        "ordering BY a string extremum must DECLINE to the interpreter");
+  }
+
   private void assertOrderedDifferentialServed(final String query) throws Exception {
     assertOrderedDifferential(query, true);
   }
@@ -396,9 +468,9 @@ public final class GroupTopKDifferentialTest {
 
   private static void installProjection(final JsonResourceSession session) {
     final Path<QNm> rootPath = Path.parse("/[]", PathParser.Type.JSON);
-    final String[] fields = {"id", "k7", "k40", "amount", "dept", "name", "tier", "bonus", "bk", "big", "ts"};
+    final String[] fields = {"id", "k7", "k40", "amount", "dept", "name", "tier", "bonus", "bk", "big", "ts", "nick"};
     final Type[] types = {Type.LON, Type.LON, Type.LON, Type.LON, Type.STR, Type.STR, Type.STR, Type.LON, Type.LON,
-        Type.LON, Type.STR};
+        Type.LON, Type.STR, Type.STR};
     final List<Path<QNm>> fieldPaths = new ArrayList<>(fields.length);
     final List<Type> typeList = new ArrayList<>(fields.length);
     for (int i = 0; i < fields.length; i++) {

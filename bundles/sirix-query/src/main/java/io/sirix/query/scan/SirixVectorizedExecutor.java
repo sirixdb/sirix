@@ -69,7 +69,9 @@ import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
+import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -10489,6 +10491,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         groupCols[g] = col;
       }
       final int groupCol = groupCols[0];
+      // DEFERRED STRING AGGREGATES: min/max over a STRING_DICT column, servable when the entry
+      // appears ONLY in the emission record (never in an order spec — those decline via plan
+      // resolution). Winners are selected by the numeric pass first; a second focused scan then
+      // folds the string extremum for the K winning groups only, so the accumulator tables and
+      // their merge never carry a string lane at all.
+      final boolean[] deferredAgg = new boolean[funcs.length];
+      final int[] deferredLane = new int[funcs.length];
+      final IntArrayList deferredCols = new IntArrayList();
+      final BooleanArrayList deferredIsMin = new BooleanArrayList();
+      boolean anyDeferred = false;
+      for (int i = 0; i < funcs.length; i++) {
+        deferredLane[i] = -1;
+        // Exact "min"/"max" only: a dbl:-prefixed cast over a string extremum is the
+        // interpreter's type error — leaving it in the numeric roster declines the query.
+        if (aggFields[i] == null || (!"min".equals(funcs[i]) && !"max".equals(funcs[i]))) {
+          continue;
+        }
+        final int col = handle.columnOf(aggFields[i]);
+        if (col >= 0 && handle.columnKindOf(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          deferredAgg[i] = true;
+          deferredLane[i] = deferredCols.size();
+          deferredCols.add(col);
+          deferredIsMin.add("min".equals(funcs[i]));
+          anyDeferred = true;
+        }
+      }
       // count(distinct-values(f)) entries: ONE distinct operand per query (v1), and its column
       // must NOT enter the value-fold roster below — folding a 64-bit id column through
       // Math.addExact would throw at run time and silently decline a query that annotated.
@@ -10501,11 +10529,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           cdField = aggFields[i];
         }
       }
-      // Distinct aggregate columns, gated exactly like the plain long-aggregate path.
+      // Distinct aggregate columns, gated exactly like the plain long-aggregate path. Deferred
+      // string extrema stay OUT: they never touch an accumulator lane.
       final ArrayList<String> distinctFields = new ArrayList<>();
       for (int i = 0; i < funcs.length; i++) {
         final String f = aggFields[i];
-        if (f != null && !"count-distinct".equals(baseFunc(funcs[i])) && !distinctFields.contains(f)) {
+        if (f != null && !deferredAgg[i] && !"count-distinct".equals(baseFunc(funcs[i])) && !distinctFields.contains(f)) {
           distinctFields.add(f);
         }
       }
@@ -10585,6 +10614,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                   cdBlock);
       if (anyKeyTransform && orderPlan == null) {
         return null; // transformed keys serve only through the flat composite route
+      }
+      // Deferred string extrema serve on the single-string-key flat arm ONLY (v1): pass 2 needs
+      // pass 1's group identity (key-entry FNV) plus a bounded winner roster the linear match
+      // stays cheap for. An order spec ON the deferred entry already nulled the plan above.
+      if (anyDeferred && (orderPlan == null || numericSingleKey || keyCount > 1 || anyKeyTransform || packedStringKey
+          || limit > 64)) {
+        return null;
       }
       if (tree != null && orderPlan == null) {
         return null; // the legacy emission arms take conjunctions only
@@ -10972,6 +11008,78 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Winner strings: resolve (leaf, dictId) source refs, caching the column base per leaf.
         final int[] leafColumnBase = new int[rowGroupCount];
         Arrays.fill(leafColumnBase, -1);
+        // PASS 2 (deferred string extrema): rebuild each winner's group hash from its key-entry
+        // source ref, fold min/max over the string operand columns for those groups only, and
+        // merge the thread-partials under the same collation on materialized values.
+        String[][] deferredBest = null;
+        int[] winnerSlotOf = null;
+        if (anyDeferred) {
+          final int w = finalSel.size();
+          winnerSlotOf = new int[w];
+          final long[] hashScratch = new long[w];
+          int hashCount = 0;
+          boolean missingWinner = false;
+          for (int i = 0; i < w; i++) {
+            if (finalSel.hasKeyAt(i)) {
+              final long src = finalSel.keyLongAt(i);
+              final int leaf = (int) (src >>> 20);
+              final int dictId = (int) (src & 0xFFFFF);
+              final byte[] payload = rowGroupPayloads.get(leaf);
+              int columnBase = leafColumnBase[leaf];
+              if (columnBase < 0) {
+                columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+              }
+              winnerSlotOf[i] = hashCount;
+              hashScratch[hashCount++] = ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
+            } else {
+              winnerSlotOf[i] = -1; // resolved to the missing slot below
+              missingWinner = true;
+            }
+          }
+          final long[] winnerHashes = Arrays.copyOf(hashScratch, hashCount);
+          final int slotsTotal = hashCount + (missingWinner
+              ? 1
+              : 0);
+          for (int i = 0; i < w; i++) {
+            if (winnerSlotOf[i] < 0) {
+              winnerSlotOf[i] = hashCount; // the kernel's missing-key slot
+            }
+          }
+          final boolean missingWinnerFinal = missingWinner;
+          final int[] deferredColsArr = deferredCols.toIntArray();
+          final boolean[] deferredIsMinArr = deferredIsMin.toBooleanArray();
+          final String[][][] perThreadBest = new String[eff][][];
+          parallel(eff, idx -> {
+            final int from = idx * chunkSize;
+            final int to = Math.min(from + chunkSize, rowGroupCount);
+            if (from >= to)
+              return;
+            final String[][] best = new String[deferredColsArr.length][slotsTotal];
+            ProjectionIndexByteScan.stringAggForWinnerGroups(rowGroupPayloads.subList(from, to), preds, tree, groupCol,
+                deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best);
+            perThreadBest[idx] = best;
+          });
+          deferredBest = new String[deferredColsArr.length][slotsTotal];
+          for (final String[][] tb : perThreadBest) {
+            if (tb == null) {
+              continue;
+            }
+            for (int a = 0; a < deferredColsArr.length; a++) {
+              for (int sl = 0; sl < slotsTotal; sl++) {
+                final String cand = tb[a][sl];
+                if (cand == null) {
+                  continue;
+                }
+                final String cur = deferredBest[a][sl];
+                if (cur == null || (deferredIsMinArr[a]
+                    ? cand.compareTo(cur) < 0
+                    : cand.compareTo(cur) > 0)) {
+                  deferredBest[a][sl] = cand;
+                }
+              }
+            }
+          }
+        }
         final ArrayList<Item> out = new ArrayList<>(finalSel.size());
         for (int i = 0; i < finalSel.size(); i++) {
           final String key;
@@ -10988,8 +11096,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           } else {
             key = null;
           }
+          String[] deferredVals = null;
+          if (deferredBest != null) {
+            deferredVals = new String[funcs.length];
+            for (int f = 0; f < funcs.length; f++) {
+              if (deferredLane[f] >= 0) {
+                deferredVals[f] = deferredBest[deferredLane[f]][winnerSlotOf[i]];
+              }
+            }
+          }
           out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields,
-              cdBase));
+              cdBase, deferredAgg, deferredVals));
         }
         GROUP_AGG_SERVED.increment();
         if (cdBlock >= 0) {
@@ -12697,6 +12814,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase) {
+    return groupAggRecord(groupKey, acc, keyName, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+  }
+
+  /** {@code deferredAgg}/{@code deferredVals}: the pass-2 string extrema — entry {@code i} emits
+   * {@code deferredVals[i]} as {@link Str} (or the empty sequence when the group has no present
+   * operand) instead of reading an accumulator lane it never had. */
+  private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -12706,7 +12832,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     vals[0] = groupKey == null
         ? null
         : new Str(groupKey);
-    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase, deferredAgg, deferredVals);
     return new ArrayObject(names, vals);
   }
 
@@ -12757,8 +12883,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
       final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
       final int cdBase) {
+    fillAggEntries(names, vals, offset, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+  }
+
+  private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
     for (int i = 0; i < funcs.length; i++) {
       names[offset + i] = new QNm(outNames[i]);
+      if (deferredAgg != null && deferredAgg[i]) {
+        // Pass-2 string extremum: no present operand in the group → the empty sequence,
+        // exactly the interpreter's fn:min/fn:max over an all-missing field.
+        vals[offset + i] = deferredVals == null || deferredVals[i] == null
+            ? null
+            : new Str(deferredVals[i]);
+        continue;
+      }
       final String func = baseFunc(funcs[i]);
       final boolean dbl = !func.equals(funcs[i]);
       if ("count".equals(func)) {
