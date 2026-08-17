@@ -294,6 +294,17 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, false);
+  }
+
+  @Override
+  public Page readRecordPageLazily(final PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, true);
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
@@ -307,14 +318,14 @@ public final class MMFileReader extends AbstractReader {
         MemorySegment pageSlice = dataFileSegment.asSlice(offset, dataLength);
         // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(pageSlice, reference, resourceConfiguration);
-        return deserializeFromSegment(resourceConfiguration, pageSlice, reference);
+        return deserializeFromSegment(resourceConfiguration, pageSlice, reference, lazyRecordPage);
       } else {
         // Fallback: copy to byte[] for stream-based decompression
         final byte[] page = new byte[dataLength];
         MemorySegment.copy(dataFileSegment, LAYOUT_BYTE, offset, page, 0, dataLength);
         // The parent-reference hash covers the COMPRESSED payload — verify here, before decode.
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-        return deserialize(resourceConfiguration, page, reference);
+        return deserialize(resourceConfiguration, page, reference, lazyRecordPage);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);

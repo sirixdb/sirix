@@ -62,6 +62,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() == 1 : "Only one version of the page!";
+      assert noFragmentIsLazy(pages);
       var firstPage = pages.getFirst();
       T completePage = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
@@ -105,6 +106,7 @@ public enum VersioningType {
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
 
@@ -163,6 +165,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= 2;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
@@ -273,6 +276,7 @@ public enum VersioningType {
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final int revision = storageEngineReader.getUberPage().getRevisionNumber();
@@ -408,6 +412,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn =
@@ -502,6 +507,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         PageReference reference, final TransactionIntentLog log) {
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
@@ -654,6 +660,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
@@ -809,6 +816,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
@@ -1073,6 +1081,28 @@ public enum VersioningType {
     SLOT_COPY_NANOS.reset();
     REGION_REBUILD_NANOS.reset();
     SLOTS_COPIED.reset();
+  }
+
+  /**
+   * Whether every fragment about to be combined already holds its records.
+   *
+   * <p>
+   * Not a gate — combine reaches the heap only through accessors that expand for themselves, so a
+   * lazy fragment here would produce the right answer. It would just produce it the expensive way,
+   * one chunk at a time, on a path that reads every slot of every fragment and was promised eager
+   * pages by the load policy (plan amendment A6). An assertion rather than a check because the thing
+   * it guards is a policy decision made elsewhere: if that decision regresses, the tests should say
+   * so, and production should not pay a branch per combine to find out.
+   */
+  private static <V extends DataRecord, T extends KeyValuePage<V>> boolean noFragmentIsLazy(final List<T> pages) {
+    for (final T page : pages) {
+      if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isFullyMaterialized()) {
+        throw new AssertionError("fragment " + kvlPage.getPageKey() + " reached a combine with "
+            + kvlPage.chunkCount() + " chunks still unexpanded — the load policy handed a lazily loaded"
+            + " page to a consumer that reads all of it");
+      }
+    }
+    return true;
   }
 
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,

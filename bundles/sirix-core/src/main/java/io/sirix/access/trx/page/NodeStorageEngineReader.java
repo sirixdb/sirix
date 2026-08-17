@@ -57,6 +57,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.CASPage;
+import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.FlyweightNodeFactory;
 import io.sirix.cache.FrameReusedException;
@@ -460,9 +461,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                        .setRevisionNumber(revisionNumber);
 
     // $CASES-OMITTED$
+    // One record key in, one record out: the load may stop after the page's metadata and expand
+    // only the chunk this record lives in.
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
-        getRecordPage(reusableIndexLogKey);
+        getRecordPage(reusableIndexLogKey, true);
       default -> throw new IllegalStateException();
     };
 
@@ -537,6 +540,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
       return null;
     }
+    // Before the kind is read and long before FlyweightNodeFactory binds onto the heap or the
+    // DeweyID trailer is fetched out of it. The factory takes a bare segment and so cannot gate for
+    // itself; ordering it here is what makes that safe.
+    kvlPage.ensureChunkFor(offset);
     final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
     if (nodeKindId > 0) {
       // Flyweight format: create binding shell and bind to page memory (zero-copy read)
@@ -913,7 +920,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Get the page reference (uses cache) - ONE lookup for both paths
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
-        getRecordPage(reusableIndexLogKey);
+        getRecordPage(reusableIndexLogKey, true);
       default -> null;
     };
 
@@ -1022,7 +1029,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Get the page reference
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR ->
-        getRecordPage(reusableIndexLogKey);
+        getRecordPage(reusableIndexLogKey, true);
       default -> throw new IllegalStateException("Unsupported index type: " + indexType);
     };
 
@@ -1321,6 +1328,29 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   @Override
   public PageReferenceToPage getRecordPage(IndexLogKey indexLogKey) {
+    return getRecordPage(indexLogKey, false);
+  }
+
+  /**
+   * Fetch the page holding a record page key, saying whether the caller wants one record or all of
+   * them.
+   *
+   * <p>
+   * <b>The one policy decision behind chunk-lazy loading.</b> A point lookup opens a page to answer
+   * for a single slot; on a chunk-framed body the reader can stop after the page's metadata and
+   * expand only the chunk that slot lives in, which is most of a millisecond it does not spend. A
+   * scan reads every slot, so laziness would buy it nothing and cost it a gate per record — hence
+   * the default on the one-argument form above, which is what every scan operator calls.
+   *
+   * <p>
+   * The request is honoured only where it is safe and worth it: a single-fragment page (per the
+   * plan's A6 — an N-fragment chain is combined, and combine consumes whole pages), read through the
+   * buffer manager rather than the write transaction's intent log. Anything else is served eagerly
+   * and counted as such.
+   *
+   * @param pointLookup whether this load is resolving one record key rather than feeding a scan
+   */
+  PageReferenceToPage getRecordPage(IndexLogKey indexLogKey, boolean pointLookup) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
@@ -1413,7 +1443,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         LOGGER.debug("  - revision: {}", indexLogKey.getRevisionNumber());
       }
 
-      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage);
+      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage, pointLookup);
 
       if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY
           && page instanceof KeyValueLeafPage kvp) {
@@ -1445,6 +1475,10 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       LOGGER.debug("  - revision: {}", indexLogKey.getRevisionNumber());
     }
 
+    // Bypass load for a write transaction's path summary: combined, hence eager (A6).
+    if (pointLookup) {
+      ChunkedBodyConfig.recordEagerFallback();
+    }
     var loadedPage =
         (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(pageReferenceToRecordPage);
 
@@ -1979,7 +2013,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @return the loaded page, or null if not found
    */
   @Nullable
-  private Page getFromBufferManager(IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
+  private Page getFromBufferManager(IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage,
+      boolean pointLookup) {
     if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && LOGGER.isDebugEnabled()) {
       LOGGER.debug("Path summary cache lookup: key={}, revision={}", pageReferenceToRecordPage.getKey(),
           indexLogKey.getRevisionNumber());
@@ -1997,9 +2032,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final boolean singleFragmentFastPath = pageReferenceToRecordPage.getKey() != Constants.NULL_ID_LONG
         && (config.versioningType == VersioningType.FULL || pageReferenceToRecordPage.getPageFragments().isEmpty());
     if (singleFragmentFastPath) {
+      // The only site that loads lazily. One fragment, so no combine will consume this page whole,
+      // and a point lookup wants exactly one of its records — see getRecordPage(IndexLogKey,
+      // boolean). The loader runs on this thread inside the cache's compute, so a page another
+      // thread is already loading is never loaded twice with two different policies: whoever wins
+      // the compute decides, and the loser reads whatever that produced. Both answers are correct;
+      // they differ only in when the records get expanded.
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
-                                                   .getOrLoadAndGuard(pageReferenceToRecordPage,
-                                                       ref -> (KeyValueLeafPage) pageReader.read(ref, config));
+                                                   .getOrLoadAndGuard(pageReferenceToRecordPage, pointLookup
+                                                       ? ref -> (KeyValueLeafPage) pageReader.readRecordPageLazily(ref,
+                                                           config)
+                                                       : ref -> (KeyValueLeafPage) pageReader.read(ref, config));
 
       if (page != null) {
         pageReferenceToRecordPage.setPage(page);
@@ -2009,7 +2052,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return page;
     }
 
-    // Other versioning types with fragment history: load fragments → combine → cache
+    // Other versioning types with fragment history: load fragments → combine → cache. Always
+    // eager: combine reads every slot of every fragment, so a lazy fragment would expand all its
+    // chunks anyway and pay the framing for it (plan amendment A6).
+    if (pointLookup) {
+      ChunkedBodyConfig.recordEagerFallback();
+    }
     KeyValueLeafPage page =
         resourceBufferManager.getRecordPageCache()
                              .getOrLoadAndGuard(pageReferenceToRecordPage,

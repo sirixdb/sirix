@@ -72,6 +72,23 @@ public final class PagePersister {
   }
 
   /**
+   * Deserialize a page, leaving the records a caller has not asked for unexpanded where the page
+   * kind supports it. See {@link PageKind#deserializePageLazily}; every other kind decodes whole.
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source source to read from
+   * @param type the serialization type
+   * @param decompressionResult optional decompression result for zero-copy (may be null)
+   * @return {@link Page} instance
+   * @throws IOException if an exception during deserialization of a page occurs
+   */
+  public Page deserializePageLazily(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+      final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) throws IOException {
+    return PageKind.getKind(source.readByte())
+                   .deserializePageLazily(resourceConfiguration, source, type, decompressionResult);
+  }
+
+  /**
    * Deserialize only the PAX regions of a record page — the columns, without the record heap.
    *
    * @param resourceConfiguration the resource configuration

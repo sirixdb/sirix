@@ -109,6 +109,10 @@ public final class ColumnarPageExtractor {
     if (page == null) {
       return writePos;
     }
+    // Reads every populated slot straight off the heap, so it is only ever handed pages the load
+    // policy decoded whole. An assertion, not a gate: see VersioningType#noFragmentIsLazy.
+    assert kvlPage.isFullyMaterialized() : "columnar extraction from a page with "
+        + kvlPage.chunkCount() + " chunks still unexpanded";
 
     final int populatedCount = PageLayout.getPopulatedCount(page);
     if (populatedCount == 0) {
@@ -244,6 +248,10 @@ public final class ColumnarPageExtractor {
     if (page == null) {
       return writePos;
     }
+    // Reads every populated slot straight off the heap, so it is only ever handed pages the load
+    // policy decoded whole. An assertion, not a gate: see VersioningType#noFragmentIsLazy.
+    assert kvlPage.isFullyMaterialized() : "columnar extraction from a page with "
+        + kvlPage.chunkCount() + " chunks still unexpanded";
 
     final int populatedCount = PageLayout.getPopulatedCount(page);
     if (populatedCount == 0) {

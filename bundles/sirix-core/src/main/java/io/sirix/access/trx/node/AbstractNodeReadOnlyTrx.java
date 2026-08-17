@@ -713,6 +713,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Slot not found on current page - try overflow or fail
       return moveToSingletonSlowPath(nodeKey, reader);
     }
+    // A page loaded to answer one point lookup holds its records compressed until read. This is
+    // the door that bypasses getSlot, so it is also the one that has to open the chunk itself; a
+    // no-op branch on any eagerly decoded page.
+    page.ensureChunkFor(slotOffset);
     // ONE 8-byte directory read for both halves. The heap offset and the packed length+kind sit in
     // adjacent ints of the same entry, so fetching them separately cost two bounds-checked segment
     // accesses on the hottest step of a traversal: profiled warm, this method is 48.9 % of scan CPU
@@ -853,6 +857,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
       return false;
     }
+    page.ensureChunkFor(slotOff);
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slotOff);
     final int recordAbsOffset = PageLayout.HEAP_START + heapOffset;
 
@@ -1000,6 +1005,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
       return moveToLegacy(nodeKey);
     }
+    page.ensureChunkFor(slotOffset);
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
     final int recordAbs = PageLayout.HEAP_START + heapOffset;
     final byte kindByte = sp.get(ValueLayout.JAVA_BYTE, recordAbs);

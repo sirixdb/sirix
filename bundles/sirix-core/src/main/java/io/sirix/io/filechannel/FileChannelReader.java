@@ -230,6 +230,17 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   public Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, false);
+  }
+
+  @Override
+  public Page readRecordPageLazily(final PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, true);
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage) {
     // First pread: 4-byte length header. Uses a pooled buffer so we can size the
     // data buffer exactly for the second pread.
     ByteBuffer buffer = acquireBuffer(4);
@@ -262,12 +273,12 @@ public final class FileChannelReader extends AbstractReader {
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
         verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
-        return deserializeFromSegment(resourceConfiguration, segment, reference);
+        return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
       } else {
         final byte[] page = new byte[dataLength];
         buffer.get(page);
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-        return deserialize(resourceConfiguration, page, reference);
+        return deserialize(resourceConfiguration, page, reference, lazyRecordPage);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
