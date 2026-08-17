@@ -74,6 +74,9 @@ public final class ChunkedBodyConfig {
   /** Chunks expanded on demand, across every lazily parsed page. */
   private static final LongAdder CHUNK_MATERIALIZATIONS = new LongAdder();
 
+  /** Point-lookup loads the policy had to serve eagerly after all. */
+  private static final LongAdder EAGER_FALLBACKS = new LongAdder();
+
   private ChunkedBodyConfig() {
     throw new AssertionError("no instances");
   }
@@ -154,10 +157,30 @@ public final class ChunkedBodyConfig {
     return CHUNK_MATERIALIZATIONS.sum();
   }
 
+  /**
+   * Record a point-lookup load that could not be served lazily.
+   *
+   * <p>
+   * Counted at the policy site rather than inferred from the difference between loads and lazy
+   * loads, because the two have different denominators — and a feature that quietly stops firing
+   * while its tests still pass is how the column read path was disabled twice.
+   */
+  public static void recordEagerFallback() {
+    if (diag) {
+      EAGER_FALLBACKS.increment();
+    }
+  }
+
+  /** Point-lookup loads served eagerly since the last {@link #resetDiag()}. */
+  public static long eagerFallbacks() {
+    return EAGER_FALLBACKS.sum();
+  }
+
   /** Zero the diagnostic counters, so a test can attribute what one operation did. */
   public static void resetDiag() {
     LAZY_LOADS.reset();
     CHUNK_MATERIALIZATIONS.reset();
+    EAGER_FALLBACKS.reset();
   }
 
   /**

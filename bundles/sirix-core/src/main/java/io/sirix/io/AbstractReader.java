@@ -156,10 +156,21 @@ public abstract class AbstractReader implements Reader {
    */
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference)
       throws IOException {
+    return deserialize(resourceConfiguration, page, reference, false);
+  }
+
+  /**
+   * Deserialize a page, optionally leaving a record page's records unexpanded until read.
+   *
+   * @param lazyRecordPage request the lazy variant; see {@link Reader#readRecordPageLazily}. Ignored
+   *        by every page kind but a chunk-framed record page.
+   */
+  public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference,
+      boolean lazyRecordPage) throws IOException {
     // Use MemorySegment path if supported (zero-copy decompression)
     if (byteHandler.supportsMemorySegments()) {
       MemorySegment segment = MemorySegment.ofArray(page);
-      return deserializeFromSegment(resourceConfiguration, segment, reference);
+      return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
     }
 
     // Fallback to stream-based approach for non-MemorySegment ByteHandlers
@@ -169,8 +180,10 @@ public abstract class AbstractReader implements Reader {
     }
 
     // Zero-copy wrap: MemorySegment backed directly by the byte array
-    final var deserializedPage =
-        pagePersister.deserializePage(resourceConfiguration, Bytes.wrapForRead(decompressedBytes), type);
+    final var source = Bytes.wrapForRead(decompressedBytes);
+    final var deserializedPage = lazyRecordPage
+        ? pagePersister.deserializePageLazily(resourceConfiguration, source, type, null)
+        : pagePersister.deserializePage(resourceConfiguration, source, type);
 
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page.
     // This follows PostgreSQL pattern where BufferTag context (tablespace, database, relation)
@@ -217,6 +230,17 @@ public abstract class AbstractReader implements Reader {
    */
   public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, MemorySegment compressedPage,
       PageReference reference) throws IOException {
+    return deserializeFromSegment(resourceConfiguration, compressedPage, reference, false);
+  }
+
+  /**
+   * Zero-copy deserialization, optionally leaving a record page's records unexpanded until read.
+   *
+   * @param lazyRecordPage request the lazy variant; see {@link Reader#readRecordPageLazily}. Ignored
+   *        by every page kind but a chunk-framed record page.
+   */
+  public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, MemorySegment compressedPage,
+      PageReference reference, boolean lazyRecordPage) throws IOException {
     if (!byteHandler.supportsMemorySegments()) {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
     }
@@ -228,9 +252,10 @@ public abstract class AbstractReader implements Reader {
       MemorySegment uncompressedSegment = decompressionResult.segment();
 
       // Pass DecompressionResult to enable zero-copy for KeyValueLeafPages
-      Page deserializedPage = pagePersister.deserializePage(resourceConfiguration,
-          new MemorySegmentBytesIn(uncompressedSegment), type, decompressionResult // For zero-copy ownership transfer
-      );
+      final var source = new MemorySegmentBytesIn(uncompressedSegment);
+      Page deserializedPage = lazyRecordPage
+          ? pagePersister.deserializePageLazily(resourceConfiguration, source, type, decompressionResult)
+          : pagePersister.deserializePage(resourceConfiguration, source, type, decompressionResult);
 
       // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
       if (resourceConfiguration != null) {

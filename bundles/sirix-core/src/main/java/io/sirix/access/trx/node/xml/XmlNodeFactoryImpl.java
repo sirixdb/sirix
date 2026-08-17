@@ -366,6 +366,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, offset)) {
       return null;
     }
+    // The write singleton binds straight onto the heap and the DeweyID trailer is read out of it,
+    // so the slot's records have to be in the page before either happens.
+    page.ensureChunkFor(offset);
     final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);

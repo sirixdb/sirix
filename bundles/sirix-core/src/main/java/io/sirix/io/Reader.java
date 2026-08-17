@@ -88,6 +88,29 @@ public interface Reader extends AutoCloseable {
   Page read(PageReference key, ResourceConfiguration resourceConfiguration);
 
   /**
+   * Read a record page without expanding the records the caller has not asked for.
+   *
+   * <p>
+   * A point lookup opens a whole page to answer for one slot and decodes the other thousand records
+   * for nothing. A chunk-framed body lets the reader stop after the page's metadata and expand only
+   * the chunk a slot lives in; see {@code LazyChunkedBody}. This is a request, not a requirement — a
+   * backend that cannot answer lazily, or a page whose body is not chunk-framed, returns a fully
+   * decoded page and the caller cannot tell the difference except by how long the call took.
+   *
+   * <p>
+   * Only ever worth asking for when the load is driven by a single record key. A scan reads every
+   * slot, so it would pay the per-chunk framing for no saving; the default below is what it gets.
+   *
+   * @param key the reference for the page to be determined
+   * @param resourceConfiguration the resource configuration
+   * @return the page, whose records may be expanded on demand
+   * @throws SirixIOException if something bad happens during read
+   */
+  default Page readRecordPageLazily(PageReference key, ResourceConfiguration resourceConfiguration) {
+    return read(key, resourceConfiguration);
+  }
+
+  /**
    * Batched positional page read for offset-keyed references. Implementations backed by a
    * seekable file should override this with COALESCED reads: runs of near-adjacent offsets
    * become one large sequential read instead of two preads (length header + body) per page —
