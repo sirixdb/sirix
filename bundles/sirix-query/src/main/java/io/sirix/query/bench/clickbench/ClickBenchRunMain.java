@@ -18,6 +18,7 @@ import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
+import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 import java.io.BufferedWriter;
@@ -270,6 +271,9 @@ public final class ClickBenchRunMain {
     System.out.printf("# served: predicateCounts=%d groupAggregates=%d numericGroupBys=%d groupSliced=%d%n",
         SirixVectorizedExecutor.projectionCountsServed(), SirixVectorizedExecutor.groupAggServedCount(),
         SirixVectorizedExecutor.numericGroupByServedCount(), SirixVectorizedExecutor.groupAggSlicedServedCount());
+    System.out.printf("# chunked: lazyLoads=%d chunkMaterializations=%d eagerFallbacks=%d%n",
+        ChunkedBodyConfig.lazyLoads(), ChunkedBodyConfig.chunkMaterializations(),
+        ChunkedBodyConfig.eagerFallbacks());
   }
 
   /** The ClickBench output contract: a Load time line, a Data size line, then 43 timing rows. */
