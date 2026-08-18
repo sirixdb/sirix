@@ -12,6 +12,7 @@ real dataset. The SirixDB side lives in
 | `duckdb_reference.py` | builds a DuckDB `hits` table from the parquet **or** from that same JSON, runs the 43 queries, dumps canonical results |
 | `compare-results.py`  | diffs SirixDB's result dump against DuckDB's, telling a legitimate ORDER BY tie from a wrong answer |
 | `run-differential.sh` | the correctness gate: drives all of the above (SirixDB fast path vs SirixDB interpreter vs DuckDB) |
+| `cold-rounds.sh`      | the **performance** gate: evicted, cool-gated, interleaved cold rounds — the protocol that produced the published cold figures (see "Measuring" below) |
 
 Requirements: the `duckdb` CLI (for `prepare-data.sh`) and the `duckdb` Python module (for
 `duckdb_reference.py`). `compare-results.py` uses the standard library only. Verified against
@@ -235,6 +236,65 @@ comparison.
 
 Exit status: `0` all MATCH/TIE-AMBIGUOUS, `1` at least one real MISMATCH, `2` no mismatches but at
 least one MISSING result file or an unusable setup.
+
+---
+
+## Measuring: the cold protocol
+
+`run-differential.sh` proves the answers. `cold-rounds.sh` produces the numbers, under the protocol
+that every figure in [`docs/BENCHMARK_CAMPAIGNS.md`](../../../../docs/BENCHMARK_CAMPAIGNS.md) §4
+obeys:
+
+```bash
+# one arm, JVM (correctness-grade timing; the published figures are ahead-of-time)
+./cold-rounds.sh /var/tmp/sirix-clickbench
+
+# two ahead-of-time images, interleaved A B A B, four rounds each
+./cold-rounds.sh /var/tmp/sirix-clickbench \
+    --arm base=/var/tmp/bin/cb-lm4 --arm new=/var/tmp/bin/cb-lm5 --rounds 4
+```
+
+It evicts the page cache before every round (`../common/evict.py`, `posix_fadvise DONTNEED`), waits
+for the CPU package to fall below 55 °C, runs each arm in a **fresh process**, and reports the best
+and median suite time per arm against the DuckDB reference (0.520 s cold / 0.351 s hot on the
+campaign box; override with `--duckdb-cold` / `--duckdb-hot`).
+
+**The published ClickBench numbers, for reference:** cold suite **0.986 s** best of 4 rounds (median
+1.050) vs DuckDB 0.520 s — **1.90×**; hot suite **0.600–0.615 s** vs 0.351 s — **1.71–1.75×**. Both
+from a GraalVM native image over a 1 M-row synthetic corpus with a 25-column projection index; the
+answers are byte-identical to SirixDB's own generic interpreter, which is itself differentially
+verified against DuckDB.
+
+### The discipline these numbers depend on
+
+Each rule below was paid for with a wrong conclusion; the JSONBench kit's
+[README](../jsonbench/README.md#4-measurement-discipline) states them at length and they apply
+identically here.
+
+- **Interleave arms in one build.** Old, new, old, new — never two blocks. This laptop drops to one
+  seventh of its clock at 99 °C, and block measurement once faked a 1.7× regression convincingly
+  enough that code was reverted over it. `cold-rounds.sh` interleaves by construction; a 40 W power
+  cap plus the cool gate keeps arms comparable.
+- **Min-of-N for everything, including internal phase timers.** A single-sample phase timer once
+  mis-attributed a change by 2.7× — reported +73 ms where the truth was −17.7 ms.
+- **Cold means an evicted cache *and* a fresh process.** `posix_fadvise(DONTNEED)` needs no root and
+  evicts exactly the files under test, unlike `drop_caches`, which needs root and drops the binary
+  under test and the other engine's files too — making interleaved arms depend on their order.
+  `evict.py --verify` reports residency before and after (via `mincore(2)`) so a run can prove it was
+  cold. Note that fadvise cannot evict *dirty* pages, so `evict.py` calls `sync(2)` first; without
+  that the first "cold" run after a load silently measures a warm cache.
+- **Prove the route with counters, not with timing.** The runner prints `# served: …`. A route can
+  decline silently and a differential still passes vacuously, because both legs then ran the same
+  pipeline. And check that the counter you are reasoning about is actually in the printed line —
+  "route gap" was twice diagnosed from a `0/0/0` that simply omitted it.
+- **Isolated runs do not transfer to suite context.** A query measured alone pays fills and catalog
+  work that, in the suite, an earlier query already paid. Attribution runs must reproduce the regime
+  they explain.
+- **Sweep selectivity when testing a predicate route.** A wrong-answer bug hid behind a common
+  literal for a whole session; the error scaled with rarity, not with corpus size. Test
+  common / mid / rare / no-match literals.
+- **`--queries` here is ZERO-based** (`--queries 18` is the docs' Q19), while the JSONBench runner's
+  is one-based. Mixing them up costs a run.
 
 ---
 
