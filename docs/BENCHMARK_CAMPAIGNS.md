@@ -631,24 +631,51 @@ headroom, not a gap.
 
 ## 7. Reproducing the numbers
 
+Both campaigns ship as reproduction kits in the repository. Nothing above depends on
+the campaign box: the kits take a corpus, an engine binary and a temperature sensor, and
+re-derive every figure under the protocol of §3.
+
+| kit | where | what it reproduces |
+|---|---|---|
+| JSONBench | `bundles/sirix-query/bench/jsonbench/` ([README](../bundles/sirix-query/bench/jsonbench/README.md)) | §5, all three tiers, including the ClickHouse reference side |
+| ClickBench | `bundles/sirix-query/bench/clickbench/` ([README](../bundles/sirix-query/bench/clickbench/README.md)) | §4, plus the DuckDB reference and the correctness differential |
+| shared | `bundles/sirix-query/bench/common/` | the page-cache evictor and the cool gate both kits use |
+
+### JSONBench, one screen
+
 ```bash
-# ClickBench (corpus + binaries under /tmp/claude-1000/cb on the campaign box)
-./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="<dbDir> generate:1000000"
-./gradlew :sirix-query:clickBench     -Pclickbench.args="<dbDir> --tries 3 --dump <dir>"
+export JAVA_HOME=/path/to/graalvm-25
+KIT=bundles/sirix-query/bench/jsonbench;  W=/var/tmp/jsonbench;  CH=/path/to/clickhouse
 
-# JSONBench
-./download_data.sh                    # from the JSONBench repo; 1m tier = file_0001.json.gz
-./gradlew :sirix-query:jsonBenchLoad  -Pjsonbench.args="<dbDir> <file_0001.json.gz>"
-./gradlew :sirix-query:jsonBench      -Pjsonbench.args="<dbDir> --tries 3 --dump <dir>"
-python3 bundles/sirix-query/bench/jsonbench/compare-results.py --dump <dir> --ref <ch-ref>
-
-# Native images (GraalVM):
-./gradlew :sirix-query:nativeCompile -Pnative.mainClass=io.sirix.query.bench.jsonbench.JsonBenchRunMain \
-    -Pnative.imageName=jb -Pquick-build=false
-
-# Cold protocol: evict with posix_fadvise(DONTNEED) over every DB file; fresh process;
-# interleave A/B arms; gate each timed run on package temperature < 55 °C.
+$KIT/download-data.sh 1m $W/data                                  # 135 MB, resumable
+$KIT/clean-corpus.py  $W/data 1m                                  # drops the corrupt rows
+$KIT/clickhouse-setup.sh 1m $W/data/bluesky-1m-clean.ndjson $CH $W # table + UTC refs + baseline
+$KIT/pgo-native.sh    $W/db-1m --tier 1m --out $W/pgo             # instrument -> profile -> optimise
+$KIT/run-benchmark.sh 1m $W/db-1m $W/ch-ref-1m \
+    --data $W/data/bluesky-1m-clean.ndjson --bin $W/pgo/jb        # rounds + differential + table
 ```
+
+Substitute `10m` or `100m` for `1m`. Omit `--bin` to measure the JVM: that is a valid
+correctness run, but the published figures are all ahead-of-time compiled and a JVM run
+pays classload and JIT on top of them. The per-tier heap/arena configuration (including
+the two 100 M workarounds) is baked into `run-benchmark.sh` and tabulated in its README.
+
+### ClickBench, one screen
+
+```bash
+KIT=bundles/sirix-query/bench/clickbench
+
+./gradlew :sirix-query:clickBenchLoad -Pclickbench.args="<dbDir> generate:1000000"
+$KIT/run-differential.sh 200000        # correctness: fast path vs interpreter vs DuckDB
+$KIT/cold-rounds.sh <dbDir> --arm base=<binA> --arm new=<binB> --rounds 4
+```
+
+`cold-rounds.sh` is the protocol of §3 made executable: it evicts the page cache
+(`posix_fadvise(DONTNEED)`, no root needed — and `common/evict.py --verify` proves the
+eviction with `mincore(2)`), waits for the CPU package to drop below 55 °C, runs each arm
+in a fresh process, **interleaves the arms** rather than blocking them, and reports the
+best and median of N rounds. Its summary refuses to print a suite figure when any query
+produced no timing, because a partial sum silently reads as a whole one.
 
 The serving suites that gate every engine change:
 `ProjectionIndexCatalogServingTest`, `NestedDerefProjectionServingTest`,
