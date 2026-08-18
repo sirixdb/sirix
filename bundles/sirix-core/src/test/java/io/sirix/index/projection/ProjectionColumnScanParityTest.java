@@ -723,7 +723,7 @@ final class ProjectionColumnScanParityTest {
       }
       assertTrue(s.stringDictIds() != null && s.stringDictIds().length == s.rowCount(),
           "leaf " + leaf + " must carry one dict-id per row");
-      assertTrue(s.stringDict() != null && s.stringDict()[0] != null,
+      assertTrue(s.dictBytes() != null && s.dictOffsets() != null && s.dictSize() > 0,
           "leaf " + leaf + " must carry its decoded dictionary");
     }
     // The shapes the string kernel does NOT serve stay loud: a string literal against a
@@ -796,6 +796,162 @@ final class ProjectionColumnScanParityTest {
         }
       }
     }
+  }
+
+  @Test
+  void topKBestFirstStaysExactOnScatteredTieHeavyLeaves() {
+    // The banded fixture above cannot catch a visitation-order bug: there the leaf minima ascend
+    // with document order, so best-first visits leaves in document order anyway. This one is
+    // adversarial on both counts — all-present (so best-first is admissible) with keys scattered
+    // uniformly, so the best leaf is almost never leaf 0, and heavily tied (2000 distinct values
+    // over ~6000 rows), so the k-boundary is decided by the DOCUMENT-ORDER rank of rows the walk
+    // reached out of order. The oracle is the full stable sort in document order.
+    for (final long seed : new long[] {11, 404, 90210}) {
+      final Fixture fx = buildFixture(seed, 6, false, true);
+      final int[] sortCols = {0};
+      final ColumnPredicate[][] shapes =
+          {new ColumnPredicate[0], new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GT, 0L)},
+              new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GT, 990L)}, // rare
+              new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GT, Long.MAX_VALUE - 1)}, // none
+          };
+      assertFalse(leafMinimaFollowDocumentOrder(fx),
+          "seed " + seed + " must scatter the leaf minima, or best-first is never exercised");
+      for (final ColumnPredicate[] preds : shapes) {
+        final LongArrayList bv = new LongArrayList();
+        final LongArrayList bk = new LongArrayList();
+        final LongArrayList bm = new LongArrayList();
+        ProjectionIndexByteScan.collectMatchingSortTuples(fx.rawLeaves(), preds, sortCols, bv, bk, bm);
+        assertTrue(bm.isEmpty(), "an all-present fixture has no missing order cells");
+        for (final boolean desc : new boolean[] {false, true}) {
+          for (final int k : new int[] {1, 2, 10, 64, 5_000}) {
+            final long skippedBefore = ProjectionColumnScan.topKLeavesSkippedCount();
+            final long[] top =
+                ProjectionColumnScan.topKRecordKeys(fx.store(), preds, sortCols, new boolean[] {desc}, k, fx.fetcher());
+            assertArrayEquals(topKOracle(bv, bk, desc, k), top,
+                "best-first top-K parity seed=" + seed + " desc=" + desc + " k=" + k);
+            if (k == 1 && preds.length == 0) {
+              assertTrue(ProjectionColumnScan.topKLeavesSkippedCount() > skippedBefore,
+                  "k=1 over six scattered leaves must skip at least one leaf, or the plan never engaged");
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void topKBestFirstStaysExactOnAStringOrderKey() {
+    // A STRING first key: the leaf extrema are dict IDS in the slice, so the plan has to read the
+    // column's value extrema instead — and with six distinct values over thousands of rows nearly
+    // every row ties, making the document-order rank the only thing separating the k-boundary.
+    for (final long seed : new long[] {7, 1234}) {
+      final Fixture fx = buildFixture(seed, 6, false, true);
+      final int[] sortCols = {3};
+      for (final long filterGt : new long[] {Long.MIN_VALUE, 0L, 990L, Long.MAX_VALUE - 1}) {
+        final ColumnPredicate[] preds = filterGt == Long.MIN_VALUE
+            ? new ColumnPredicate[0]
+            : new ColumnPredicate[] {ColumnPredicate.numeric(0, Op.GT, filterGt)};
+        for (final boolean desc : new boolean[] {false, true}) {
+          for (final int k : new int[] {1, 3, 25, 5_000}) {
+            assertArrayEquals(stringTopKOracle(fx, 3, filterGt, desc, k),
+                ProjectionColumnScan.topKRecordKeys(fx.store(), preds, sortCols, new boolean[] {desc}, k, fx.fetcher()),
+                "string best-first top-K parity seed=" + seed + " gt=" + filterGt + " desc=" + desc + " k=" + k);
+          }
+        }
+      }
+    }
+  }
+
+  @Test
+  void topKAbandonsTheBestFirstPlanWhenEveryLeafOffersTheSameKey() {
+    // The Q25 shape: a low-cardinality string column whose smallest value occurs in every leaf. No
+    // leaf can ever be pruned, so best-first can only cost the sequential slice access the
+    // document-order walk has — the plan must hand back. Both halves are asserted, because the
+    // ANSWER is identical either way and equality alone would pass whatever the plan decided.
+    final Fixture fx = buildFixture(31, 6, false, true);
+    final int[] tiedKey = {3}; // "s0".."s5" over ~1024 rows a leaf: every leaf holds an "s0"
+    final int[] scatteredKey = {0};
+    final ColumnPredicate[] none = new ColumnPredicate[0];
+
+    final long tiedBefore = ProjectionColumnScan.topKPlanTiedCount();
+    final long[] tiedTop =
+        ProjectionColumnScan.topKRecordKeys(fx.store(), none, tiedKey, new boolean[] {false}, 5, fx.fetcher());
+    assertEquals(1L, ProjectionColumnScan.topKPlanTiedCount() - tiedBefore,
+        "every leaf's smallest string is the same, so the best-first plan must be abandoned");
+    assertArrayEquals(stringTopKOracle(fx, 3, Long.MIN_VALUE, false, 5), tiedTop,
+        "abandoning the plan must not change the answer");
+
+    // Control on the SAME store: the scattered long key does NOT tie, so the plan must be kept.
+    final long keptBefore = ProjectionColumnScan.topKPlanTiedCount();
+    ProjectionColumnScan.topKRecordKeys(fx.store(), none, scatteredKey, new boolean[] {false}, 5, fx.fetcher());
+    assertEquals(0L, ProjectionColumnScan.topKPlanTiedCount() - keptBefore,
+        "a scattered key must KEEP the best-first plan — otherwise the tie test is over-firing");
+  }
+
+  /** Whether the leaves' minimum long key already ascends with leaf index (a banded corpus). */
+  private static boolean leafMinimaFollowDocumentOrder(final Fixture fx) {
+    long previous = Long.MIN_VALUE;
+    for (final ProjectionColumnStore.ColumnSlice slice : fx.store().column(0, fx.fetcher())) {
+      if (slice.rowCount() <= 0) {
+        continue;
+      }
+      if (slice.min() < previous) {
+        return false;
+      }
+      previous = slice.min();
+    }
+    return true;
+  }
+
+  /**
+   * Independent oracle for a STRING order key: every row in DOCUMENT order, filtered by
+   * {@code col 0 > filterGt} ({@link Long#MIN_VALUE} = unfiltered), stably sorted by entry bytes with
+   * a document-order tiebreak. Reads only slice accessors — it shares no ordering code with the
+   * kernel under test.
+   */
+  private static long[] stringTopKOracle(final Fixture fx, final int sortCol, final long filterGt, final boolean desc,
+      final int k) {
+    final ProjectionColumnStore.ColumnSlice[] sortSlices = fx.store().column(sortCol, fx.fetcher());
+    final ProjectionColumnStore.ColumnSlice[] filterSlices = fx.store().column(0, fx.fetcher());
+    final long[][] recordKeys = fx.store().recordKeys(fx.fetcher());
+    final List<byte[]> values = new ArrayList<>();
+    final LongArrayList keys = new LongArrayList();
+    final LongArrayList ranks = new LongArrayList();
+    long rank = 0;
+    for (int leaf = 0; leaf < fx.store().rowGroupCount(); leaf++) {
+      final int rows = fx.store().rowCount(leaf);
+      final ProjectionColumnStore.ColumnSlice slice = sortSlices[leaf];
+      for (int r = 0; r < rows; r++, rank++) {
+        if (filterGt != Long.MIN_VALUE && filterSlices[leaf].numericValues()[r] <= filterGt) {
+          continue;
+        }
+        final int dictId = slice.stringDictIds()[r];
+        values.add(Arrays.copyOfRange(slice.dictBytes(), slice.dictOffset(dictId),
+            slice.dictOffset(dictId) + slice.dictLength(dictId)));
+        keys.add(recordKeys[leaf][r]);
+        ranks.add(rank);
+      }
+    }
+    final int n = keys.size();
+    final Integer[] order = new Integer[n];
+    for (int i = 0; i < n; i++) {
+      order[i] = i;
+    }
+    Arrays.sort(order, (a, b) -> {
+      final int cmp = ProjectionColumnScan.compareDictEntries(values.get(a), values.get(b));
+      if (cmp != 0) {
+        return desc
+            ? -cmp
+            : cmp;
+      }
+      return Long.compare(ranks.getLong(a), ranks.getLong(b));
+    });
+    final int take = Math.min(k, n);
+    final long[] out = new long[take];
+    for (int i = 0; i < take; i++) {
+      out[i] = keys.getLong(order[i]);
+    }
+    return out;
   }
 
   /** Full stable sort of the collected (value, key) pairs, truncated to {@code k} keys. */

@@ -1097,8 +1097,8 @@ public enum VersioningType {
   private static <V extends DataRecord, T extends KeyValuePage<V>> boolean noFragmentIsLazy(final List<T> pages) {
     for (final T page : pages) {
       if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isFullyMaterialized()) {
-        throw new AssertionError("fragment " + kvlPage.getPageKey() + " reached a combine with "
-            + kvlPage.chunkCount() + " chunks still unexpanded — the load policy handed a lazily loaded"
+        throw new AssertionError("fragment " + kvlPage.getPageKey() + " reached a combine with " + kvlPage.chunkCount()
+            + " chunks still unexpanded — the load policy handed a lazily loaded"
             + " page to a consumer that reads all of it");
       }
     }

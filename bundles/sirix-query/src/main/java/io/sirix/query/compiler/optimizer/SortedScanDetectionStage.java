@@ -13,8 +13,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Sirix-side detection of SORTED-SCAN pipelines (P5b stage 7b; gap item 1b widened the
- * original single order key to N):
+ * Sirix-side detection of SORTED-SCAN pipelines (P5b stage 7b; gap item 1b widened the original
+ * single order key to N):
  *
  * <pre>
  *   for $r in $doc[] [where p]
@@ -22,18 +22,18 @@ import java.util.List;
  *   return $r
  * </pre>
  *
- * Annotates {@code SIRIX_SORTED_*}; {@code SirixPipelineStrategy} consumes them with the
- * generic pipeline compiled alongside as the runtime fallback. This stage subsumes the
- * original consumption of Brackit's {@code VECTORIZED_ORDERBY} annotation (which only
- * covers a single spec, and whose direction property is unusable) — direction is read
- * straight from each {@code OrderBySpec}'s {@code OrderByKind} modifier.
+ * Annotates {@code SIRIX_SORTED_*}; {@code SirixPipelineStrategy} consumes them with the generic
+ * pipeline compiled alongside as the runtime fallback. This stage subsumes the original consumption
+ * of Brackit's {@code VECTORIZED_ORDERBY} annotation (which only covers a single spec, and whose
+ * direction property is unusable) — direction is read straight from each {@code OrderBySpec}'s
+ * {@code OrderByKind} modifier.
  *
- * <p><b>Declines (all deliberate, mirroring the single-key rules).</b> A second
- * {@code order by} clause; an explicit {@code empty greatest/least} modifier; a collation
- * or any other unrecognized spec modifier; {@code let} bindings in the chain (spec keys
- * must be direct {@code $r.field} derefs); a selection without Brackit's
- * representable-predicate annotation; {@code allowing empty}/positional {@code at}
- * ForBind modifiers.
+ * <p>
+ * <b>Declines (all deliberate, mirroring the single-key rules).</b> A second {@code order by}
+ * clause; an explicit {@code empty greatest/least} modifier; a collation or any other unrecognized
+ * spec modifier; {@code let} bindings in the chain (spec keys must be direct {@code $r.field}
+ * derefs); a selection without Brackit's representable-predicate annotation;
+ * {@code allowing empty}/positional {@code at} ForBind modifiers.
  */
 public final class SortedScanDetectionStage implements Stage {
 
@@ -42,30 +42,29 @@ public final class SortedScanDetectionStage implements Stage {
   public static final String SORTED_DESC = "SIRIX_SORTED_DESC";
 
   /**
-   * Field projection (gap item 1c): {@code return $r.field} instead of {@code return $r}.
-   * The K winning records materialize as before, then the single field is dereffed from
-   * each. Semantics guard lives in the expr: under a top-K limit a winner row MISSING the
-   * field would shift the {@code fn:subsequence} item window (subsequence counts ITEMS,
-   * not rows), so the expr fails loud into the generic fallback there; only the unbounded
-   * path may skip empties.
+   * Field projection (gap item 1c): {@code return $r.field} instead of {@code return $r}. The K
+   * winning records materialize as before, then the single field is dereffed from each. Semantics
+   * guard lives in the expr: under a top-K limit a winner row MISSING the field would shift the
+   * {@code fn:subsequence} item window (subsequence counts ITEMS, not rows), so the expr fails loud
+   * into the generic fallback there; only the unbounded path may skip empties.
    */
   public static final String SORTED_RETURN_FIELD = "SIRIX_SORTED_RETURN_FIELD";
 
   /**
    * PREDICATE SCAN (stage 7d): the same chain WITHOUT an order-by — {@code for $r in P where p
    * return $r [.field]}. Matching rows emit in DOCUMENT order, which is exactly the order the
-   * predicate mask yields record keys in, so no sort machinery runs at all. A selection is
-   * REQUIRED: an unfiltered full-table materialization through per-record navigation would be
-   * slower than the row path it replaces.
+   * predicate mask yields record keys in, so no sort machinery runs at all. A selection is REQUIRED:
+   * an unfiltered full-table materialization through per-record navigation would be slower than the
+   * row path it replaces.
    */
   public static final String PREDICATE_SCAN = "SIRIX_PREDICATE_SCAN";
 
   /**
    * TOP-K pushdown (gap item 3): when a sorted pipe's SOLE consumer is
-   * {@code fn:subsequence(pipe, start, length)} with positive integer literals, the pipe
-   * only ever needs its first {@code start+length-1} items — {@code fn:subsequence} never
-   * pulls past that position. The limit is annotated here and served via bounded heap
-   * selection instead of a full sort.
+   * {@code fn:subsequence(pipe, start, length)} with positive integer literals, the pipe only ever
+   * needs its first {@code start+length-1} items — {@code fn:subsequence} never pulls past that
+   * position. The limit is annotated here and served via bounded heap selection instead of a full
+   * sort.
    */
   public static final String SORTED_LIMIT = "SIRIX_SORTED_LIMIT";
 
@@ -94,15 +93,13 @@ public final class SortedScanDetectionStage implements Stage {
 
   /** {@code fn:subsequence(<pipe>, <int-literal start>, <int-literal length>)} → limit. */
   private static void tryAnnotateSubsequenceLimit(final AST call) {
-    if (call.getChildCount() != 3 || !(call.getValue() instanceof QNm fn)
-        || !"subsequence".equals(fn.getLocalName())) {
+    if (call.getChildCount() != 3 || !(call.getValue() instanceof QNm fn) || !"subsequence".equals(fn.getLocalName())) {
       return;
     }
     // Built-in fn:subsequence only: unprefixed calls resolve to the JSONiq default
     // function namespace, fn:* to the XQuery one.
     final String ns = fn.getNamespaceURI();
-    if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns)
-        && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
+    if (ns != null && !ns.isEmpty() && !Namespaces.FN_NSURI.equals(ns) && !Namespaces.DEFAULT_FN_NSURI.equals(ns)) {
       return;
     }
     final AST pipe = call.getChild(0);
@@ -130,7 +127,9 @@ public final class SortedScanDetectionStage implements Stage {
     if (v instanceof Int32 i32) {
       return i32.longValue();
     }
-    return v instanceof Int64 i64 ? i64.longValue() : -1;
+    return v instanceof Int64 i64
+        ? i64.longValue()
+        : -1;
   }
 
   private void tryAnnotate(final AST pipeExpr) {
@@ -150,8 +149,7 @@ public final class SortedScanDetectionStage implements Stage {
     }
     // Plain `for $r in src` only: [binding, source, next-op]. `allowing empty` or a
     // positional `at $p` binding changes row semantics — decline explicitly.
-    if (forBind.getChildCount() != 3
-        || forBind.getChild(0).getType() != XQ.TypedVariableBinding
+    if (forBind.getChildCount() != 3 || forBind.getChild(0).getType() != XQ.TypedVariableBinding
         || forBind.getChild(1).getType() == XQ.AllowingEmpty
         || forBind.getChild(1).getType() == XQ.TypedVariableBinding) {
       return;
@@ -190,8 +188,7 @@ public final class SortedScanDetectionStage implements Stage {
           if (letVar == null || letVar.equals(loopVar)) {
             return;
           }
-          if (current.getChildCount() < 2
-              || loopVarDerefField(current.getChild(1), loopVar) == null) {
+          if (current.getChildCount() < 2 || loopVarDerefField(current.getChild(1), loopVar) == null) {
             return;
           }
         }
@@ -316,7 +313,9 @@ public final class SortedScanDetectionStage implements Stage {
     if (name instanceof QNm qnm) {
       return qnm.getLocalName();
     }
-    return name instanceof String s ? s : null;
+    return name instanceof String s
+        ? s
+        : null;
   }
 
   /** First child of a binding node is the typed variable binding; its first child names the var. */
@@ -328,6 +327,8 @@ public final class SortedScanDetectionStage implements Stage {
     if (binding.getChildCount() < 1) {
       return null;
     }
-    return binding.getChild(0).getValue() instanceof QNm qnm ? qnm : null;
+    return binding.getChild(0).getValue() instanceof QNm qnm
+        ? qnm
+        : null;
   }
 }

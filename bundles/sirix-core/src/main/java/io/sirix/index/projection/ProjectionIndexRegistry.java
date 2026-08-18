@@ -6,12 +6,20 @@ package io.sirix.index.projection;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 
+import io.sirix.api.StorageEngineReader;
+
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -44,6 +52,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class ProjectionIndexRegistry {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionIndexRegistry.class);
+
   /**
    * Immutable handle published into the registry. Column order in {@link #fieldNames} defines the
    * column order that {@link ProjectionIndexByteScan#conjunctiveCount} expects: the query path
@@ -52,6 +62,13 @@ public final class ProjectionIndexRegistry {
    */
   public static final class Handle {
     private final String[] fieldNames;
+    /**
+     * Per column, its declared path RELATIVE to the record root ({@code "commit/collection"} for
+     * {@code /[]/commit/collection} under {@code /[]}), or {@code null} for handles installed without
+     * declared paths (the bench/test registry route). Attached at construction by the catalog; see
+     * {@link #columnOf(String)} for what it changes.
+     */
+    private volatile String[] fieldChains;
     /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
     private volatile List<byte[]> rowGroupPayloads;
     /**
@@ -106,6 +123,57 @@ public final class ProjectionIndexRegistry {
     /** Attach the metadata's summary; called once, at construction time, by the catalog. */
     public void setSetValueRowCounts(final Map<Integer, Map<String, Long>> counts) {
       this.setValueRowCounts = counts;
+    }
+
+    /**
+     * Per {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column, the node key of its
+     * resource-wide value dictionary's header; {@code 0} for every other column. Read from the same
+     * metadata blob the handle is built from, so carrying it costs nothing.
+     */
+    private long[] valueDictionaryHeaderKeys;
+
+    /** Attach the per-column dictionary anchors; called once, at construction, by the catalog. */
+    public void setValueDictionaryHeaderKeys(final long @Nullable [] keys) {
+      this.valueDictionaryHeaderKeys = keys;
+    }
+
+    /**
+     * The value dictionary anchor for {@code col}, or {@code 0} when the column has none — which is
+     * every column of a store built before the kind existed, and every column that is not global.
+     */
+    public long valueDictionaryHeaderKey(final int col) {
+      final long[] keys = valueDictionaryHeaderKeys;
+      return keys == null || col < 0 || col >= keys.length
+          ? 0L
+          : keys[col];
+    }
+
+    /**
+     * Resolve a string literal to its id in {@code col}'s resource-wide dictionary.
+     *
+     * <p>
+     * The whole reason a global column can serve a predicate at all: this runs ONCE per literal, and
+     * every row afterwards is an integer compare. The three answers are deliberately distinct —
+     * {@link GlobalValueDictionary#ID_ABSENT} is an exact "no row can match" and
+     * {@link GlobalValueDictionary#ID_UNKNOWN} is "I cannot say", which must decline rather than be
+     * read as absence.
+     *
+     * @param col the column
+     * @param literalUtf8 the literal's UTF-8 bytes
+     * @param reader a reader positioned at this handle's revision
+     * @return the id, {@code ID_ABSENT}, or {@code ID_UNKNOWN}
+     */
+    public int globalDictionaryId(final int col, final byte[] literalUtf8, final StorageEngineReader reader) {
+      final long headerKey = valueDictionaryHeaderKey(col);
+      if (headerKey <= 0L || literalUtf8 == null || reader == null) {
+        return GlobalValueDictionary.ID_UNKNOWN;
+      }
+      try {
+        return GlobalValueDictionary.probe(headerKey, literalUtf8, reader);
+      } catch (final RuntimeException unreadable) {
+        // A dictionary this revision cannot read is "I cannot say", never "not there".
+        return GlobalValueDictionary.ID_UNKNOWN;
+      }
     }
 
     /**
@@ -641,25 +709,107 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * Whether whole-leaf payloads are ALREADY in memory (eager handle, or a prior consumer
-     * hydrated the lazy handle). Regime probe for slice-vs-payload route choices: once the
-     * leaves are cached, a contiguous byte-kernel scan beats scattered slice reads — the sliced
-     * routes exist to avoid the materialization, not to replace the warm scan. Racy by design
-     * (a stale {@code null} just serves one more query from slices).
+     * Whether whole-leaf payloads are ALREADY in memory (eager handle, or a prior consumer hydrated the
+     * lazy handle). Regime probe for slice-vs-payload route choices: once the leaves are cached, a
+     * contiguous byte-kernel scan beats scattered slice reads — the sliced routes exist to avoid the
+     * materialization, not to replace the warm scan. Racy by design (a stale {@code null} just serves
+     * one more query from slices).
      */
     public boolean payloadsMaterialized() {
       return rowGroupPayloads != null;
     }
 
-    /** Sliced group serves so far — the PROMOTION signal: a handle that keeps serving sliced is
-     * in a hot loop, where the contiguous byte-kernel scan over materialized leaves wins (~2x on
-     * 1M-row string groupings). Racy increments are benign (a promotion one serve late). */
+    /**
+     * Sliced group serves so far — the PROMOTION signal: a handle that keeps serving sliced is in a hot
+     * loop, where the contiguous byte-kernel scan over materialized leaves wins (~2x on 1M-row string
+     * groupings). Racy increments are benign (a promotion one serve late).
+     */
     private final java.util.concurrent.atomic.AtomicInteger slicedServes =
         new java.util.concurrent.atomic.AtomicInteger();
 
     /** Count one sliced serve attempt; returns the count BEFORE the increment. */
     public int slicedServeTick() {
       return slicedServes.getAndIncrement();
+    }
+
+    /** One-shot latch for the background whole-projection segment readahead. */
+    private final AtomicBoolean segmentPrefetchKicked = new AtomicBoolean();
+
+    /**
+     * Background advisory readahead of every projection segment — a fresh process's first queries
+     * otherwise demand-fault the segments column by column. One daemon sweep through
+     * {@link ProjectionColumnStore#prefetchAllSegments}; failures stay silent (pure hint).
+     */
+    public void kickSegmentPrefetch(final Supplier<AutoCloseable> trxFactory,
+        final Function<AutoCloseable, StorageEngineReader> readerOf) {
+      final ProjectionColumnStore store = columnStore;
+      if (store == null || !segmentPrefetchKicked.compareAndSet(false, true)) {
+        return;
+      }
+      final Thread t = new Thread(() -> {
+        try (AutoCloseable trx = trxFactory.get()) {
+          store.prefetchAllSegments(readerOf.apply(trx));
+        } catch (final Exception ignored) {
+          // Advisory only.
+        }
+      }, "sirix-projection-prefetch");
+      t.setDaemon(true);
+      t.start();
+    }
+
+    /** One-shot latch so background promotion is kicked exactly once per handle. */
+    private final AtomicBoolean promotionKicked = new AtomicBoolean();
+
+    /**
+     * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The
+     * payload is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap,
+     * itself capped so a huge heap does not authorise a huge speculative materialization.
+     */
+    private static long promoteMaxBytes() {
+      final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
+      if (configured != null && !configured.isEmpty()) {
+        try {
+          return Long.parseLong(configured.trim());
+        } catch (final NumberFormatException ignored) {
+          // fall through to the derived default
+        }
+      }
+      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, Runtime.getRuntime().maxMemory() / 4);
+    }
+
+    /** Ceiling on the derived promotion budget — see {@link #promoteMaxBytes()}. */
+    private static final long DEFAULT_PROMOTE_MAX_BYTES = 4L << 30;
+
+    /**
+     * HOT promotion without the stall: materialize the whole-leaf payloads on a background thread while
+     * callers keep serving from slices; {@link #payloadsMaterialized()} flips when the work lands and
+     * the byte kernels take over on the NEXT query. Failures are swallowed — a failed promotion just
+     * means staying on the (correct) sliced path; the next synchronous consumer re-surfaces the error
+     * attributably through {@link #rowGroupPayloads(Supplier)}.
+     */
+    public void promoteInBackground(final Supplier<List<byte[]>> materializer) {
+      if (materializer == null || !promotionKicked.compareAndSet(false, true)) {
+        return;
+      }
+      // Promotion is an OPTIMISATION — it trades heap for a faster kernel on a handle that keeps
+      // serving sliced. At large row-group counts the whole-leaf payload is tens of GB, so an
+      // ungated promotion turns a working sliced route into an OOM. Declining is free: the sliced
+      // kernels are the correct route and already answer every query. The decision is latched, so a
+      // handle too big to promote is never re-probed.
+      if (projectedWeightBytes > promoteMaxBytes()) {
+        LOGGER.debug("Projection promotion declined: {} bytes exceeds the {} byte promotion budget",
+            projectedWeightBytes, promoteMaxBytes());
+        return;
+      }
+      final Thread t = new Thread(() -> {
+        try {
+          rowGroupPayloads(materializer);
+        } catch (final RuntimeException ignored) {
+          // Stay sliced; the sync path reports real corruption attributably.
+        }
+      }, "sirix-projection-promote");
+      t.setDaemon(true);
+      t.start();
     }
 
     /**
@@ -676,10 +826,40 @@ public final class ProjectionIndexRegistry {
       return leaves;
     }
 
-    /** @return index of {@code name} in {@link #fieldNames}, or {@code -1}. */
+    /**
+     * Attach the declared per-column paths relative to the record root — called once, at construction
+     * time, by the catalog (the same discipline as {@link #setSetValueRowCounts(Map)}). A {@code null}
+     * argument leaves the handle name-matched.
+     */
+    public void setFieldChains(final String[] chains) {
+      this.fieldChains = chains != null && chains.length == fieldNames.length
+          ? chains.clone()
+          : null;
+    }
+
+    /**
+     * Resolve the column a query field token names, or {@code -1}.
+     *
+     * <p>
+     * The token is a deref CHAIN relative to the record root: {@code "dept"} for {@code $r.dept},
+     * {@code "commit/collection"} for {@code $r.commit.collection}. When the handle carries declared
+     * paths ({@link #setFieldChains}) the match is against those, so a nested column never answers a
+     * top-level deref of the same trailing name and a nested deref never lands on a same-named
+     * top-level column — both would be silent wrong answers, and both now miss (the caller declines to
+     * the generic pipeline). A top-level column's chain IS its trailing name, so single-step derefs
+     * resolve exactly as they always did. Columns without a relativizable declared path, and handles
+     * installed without paths at all (bench/test registry installs), fall back to trailing name
+     * matching.
+     */
     public int columnOf(final String name) {
+      final String[] chains = fieldChains;
       for (int i = 0; i < fieldNames.length; i++) {
-        if (fieldNames[i].equals(name))
+        final String chain = chains == null
+            ? null
+            : chains[i];
+        if (chain == null
+            ? fieldNames[i].equals(name)
+            : chain.equals(name))
           return i;
       }
       return -1;

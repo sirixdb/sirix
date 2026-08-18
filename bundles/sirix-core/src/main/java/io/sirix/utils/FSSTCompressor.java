@@ -986,6 +986,98 @@ public final class FSSTCompressor {
   }
 
   /**
+   * Worst-case decoded size of {@code length} encoded bytes: every byte a symbol code expanding to
+   * the longest symbol. An escape pair yields one byte, so it never exceeds this.
+   */
+  public static int maxDecodedLength(final int length) {
+    return length * MAX_SYMBOL_LENGTH;
+  }
+
+  /**
+   * Decode one FSST-compressed value straight into a caller-owned buffer — the allocation-free twin
+   * of {@link #decode(byte[], byte[][])}, for decoding many values into one flat run.
+   *
+   * <p>
+   * The caller must have reserved {@link #maxDecodedLength(int)} bytes at {@code outPos}, which lifts
+   * the capacity check out of the byte loop; a short buffer is a caller bug and throws rather than
+   * silently truncating.
+   *
+   * @param data the buffer holding the encoded value (header byte first, as {@link #encode} writes it)
+   * @param offset start of the encoded value within {@code data}
+   * @param length its encoded length
+   * @param symbols pre-parsed symbol table, see {@link #parsedFor(byte[])}
+   * @param out destination buffer
+   * @param outPos where to write the decoded bytes
+   * @return the position in {@code out} one past the last decoded byte
+   * @throws IllegalStateException if the encoded data is corrupt
+   * @throws IllegalArgumentException if {@code out} has no room for the worst case
+   */
+  public static int decodeInto(final byte[] data, final int offset, final int length, final byte[][] symbols,
+      final byte[] out, final int outPos) {
+    Objects.requireNonNull(data, "data must not be null");
+    Objects.requireNonNull(out, "out must not be null");
+    if (length == 0) {
+      return outPos;
+    }
+    if (out.length - outPos < maxDecodedLength(length)) {
+      throw new IllegalArgumentException(
+          "out has " + (out.length - outPos) + " bytes free, worst case needs " + maxDecodedLength(length));
+    }
+    if (symbols == null || symbols.length == 0) {
+      // No table: the value was never encoded, so it is the slice verbatim — header and all,
+      // exactly what decode(byte[], byte[][]) hands back in this case.
+      System.arraycopy(data, offset, out, outPos, length);
+      return outPos + length;
+    }
+    final byte header = data[offset];
+    if (header != HEADER_COMPRESSED) {
+      // Raw with its header stripped, or a legacy payload carrying no header at all — the same two
+      // shapes decodeWithParsedSymbols distinguishes.
+      final int from = header == HEADER_RAW
+          ? offset + 1
+          : offset;
+      final int n = offset + length - from;
+      System.arraycopy(data, from, out, outPos, n);
+      return outPos + n;
+    }
+    final int end = offset + length;
+    int pos = offset + 1;
+    int o = outPos;
+    while (pos < end) {
+      final int b = data[pos++] & 0xFF;
+      if (b == 0xFF) {
+        if (pos >= end) {
+          throw new IllegalStateException("Corrupted FSST data: escape at end");
+        }
+        out[o++] = data[pos++];
+      } else if (b < symbols.length) {
+        final byte[] symbol = symbols[b];
+        final int len = symbol.length;
+        if (o + len > out.length) {
+          // The reservation assumes MAX_SYMBOL_LENGTH, which every table this codec WRITES obeys;
+          // the parser accepts a length byte up to 255, so a table claiming a longer symbol is
+          // corrupt. Say so in the codec's own currency rather than letting an array store throw —
+          // callers memoize IllegalStateException as permanent corruption and decline fail-soft.
+          throw new IllegalStateException(
+              "Corrupted FSST symbol table: symbol " + b + " is " + len + " bytes, over the " + MAX_SYMBOL_LENGTH
+                  + "-byte maximum");
+        }
+        // Short symbols dominate (the table caps at MAX_SYMBOL_LENGTH), and arraycopy's call
+        // overhead beats a hand loop only well past that — copy the common lengths inline.
+        if (len == 1) {
+          out[o] = symbol[0];
+        } else {
+          System.arraycopy(symbol, 0, out, o, len);
+        }
+        o += len;
+      } else {
+        throw new IllegalStateException("Corrupted FSST data: unexpected byte code " + b);
+      }
+    }
+    return o;
+  }
+
+  /**
    * Decode headerless FSST-compressed data using pre-parsed symbols.
    * For page-extracted compressed payloads that do NOT have the FSST header byte.
    *

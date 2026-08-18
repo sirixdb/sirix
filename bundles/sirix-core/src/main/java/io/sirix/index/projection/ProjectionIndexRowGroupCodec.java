@@ -152,7 +152,9 @@ public final class ProjectionIndexRowGroupCodec {
         putLongLE(out, page.columnMin(c));
         putLongLE(out, page.columnMax(c));
         switch (page.columnKind(c)) {
-          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG ->
+          // STRING_GLOBAL cells are dictionary ids: dense small integers, which is precisely
+          // what frame-of-reference bit packing is best at. Same encoder, no special case.
+          case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
             encodeForBitPacked(out, page.numericColumn(c), rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
             encodeForBitPackedDouble(out, page.numericColumn(c), rowCount);
@@ -423,7 +425,7 @@ public final class ProjectionIndexRowGroupCodec {
         columnMax[c] = in.readLong();
         switch (kinds[c]) {
           case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-              ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
             numericCols[c] = decodeForBitPackedColumn(in, rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> booleanCols[c] = decodeBooleanWords(in, presWords);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -532,6 +534,46 @@ public final class ProjectionIndexRowGroupCodec {
   }
 
   /** Inverse of {@link #encodeDictEntries}; pads the dict array to the interning floor of 16. */
+  /**
+   * The dictionary half read as ONE flat run: {@code offsets[i]..offsets[i+1]} bounds entry {@code i}
+   * inside the returned buffer, and {@code offsets.length - 1} is the exact entry count.
+   *
+   * <p>
+   * ZERO COPY: the raw wire form already stores the entries concatenated, so the buffer handed back
+   * IS the segment and the offsets are absolute into it. That is the whole point of the flat form —
+   * {@link #decodeDictEntries} allocates one {@code byte[]} per entry, which on a high-cardinality
+   * column (a dictionary nearly as large as the leaf) is the dominant allocation of a column fill.
+   *
+   * @return the offsets; the entry bytes live in {@code in}'s own buffer
+   */
+  static int[] decodeFlatDictEntries(final Cursor in) {
+    final int dictSize = in.readInt();
+    if (dictSize < 0) {
+      throw new IllegalStateException("Negative dictionary size " + dictSize);
+    }
+    final int[] offsets = new int[dictSize + 1];
+    // Lengths come first, then the concatenated bytes: one pass turns the lengths into absolute
+    // offsets, and the base is wherever the byte run starts (right after the length table).
+    int total = 0;
+    for (int i = 0; i < dictSize; i++) {
+      final int len = in.readInt();
+      if (len < 0) {
+        throw new IllegalStateException("Negative dictionary entry length " + len + " at " + i);
+      }
+      total += len;
+      offsets[i + 1] = total;
+    }
+    final int base = in.position();
+    if (base + total > in.buffer().length) {
+      throw new IllegalStateException("Dictionary run of " + total + " bytes overruns the segment");
+    }
+    for (int i = 0; i <= dictSize; i++) {
+      offsets[i] += base;
+    }
+    in.skip(total);
+    return offsets;
+  }
+
   static byte[][] decodeDictEntries(final Cursor in) {
     final int dictSize = in.readInt();
     final int[] lens = new int[dictSize];
@@ -642,6 +684,12 @@ public final class ProjectionIndexRowGroupCodec {
     b[off + 3] = (byte) (v >>> 24);
   }
 
+  /** Little-endian {@code long} into an array at {@code off} — twin of {@link #putIntLEAt}. */
+  static void putLongLEAt(final byte[] b, final int off, final long v) {
+    putIntLEAt(b, off, (int) v);
+    putIntLEAt(b, off + 4, (int) (v >>> 32));
+  }
+
   static void putIntLE(final ByteArrayOutputStream out, final int v) {
     out.write(v);
     out.write(v >>> 8);
@@ -692,6 +740,21 @@ public final class ProjectionIndexRowGroupCodec {
       System.arraycopy(buf, pos, out, 0, n);
       pos += n;
       return out;
+    }
+
+    /** The backing segment — for readers that decode IN PLACE instead of copying out. */
+    byte[] buffer() {
+      return buf;
+    }
+
+    /** Absolute position of the next unread byte within {@link #buffer()}. */
+    int position() {
+      return pos;
+    }
+
+    /** Advance past {@code n} bytes already consumed straight from {@link #buffer()}. */
+    void skip(final int n) {
+      pos += n;
     }
   }
 

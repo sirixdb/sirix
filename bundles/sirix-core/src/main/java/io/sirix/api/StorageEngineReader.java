@@ -553,9 +553,9 @@ public interface StorageEngineReader extends AutoCloseable {
   }
 
   /**
-   * Advisory span readahead for arbitrary page references whose leaf resolution the caller
-   * already holds (the HOT trie walk's sibling window, a descent's child batch). Purely a hint —
-   * the default is a no-op; backends without a prefetch primitive lose nothing. Callers gate on
+   * Advisory span readahead for arbitrary page references whose leaf resolution the caller already
+   * holds (the HOT trie walk's sibling window, a descent's child batch). Purely a hint — the default
+   * is a no-op; backends without a prefetch primitive lose nothing. Callers gate on
    * {@link #recordPagePrefetchBatch()} {@code > 0} so a non-prefetching backend pays zero work.
    */
   default void prefetchPageSpans(final PageReference[] references, final int count) {}

@@ -43,8 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * once hid behind a common literal for a whole session, its error scaling with rarity. The corpus
  * also carries a SUPPLEMENTARY character (U+10400, a 4-byte UTF-8 sequence) alongside a BMP
  * character in U+E000..U+FFFF (U+FF01) — the exact pair where raw UTF-8 byte order and the
- * interpreter's UTF-16 {@code String.compareTo} order DISAGREE, so a kernel comparing bytes
- * without the 4-byte-lead fallback inverts their order.
+ * interpreter's UTF-16 {@code String.compareTo} order DISAGREE, so a kernel comparing bytes without
+ * the 4-byte-lead fallback inverts their order.
  */
 public final class StringPredicateDifferentialTest {
 
@@ -87,9 +87,11 @@ public final class StringPredicateDifferentialTest {
       // (supplementary, 4-byte UTF-8: F0 90 90 80). UTF-8 byte order says FF01 < 10400;
       // UTF-16 code-unit order says U+10400 (surrogate D801) < U+FF01. The interpreter uses
       // the latter.
-      sb.append(",\"sup\":\"").append(i % 3 == 0
-          ? "！mark"
-          : "𐐀deseret").append('"');
+      sb.append(",\"sup\":\"")
+        .append(i % 3 == 0
+            ? "！mark"
+            : "𐐀deseret")
+        .append('"');
       if (i % 5 != 0) {
         sb.append(",\"tier\":\"t").append(i % 4).append('"'); // sparse: missing rows must not match
       }

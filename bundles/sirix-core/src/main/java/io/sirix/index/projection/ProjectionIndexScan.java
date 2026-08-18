@@ -174,13 +174,12 @@ public final class ProjectionIndexScan {
     BETWEEN_GE_LE,
     /**
      * String ordering {@code v < lit} on a STRING_DICT column — its OWN op, never the numeric
-     * {@link #LT} with string bytes: the numeric switches assume long semantics (zone maps on a
-     * dict column hold dict IDS, so pruning by them on a string range drops matching leaves), and
-     * a distinct op makes every exhaustive switch a compile error instead of a silent wrong
-     * answer. Interpreter collation contract: {@code Str#cmp} is UTF-16 code-unit order; raw
-     * UTF-8 byte order diverges exactly when a 4-byte sequence (lead {@code >= 0xF0}) meets a BMP
-     * char in U+E000..U+FFFF — evaluators must detect that and fall back to decoded comparison.
-     * Missing cells do NOT match.
+     * {@link #LT} with string bytes: the numeric switches assume long semantics (zone maps on a dict
+     * column hold dict IDS, so pruning by them on a string range drops matching leaves), and a distinct
+     * op makes every exhaustive switch a compile error instead of a silent wrong answer. Interpreter
+     * collation contract: {@code Str#cmp} is UTF-16 code-unit order; raw UTF-8 byte order diverges
+     * exactly when a 4-byte sequence (lead {@code >= 0xF0}) meets a BMP char in U+E000..U+FFFF —
+     * evaluators must detect that and fall back to decoded comparison. Missing cells do NOT match.
      */
     STR_LT,
     /** String ordering {@code v <= lit}; see {@link #STR_LT} for the collation contract. */
@@ -192,8 +191,8 @@ public final class ProjectionIndexScan {
     /**
      * Substring containment {@code fn:contains(v, lit)}. No collation subtlety (UTF-8 is
      * self-synchronizing, a byte-wise needle match IS a codepoint substring match), but exact-value
-     * fingerprints must never prune it: a leaf whose every URL CONTAINS "google" fingerprints none
-     * of them as the whole string "google". Missing cells do NOT match.
+     * fingerprints must never prune it: a leaf whose every URL CONTAINS "google" fingerprints none of
+     * them as the whole string "google". Missing cells do NOT match.
      */
     STR_CONTAINS
   }
@@ -207,14 +206,14 @@ public final class ProjectionIndexScan {
    * {@code >= 0} pushes leaf {@code program[i]}'s mask; {@link #OP_AND} pops two masks and pushes
    * their intersection; {@link #OP_OR} pushes their union; {@link #OP_NOT} pops one and pushes its
    * complement. A well-formed program leaves exactly one mask on the stack. Leaf masks encode
-   * two-valued predicate truth with missing ⇒ {@code false} (presence AND) — under AND/OR
-   * composition this is exactly the interpreter's general-comparison semantics, and it is ALSO what
-   * makes {@link #OP_NOT} exact: the complement of {@code present AND matches} is
+   * two-valued predicate truth with missing ⇒ {@code false} (presence AND) — under AND/OR composition
+   * this is exactly the interpreter's general-comparison semantics, and it is ALSO what makes
+   * {@link #OP_NOT} exact: the complement of {@code present AND matches} is
    * {@code missing OR (present AND !matches)}, precisely {@code fn:not} over a comparison whose
-   * missing-deref operand made it false (an empty existential, {@code contains} over {@code ""},
-   * a false EBV). The leaf null gate is load-bearing here: JSON-null cells order differently from
-   * missing under the interpreter's total order, so every leaf declines null-bearing columns
-   * BEFORE the algebra runs — with or without negation above it.
+   * missing-deref operand made it false (an empty existential, {@code contains} over {@code ""}, a
+   * false EBV). The leaf null gate is load-bearing here: JSON-null cells order differently from
+   * missing under the interpreter's total order, so every leaf declines null-bearing columns BEFORE
+   * the algebra runs — with or without negation above it.
    *
    * <p>
    * Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
@@ -490,20 +489,20 @@ public final class ProjectionIndexScan {
   }
 
   /**
-   * Does one dictionary entry satisfy a string predicate? The single per-entry authority every
-   * dict kernel (hydrated, byte, sliced) evaluates through, so the op semantics cannot drift
-   * between paths.
+   * Does one dictionary entry satisfy a string predicate? The single per-entry authority every dict
+   * kernel (hydrated, byte, sliced) evaluates through, so the op semantics cannot drift between
+   * paths.
    *
    * <p>
    * Ordering ops honor the interpreter's collation ({@code Str#cmp} = {@code String.compareTo} =
    * UTF-16 code-unit order): raw unsigned UTF-8 byte order equals CODEPOINT order, which diverges
-   * exactly when a supplementary character (4-byte UTF-8, lead {@code >= 0xF0}) meets a BMP
-   * character in U+E000..U+FFFF — so if EITHER side carries a 4-byte sequence, both decode and
-   * compare as Strings. {@code contains} needs no such gate: UTF-8 is self-synchronizing, a
-   * byte-wise needle match IS a codepoint substring match.
+   * exactly when a supplementary character (4-byte UTF-8, lead {@code >= 0xF0}) meets a BMP character
+   * in U+E000..U+FFFF — so if EITHER side carries a 4-byte sequence, both decode and compare as
+   * Strings. {@code contains} needs no such gate: UTF-8 is self-synchronizing, a byte-wise needle
+   * match IS a codepoint substring match.
    */
-  static boolean stringDictEntryMatches(final byte[] entry, final int off, final int len,
-      final Op op, final byte[] lit, final boolean litHasSupplementary) {
+  static boolean stringDictEntryMatches(final byte[] entry, final int off, final int len, final Op op, final byte[] lit,
+      final boolean litHasSupplementary) {
     return switch (op) {
       case EQ -> Arrays.equals(entry, off, off + len, lit, 0, lit.length);
       case NE -> !Arrays.equals(entry, off, off + len, lit, 0, lit.length);
@@ -511,8 +510,7 @@ public final class ProjectionIndexScan {
       case STR_LT, STR_LE, STR_GT, STR_GE -> {
         final int cmp;
         if (litHasSupplementary || hasFourByteUtf8(entry, off, len)) {
-          cmp = new String(entry, off, len, StandardCharsets.UTF_8)
-              .compareTo(new String(lit, StandardCharsets.UTF_8));
+          cmp = new String(entry, off, len, StandardCharsets.UTF_8).compareTo(new String(lit, StandardCharsets.UTF_8));
         } else {
           cmp = Arrays.compareUnsigned(entry, off, off + len, lit, 0, lit.length);
         }

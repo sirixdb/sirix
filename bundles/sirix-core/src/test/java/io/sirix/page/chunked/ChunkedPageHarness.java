@@ -70,8 +70,7 @@ final class ChunkedPageHarness {
   }
 
   /** Build a page to a recipe, serialize it chunked, and throw the page away. */
-  static MemorySegment serializeChunked(final ResourceConfiguration config,
-      final ChunkedPageGenerator.Recipe recipe) {
+  static MemorySegment serializeChunked(final ResourceConfiguration config, final ChunkedPageGenerator.Recipe recipe) {
     final KeyValueLeafPage page = ChunkedPageGenerator.build(recipe, config);
     try {
       return serialize(config, page, true);

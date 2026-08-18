@@ -475,8 +475,14 @@ public final class Databases {
       final MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
       segmentAllocator.init(maxSegmentAllocationSize);
 
-      // Initialize global BufferManager with sizes proportional to memory budget
-      initializeGlobalBufferManager(maxSegmentAllocationSize);
+      // The caches are sized from what the allocator ACTUALLY has, never from what this database's
+      // persisted config asked for. Allocator init is first-call-wins (an embedder, a benchmark
+      // runner, or an earlier database may already have fixed a smaller arena), and every byte the
+      // record-page caches hold is an allocator frame — sizing them from the request while the
+      // frames come from the grant lets the caches pin more than the arena owns. They then sit far
+      // under their own budget, so neither evictIfOverBudget nor the pressure listener ever fires,
+      // and the arena hits OutOfMemoryError with the caches believing they are nearly empty.
+      initializeGlobalBufferManager(segmentAllocator.getMaxBufferSize());
     }
   }
 

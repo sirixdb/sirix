@@ -36,16 +36,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The read policy end to end: a point lookup loads a chunk-framed page without expanding the records
- * it did not ask for, and the answers are the ones an eagerly decoded page gives.
+ * The read policy end to end: a point lookup loads a chunk-framed page without expanding the
+ * records it did not ask for, and the answers are the ones an eagerly decoded page gives.
  *
  * <p>
- * <b>Why this test has to exist separately.</b> The chunked writer is off by default, so every other
- * suite in the repository reads monolith bodies, where the lazy request degrades to an eager decode
- * and proves nothing. Nothing else in the tree would notice if the policy stopped requesting
- * laziness, or if the request stopped reaching the deserializer — the answers would stay correct and
- * the feature would simply be gone. That is precisely how the column read path was silently disabled
- * twice, so the counters are asserted here, not just printed.
+ * <b>Why this test has to exist separately.</b> The chunked writer is off by default, so every
+ * other suite in the repository reads monolith bodies, where the lazy request degrades to an eager
+ * decode and proves nothing. Nothing else in the tree would notice if the policy stopped requesting
+ * laziness, or if the request stopped reaching the deserializer — the answers would stay correct
+ * and the feature would simply be gone. That is precisely how the column read path was silently
+ * disabled twice, so the counters are asserted here, not just printed.
  */
 @DisplayName("Chunk-framed body lazy read policy")
 final class ChunkedBodyLazyReadPolicyTest {
@@ -117,9 +117,9 @@ final class ChunkedBodyLazyReadPolicyTest {
     ChunkedBodyConfig.resetDiag();
     final List<String> byPointLookup = readByPointLookup(JsonTestHelper.PATHS.PATH1.getFile());
     final long lazyLoads = ChunkedBodyConfig.lazyLoads();
-    System.out.println("[chunked-policy] " + PROBE_KEYS + " probed keys: lazyLoads=" + lazyLoads
-        + " chunkMaterializations=" + ChunkedBodyConfig.chunkMaterializations() + " eagerFallbacks="
-        + ChunkedBodyConfig.eagerFallbacks());
+    System.out.println(
+        "[chunked-policy] " + PROBE_KEYS + " probed keys: lazyLoads=" + lazyLoads + " chunkMaterializations="
+            + ChunkedBodyConfig.chunkMaterializations() + " eagerFallbacks=" + ChunkedBodyConfig.eagerFallbacks());
     assertTrue(lazyLoads > 0, "no page was loaded lazily — the policy never reached the deserializer");
     // Deliberately not asserted at zero fallbacks. Even a resource written by a single shred holds
     // pages whose reference names an older fragment — the shredder's commit leaves a delta over the

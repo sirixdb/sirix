@@ -114,14 +114,16 @@ public final class GroupTopKDifferentialTest {
         // order, so an ordinal fallback (what a rounded tie would trigger under
         // ascending) inverts the exact order. Magnitudes stay far below the group-sum
         // pre-flight bound, so the query SERVES instead of declining.
-        sb.append(",\"bk\":2,\"big\":").append(i == 200
-            ? 450000000000002L
-            : 450000000000000L);
+        sb.append(",\"bk\":2,\"big\":")
+          .append(i == 200
+              ? 450000000000002L
+              : 450000000000000L);
       } else if (i >= 500 && i < 600) {
         // Group bk=1: avg = 4.5e14 + 0.01 — exactly BELOW bk=2's, double-equal to it.
-        sb.append(",\"bk\":1,\"big\":").append(i == 500
-            ? 450000000000001L
-            : 450000000000000L);
+        sb.append(",\"bk\":1,\"big\":")
+          .append(i == 500
+              ? 450000000000001L
+              : 450000000000000L);
       }
       sb.append('}');
     }
@@ -334,8 +336,7 @@ public final class GroupTopKDifferentialTest {
     // with an OFFSET window. The kernel groups and orders on the ISO-minute digit pack;
     // lexicographic order over validated windows must equal numeric order over packs.
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $m := substring($u.ts, 1, 16) "
-        + "group by $m let $c := count($u) order by $m "
-        + "return {\"M\": concat($m, \":00\"), \"c\": $c}, 5, 9)");
+        + "group by $m let $c := count($u) order by $m " + "return {\"M\": concat($m, \":00\"), \"c\": $c}, 5, 9)");
   }
 
   @Test
@@ -368,17 +369,16 @@ public final class GroupTopKDifferentialTest {
   void regexKeyGroupsOnTheTransformedString() throws Exception {
     // name n0..n400 → first digit: 401 sources merge into 10 transformed groups — grouping
     // on the RAW value over-partitions and every count differs.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := replace($u.name, \"^n(.).*$\", \"$1\") group by $k "
-        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := replace($u.name, \"^n(.).*$\", \"$1\") group by $k "
+            + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
   }
 
   @Test
   void q28ShapeRegexHavingStrlenCastAvgAndDeferredMin() throws Exception {
     // The full Q28 composition: regex key + HAVING + strlen operand + cast-avg ordering +
     // a deferred string extremum whose pass-2 row matching must hash the TRANSFORMED key.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " where $u.name != \"\" "
+    assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " where $u.name != \"\" "
         + "let $k := replace($u.name, \"^n(.).*$\", \"$1\"), $len := string-length($u.nick) group by $k "
         + "let $c := count($u) where $c > 100 let $l := xs:double(avg($len)) order by $l descending "
         + "return {\"k\": $k, \"l\": $l, \"c\": $c, \"m\": min($u.dept)}, 1, 25)");
@@ -390,9 +390,10 @@ public final class GroupTopKDifferentialTest {
     // REAL group key the kernel's missing-key arm must not absorb. The serve declines
     // mid-scan and the interpreter answers; agreement is the contract.
     final long before = SirixVectorizedExecutor.groupAggServedCount();
-    assertOrderedDifferential("subsequence(for $u in " + SRC
-        + " let $k := replace($u.nick, \"^m(.).*$\", \"$1\") group by $k "
-        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)", false);
+    assertOrderedDifferential(
+        "subsequence(for $u in " + SRC + " let $k := replace($u.nick, \"^m(.).*$\", \"$1\") group by $k "
+            + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)",
+        false);
     assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
         "a regex key over a field with missing rows must DECLINE to the interpreter");
   }
@@ -403,8 +404,8 @@ public final class GroupTopKDifferentialTest {
   void havingCountThresholdSweep() throws Exception {
     // ~2003 rows over 7 k7 groups (~286 each): thresholds that pass all, some, none; both
     // operand orders; ops beyond >. A group failing HAVING must never occupy a window slot.
-    for (final String h : new String[] {"$c > 100", "$c > 280", "$c > 100000", "$c >= 287", "$c < 287",
-        "300 > $c", "$c != 286"}) {
+    for (final String h : new String[] {"$c > 100", "$c > 280", "$c > 100000", "$c >= 287", "$c < 287", "300 > $c",
+        "$c != 286"}) {
       assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $k := $u.k7 group by $k "
           + "let $c := count($u) where " + h + " order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
     }
@@ -424,8 +425,8 @@ public final class GroupTopKDifferentialTest {
   void havingOverANonCountAggregateDeclines() throws Exception {
     final long before = SirixVectorizedExecutor.groupAggServedCount();
     assertOrderedDifferential("subsequence(for $u in " + SRC + " let $k := $u.k7 group by $k "
-        + "let $s := sum($u.amount) where $s > 1000 order by $s descending "
-        + "return {\"k\": $k, \"s\": $s}, 1, 5)", false);
+        + "let $s := sum($u.amount) where $s > 1000 order by $s descending " + "return {\"k\": $k, \"s\": $s}, 1, 5)",
+        false);
     assertEquals(before, SirixVectorizedExecutor.groupAggServedCount(),
         "HAVING over a non-count aggregate must DECLINE to the interpreter");
   }
@@ -436,19 +437,19 @@ public final class GroupTopKDifferentialTest {
     // bytes) / U+10400 (1 codepoint, 4 bytes) salts: byte-count-as-length inflates both,
     // and fn:string-length(()) is 0 — SKIPPING missing rows (instead of folding 0) shifts
     // every average and count.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := $u.k7, $len := string-length($u.name) group by $k "
-        + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
-        + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
-        + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
-        + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := $u.k7, $len := string-length($u.name) group by $k "
+            + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
+            + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
+            + "let $c := count($u) let $l := xs:double(avg($len)) order by $l descending "
+            + "return {\"k\": $k, \"l\": $l, \"c\": $c}, 1, 4)");
     // min/max over the strlen operand read the same lanes the ordering trusts.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"k\": $k, \"lo\": min($len), \"hi\": max($len), \"c\": $c}, 1, 4)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := $u.k7, $len := string-length($u.nick) group by $k "
+            + "let $c := count($u) order by $c descending "
+            + "return {\"k\": $k, \"lo\": min($len), \"hi\": max($len), \"c\": $c}, 1, 4)");
   }
 
   @Test
@@ -488,9 +489,9 @@ public final class GroupTopKDifferentialTest {
     // else "Eng" COLLIDES with a stored dept: rows failing the condition and rows passing it
     // with dept = "Eng" are ONE group to the interpreter — the else branch must hash into the
     // same domain as dict entries or the served route splits them.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := (if ($u.k7 = 0) then $u.dept else \"Eng\") group by $k "
-        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := (if ($u.k7 = 0) then $u.dept else \"Eng\") group by $k "
+            + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
   }
 
   @Test
@@ -498,12 +499,12 @@ public final class GroupTopKDifferentialTest {
     // bonus is missing on ~92% of rows: a missing condition operand is FALSE (else branch).
     // tier is missing on ~1/3: a TRUE condition over a missing then-field is the
     // empty-sequence key — the same null-key group a plain deref produces.
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := (if ($u.bonus = 100) then $u.dept else \"nb\") group by $k "
-        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
-    assertOrderedDifferentialServed("subsequence(for $u in " + SRC
-        + " let $k := (if ($u.k7 = 1) then $u.tier else \"other\") group by $k "
-        + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := (if ($u.bonus = 100) then $u.dept else \"nb\") group by $k "
+            + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 5)");
+    assertOrderedDifferentialServed(
+        "subsequence(for $u in " + SRC + " let $k := (if ($u.k7 = 1) then $u.tier else \"other\") group by $k "
+            + "let $c := count($u) order by $c descending return {\"k\": $k, \"c\": $c}, 1, 6)");
   }
 
   @Test
@@ -526,8 +527,7 @@ public final class GroupTopKDifferentialTest {
     // column appearing ONLY in the emission record, ordered by count.
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC
         + " where contains($u.name, \"1\") and $u.dept != \"\" let $d := $u.dept group by $d "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c}, 1, 3)");
+        + "let $c := count($u) order by $c descending " + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c}, 1, 3)");
   }
 
   @Test
@@ -545,16 +545,14 @@ public final class GroupTopKDifferentialTest {
     // tier is missing on ~1/3 of rows, so the null-key group WINS count-descending: its
     // extremum folds through the kernel's missing-key slot, not a hash match.
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $t := $u.tier group by $t "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"t\": $t, \"m\": min($u.name), \"c\": $c}, 1, 2)");
+        + "let $c := count($u) order by $c descending " + "return {\"t\": $t, \"m\": min($u.name), \"c\": $c}, 1, 2)");
   }
 
   @Test
   void stringMinWithCountDistinctRides() throws Exception {
     // The Q22 emission shape: a deferred extremum and an exact COUNT(DISTINCT) in one record.
     assertOrderedDifferentialServed("subsequence(for $u in " + SRC + " let $d := $u.dept group by $d "
-        + "let $c := count($u) order by $c descending "
-        + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c, "
+        + "let $c := count($u) order by $c descending " + "return {\"d\": $d, \"m\": min($u.name), \"c\": $c, "
         + "\"uniq\": count(distinct-values($u.k7))}, 1, 3)");
   }
 

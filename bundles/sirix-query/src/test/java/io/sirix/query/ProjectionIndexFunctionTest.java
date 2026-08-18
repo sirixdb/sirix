@@ -18,10 +18,10 @@ import java.io.IOException;
 import java.nio.file.Path;
 
 /**
- * End-to-end coverage of {@code jn:create-projection-index}: create a
- * columnar projection over stored records via JSONiq and run the analytical
- * query shapes it serves. Results must be identical with and without the
- * projection installed — the function's job is acceleration, not semantics.
+ * End-to-end coverage of {@code jn:create-projection-index}: create a columnar projection over
+ * stored records via JSONiq and run the analytical query shapes it serves. Results must be
+ * identical with and without the projection installed — the function's job is acceleration, not
+ * semantics.
  */
 public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
 
@@ -471,13 +471,12 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
           return sum(for $r in $doc2[] return $r.age)
         """;
     test(doubleCreate, "211");
-    final Path dbPath =
-        Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
+    final Path dbPath = Path.of(JsonTestHelper.PATHS.PATH1.getFile().getParent().toString(), "json-path1");
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
-         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+        final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
       final int mostRecent = session.getMostRecentRevisionNumber();
-      Assertions.assertEquals(1, session.getRtxIndexController(mostRecent).getIndexes()
-          .getNrOfIndexDefsWithType(IndexType.PROJECTION));
+      Assertions.assertEquals(1,
+          session.getRtxIndexController(mostRecent).getIndexes().getNrOfIndexDefsWithType(IndexType.PROJECTION));
     }
   }
 
@@ -514,19 +513,21 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
     // The second session below is what makes this observable — within ONE session a leaked wtx is
     // simply reused by the next writer, which hides the leak entirely.
     query(STORE_QUERY);
-    try (final BasicJsonDBStore store =
-             BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, """
             let $doc := jn:doc('json-path1','sales.jn')
             return jn:drop-projection-index($doc)
           """).evaluate(ctx);
       // The store above is still open, so a stranded permit is still held here.
-      try (final Database<JsonResourceSession> database =
-               Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-           final JsonResourceSession session = database.beginResourceSession("sales.jn");
-           final var wtx = session.beginNodeTrx()) {
+      try (
+          final Database<JsonResourceSession> database =
+              Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+          final JsonResourceSession session = database.beginResourceSession("sales.jn");
+          final var wtx = session.beginNodeTrx()) {
         Assertions.assertNotNull(wtx, "a no-op drop must leave the resource writable");
       }
     }
@@ -558,24 +559,74 @@ public final class ProjectionIndexFunctionTest extends AbstractJsonTest {
   }
 
   @Test
-  public void ambiguousFieldNameUnderRecordSetIsRejected() {
-    // "age" exists both at /[]/age and /[]/addr/age — the executor resolves
-    // columns by trailing field name, so the projection cannot distinguish
-    // the two occurrences and creation must refuse.
-    final String storeAmbiguous = """
+  public void recurringTrailingNameUnderRecordSetIsAcceptedAndServesTheDeclaredPath() throws IOException {
+    // "age" exists both at /[]/age and /[]/addr/age. Column lookup compares the DECLARED PATH
+    // relative to the record set, so the two are distinguishable and creation must succeed —
+    // rejecting this would make any real nested corpus unprojectable. The sums prove the
+    // disambiguation is real and not merely tolerated: the top-level column answers the top-level
+    // deref, and the nested deref (which no column covers) still answers from the generic pipeline
+    // rather than being served the projected column's values.
+    query("""
           jn:store('json-path1','amb.jn','[
             {"age": 30, "addr": {"age": 99}},
             {"age": 45, "addr": {"age": 12}}
           ]')
-        """;
-    query(storeAmbiguous);
-    final String create = """
+        """);
+    query("""
           let $doc := jn:doc('json-path1','amb.jn')
-          return jn:create-projection-index($doc, '/[]',
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    test("""
+          let $doc := jn:doc('json-path1','amb.jn')
+          return sum(for $r in $doc[] return $r.age)
+        """, "75");
+    test("""
+          let $doc := jn:doc('json-path1','amb.jn')
+          return sum(for $r in $doc[] return $r.addr.age)
+        """, "111");
+  }
+
+  @Test
+  public void fieldNameAmbiguousWithoutARelativizablePathIsRejected() {
+    // A declared path that does not sit strictly under the declared root has no relative chain, so
+    // lookup falls back to comparing the bare trailing name — the one shape where a recurring name
+    // really is ambiguous, and the one this guard still has to refuse. Here the record set is
+    // '/[]/addr' while the column is declared at '/[]/age', outside it: no chain can be formed, and
+    // '/[]/addr/age' is a second 'age' under the record set that name matching would confuse it with.
+    query("""
+          jn:store('json-path1','amb2.jn','[
+            {"age": 30, "addr": {"age": 99}},
+            {"age": 45, "addr": {"age": 12}}
+          ]')
+        """);
+    final String create = """
+          let $doc := jn:doc('json-path1','amb2.jn')
+          return jn:create-projection-index($doc, '/[]/addr',
               ('/[]/age'), ('long'))
         """;
     final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(create));
-    Assertions.assertTrue(e.getMessage().contains("ambiguous"),
+    Assertions.assertTrue(e.getMessage().contains("ambiguous"), () -> "unexpected message: " + e.getMessage());
+  }
+
+  @Test
+  public void duplicateProjectedColumnNameIsRejected() {
+    // Distinct paths, same trailing name: lookup could tell them apart, but the column NAME is part
+    // of the projection's identity, so two columns may not share one.
+    query("""
+          jn:store('json-path1','dup.jn','[
+            {"age": 30, "addr": {"age": 99}},
+            {"age": 45, "addr": {"age": 12}}
+          ]')
+        """);
+    final String create = """
+          let $doc := jn:doc('json-path1','dup.jn')
+          return jn:create-projection-index($doc, '/[]',
+              ('/[]/age', '/[]/addr/age'), ('long', 'long'))
+        """;
+    final QueryException e = Assertions.assertThrows(QueryException.class, () -> query(create));
+    Assertions.assertTrue(e.getMessage().contains("Duplicate projected field name"),
         () -> "unexpected message: " + e.getMessage());
   }
 }

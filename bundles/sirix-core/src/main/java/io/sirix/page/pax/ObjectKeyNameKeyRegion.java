@@ -42,11 +42,11 @@ public final class ObjectKeyNameKeyRegion {
   /**
    * Whether the SIMD dict-id loops may run. Under a GraalVM NATIVE IMAGE the compiler miscompiles
    * {@code ByteVector.fromMemorySegment} over a NATIVE segment (it addresses the segment as
-   * heap-backed and segfaults — oracle/graal#14255, reproduced only in this compilation context),
-   * so the scalar tails serve the whole range there. {@code -Dsirix.pax.scalarOnly=true} forces
-   * the same on the JVM for A/B measurement. The flag folds to a constant at image build time
-   * (the imagecode property is set during build-time class initialization) and stays a dead
-   * branch for JIT compilation on the JVM.
+   * heap-backed and segfaults — oracle/graal#14255, reproduced only in this compilation context), so
+   * the scalar tails serve the whole range there. {@code -Dsirix.pax.scalarOnly=true} forces the same
+   * on the JVM for A/B measurement. The flag folds to a constant at image build time (the imagecode
+   * property is set during build-time class initialization) and stays a dead branch for JIT
+   * compilation on the JVM.
    */
   private static final boolean VECTOR_OK = !Boolean.getBoolean("sirix.pax.scalarOnly");
 

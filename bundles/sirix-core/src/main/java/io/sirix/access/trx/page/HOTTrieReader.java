@@ -1470,6 +1470,24 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
+   * Resolve {@code ref} to its page — the public form of the descent's page load, for consumers that
+   * enumerate a subtree's references themselves instead of walking it with a cursor.
+   *
+   * <p>
+   * A resolved {@link HOTLeafPage} becomes this reader's current leaf with its optimistic stamp
+   * snapshotted, so the caller reads its content under the same discipline the cursor uses:
+   * {@link #validateCurrentLeaf()} before any result escapes, {@link #recoverTorn} to re-read on a
+   * freshly reloaded copy. An indirect page carries no stamp — it is never closed by eviction, only
+   * de-swizzled.
+   *
+   * @return the page, or {@code null} when the reference resolves to nothing
+   */
+  public @Nullable Page resolvePage(final PageReference ref) {
+    Objects.requireNonNull(ref);
+    return loadPage(ref);
+  }
+
+  /**
    * Whether every read of {@link #currentLeaf}'s content since {@link #loadPage} resolved it saw
    * stable bytes. One call covers the whole batch of reads since the snapshot.
    */

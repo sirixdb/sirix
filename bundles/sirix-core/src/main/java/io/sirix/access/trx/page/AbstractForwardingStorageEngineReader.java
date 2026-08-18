@@ -68,8 +68,8 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey,
-      int indexNumber, IndexType indexType, RevisionRootPage revisionRootPage) {
+  public PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey, int indexNumber,
+      IndexType indexType, RevisionRootPage revisionRootPage) {
     return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType, revisionRootPage);
   }
 
@@ -164,14 +164,12 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey,
-      int regionKindMask, int regionDeferMask) {
+  public RegionsOnlyPage getRecordPageRegionsOnly(IndexLogKey indexLogKey, int regionKindMask, int regionDeferMask) {
     return delegate().getRecordPageRegionsOnly(indexLogKey, regionKindMask, regionDeferMask);
   }
 
   @Override
-  public RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey,
-      int regionKindMask) {
+  public RegionsOnlyPage[] getRecordPageFragmentRegions(IndexLogKey indexLogKey, int regionKindMask) {
     return delegate().getRecordPageFragmentRegions(indexLogKey, regionKindMask);
   }
 
@@ -236,8 +234,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public void releaseHOTLeafFragments(List<HOTLeafPage> fragments,
-      @Nullable HOTLeafPage keepOpen) {
+  public void releaseHOTLeafFragments(List<HOTLeafPage> fragments, @Nullable HOTLeafPage keepOpen) {
     delegate().releaseHOTLeafFragments(fragments, keepOpen);
   }
 
@@ -261,8 +258,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public PageReference getLeafPageReference(long recordPageKey, int indexNumber,
-      IndexType indexType) {
+  public PageReference getLeafPageReference(long recordPageKey, int indexNumber, IndexType indexType) {
     return delegate().getLeafPageReference(recordPageKey, indexNumber, indexType);
   }
 

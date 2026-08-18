@@ -13,14 +13,14 @@ import java.nio.file.Path;
 
 /**
  * MEASUREMENT PROBE, not a regression test (gated on a system property): dumps every projection
- * column segment's VERIFIED RAW BYTES (lightweight-encoded, pipeline-decompressed) from an
- * existing ClickBench corpus to a directory, so offline codecs (zstd/lz4 CLI) can be compared on
- * exactly the payloads the storage layer frames — the CedarDB encoding-vs-compression experiment
- * for this store's footprint tail.
+ * column segment's VERIFIED RAW BYTES (lightweight-encoded, pipeline-decompressed) from an existing
+ * ClickBench corpus to a directory, so offline codecs (zstd/lz4 CLI) can be compared on exactly the
+ * payloads the storage layer frames — the CedarDB encoding-vs-compression experiment for this
+ * store's footprint tail.
  *
  * <p>
- * Run: {@code -Dsirix.probe.segmentDump=/path/to/db -Dsirix.probe.segmentDump.out=/tmp/out}
- * against a database whose resource carries a persisted projection catalog.
+ * Run: {@code -Dsirix.probe.segmentDump=/path/to/db -Dsirix.probe.segmentDump.out=/tmp/out} against
+ * a database whose resource carries a persisted projection catalog.
  */
 public final class SegmentBytesDumpProbe {
 
