@@ -4,9 +4,13 @@
 package io.sirix.index.projection;
 
 import io.sirix.index.projection.ProjectionIndexHOTStorage.RowGroupDirectory;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
@@ -56,20 +60,70 @@ public final class ProjectionColumnStore {
   @FunctionalInterface
   public interface ColumnSegmentFetcher {
     byte @Nullable [] @Nullable [] fetchAll(long[] offsets);
+
+    /**
+     * Fetch the contiguous sub-range {@code [from, to)} of {@code offsets} into {@code out} at the
+     * SAME indices.
+     *
+     * <p>
+     * The default delegates to {@link #fetchAll} on the calling thread — correct, and exactly the
+     * behaviour of a fetcher that never heard of ranges. A fetcher that can open a read transaction of
+     * its own overrides this and answers {@code true} from {@link #rangedFetchIsConcurrent()}, which
+     * is what lets a chain fetch fan its ranges across cores.
+     */
+    default void fetchRange(final long[] offsets, final int from, final int to, final byte[][] out) {
+      final int len = to - from;
+      final byte[][] part = fetchAll(Arrays.copyOfRange(offsets, from, to));
+      if (part == null || part.length != len) {
+        throw new IllegalStateException("Segment fetcher returned " + (part == null
+            ? "null"
+            : part.length + " results") + " for " + len + " offsets");
+      }
+      System.arraycopy(part, 0, out, from, len);
+    }
+
+    /**
+     * Whether {@link #fetchRange} may be called CONCURRENTLY on disjoint ranges. Default {@code false}:
+     * a fetcher bound to one shared transaction is not thread-safe, and a read transaction is the
+     * usual binding, so the safe answer has to be the silent one.
+     */
+    default boolean rangedFetchIsConcurrent() {
+      return false;
+    }
   }
 
   /**
    * One leaf's decoded column: segment truth. {@code numericValues} is set for
    * NUMERIC_LONG/NUMERIC_DOUBLE columns (transform domain for doubles), {@code boolWords} for
-   * BOOLEAN, and {@code stringDictIds}+{@code stringDict} for STRING_DICT — the BODY's per-row
-   * dict-ids beside the DICT segment's decoded entries, which is what lets a string equality run
-   * column-sliced instead of hydrating whole leaves. (Per-leaf dictionaries still resolve the literal
-   * per leaf; the R1 canonical-dictionary work removes that remap, not the slicing.)
-   * {@code presenceWords} is always populated for {@code rowCount > 0}.
+   * BOOLEAN, and {@code stringDictIds}+{@code dictBytes}/{@code dictOffsets} for STRING_DICT — the
+   * BODY's per-row dict-ids beside the DICT segment's decoded entries, which is what lets a string
+   * equality run column-sliced instead of hydrating whole leaves. (Per-leaf dictionaries still
+   * resolve the literal per leaf; the R1 canonical-dictionary work removes that remap, not the
+   * slicing.) {@code presenceWords} is always populated for {@code rowCount > 0}.
+   *
+   * <p>
+   * <b>The dictionary is FLAT</b>: one contiguous byte run plus {@code dictSize + 1} offsets, not one
+   * {@code byte[]} per entry. On a high-cardinality column the per-leaf dictionary is nearly as large
+   * as the leaf, so the per-entry arrays were the dominant allocation of a whole column fill — and
+   * every consumer (hashing, comparison, UTF-8 inspection, string materialization) is (array, offset,
+   * length)-shaped anyway. For a RAW-mode dictionary {@code dictBytes} IS the segment and the offsets
+   * are absolute into it, so the decode copies nothing at all.
    */
   public record ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
       long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
-      byte @Nullable [] @Nullable [] stringDict, int @Nullable [] setCounts) {
+      byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts,
+      long @Nullable [] dictHashes) {
+
+    /**
+     * Slice with a set column but no precomputed dictionary hashes — every fill but the
+     * distinct-identity one.
+     */
+    public ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
+        long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
+        byte @Nullable [] dictBytes, int @Nullable [] dictOffsets, int @Nullable [] setCounts) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, dictBytes, dictOffsets,
+          setCounts, null);
+    }
 
     /**
      * Slice without a set column — every kind but
@@ -77,8 +131,62 @@ public final class ProjectionColumnStore {
      */
     public ColumnSlice(int rowCount, byte flags, long min, long max, long[] presenceWords,
         long @Nullable [] numericValues, long @Nullable [] boolWords, int @Nullable [] stringDictIds,
-        byte @Nullable [] @Nullable [] stringDict) {
-      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, stringDict, null);
+        byte @Nullable [] dictBytes, int @Nullable [] dictOffsets) {
+      this(rowCount, flags, min, max, presenceWords, numericValues, boolWords, stringDictIds, dictBytes, dictOffsets,
+          null, null);
+    }
+
+    /**
+     * Number of dictionary entries — EXACT, unlike the {@code byte[][]} form's null-padded tail, so a
+     * caller walks {@code 0..dictSize()} with no hole to skip. Dict ids from the BODY are always in
+     * range; the encoder writes exactly the entries it counted. A DISTINCT-IDENTITY slice carries no
+     * dictionary bytes, so its size comes from the precomputed hashes — one per entry, same order.
+     */
+    public int dictSize() {
+      final int[] offsets = dictOffsets;
+      if (offsets != null) {
+        return offsets.length - 1;
+      }
+      final long[] hashes = dictHashes;
+      return hashes == null
+          ? 0
+          : hashes.length;
+    }
+
+    /** Start of dictionary entry {@code id} within {@link #dictBytes()}. */
+    public int dictOffset(final int id) {
+      return dictOffsets[id];
+    }
+
+    /** Byte length of dictionary entry {@code id}. */
+    public int dictLength(final int id) {
+      final int[] offsets = dictOffsets;
+      return offsets[id + 1] - offsets[id];
+    }
+
+    /**
+     * FNV-64 of dictionary entry {@code id} — the flat string kernels' group identity, in the ONE
+     * domain {@link ProjectionIndexByteScan#fnv1a64} defines for both kernel families, so a caller
+     * outside this package can rebuild a winner's hash from its {@code (leaf, dictId)} reference.
+     */
+    public long dictHash(final int id) {
+      final long[] hashes = dictHashes;
+      if (hashes != null) {
+        return hashes[id];
+      }
+      final int[] offsets = dictOffsets;
+      final int off = offsets[id];
+      return ProjectionIndexByteScan.fnv1a64(dictBytes, off, offsets[id + 1] - off);
+    }
+
+    /**
+     * Dictionary entry {@code id} decoded as a string. ALLOCATING — for the materialization of a
+     * handful of winners, never for a per-row or per-entry loop, which is exactly the discipline the
+     * flat form exists to enforce.
+     */
+    public String dictString(final int id) {
+      final int[] offsets = dictOffsets;
+      return new String(dictBytes, offsets[id], offsets[id + 1] - offsets[id], StandardCharsets.UTF_8);
     }
   }
 
@@ -87,6 +195,14 @@ public final class ProjectionColumnStore {
 
   /** Lazily filled per column; slot = decoded slices for every leaf, ascending rowGroupId. */
   private volatile ColumnSlice[] @Nullable [] columns;
+
+  /**
+   * Lazily filled per column: DISTINCT-IDENTITY slices (ids + precomputed dict hashes, no dictionary
+   * bytes). Its own cache rather than {@link #columns}, because these slices deliberately lack the
+   * dictionary every other consumer needs — publishing them there would starve a later group-key or
+   * materialization read. See {@link #columnDistinctIdentity}.
+   */
+  private volatile ColumnSlice[] @Nullable [] identityColumns;
 
   /**
    * Lazily fetched per column: the VERIFIED raw BODY segment bytes for every leaf (ascending
@@ -170,6 +286,20 @@ public final class ProjectionColumnStore {
   /** KEYS-chain twin of {@link #corruptColumns} — permanent decode corruption, memoized. */
   private volatile boolean keysCorrupt;
 
+  /**
+   * Lazily computed per STRING_DICT column: {@code [2 * leaf]} = dict id of the leaf's SMALLEST
+   * present value, {@code [2 * leaf + 1]} = its LARGEST, both {@code -1} for a leaf with no present
+   * value. See {@link #stringValueExtrema}.
+   */
+  private volatile int[] @Nullable [] stringExtrema;
+
+  /**
+   * Lazily computed per STRING_DICT column: {@code 0} = not yet swept, {@code 1} = no dictionary
+   * entry anywhere holds a supplementary character, {@code 2} = at least one does. See
+   * {@link #stringDictSupplementaryMemo}.
+   */
+  private final byte[] stringSupplementary;
+
   public ProjectionColumnStore(final List<RowGroupDirectory> directories) {
     if (directories == null) {
       throw new IllegalArgumentException("directories must not be null");
@@ -186,9 +316,191 @@ public final class ProjectionColumnStore {
       }
     }
     this.columns = new ColumnSlice[columnKinds.length][];
+    this.identityColumns = new ColumnSlice[columnKinds.length][];
     this.columnBytes = new byte[columnKinds.length][][];
     this.bloomBytes = new byte[columnKinds.length][][];
+    this.stringExtrema = new int[columnKinds.length][];
+    this.stringSupplementary = new byte[columnKinds.length];
     this.corruptColumns = new byte[columnKinds.length];
+  }
+
+  /** {@link #stringDictSupplementaryMemo} — not yet established for this column. */
+  public static final byte SUPPLEMENTARY_UNKNOWN = 0;
+
+  /** {@link #stringDictSupplementaryMemo} — no dictionary entry holds a supplementary character. */
+  public static final byte SUPPLEMENTARY_NONE = 1;
+
+  /** {@link #stringDictSupplementaryMemo} — at least one dictionary entry holds one. */
+  public static final byte SUPPLEMENTARY_PRESENT = 2;
+
+  /**
+   * Whether ANY dictionary entry of a STRING_DICT column holds a supplementary character (a 4-byte
+   * UTF-8 sequence) — the one case where unsigned byte order and the interpreter's collation
+   * disagree, so a comparison must decode instead of running
+   * {@link Arrays#compareUnsigned(byte[], byte[])}.
+   *
+   * <p>
+   * READ-ONLY: this never sweeps. Callers that compare the column's values millions of times (top-k
+   * selection) otherwise re-derive it per COMPARISON, rescanning both operands' bytes each time — but
+   * a sweep of its own costs more than it saves, so the verdict is a by-product of
+   * {@link #stringValueExtrema}, which already walks every entry. Answer
+   * {@link #SUPPLEMENTARY_UNKNOWN} by taking the exact per-pair path; it is never wrong, only slower.
+   *
+   * @return one of {@link #SUPPLEMENTARY_UNKNOWN}, {@link #SUPPLEMENTARY_NONE},
+   *         {@link #SUPPLEMENTARY_PRESENT}
+   */
+  public byte stringDictSupplementaryMemo(final int col) {
+    if (col < 0 || col >= columnKinds.length
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      return SUPPLEMENTARY_UNKNOWN;
+    }
+    return stringSupplementary[col];
+  }
+
+  /**
+   * Per-leaf VALUE extrema of a STRING_DICT column, as dict ids: {@code [2 * leaf]} the smallest
+   * present value's id, {@code [2 * leaf + 1]} the largest', {@code -1} when the leaf holds no
+   * present value. A slice's own {@code min()}/{@code max()} are dict IDS for this kind — meaningless
+   * for value order — so an order-aware caller (the sorted scan's leaf pruning) needs this instead.
+   *
+   * <p>
+   * Referenced-and-present gated, like {@link ProjectionColumnScan#stringDictMinMax}: a dictionary
+   * can hold PHANTOM entries no live row points at, and a phantom extremum would weaken every prune
+   * built on it. Data-derived and literal-independent, so it is memoized per column and shared by
+   * every query — the same publication discipline as {@link #column}.
+   *
+   * @throws IllegalStateException if {@code col} is not a STRING_DICT column
+   */
+  public int[] stringValueExtrema(final int col, final ColumnSegmentFetcher fetcher) {
+    if (col < 0 || col >= columnKinds.length
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("Column " + col + " is not STRING_DICT");
+    }
+    final int[][] cached = stringExtrema;
+    final int[] hit = cached[col];
+    if (hit != null) {
+      return hit;
+    }
+    final ColumnSlice[] slices = column(col, fetcher);
+    final int n = slices.length;
+    final int[] extrema = new int[2 * n];
+    // The collation gate, hoisted out of the comparisons and recorded for later callers: whether a
+    // supplementary character is in play is a property of the DICTIONARY, and re-deriving it per
+    // comparison rescans both operands' bytes every time. The verdict rides along on this walk
+    // because a sweep of its own costs about as much as the extrema themselves.
+    final boolean[] leafSupplementary = new boolean[n];
+    // SERIAL on purpose, though the leaves are independent and {@link #fillColumn} fans its decode
+    // out over the very same shape. Measured on the 1M ClickBench corpus (977 leaves, min of three
+    // interleaved full-suite rounds), the cold walk costs 44 ms serially and 91 ms across the common
+    // pool — a fan-out here LOSES, and loses again with a serial warmup prefix in front of it. The
+    // per-leaf body chases byte[] dictionary entries all over the heap, so it is memory-bound rather
+    // than compute-bound, and the pool is already carrying this store's column decodes beside it.
+    for (int leaf = 0; leaf < n; leaf++) {
+      extremaOfLeaf(slices[leaf], leaf, extrema, leafSupplementary);
+    }
+    boolean anySupplementary = false;
+    for (final boolean leafHasOne : leafSupplementary) {
+      anySupplementary |= leafHasOne;
+    }
+    // A leaf whose sweep short-circuited leaves the column verdict at PRESENT, which is exactly
+    // right; NONE is only recorded after every entry of every leaf was read.
+    stringSupplementary[col] = anySupplementary
+        ? SUPPLEMENTARY_PRESENT
+        : SUPPLEMENTARY_NONE;
+    synchronized (this) {
+      final int[] existing = stringExtrema[col];
+      if (existing != null) {
+        return existing;
+      }
+      final int[][] next = stringExtrema.clone();
+      next[col] = extrema;
+      stringExtrema = next;
+    }
+    return extrema;
+  }
+
+  /**
+   * One leaf's contribution to {@link #stringValueExtrema}: its smallest and largest REFERENCED
+   * dictionary entry into {@code extrema[2 * leaf]} / {@code [2 * leaf + 1]} ({@code -1} when the
+   * leaf has no present value), and whether its dictionary holds a supplementary character into
+   * {@code leafSupplementary[leaf]}.
+   *
+   * <p>
+   * Writes only its own three disjoint slots and reads only its own immutable slice, so nothing here
+   * forces the walk to be serial — see the caller for why it is anyway.
+   */
+  private static void extremaOfLeaf(final @Nullable ColumnSlice slice, final int leaf, final int[] extrema,
+      final boolean[] leafSupplementary) {
+    extrema[2 * leaf] = -1;
+    extrema[2 * leaf + 1] = -1;
+    if (slice == null || slice.rowCount() <= 0) {
+      return;
+    }
+    final byte[] dictBytes = slice.dictBytes();
+    final int[] dictOffsets = slice.dictOffsets();
+    final int[] ids = slice.stringDictIds();
+    if (dictBytes == null || dictOffsets == null || ids == null) {
+      return; // no dict lanes: the caller sees -1 and declines to prune this leaf
+    }
+    final int dictSize = dictOffsets.length - 1;
+    if (dictSize == 0) {
+      return;
+    }
+    // Scratch is per leaf rather than reused across them: the walk runs once per column, so a
+    // 128-byte bitset per leaf costs nothing, and sharing one would be the only thing standing
+    // between this and running the leaves concurrently.
+    final long[] referenced = new long[(dictSize + 63) >>> 6];
+    final long[] presence = slice.presenceWords();
+    final int rowCount = slice.rowCount();
+    for (int r = 0; r < rowCount; r++) {
+      if (presence != null && (presence[r >>> 6] & 1L << (r & 63)) == 0L) {
+        continue;
+      }
+      final int id = ids[r];
+      referenced[id >>> 6] |= 1L << (id & 63);
+    }
+    // One pass over this leaf's entries settles the collation gate for all of its comparisons.
+    boolean supplementary = false;
+    for (int i = 0; i < dictSize && !supplementary; i++) {
+      supplementary =
+          ProjectionIndexScan.hasFourByteUtf8(dictBytes, dictOffsets[i], dictOffsets[i + 1] - dictOffsets[i]);
+    }
+    leafSupplementary[leaf] = supplementary;
+    int minId = -1;
+    int maxId = -1;
+    for (int i = 0; i < dictSize; i++) {
+      if ((referenced[i >>> 6] & 1L << (i & 63)) == 0L) {
+        continue;
+      }
+      if (minId < 0) {
+        minId = i;
+        maxId = i;
+        continue;
+      }
+      final int off = dictOffsets[i];
+      final int len = dictOffsets[i + 1] - off;
+      if (supplementary) {
+        if (ProjectionIndexByteScan.compareStrSlices(dictBytes, off, len, dictBytes, dictOffsets[minId],
+            dictOffsets[minId + 1] - dictOffsets[minId]) < 0) {
+          minId = i;
+        }
+        if (ProjectionIndexByteScan.compareStrSlices(dictBytes, off, len, dictBytes, dictOffsets[maxId],
+            dictOffsets[maxId + 1] - dictOffsets[maxId]) > 0) {
+          maxId = i;
+        }
+      } else {
+        if (Arrays.compareUnsigned(dictBytes, off, off + len, dictBytes, dictOffsets[minId],
+            dictOffsets[minId + 1]) < 0) {
+          minId = i;
+        }
+        if (Arrays.compareUnsigned(dictBytes, off, off + len, dictBytes, dictOffsets[maxId],
+            dictOffsets[maxId + 1]) > 0) {
+          maxId = i;
+        }
+      }
+    }
+    extrema[2 * leaf] = minId;
+    extrema[2 * leaf + 1] = maxId;
   }
 
   /** Whether a fill of {@code col} hit permanent decode corruption (memoized fail-fast). */
@@ -272,13 +584,23 @@ public final class ProjectionColumnStore {
   }
 
   /**
-   * Whether the column path can serve {@code col} at all: numeric, boolean, and string-dict kinds. A
-   * string column's fill fetches its DICT chain beside the BODY chain — two segment chains instead of
-   * one, still only THIS column's bytes, never the whole leaf.
+   * Whether the column path can serve {@code col} at all: numeric, boolean, and both string kinds. A
+   * per-leaf string column's fill fetches its DICT chain beside the BODY chain — two segment chains
+   * instead of one, still only THIS column's bytes, never the whole leaf.
+   *
+   * <p>
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} is admitted through
+   * {@link ProjectionIndexRowGroupPage#isLongLaneKind}: its slice carries dictionary ids in the
+   * NUMERIC lane, which is the shape every consumer here already handles. What makes that safe is
+   * that a predicate over such a column is resolved to an ID before it ever reaches a kernel (see
+   * the executor's leaf conversion), so the numeric evaluator the slice's shape selects is asking
+   * the right question. A string literal meeting a long-lane slice is a route defect, not a slow
+   * path, and {@link ProjectionColumnScan#evaluateMask} refuses it loudly rather than comparing an
+   * unset long against ids.
    */
   public boolean columnSliceable(final int col) {
     return col >= 0 && col < columnKinds.length
-        && (ProjectionIndexRowGroupPage.isNumericKind(columnKinds[col])
+        && (ProjectionIndexRowGroupPage.isLongLaneKind(columnKinds[col])
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
             || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET);
@@ -322,6 +644,188 @@ public final class ProjectionColumnStore {
     }
     return slices;
   }
+
+  /**
+   * Whether {@code col}'s full slices are ALREADY filled and cached. Lets a caller that would
+   * otherwise ask for the cheaper distinct-identity fill reuse what another consumer has paid for,
+   * instead of fetching a second chain for the same column.
+   */
+  public boolean columnFilled(final int col) {
+    final ColumnSlice[][] slots = columns;
+    return col >= 0 && col < slots.length && slots[col] != null;
+  }
+
+  /**
+   * A STRING_DICT column's slices in DISTINCT-IDENTITY mode: per-row dict ids beside the
+   * {@link ProjectionIndexColumnSegmentCodec#SEG_KIND_DICT_HASHES} segment's precomputed content
+   * hashes, with NO dictionary bytes fetched and no FSST decode.
+   *
+   * <p>
+   * For a {@code COUNT(DISTINCT s)} fold that is the whole dictionary: dict ids are leaf-local, so
+   * the set member has to be the entry's 64-bit content hash, and nothing else about the string is
+   * ever read. On a high-cardinality column the dictionary chain is the dominant cold cost of such a
+   * query — the hashes are ~8 B/entry against a dictionary entry's tens of bytes, and cost no decode.
+   *
+   * <p>
+   * FAIL-SOFT per leaf: a leaf whose descriptor lists no hash segment (written before the kind
+   * existed) falls back to the full BODY+DICT decode for that leaf alone, and the kernels hash its
+   * entries on the fly exactly as before — the identity is the same function over the same bytes, so
+   * a mixed column is as correct as a uniform one.
+   *
+   * <p>
+   * The result is NOT published to the full-slice cache: these slices deliberately lack the
+   * dictionary every other consumer needs. They get their own cache slot instead.
+   *
+   * @throws IllegalStateException on missing/corrupt segments, or a column that is not STRING_DICT
+   */
+  public ColumnSlice[] columnDistinctIdentity(final int col, final ColumnSegmentFetcher fetcher) {
+    if (col < 0 || col >= columnKinds.length
+        || columnKinds[col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("Column " + col + " is not STRING_DICT (kind="
+          + (col >= 0 && col < columnKinds.length
+              ? columnKinds[col]
+              : -1)
+          + ")");
+    }
+    // Another consumer already paid for the dictionary: its slices answer identity too (the kernels
+    // hash on the fly), and reusing them beats fetching a second chain.
+    final ColumnSlice[][] full = columns;
+    if (full[col] != null) {
+      return full[col];
+    }
+    final ColumnSlice[][] slots = identityColumns;
+    ColumnSlice[] slices = slots[col];
+    if (slices != null) {
+      return slices;
+    }
+    if (corruptColumns[col] != 0) {
+      throw new IllegalStateException("Column " + col + " has a known-corrupt BODY segment");
+    }
+    slices = fillIdentityColumn(col, fetcher);
+    if (slices == null) {
+      return column(col, fetcher); // no leaf carries hashes — the whole column falls back
+    }
+    synchronized (this) {
+      final ColumnSlice[] existing = identityColumns[col];
+      if (existing != null) {
+        return existing;
+      }
+      final ColumnSlice[][] next = identityColumns.clone();
+      next[col] = slices;
+      identityColumns = next;
+    }
+    return slices;
+  }
+
+  /**
+   * @return the identity slices, or {@code null} when NO leaf carries a hash segment (the caller
+   *         falls back to the full fill wholesale rather than decoding dictionaries twice)
+   */
+  private ColumnSlice @Nullable [] fillIdentityColumn(final int col, final ColumnSegmentFetcher fetcher) {
+    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final long startNanos = diag
+        ? System.nanoTime()
+        : 0L;
+    final int n = directories.size();
+    // Which leaves lack the segment — decided from the DESCRIPTORS, which this store already holds,
+    // so an OLD projection is recognised before a single page is read (and never confused with a
+    // fetch hole). Ordered ahead of any I/O for exactly that reason.
+    long[] fallbackWords = null;
+    int fallbackLeaves = 0;
+    int rowLeaves = 0;
+    final int hashSegId = ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(col);
+    for (int i = 0; i < n; i++) {
+      final byte[] descriptor = directories.get(i).descriptor();
+      if (RowGroupDescriptor.rowCount(descriptor) == 0) {
+        continue; // a rowless leaf writes neither dictionary nor hashes
+      }
+      rowLeaves++;
+      if (RowGroupDescriptor.entryIndexOf(descriptor, hashSegId) < 0) {
+        if (fallbackWords == null) {
+          fallbackWords = new long[(n + 63) >>> 6];
+        }
+        fallbackWords[i >>> 6] |= 1L << (i & 63);
+        fallbackLeaves++;
+      }
+    }
+    if (fallbackLeaves == rowLeaves && rowLeaves > 0) {
+      if (diag) {
+        System.err.println("[proj] identity fill col=" + col + " DECLINED: no leaf of " + rowLeaves
+            + " carries a DICT_HASHES segment");
+      }
+      return null; // no leaf carries hashes — one full fill beats a per-leaf fallback everywhere
+    }
+    final byte[][] bodySegments = columnBytes(col, fetcher);
+    final long tBody = diag
+        ? System.nanoTime()
+        : 0L;
+    final byte[][] hashSegments =
+        fetchSegmentChain(col, hashSegId, ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT_HASHES, true, fetcher);
+    // Only the leaves that lack hashes pay for a dictionary — the keep-mask is exactly what stops
+    // this from degenerating into the full fill it exists to avoid.
+    final byte[][] dictSegments = fallbackWords != null
+        ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher, fallbackWords)
+        : null;
+    final long tHash = diag
+        ? System.nanoTime()
+        : 0L;
+    final long[] fallback = fallbackWords;
+    final ColumnSlice[] slices = new ColumnSlice[n];
+    try {
+      if (n >= PARALLEL_DECODE_MIN) {
+        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        IntStream.range(0, n).parallel().forEach(i -> {
+          if (failed.get() != null) {
+            return;
+          }
+          try {
+            slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
+          } catch (final IllegalStateException corrupt) {
+            failed.compareAndSet(null, corrupt);
+          }
+        });
+        final IllegalStateException corrupt = failed.get();
+        if (corrupt != null) {
+          throw corrupt;
+        }
+      } else {
+        for (int i = 0; i < n; i++) {
+          slices[i] = decodeOneIdentitySlice(i, col, bodySegments, hashSegments, dictSegments, fallback);
+        }
+      }
+    } catch (final IllegalStateException corrupt) {
+      corruptColumns[col] = 1;
+      throw corrupt;
+    }
+    if (diag) {
+      final long tDone = System.nanoTime();
+      System.err.printf("[proj] identity fill col=%d leaves=%d hashed=%d fallback=%d in %.1f ms | body=%.1f ms "
+          + "hash+dict=%.1f ms decode=%.1f ms | t=%.1f..%.1f%n", col, n, rowLeaves - fallbackLeaves, fallbackLeaves,
+          (tDone - startNanos) / 1e6, (tBody - startNanos) / 1e6, (tHash - tBody) / 1e6, (tDone - tHash) / 1e6,
+          startNanos / 1e6, tDone / 1e6);
+    }
+    return slices;
+  }
+
+  private ColumnSlice decodeOneIdentitySlice(final int i, final int col, final byte[][] bodySegments,
+      final byte[] @Nullable [] hashSegments, final byte[] @Nullable [] dictSegments,
+      final long @Nullable [] fallbackWords) {
+    final byte[] descriptor = directories.get(i).descriptor();
+    if (fallbackWords != null && (fallbackWords[i >>> 6] & 1L << (i & 63)) != 0) {
+      return ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, bodySegments[i], dictSegments[i], col);
+    }
+    final long[] hashes = hashSegments == null
+        ? null
+        : ProjectionIndexColumnSegmentCodec.decodeDictHashes(descriptor, hashSegments[i], col);
+    return hashes == null
+        // A rowless leaf writes neither dictionary nor hashes; the body decode yields the empty slice
+        // every evaluator skips, and passing an empty hash array keeps that path allocation-free.
+        ? ProjectionIndexColumnSegmentCodec.decodeStringIdentitySlice(descriptor, bodySegments[i], NO_HASHES, col)
+        : ProjectionIndexColumnSegmentCodec.decodeStringIdentitySlice(descriptor, bodySegments[i], hashes, col);
+  }
+
+  private static final long[] NO_HASHES = new long[0];
 
   /** Number of row-group leaves this store spans. */
   public int leafCount() {
@@ -370,7 +874,7 @@ public final class ProjectionColumnStore {
   /** Canonical pruned slice: {@code rowCount == 0} short-circuits every evaluator. */
   private static final long[] NO_WORDS = new long[0];
   private static final ColumnSlice PRUNED_SLICE =
-      new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, NO_WORDS, null, null, null, null);
+      new ColumnSlice(0, (byte) 0, Long.MAX_VALUE, Long.MIN_VALUE, NO_WORDS, null, null, null, null, null);
 
   /**
    * Like {@link #column(int, ColumnSegmentFetcher)} but fetching and decoding ONLY the leaves set in
@@ -400,17 +904,31 @@ public final class ProjectionColumnStore {
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
-      for (int i = 0; i < n; i++) {
-        if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
-          slices[i] = PRUNED_SLICE;
-          continue;
+      if (n >= PARALLEL_DECODE_MIN) {
+        // Across the common pool, exactly as the unmasked fill decodes — and for the SAME reason,
+        // with more at stake: masked slices are predicate-specific and therefore never cached, so
+        // every execution of a pruning query pays this decode again. Serially it is the whole hot
+        // time of a repeated group-by (measured: ~1.33 s of a 1.35 s JSONBench Q4 at 100M rows,
+        // 97,656 leaves, on the CALLING thread while twenty scan workers waited for it).
+        final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+        IntStream.range(0, n).parallel().forEach(i -> {
+          if (failed.get() != null) {
+            return;
+          }
+          try {
+            slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
+          } catch (final IllegalStateException corrupt) {
+            failed.compareAndSet(null, corrupt);
+          }
+        });
+        final IllegalStateException corrupt = failed.get();
+        if (corrupt != null) {
+          throw corrupt;
         }
-        final byte[] descriptor = directories.get(i).descriptor();
-        slices[i] = set
-            ? ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, segments[i], dictSegments[i], col)
-            : string
-                ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, segments[i], dictSegments[i], col)
-                : ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, segments[i], col);
+      } else {
+        for (int i = 0; i < n; i++) {
+          slices[i] = decodeMaskedSlice(i, col, set, string, segments, dictSegments, keepWords);
+        }
       }
     } catch (final IllegalStateException corrupt) {
       corruptColumns[col] = 1;
@@ -419,10 +937,25 @@ public final class ProjectionColumnStore {
     return slices;
   }
 
+  /** One leaf of a masked fill: the canonical pruned slice, or the same decode the full fill does. */
+  private ColumnSlice decodeMaskedSlice(final int i, final int col, final boolean set, final boolean string,
+      final byte[][] segments, final byte[][] dictSegments, final long[] keepWords) {
+    if ((keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+      return PRUNED_SLICE;
+    }
+    return decodeOneSlice(i, col, set, string, segments, dictSegments);
+  }
+
   private ColumnSlice[] fillColumn(final int col, final ColumnSegmentFetcher fetcher) {
+    final long tEnter = FILL_DIAG
+        ? System.nanoTime()
+        : 0L;
     // Bytes-first: the raw-segment cache does the fetch + verification; slice decode is a
     // pure in-memory transform over the already-verified bytes.
     final byte[][] segments = columnBytes(col, fetcher);
+    final long tBody = FILL_DIAG
+        ? System.nanoTime()
+        : 0L;
     // A string column needs its DICT chain beside the BODY chain — ids without the dictionary
     // are meaningless. The chain is OPTIONAL per leaf: a rowless leaf writes no DICT segment.
     final boolean set = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
@@ -431,6 +964,9 @@ public final class ProjectionColumnStore {
         ? fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col),
             ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT, true, fetcher)
         : null;
+    final long tDict = FILL_DIAG
+        ? System.nanoTime()
+        : 0L;
     final int n = directories.size();
     final ColumnSlice[] slices = new ColumnSlice[n];
     try {
@@ -463,7 +999,61 @@ public final class ProjectionColumnStore {
       corruptColumns[col] = 1;
       throw corrupt;
     }
+    if (FILL_DIAG) {
+      final long tDone = System.nanoTime();
+      long decoded = 0;
+      long raw = 0;
+      for (final ColumnSlice s : slices) {
+        decoded += sliceRetainedBytes(s);
+      }
+      for (final byte[] b : segments) {
+        raw += b == null ? 0 : b.length;
+      }
+      if (dictSegments != null) {
+        for (final byte[] b : dictSegments) {
+          raw += b == null ? 0 : b.length;
+        }
+      }
+      final long total = FILL_DECODED_BYTES.addAndGet(decoded);
+      final long rawTotal = FILL_RAW_BYTES.addAndGet(raw);
+      System.err.printf("[fill] col=%d kind=%d leaves=%d decoded=%.1f MB raw=%.1f MB | body=%.1f ms dict=%.1f ms "
+          + "decode=%.1f ms (par=%s) | t=%.1f..%.1f | store totals: decoded=%.1f MB raw=%.1f MB%n", col,
+          columnKinds[col], n, decoded / 1048576.0, raw / 1048576.0, (tBody - tEnter) / 1e6, (tDict - tBody) / 1e6,
+          (tDone - tDict) / 1e6, n >= PARALLEL_DECODE_MIN, tEnter / 1e6, tDone / 1e6, total / 1048576.0,
+          rawTotal / 1048576.0);
+    }
     return slices;
+  }
+
+  /**
+   * {@code -Dsirix.projection.fillDiag=true} reports what each column fill retains. A filled column is
+   * held for the store's lifetime, so at large leaf counts the fills — not the query's own working set
+   * — dominate the heap, and nothing else makes that visible.
+   */
+  private static final boolean FILL_DIAG = Boolean.getBoolean("sirix.projection.fillDiag");
+
+  /** Running total of decoded slice bytes retained across every store, for {@link #FILL_DIAG}. */
+  private static final java.util.concurrent.atomic.AtomicLong FILL_DECODED_BYTES =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /** Running total of raw segment bytes retained across every store, for {@link #FILL_DIAG}. */
+  private static final java.util.concurrent.atomic.AtomicLong FILL_RAW_BYTES =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  private static long sliceRetainedBytes(final ColumnSlice s) {
+    if (s == null) {
+      return 0;
+    }
+    long b = 0;
+    b += s.presenceWords() == null ? 0 : s.presenceWords().length * 8L;
+    b += s.numericValues() == null ? 0 : s.numericValues().length * 8L;
+    b += s.boolWords() == null ? 0 : s.boolWords().length * 8L;
+    b += s.stringDictIds() == null ? 0 : s.stringDictIds().length * 4L;
+    b += s.dictBytes() == null ? 0 : s.dictBytes().length;
+    b += s.dictOffsets() == null ? 0 : s.dictOffsets().length * 4L;
+    b += s.setCounts() == null ? 0 : s.setCounts().length * 4L;
+    b += s.dictHashes() == null ? 0 : s.dictHashes().length * 8L;
+    return b;
   }
 
   /** Leaves below this count decode serially — fork/join overhead beats the win. */
@@ -620,6 +1210,192 @@ public final class ProjectionColumnStore {
     return inlineBytes;
   }
 
+  /**
+   * How many ranges a chain fetch of {@code n} leaves splits into: one (i.e. stay serial) below
+   * {@link #PARALLEL_CHAIN_MIN}, else at most one worker per {@link #CHAIN_RANGE_MIN} leaves and never
+   * more than there are cores. A small store keeps the single batched call it was tuned for.
+   */
+  private static int chainWorkers(final int n) {
+    // Read per CHAIN, not per leaf — this runs a handful of times per query, so the property
+    // lookups are free here and they are what lets a test drive the parallel path without a
+    // 97k-leaf fixture. Same pattern the diagnostics in this file already use.
+    if (!PARALLEL_CHAIN_FETCH || n < Integer.getInteger("sirix.projection.chainFetchMinLeaves", PARALLEL_CHAIN_MIN)) {
+      return 1;
+    }
+    final int rangeMin = Math.max(1, Integer.getInteger("sirix.projection.chainFetchRangeLeaves", CHAIN_RANGE_MIN));
+    return Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), n / rangeMin));
+  }
+
+  /**
+   * Whether ANY leaf in {@code [from, to)} resolves to a segment PAGE. False for a chain that is
+   * inline throughout, and for a range the keep-mask pruned away entirely — neither has anything to
+   * fetch, and the fetch is the only step that costs a transaction.
+   */
+  private static boolean hasResolvableOffset(final long[] offsets, final int from, final int to) {
+    for (int i = from; i < to; i++) {
+      final long off = offsets[i];
+      if (off >= 0 && off != Constants.NULL_ID_LONG) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Rollback switch for the parallel chain fetch ({@code -Dsirix.projection.parallelChainFetch=false}). */
+  private static final boolean PARALLEL_CHAIN_FETCH =
+      !"false".equals(System.getProperty("sirix.projection.parallelChainFetch"));
+
+  /**
+   * Chain fetches that actually ran across ranges. A fast path that silently fails to engage looks
+   * exactly like one that engages and does not help, so the split reports itself: a test asserts on
+   * this rather than on the threshold arithmetic it is trying to prove.
+   */
+  private static final java.util.concurrent.atomic.AtomicLong PARALLEL_CHAIN_FETCHES =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /** @return how many chain fetches have been split across ranges in this JVM */
+  public static long parallelChainFetchCount() {
+    return PARALLEL_CHAIN_FETCHES.get();
+  }
+
+  /** Below this many leaves a chain fetch stays serial — the fan-out costs more than the walk. */
+  private static final int PARALLEL_CHAIN_MIN = 8192;
+
+  /** Fewest leaves a chain-fetch range carries, so the split never degenerates into tiny tasks. */
+  private static final int CHAIN_RANGE_MIN = 1024;
+
+  /**
+   * {@link #collectColumnOffsets} split across {@code workers} contiguous leaf ranges. Identical
+   * output: the ranges are disjoint, {@code offsets}/{@code absent} are written per index, and the
+   * inline carrier is allocated at most once and then written per index too.
+   */
+  private byte @Nullable [][] collectColumnOffsetsParallel(final int segId, final long[] offsets,
+      final boolean optional, final boolean[] absent, final int workers) {
+    final int n = directories.size();
+    final int chunk = (n + workers - 1) / workers;
+    final AtomicReference<byte[][]> inline = new AtomicReference<>();
+    final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+    IntStream.range(0, workers).parallel().forEach(w -> {
+      final int from = w * chunk;
+      final int to = Math.min(from + chunk, n);
+      if (from >= to || failed.get() != null) {
+        return;
+      }
+      try {
+        collectColumnOffsetsRange(segId, offsets, optional, absent, from, to, inline, n);
+      } catch (final RuntimeException malformed) {
+        failed.compareAndSet(null, malformed);
+      }
+    });
+    final RuntimeException malformed = failed.get();
+    if (malformed != null) {
+      throw malformed;
+    }
+    return inline.get();
+  }
+
+  /** One worker's leaf range of {@link #collectColumnOffsetsParallel}. */
+  private void collectColumnOffsetsRange(final int segId, final long[] offsets, final boolean optional,
+      final boolean[] absent, final int from, final int to, final AtomicReference<byte[][]> inline, final int n) {
+    byte[][] inlineBytes = inline.get();
+    for (int i = from; i < to; i++) {
+      final RowGroupDirectory dir = directories.get(i);
+      final byte[] desc = dir.descriptor();
+      final int entry = RowGroupDescriptor.entryIndexOf(desc, segId);
+      if (entry < 0) {
+        if (optional) {
+          absent[i] = true;
+          offsets[i] = Constants.NULL_ID_LONG;
+          continue;
+        }
+        throw new IllegalStateException("Descriptor of leaf " + dir.rowGroupId() + " lists no segment id " + segId);
+      }
+      final byte[] dirInline = dir.inlineBytesAt(entry);
+      final byte[] inlineForEntry = dirInline != null
+          ? dirInline
+          : RowGroupDescriptor.entryIsInline(desc, entry)
+              ? RowGroupDescriptor.inlineColumnSegmentBytes(desc, entry)
+              : null;
+      if (inlineForEntry != null) {
+        if (inlineBytes == null) {
+          // First inline entry seen by ANY worker allocates the shared carrier; the losers of the
+          // race adopt the winner's array. Every later write lands at this worker's own index, so
+          // the array is only ever written disjointly.
+          final byte[][] fresh = new byte[n][];
+          inlineBytes = inline.compareAndSet(null, fresh)
+              ? fresh
+              : inline.get();
+        }
+        inlineBytes[i] = inlineForEntry;
+        offsets[i] = Constants.NULL_ID_LONG;
+      } else {
+        offsets[i] = dir.columnSegmentOffsets()[entry];
+      }
+    }
+  }
+
+  /**
+   * Fetch every leaf's segment through {@code workers} contiguous ranges at once. Only ever called
+   * for a fetcher that declares {@link ColumnSegmentFetcher#rangedFetchIsConcurrent()}, which is what
+   * promises each range a transaction of its own.
+   */
+  private static byte[][] fetchRangesParallel(final ColumnSegmentFetcher fetcher, final long[] offsets, final int n,
+      final int workers) {
+    final byte[][] segments = new byte[n][];
+    final int chunk = (n + workers - 1) / workers;
+    final AtomicReference<RuntimeException> failed = new AtomicReference<>();
+    IntStream.range(0, workers).parallel().forEach(w -> {
+      final int from = w * chunk;
+      final int to = Math.min(from + chunk, n);
+      if (from >= to || failed.get() != null || !hasResolvableOffset(offsets, from, to)) {
+        return; // a range of inline-only or pruned leaves needs no transaction at all
+      }
+      try {
+        fetcher.fetchRange(offsets, from, to, segments);
+      } catch (final RuntimeException fetchFailed) {
+        failed.compareAndSet(null, fetchFailed);
+      }
+    });
+    final RuntimeException fetchFailed = failed.get();
+    if (fetchFailed != null) {
+      throw fetchFailed;
+    }
+    return segments;
+  }
+
+  /** {@link #verifyFetchedSegments} split across {@code workers} contiguous leaf ranges. */
+  private void verifyFetchedSegmentsParallel(final int n, final byte[][] segments, final int segId, final byte segKind,
+      final boolean @Nullable [] absent, final long @Nullable [] keepWords, final int workers) {
+    final int chunk = (n + workers - 1) / workers;
+    final AtomicReference<IllegalStateException> failed = new AtomicReference<>();
+    IntStream.range(0, workers).parallel().forEach(w -> {
+      final int from = w * chunk;
+      final int to = Math.min(from + chunk, n);
+      if (from >= to || failed.get() != null) {
+        return;
+      }
+      for (int i = from; i < to; i++) {
+        if (absent != null && absent[i]) {
+          continue;
+        }
+        if (keepWords != null && (keepWords[i >>> 6] & 1L << (i & 63)) == 0) {
+          continue;
+        }
+        try {
+          ProjectionIndexColumnSegmentCodec.verifyColumnSegment(directories.get(i).descriptor(), segments[i], segId,
+              segKind);
+        } catch (final IllegalStateException corrupt) {
+          failed.compareAndSet(null, corrupt);
+          return;
+        }
+      }
+    });
+    final IllegalStateException corrupt = failed.get();
+    if (corrupt != null) {
+      throw corrupt;
+    }
+  }
+
   private byte[][] fetchColumnBytes(final int col, final ColumnSegmentFetcher fetcher) {
     return fetchSegmentChain(col, ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col),
         ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY, false, fetcher);
@@ -690,13 +1466,32 @@ public final class ProjectionColumnStore {
     final boolean[] absent = optional
         ? new boolean[n]
         : null;
-    final byte[][] inlineBytes = collectColumnOffsets(segId, offsets, optional, absent);
+    // Every step of a chain fetch is per-leaf and independent — the descriptor binary search, the
+    // page read, and the integrity check. Serially that is ONE core walking 97k leaves while the
+    // other nineteen idle, and at that scale it was measured at 2x the (already parallel) decode it
+    // feeds. Ranges are contiguous so the backend's run coalescing survives: only a range boundary
+    // loses a merge.
+    final int workers = chainWorkers(n);
+    if (workers > 1) {
+      PARALLEL_CHAIN_FETCHES.incrementAndGet();
+    }
+    final byte[][] inlineBytes = workers > 1
+        ? collectColumnOffsetsParallel(segId, offsets, optional, absent, workers)
+        : collectColumnOffsets(segId, offsets, optional, absent);
     if (keepWords != null) {
       dropPrunedLeaves(n, keepWords, offsets, inlineBytes);
     }
     final byte[][] segments;
     try {
-      segments = fetcher.fetchAll(offsets);
+      // A chain can be entirely INLINE — every leaf's bytes ride its descriptor and not one page is
+      // referenced. Several chains per query are exactly that, and the fetch for them resolved
+      // nothing while still opening a read transaction and allocating a reference per leaf. Answer
+      // it from the offsets instead: no page to read, no transaction to open.
+      segments = !hasResolvableOffset(offsets, 0, n)
+          ? new byte[n][]
+          : workers > 1 && fetcher.rangedFetchIsConcurrent()
+              ? fetchRangesParallel(fetcher, offsets, n, workers)
+              : fetcher.fetchAll(offsets);
     } catch (final RuntimeException fetchFailed) {
       // Fetch-level failure (session closed mid-read, transient I/O): NOT memoized —
       // the next query retries against the caller's own live fetcher.
@@ -716,7 +1511,11 @@ public final class ProjectionColumnStore {
       }
     }
     try {
-      verifyFetchedSegments(n, segments, segId, segKind, absent, keepWords);
+      if (workers > 1) {
+        verifyFetchedSegmentsParallel(n, segments, segId, segKind, absent, keepWords, workers);
+      } else {
+        verifyFetchedSegments(n, segments, segId, segKind, absent, keepWords);
+      }
     } catch (final IllegalStateException corrupt) {
       // Structural corruption (missing segment at a resolved offset, hash/length/kind
       // mismatch) cannot heal for this build — memoize so later touches fail fast.
@@ -763,4 +1562,85 @@ public final class ProjectionColumnStore {
           segKind);
     }
   }
+
+  /**
+   * Advisory readahead of EVERY sliceable column's segment chains (BODY + DICT), issued as batched
+   * span hints through the reader — descriptor-only offset gathering, zero decode. A fresh process
+   * otherwise demand-faults these pages column-by-column across its first queries; one background
+   * sweep turns that into streaming readahead overlapped with early query compute. Purely a hint:
+   * failures are ignored and nothing is retained.
+   */
+  public void prefetchAllSegments(final StorageEngineReader reader) {
+    final boolean diag = Boolean.getBoolean("sirix.projDiag");
+    final long startNanos = diag
+        ? System.nanoTime()
+        : 0L;
+    int sweptSegmentChains = 0;
+    int hintedPages = 0;
+    final int n = directories.size();
+    final long[] offsets = new long[n];
+    final boolean[] sweepAbsent = new boolean[directories.size()];
+    final PageReference[] batch = new PageReference[128];
+    int fill = 0;
+    for (int col = 0; col < columnKinds.length; col++) {
+      if (!columnSliceable(col)) {
+        continue;
+      }
+      final boolean string = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          || columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+      // A STRING_DICT column has a third chain — the dict-entry hashes a distinct fold reads INSTEAD
+      // of the dictionary. Sweeping it costs ~8 B/entry and is what makes that fold's first touch
+      // land in cache; a leaf without the segment contributes no offset (optional collect).
+      final int passes = columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          ? 3
+          : string
+              ? 2
+              : 1;
+      for (int pass = 0; pass < passes; pass++) {
+        final int segId = switch (pass) {
+          case 0 -> ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(col);
+          case 1 -> ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(col);
+          default -> ProjectionIndexColumnSegmentCodec.dictHashColumnSegmentId(col);
+        };
+        try {
+          // A real absent array, never null: the optional=true arm WRITES absent[i] for a leaf
+          // that lacks the segment, and a null here NPEd on the first such leaf — swallowed by
+          // the advisory catch below, silently skipping the whole column's readahead. Absence
+          // itself is normal (sparse columns); only the offsets matter to this sweep.
+          collectColumnOffsets(segId, offsets, true, sweepAbsent);
+        } catch (final RuntimeException ignored) {
+          continue; // advisory — a malformed descriptor is the sync path's error to report
+        }
+        sweptSegmentChains++;
+        for (int leaf = 0; leaf < n; leaf++) {
+          final long off = offsets[leaf];
+          if (off < 0 || off == Constants.NULL_ID_LONG) {
+            continue;
+          }
+          PageReference ref = batch[fill];
+          if (ref == null) {
+            ref = batch[fill] = new PageReference();
+          }
+          ref.setKey(off);
+          hintedPages++;
+          if (++fill == batch.length) {
+            reader.prefetchPageSpans(batch, fill);
+            fill = 0;
+          }
+        }
+        if (diag) {
+          System.err.printf("[prefetchAll] col=%d pass=%d done t=%.1f%n", col, pass, System.nanoTime() / 1e6);
+        }
+      }
+    }
+    if (fill > 0) {
+      reader.prefetchPageSpans(batch, fill);
+    }
+    if (diag) {
+      final long doneNanos = System.nanoTime();
+      System.err.printf("[prefetchAll] swept segment chains: %d pages=%d in %.1f ms | t=%.1f..%.1f%n",
+          sweptSegmentChains, hintedPages, (doneNanos - startNanos) / 1e6, startNanos / 1e6, doneNanos / 1e6);
+    }
+  }
+
 }

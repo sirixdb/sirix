@@ -33,6 +33,8 @@ import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.node.FsstSymbolTableNode;
 import io.sirix.node.NodeKind;
+import io.sirix.node.interfaces.DataRecord;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 import java.util.TreeSet;
@@ -138,6 +140,51 @@ public final class NamePage extends AbstractForwardingPage {
     return switch (databaseType) {
       case JSON -> JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
       case XML -> XML_FSST_SYMBOL_TABLE_REFERENCE_OFFSET;
+    };
+  }
+
+  /**
+   * Offset of reference to the global projection VALUE dictionary in a JSON resource — the
+   * sub-trie holding {@code id -> value} records and their forward directory for every
+   * high-cardinality string column of every projection index on the resource.
+   *
+   * <p>Third use of the extension pattern {@link #JSON_FSST_SYMBOL_TABLE_REFERENCE_OFFSET}
+   * documents, and for the same reason: what is stored is copy-on-write versioned state made of
+   * individual records, which is precisely what this page's sub-tries are. Row cells in a
+   * projection's row groups refer to values by id, so an id must keep meaning the same thing in
+   * every revision that can still be read — which CoW gives for free and a side blob does not.
+   *
+   * <p><b>One sub-trie, not one per column.</b> The offsets are a scarce, wire-format-adjacent
+   * resource that must form a gapless run per database type, and a projection's column set is not
+   * known at bootstrap and grows with every index definition — so one offset per column is not
+   * merely wasteful, it is unimplementable. The node-key space inside the single sub-trie is
+   * partitioned into per-column namespaces instead; see
+   * {@code io.sirix.index.projection.GlobalValueDictionary} for the key layout.
+   *
+   * <p>JSON occupies {0, 1}, so this is 2.
+   */
+  public static final int JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET = 2;
+
+  /**
+   * Offset of reference to the global projection value dictionary in an XML resource, past the four
+   * name dictionaries and the symbol-table tree. See
+   * {@link #JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET}.
+   *
+   * <p>Defined for symmetry and to keep the per-type offset run coherent. Projection indexes are
+   * declared over JSON resources only today, so nothing writes here.
+   */
+  public static final int XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET = 5;
+
+  /**
+   * The offset the global projection value dictionary lives at for a given database type.
+   *
+   * @param databaseType the database type
+   * @return the dictionary offset to use
+   */
+  public static int projectionValueDictionaryOffset(final DatabaseType databaseType) {
+    return switch (databaseType) {
+      case JSON -> JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET;
+      case XML -> XML_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET;
     };
   }
 
@@ -744,6 +791,94 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
+   * Read one record of the global projection value dictionary.
+   *
+   * <p>Fetched one record at a time rather than materialised as a whole dictionary the way names
+   * are, and that is the point of the structure: a high-cardinality column holds millions of
+   * values, so the {@link Names}-style "load the map, answer from memory" shape is exactly the
+   * behaviour that has to be avoided (it is the name-dictionary blow-up in a new place). Records
+   * are buffer-managed pages, so a repeated lookup costs a cache hit and a cold one costs the page
+   * holding the wanted id and nothing else.
+   *
+   * @param nodeKey the record's node key, produced by the caller's namespace key layout
+   * @param databaseType the database type, which fixes the dictionary offset
+   * @param storageEngineReader the reader positioned at the revision whose dictionary is wanted
+   * @return the record, or {@code null} if no record with that key exists in this revision
+   * @throws IllegalArgumentException if {@code nodeKey} is not positive
+   */
+  public @Nullable DataRecord getProjectionValueDictionaryRecord(final long nodeKey,
+      final DatabaseType databaseType, final StorageEngineReader storageEngineReader) {
+    if (nodeKey <= 0) {
+      throw new IllegalArgumentException("value dictionary node key must be positive, got " + nodeKey);
+    }
+    return storageEngineReader.getRecord(nodeKey, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
+  }
+
+  /**
+   * Store one record of the global projection value dictionary under the key it carries.
+   *
+   * <p>Uses {@code persistRecord} rather than {@code createRecord} for the same reason
+   * {@link #setFsstSymbolTable} does: the caller chooses the key (it encodes the namespace and the
+   * id), and only {@code persistRecord} derives the target record page from the record's own key.
+   * {@code createRecord} would allocate a different key from this page's counter and file the
+   * record on a page its own key does not address.
+   *
+   * @param record the record to store, carrying its own node key
+   * @param databaseType the database type, needed to root the sub-trie on first use
+   * @param storageEngineWriter the writer for the revision being built
+   * @param log the transaction intent log of the revision being built
+   */
+  public void putProjectionValueDictionaryRecord(final DataRecord record, final DatabaseType databaseType,
+      final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
+    Objects.requireNonNull(record, "record must not be null");
+    Objects.requireNonNull(databaseType, "databaseType must not be null");
+    Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    Objects.requireNonNull(log, "log must not be null");
+    createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
+    storageEngineWriter.persistRecord(record, IndexType.NAME, projectionValueDictionaryOffset(databaseType));
+  }
+
+  /**
+   * Root the value-dictionary sub-trie, and the offsets below it that would otherwise leave a gap.
+   * Idempotent.
+   *
+   * <p>The second half is what makes this more than a one-liner. This page's bookkeeping is
+   * serialized positionally, so the offsets in use must be exactly {@code 0..n-1} — see
+   * {@link #getDictionaryOffsetCount()}, which throws rather than write a gapped map. The FSST
+   * offset immediately below this one is only registered when a resource actually stores a symbol
+   * table, so a resource that never enabled FSST holds {0} and creating this tree alone would leave
+   * it holding {0, 2}: not a wrong answer later, but a hard failure at the next commit. Rooting the
+   * symbol-table tree first costs one empty page on a resource that will never use it, and is the
+   * only way the run stays gapless without the caller having to know any of this.
+   *
+   * @param databaseType the database type, which fixes the offsets
+   * @param storageEngineWriter the writer for the revision being built
+   * @param log the transaction intent log of the revision being built
+   */
+  public void createProjectionValueDictionaryTree(final DatabaseType databaseType,
+      final StorageEngineWriter storageEngineWriter, final TransactionIntentLog log) {
+    createNameIndexTree(databaseType, storageEngineWriter, fsstSymbolTableOffset(databaseType), log);
+    createNameIndexTree(databaseType, storageEngineWriter, projectionValueDictionaryOffset(databaseType), log);
+  }
+
+  /**
+   * Whether the global projection value dictionary sub-trie exists in this revision. A reader uses
+   * it to skip the probe entirely on a resource that has none.
+   *
+   * @param databaseType the database type, which fixes the dictionary offset
+   * @return whether the sub-trie was ever rooted
+   */
+  public boolean hasProjectionValueDictionary(final DatabaseType databaseType) {
+    final int offset = projectionValueDictionaryOffset(databaseType);
+    if (offset >= getReferencesCount()) {
+      return false;
+    }
+    final PageReference reference = getOrCreateReference(offset);
+    return reference != null && (reference.getPage() != null || reference.getKey() != Constants.NULL_ID_LONG
+        || reference.getLogKey() != Constants.NULL_ID_INT);
+  }
+
+  /**
    * The id of the most recently stored FSST symbol table, or {@code 0} when none was ever
    * stored. This is the single place that knows how ids relate to the dictionary's key counter
    * — every reuse and insert-time path resolves "the latest table" through it.
@@ -952,6 +1087,39 @@ public final class NamePage extends AbstractForwardingPage {
     final long newMaxNodeKey = maxNodeKeys.getOrDefault(indexNumber, 0L) + 1;
     maxNodeKeys.put(indexNumber, newMaxNodeKey);
     return newMaxNodeKey;
+  }
+
+  /**
+   * Reserve a contiguous run of node keys in the global projection value dictionary's sub-trie and
+   * return the first of them.
+   *
+   * <p><b>Why a run, and why it has to be contiguous and monotonic.</b> The indirect-page trie a
+   * sub-trie is built from grows a level only when the page key being prepared is exactly the
+   * power-of-two boundary of the current height ({@code KeyedTrieWriter#prepareLeafOfTree}). That
+   * makes dense, monotonically allocated keys not a convention but a requirement: a key space with
+   * a stride jumps past every boundary without ever triggering growth, and the traversal then
+   * resolves every page key to the root reference — so records at wildly different keys silently
+   * land on one page and overwrite each other. Allocating from this counter is the only way to get
+   * keys the trie can address, which is why the dictionary records where its run starts instead of
+   * computing its keys from a namespace.
+   *
+   * <p>Never reset. A rebuild reserves a fresh run rather than reusing the old one, which leaves
+   * the previous run's records in the trie unreferenced by any live dictionary — the same
+   * append-only, never-reclaimed treatment {@link #setFsstSymbolTable} gives symbol tables, and for
+   * the same reason: an earlier revision may still be reading them.
+   *
+   * @param count how many keys to reserve
+   * @return the first key of the run
+   * @throws IllegalArgumentException if {@code count} is not positive
+   */
+  public long reserveProjectionValueDictionaryKeys(final DatabaseType databaseType, final long count) {
+    if (count <= 0) {
+      throw new IllegalArgumentException("must reserve a positive number of keys, got " + count);
+    }
+    final int indexNumber = projectionValueDictionaryOffset(databaseType);
+    final long first = maxNodeKeys.getOrDefault(indexNumber, 0L) + 1;
+    maxNodeKeys.put(indexNumber, first + count - 1);
+    return first;
   }
 
   /**

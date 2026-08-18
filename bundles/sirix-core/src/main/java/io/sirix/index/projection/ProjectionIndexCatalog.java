@@ -95,8 +95,15 @@ public final class ProjectionIndexCatalog {
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexCatalog.class));
 
-  /** Precomputed per-definition strings — computed once per (resource, revision). */
-  private record DefEntry(IndexDef def, String rootPath, String[] fieldNames) {
+  /**
+   * Precomputed per-definition strings — computed once per (resource, revision). {@code fieldChains}
+   * holds each column's declared path relative to the DECLARED root (index-aligned with
+   * {@code fieldNames}, {@code null} per slot when not relativizable); coverage matches a query's
+   * deref chain against it, so a nested column cannot cover a top-level field of the same trailing
+   * name. {@code rootPath} may be rewritten by the descendant-pattern resolution, which is why the
+   * chains are computed from the def's own declared root instead.
+   */
+  private record DefEntry(IndexDef def, String rootPath, String[] fieldNames, String[] fieldChains) {
   }
 
   private record DefsKey(String resourceKey, int revision) {
@@ -384,7 +391,8 @@ public final class ProjectionIndexCatalog {
           + "' fields=" + Arrays.toString(requiredFields));
     }
     for (final DefEntry entry : entries) {
-      if (!entry.rootPath.equals(canonicalSourcePath) || !coversAll(entry.fieldNames, requiredFields)) {
+      if (!entry.rootPath.equals(canonicalSourcePath)
+          || !coversAll(entry.fieldNames, entry.fieldChains, requiredFields)) {
         if (DIAG) {
           System.err.println("[cat]   skip def root='" + entry.rootPath + "' fields="
               + Arrays.toString(entry.fieldNames) + (entry.rootPath.equals(canonicalSourcePath)
@@ -541,18 +549,36 @@ public final class ProjectionIndexCatalog {
       final int revision, final IndexDef def, final StorageEngineReader reader) {
     final ProjectionIndexMetadata metadata;
     final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories;
+    final Thread bloomThread;
+    final Object[] bloomResult = new Object[1];
+    final long tParse;
+    final long t0 = DIAG
+        ? System.nanoTime()
+        : 0L;
     try {
       metadata = ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L));
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
+      tParse = DIAG
+          ? System.nanoTime()
+          : 0L;
+      bloomThread = startBloomBlockRead(session, revision, def, metadata, bloomResult);
       // Column-pruned serving works for BOTH layouts: the segment-slot directory reader captures each
       // referenced segment's durable offset (and each bare-inline segment's bytes), so a column fill
       // batches ONLY the queried column's offsets — reading one column's segments across all row
       // groups and skipping the rest. Whole-leaf query shapes still materialize via the handle's
       // layout-dispatched materializer.
+      // This call site — and only this one — opts into the parallel walk: it runs under a fresh
+      // read-only transaction on a COMMITTED revision, so extra leases resolve the same immutable
+      // pages. The writer-facing decode path keeps the serial cursor walk (its reader consults a
+      // transaction intent log, whose read path mutates shared state).
       directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
-          metadata.rowGroupCount());
+          metadata.rowGroupCount(), worker -> {
+            try (JsonNodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+              worker.accept(laneRtx.getStorageEngineReader());
+            }
+          });
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during " + "directory walk ("
           + corrupt.getMessage() + ")");
@@ -586,12 +612,23 @@ public final class ProjectionIndexCatalog {
     }
     // The shared store carries only immutable descriptor state; every fill binds to the
     // CALLER's own live fetcher, threaded in per call — nothing session-scoped is stored.
+    final long tWalk = DIAG
+        ? System.nanoTime()
+        : 0L;
     final ProjectionColumnStore store = new ProjectionColumnStore(live);
     // Fingerprint BLOCKS (one blob per string column, absent on pre-fingerprint stores and after
     // incremental maintenance tombstoned them): one sequential read here replaces a scattered
     // per-leaf chain fetch on every string-equality query. Absence is fine — the store falls
     // back to the chain, and past that to keeping every leaf.
-    final byte[][] bloomBlocks = readBloomBlocks(reader, def, metadata.columnKinds(), rowGroupCount);
+    final byte[][] bloomBlocks = joinBloomBlockRead(bloomThread, bloomResult);
+    if (DIAG) {
+      final long tBloom = System.nanoTime();
+      System.err.printf(
+          "[cat] lazy-handle timings: metaParse %.1f ms, directoryWalk %.1f ms, bloomBlocks %.1f ms (%d leaves,"
+              + " projectedWeight %d MB)%n",
+          (tParse - t0) / 1e6, (tWalk - tParse) / 1e6, (tBloom - tWalk) / 1e6, rowGroupCount,
+          projectedBytes >> 20);
+    }
     if (bloomBlocks != null) {
       store.attachBloomBlocks(bloomBlocks);
     }
@@ -599,7 +636,48 @@ public final class ProjectionIndexCatalog {
         metadata.buildRevision(), metadata.fieldNames(), store, def.getID(), projectedBytes);
     // The metadata blob has already been read to get here, so the summary rides along for free.
     handle.setSetValueRowCounts(metadata.setValueRowCounts());
+    // …as do the per-column value dictionary anchors, without which a global string column can
+    // only be scanned, never probed: resolving a predicate literal to an id needs the anchor.
+    handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
+    // …and so do the declared column paths, which is what keeps a NESTED column from answering a
+    // top-level deref of the same trailing name (Handle#columnOf).
+    handle.setFieldChains(metadata.fieldChains());
     return handle;
+  }
+
+  /**
+   * The bloom-block read overlapped with the directory walk: it needs only the parsed metadata, so it
+   * runs on its own read transaction while the walk owns the caller's. Result slot 0 carries either
+   * the {@code byte[][]} (possibly null — absence is normal) or the {@link RuntimeException} the read
+   * threw, so the join can preserve the exact failure semantics of the serial call.
+   */
+  private static Thread startBloomBlockRead(final JsonResourceSession session, final int revision, final IndexDef def,
+      final ProjectionIndexMetadata metadata, final Object[] result) {
+    final Thread t = new Thread(() -> {
+      try (JsonNodeReadOnlyTrx bloomRtx = session.beginNodeReadOnlyTrx(revision)) {
+        result[0] =
+            readBloomBlocks(bloomRtx.getStorageEngineReader(), def, metadata.columnKinds(), metadata.rowGroupCount());
+      } catch (final RuntimeException failure) {
+        result[0] = failure;
+      }
+    }, "sirix-projection-bloom");
+    t.setDaemon(true);
+    t.start();
+    return t;
+  }
+
+  /** Join's happens-before edge publishes the result slot; a captured failure rethrows here. */
+  private static byte[] @Nullable [] joinBloomBlockRead(final Thread bloomThread, final Object[] result) {
+    try {
+      bloomThread.join();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return null; // absence is a supported state — the store falls back to the chain
+    }
+    if (result[0] instanceof RuntimeException failure) {
+      throw failure;
+    }
+    return (byte[][]) result[0];
   }
 
   /**
@@ -618,7 +696,10 @@ public final class ProjectionIndexCatalog {
     final int columnCount = RowGroupDescriptor.columnCount(descriptor);
     for (int c = 0; c < columnCount; c++) {
       final byte kind = RowGroupDescriptor.kind(descriptor, c);
-      if (ProjectionIndexRowGroupPage.isNumericKind(kind)) {
+      // A LAYOUT question — how many bytes does a decoded slice occupy — so it asks the layout
+      // predicate. A global string column decodes to the same eight bytes per row as any other long
+      // lane, and counting it as weightless would let the cache hold more than it accounted for.
+      if (ProjectionIndexRowGroupPage.isLongLaneKind(kind)) {
         bytes += ((long) rows << 3) + presenceBytes;
       } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
         bytes += presenceBytes << 1;
@@ -660,11 +741,37 @@ public final class ProjectionIndexCatalog {
    */
   public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(final JsonResourceSession session,
       final int revision) {
-    return offsets -> {
-      try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
-        // Batched + backend-coalesced (P5b stage 4b): runs of near-adjacent segment offsets
-        // become single ranged reads instead of a pread pair per segment.
-        return ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(), offsets);
+    return new ProjectionColumnStore.ColumnSegmentFetcher() {
+      @Override
+      public byte @Nullable [] @Nullable [] fetchAll(final long[] offsets) {
+        try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          // Batched + backend-coalesced (P5b stage 4b): runs of near-adjacent segment offsets
+          // become single ranged reads instead of a pread pair per segment.
+          return ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(), offsets);
+        }
+      }
+
+      @Override
+      public void fetchRange(final long[] offsets, final int from, final int to, final byte[][] out) {
+        final int len = to - from;
+        // A transaction PER RANGE: concurrent read transactions are supported (the parallel
+        // materialize walk already relies on it), a single one is not thread-safe, and the offsets
+        // ascend with the leaf index — so a contiguous range still coalesces into ranged reads.
+        try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final byte[][] part = ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(),
+              Arrays.copyOfRange(offsets, from, to));
+          if (part == null || part.length != len) {
+            throw new IllegalStateException("Segment fetcher returned " + (part == null
+                ? "null"
+                : part.length + " results") + " for " + len + " offsets");
+          }
+          System.arraycopy(part, 0, out, from, len);
+        }
+      }
+
+      @Override
+      public boolean rangedFetchIsConcurrent() {
+        return true;
       }
     };
   }
@@ -695,14 +802,13 @@ public final class ProjectionIndexCatalog {
    * One projection materialization. The slot WALK is the cold-start whale — the range cursor
    * force-decodes every trie page it passes, serially — so for large stores it partitions the
    * contiguous row-group id space across ForkJoin workers, each on its OWN read transaction
-   * (concurrent read trxs are supported; decoded pages land in the shared buffer manager, so
-   * boundary pages decoded twice cost duplicate work, never correctness). Batch resolution and
-   * assembly (phases 3-5) then run exactly as the serial path does.
+   * (concurrent read trxs are supported; decoded pages land in the shared buffer manager, so boundary
+   * pages decoded twice cost duplicate work, never correctness). Batch resolution and assembly
+   * (phases 3-5) then run exactly as the serial path does.
    */
   private static List<byte[]> materializeRowGroups(final JsonResourceSession session, final int revision,
       final int defId, final int rowGroupCount) {
-    final int workers = Math.min(Runtime.getRuntime().availableProcessors(),
-        Math.max(1, rowGroupCount / 64));
+    final int workers = Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, rowGroupCount / 64));
     final long t0 = DIAG
         ? System.nanoTime()
         : 0L;
@@ -836,8 +942,14 @@ public final class ProjectionIndexCatalog {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt leaf payload (" + corrupt.getMessage() + ")");
       return NOT_USABLE;
     }
-    return new ProjectionIndexRegistry.Handle(metadata.rootPath(), metadata.buildRevision(), metadata.fieldNames(),
-        decoded, null);
+    final ProjectionIndexRegistry.Handle handle = new ProjectionIndexRegistry.Handle(metadata.rootPath(),
+        metadata.buildRevision(), metadata.fieldNames(), decoded, null);
+    handle.setFieldChains(metadata.fieldChains());
+    // The eager path needs the value dictionary anchors as much as the column-lazy one does: without
+    // them a global column's ids have nothing to resolve against, and every route that would consume
+    // them declines — silently, and only on whichever hydrate path a given store happens to take.
+    handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
+    return handle;
   }
 
   private static DefEntry[] defEntries(final JsonResourceSession session, final String resourceKey,
@@ -875,7 +987,7 @@ public final class ProjectionIndexCatalog {
         }
         final Path<QNm> concrete = summary.getPath();
         if (concrete != null) {
-          entries[i] = new DefEntry(entry.def, concrete.toString(), entry.fieldNames);
+          entries[i] = new DefEntry(entry.def, concrete.toString(), entry.fieldNames, entry.fieldChains);
         }
       }
     } catch (final RuntimeException e) {
@@ -894,8 +1006,9 @@ public final class ProjectionIndexCatalog {
     final List<DefEntry> entries = new ArrayList<>();
     for (final IndexDef def : indexes.getIndexDefs()) {
       if (def.isProjectionIndex()) {
-        entries.add(new DefEntry(def, def.getProjectionRootPath().toString(),
-            ProjectionIndexChangeListener.trailingFieldNames(def)));
+        final String declaredRoot = def.getProjectionRootPath().toString();
+        entries.add(new DefEntry(def, declaredRoot, ProjectionIndexChangeListener.trailingFieldNames(def),
+            ProjectionIndexMetadata.relativeFieldChains(declaredRoot, defFieldPaths(def))));
       }
     }
     return entries.toArray(new DefEntry[0]);
@@ -931,10 +1044,22 @@ public final class ProjectionIndexCatalog {
     return sb.toString();
   }
 
-  private static boolean coversAll(final String[] names, final String[] requiredFields) {
+  /**
+   * Whether every required field token resolves to a column of this definition, under exactly the
+   * rule {@link ProjectionIndexRegistry.Handle#columnOf(String)} applies at scan time: a column with
+   * a relativizable declared path matches its CHAIN ({@code "commit/collection"}), one without falls
+   * back to its trailing name. Selecting a candidate the handle would then refuse to resolve would
+   * only waste a load — and, worse, could shadow a definition that does match.
+   */
+  private static boolean coversAll(final String[] names, final String[] chains, final String[] requiredFields) {
     outer: for (final String required : requiredFields) {
-      for (final String name : names) {
-        if (name.equals(required)) {
+      for (int i = 0; i < names.length; i++) {
+        final String chain = chains == null || chains.length != names.length
+            ? null
+            : chains[i];
+        if (chain == null
+            ? names[i].equals(required)
+            : chain.equals(required)) {
           continue outer;
         }
       }

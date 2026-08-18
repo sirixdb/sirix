@@ -3,6 +3,8 @@
  */
 package io.sirix.index.projection;
 
+import org.jspecify.annotations.Nullable;
+
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -101,22 +103,49 @@ public final class ProjectionIndexMetadata {
    */
   private final Map<Integer, Map<String, Long>> setValueRowCounts;
 
+  /**
+   * Per {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column, the node key of its
+   * value dictionary's header record; {@code 0} for every other column.
+   *
+   * <p>This is the only pointer to the dictionary, and it has to live here rather than be computed
+   * from the column's identity: the dictionary's records occupy a run of node keys reserved from a
+   * shared counter, so where a column's run starts is a fact about a particular build, not a
+   * function of which column it is. See {@code GlobalValueDictionary} for why a computed namespace
+   * is not an option.
+   *
+   * <p>Written as a TRAILING section so a payload from before the section existed still parses —
+   * it simply reports no dictionaries, and a store holding no global columns cannot need any. That
+   * keeps already-ingested resources readable without a re-ingest, which a version bump (the
+   * project's normal answer to a shape change) would not.
+   */
+  private final long[] valueDictionaryHeaderKeys;
+
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, null, null);
   }
 
   /** As above, carrying the index-wide {@link #setValueRowCounts}. */
   public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
       final Map<Integer, Map<String, Long>> setValueRowCounts) {
-    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts);
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
+        null);
+  }
+
+  /** As above, carrying the per-column value dictionary header keys. */
+  public ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
+      final byte[] columnKinds, final int rowGroupCount, final int buildRevision,
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
+    this(rootPath, fieldPaths, fieldNames, columnKinds, rowGroupCount, buildRevision, (byte) 0, setValueRowCounts,
+        valueDictionaryHeaderKeys);
   }
 
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
-      final Map<Integer, Map<String, Long>> setValueRowCounts) {
+      final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
     this.setValueRowCounts = setValueRowCounts;
+    this.valueDictionaryHeaderKeys = valueDictionaryHeaderKeys;
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
@@ -137,7 +166,7 @@ public final class ProjectionIndexMetadata {
 
   /** Minimal stale marker the change listener writes over slot 0 on invalidation. */
   public static ProjectionIndexMetadata staleTombstone() {
-    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE, null);
+    return new ProjectionIndexMetadata("", new String[0], new String[0], new byte[0], 0, 0, FLAG_STALE, null, null);
   }
 
 
@@ -151,6 +180,51 @@ public final class ProjectionIndexMetadata {
 
   public String[] fieldNames() {
     return fieldNames.clone();
+  }
+
+  /**
+   * Per column, its declared path RELATIVE to {@link #rootPath()} — {@code "age"} for {@code /[]/age}
+   * under {@code /[]}, {@code "commit/collection"} for {@code /[]/commit/collection},
+   * {@code "genres"} for the set column {@code /[]/genres/[]}. This is what a query's deref CHAIN is
+   * matched against, so a nested column can never answer a top-level deref of the same trailing name
+   * (or the reverse). {@code null} at a slot whose declared path is not relativizable against the
+   * root — the match then falls back to the trailing name, i.e. to the historical behavior.
+   *
+   * @see ProjectionIndexRegistry.Handle#columnOf(String)
+   */
+  public String[] fieldChains() {
+    return relativeFieldChains(rootPath, fieldPaths);
+  }
+
+  /**
+   * {@link #fieldChains()} over an explicit root and declared paths (the catalog's def-side twin).
+   */
+  public static String[] relativeFieldChains(final String rootPath, final String[] fieldPaths) {
+    final String[] chains = new String[fieldPaths.length];
+    for (int i = 0; i < chains.length; i++) {
+      chains[i] = relativeFieldChain(rootPath, fieldPaths[i]);
+    }
+    return chains;
+  }
+
+  /**
+   * One column's declared path relative to the record root, with trailing array steps stripped (a set
+   * column is declared at its array layer but IS its field), or {@code null} when the path does not
+   * sit strictly under the root — a shape the creation function rejects, so the fallback exists only
+   * so an unexpected declaration degrades to name matching instead of becoming unservable.
+   */
+  public static String relativeFieldChain(final String rootPath, final String fieldPath) {
+    if (rootPath == null || rootPath.isEmpty() || fieldPath == null) {
+      return null;
+    }
+    String path = fieldPath;
+    while (path.endsWith("/[]")) {
+      path = path.substring(0, path.length() - 3);
+    }
+    if (path.length() <= rootPath.length() + 1 || !path.startsWith(rootPath) || path.charAt(rootPath.length()) != '/') {
+      return null;
+    }
+    return path.substring(rootPath.length() + 1);
   }
 
   public byte[] columnKinds() {
@@ -177,10 +251,35 @@ public final class ProjectionIndexMetadata {
 
 
 
-  /** Whether this metadata describes exactly the given shape. */
+  /**
+   * Whether this metadata describes exactly the given shape.
+   *
+   * <p>Column kinds are compared up to the choice of string dictionary. A caller derives the
+   * expected kinds from the definition's declared TYPES, which can only ever yield
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_DICT} for a string column — whereas
+   * whether the build chose a per-leaf or a resource-wide dictionary is a property of the data it
+   * saw, decided while the build ran. Comparing the two byte-for-byte would make every store with
+   * a global dictionary look like a shape mismatch and be rebuilt on sight, forever. The shape this
+   * check is about is what the projection projects, not how a column encodes its strings.
+   */
   public boolean matches(final String otherRootPath, final String[] otherFieldPaths, final byte[] otherColumnKinds) {
-    return rootPath.equals(otherRootPath) && Arrays.equals(fieldPaths, otherFieldPaths)
-        && Arrays.equals(columnKinds, otherColumnKinds);
+    if (!rootPath.equals(otherRootPath) || !Arrays.equals(fieldPaths, otherFieldPaths)
+        || columnKinds.length != otherColumnKinds.length) {
+      return false;
+    }
+    for (int c = 0; c < columnKinds.length; c++) {
+      if (!sameDeclaredShape(columnKinds[c], otherColumnKinds[c])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** Whether two column kinds describe the same declared column, ignoring the dictionary choice. */
+  private static boolean sameDeclaredShape(final byte persisted, final byte derived) {
+    return persisted == derived
+        || (persisted == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+            && derived == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT);
   }
 
   public byte[] serialize() {
@@ -198,6 +297,7 @@ public final class ProjectionIndexMetadata {
       out.write(columnKinds[i]);
     }
     writeSetValueRowCounts(out);
+    writeValueDictionaryHeaderKeys(out);
     return out.toByteArray();
   }
 
@@ -358,10 +458,114 @@ public final class ProjectionIndexMetadata {
         }
         counts.put(column, forColumn);
       }
-      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts);
+      // The dictionary section is OPTIONAL by ABSENCE, and absence means exactly zero bytes left:
+      // a payload written before the section existed ends here. Anything else — a partial section,
+      // or bytes this parse does not account for — is truncation or corruption and must be loud,
+      // which is why "some bytes remain" is not treated as "close enough to none".
+      long[] dictionaryKeys = null;
+      final int remaining = payload.length - pos[0];
+      if (remaining > 0) {
+        if (remaining < 2) {
+          throw new IllegalStateException(
+              "Projection metadata has " + remaining + " trailing byte(s), too few for a value dictionary section");
+        }
+        final int dictionaryColumns = getShortU(payload, pos);
+        if (dictionaryColumns > 0) {
+          if (dictionaryColumns > n) {
+            throw new IllegalStateException("Projection metadata declares " + dictionaryColumns
+                + " value dictionaries for " + n + " columns");
+          }
+          dictionaryKeys = new long[n];
+          for (int i = 0; i < dictionaryColumns; i++) {
+            final int column = getShortU(payload, pos);
+            final long headerKey = getLongLE(payload, pos[0]);
+            pos[0] += 8;
+            if (column >= n || headerKey < 0) {
+              throw new IllegalStateException(
+                  "Projection metadata names value dictionary " + headerKey + " for column " + column);
+            }
+            dictionaryKeys[column] = headerKey;
+          }
+        }
+        if (pos[0] != payload.length) {
+          throw new IllegalStateException("Projection metadata has " + (payload.length - pos[0])
+              + " byte(s) past the value dictionary section");
+        }
+      }
+      return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
+          dictionaryKeys);
     } catch (final IndexOutOfBoundsException truncated) {
       throw new IllegalStateException("Corrupt projection metadata payload", truncated);
     }
+  }
+
+  /**
+   * The node key of column {@code column}'s value dictionary header, or {@code 0} when the column
+   * has none — which is every column of a store written before global dictionaries existed, and
+   * every column that is not {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}.
+   *
+   * @param column the column ordinal
+   * @return the header node key, or {@code 0}
+   */
+  public long valueDictionaryHeaderKey(final int column) {
+    return valueDictionaryHeaderKeys == null || column < 0 || column >= valueDictionaryHeaderKeys.length
+        ? 0L
+        : valueDictionaryHeaderKeys[column];
+  }
+
+  /**
+   * Every column's value dictionary anchor, index-aligned with the columns; {@code null} when the
+   * index carries none at all. The array is the metadata's own — callers hold it read-only, exactly
+   * as they do the field names.
+   */
+  public long @Nullable [] valueDictionaryHeaderKeys() {
+    return hasValueDictionaries()
+        ? valueDictionaryHeaderKeys
+        : null;
+  }
+
+  /** Whether any column of this index carries a global value dictionary. */
+  public boolean hasValueDictionaries() {
+    if (valueDictionaryHeaderKeys == null) {
+      return false;
+    }
+    for (final long key : valueDictionaryHeaderKeys) {
+      if (key != 0L) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Append the value dictionary section: one entry per column that has one. */
+  private void writeValueDictionaryHeaderKeys(final ByteArrayOutputStream out) {
+    int present = 0;
+    if (valueDictionaryHeaderKeys != null) {
+      for (final long key : valueDictionaryHeaderKeys) {
+        if (key != 0L) {
+          present++;
+        }
+      }
+    }
+    putShortU(out, present);
+    if (present == 0) {
+      return;
+    }
+    for (int c = 0; c < valueDictionaryHeaderKeys.length; c++) {
+      if (valueDictionaryHeaderKeys[c] != 0L) {
+        putShortU(out, c);
+        putLongLE(out, valueDictionaryHeaderKeys[c]);
+      }
+    }
+  }
+
+  private static void putLongLE(final ByteArrayOutputStream out, final long value) {
+    putIntLE(out, (int) value);
+    putIntLE(out, (int) (value >>> 32));
+  }
+
+  private static long getLongLE(final byte[] payload, final int off) {
+    return (getIntLE(payload, off) & 0xFFFFFFFFL) | ((long) getIntLE(payload, off + 4) << 32);
   }
 
   private static int getShortU(final byte[] payload, final int[] pos) {
@@ -385,6 +589,11 @@ public final class ProjectionIndexMetadata {
     final String value = new String(payload, pos[0], len, StandardCharsets.UTF_8);
     pos[0] += len;
     return value;
+  }
+
+  private static void putShortU(final ByteArrayOutputStream out, final int v) {
+    out.write(v & 0xFF);
+    out.write((v >>> 8) & 0xFF);
   }
 
   private static void putIntLE(final ByteArrayOutputStream out, final int v) {

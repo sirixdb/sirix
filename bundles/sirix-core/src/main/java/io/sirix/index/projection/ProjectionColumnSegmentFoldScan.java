@@ -165,6 +165,14 @@ public final class ProjectionColumnSegmentFoldScan {
       if (p.stringLitBytes != null || !store.columnSliceable(p.column)) {
         return false;
       }
+      // This kernel has exactly TWO lanes — packed longs and packed bits — and picks between them
+      // by kind. A column that is neither (a per-leaf dictionary, a set) has no lane here, and the
+      // bit arm would read its bytes as bits rather than decline. Sliceability alone stopped saying
+      // so once it began admitting string kinds.
+      if (!ProjectionIndexRowGroupPage.isLongLaneKind(store.columnKind(p.column))
+          && store.columnKind(p.column) != ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+        return false;
+      }
     }
     // The aggregate must be a NUMERIC column, checked by KIND: columnSliceable now also admits
     // string and boolean columns, and a fold over their bytes would misparse them as numbers.
@@ -179,8 +187,10 @@ public final class ProjectionColumnSegmentFoldScan {
       if (col < 0) {
         continue;
       }
-      final boolean numericKind = ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(col));
-      if (!numericKind) {
+      // Long-lane columns are the ones the plain-width probe applies to — the same set
+      // predicateNumeric will send down the unpacking arm, so the probe must cover exactly them.
+      final boolean longLaneKind = ProjectionIndexRowGroupPage.isLongLaneKind(store.columnKind(col));
+      if (!longLaneKind) {
         continue;
       }
       final byte[][] segments = store.columnBytes(col, fetcher);
@@ -908,10 +918,22 @@ public final class ProjectionColumnSegmentFoldScan {
     return bytes;
   }
 
+  /**
+   * Which predicate columns are read through the LONG lane rather than the bit lane.
+   *
+   * <p>
+   * The question is about STORAGE, not about arithmetic, which is why it asks
+   * {@link ProjectionIndexRowGroupPage#isLongLaneKind} and not {@code isNumericKind}: the false arm
+   * below reads the column as a packed BOOLEAN word, so anything whose cells are longs must answer
+   * {@code true} here or its bytes are interpreted as bits — a wrong answer with no symptom.
+   * {@code NUMERIC_DOUBLE} is in for the same reason ({@code ProjectionDoubleEncoding}'s
+   * order-preserving longs), and {@code STRING_GLOBAL} joins them: its cells are dictionary ids, and
+   * the literal was resolved to an id before the predicate was built.
+   */
   private static boolean[] predicateNumeric(final ProjectionColumnStore store, final ColumnPredicate[] predicates) {
     final boolean[] numeric = new boolean[predicates.length];
     for (int i = 0; i < predicates.length; i++) {
-      numeric[i] = ProjectionIndexRowGroupPage.isNumericKind(store.columnKind(predicates[i].column));
+      numeric[i] = ProjectionIndexRowGroupPage.isLongLaneKind(store.columnKind(predicates[i].column));
     }
     return numeric;
   }

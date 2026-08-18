@@ -1990,7 +1990,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * both directions, decodable later through the page's symbol table by whoever actually materialises
    * the value.
    *
-   * @return the stored bytes, or {@code null} for an absent/empty payload
+   * <p>
+   * A zero-length payload answers the shared empty array, not {@code null}: the empty string is a
+   * value like any other, and the caller drops from the string column every slot this method
+   * declines. Dropping the empty ones left the column holding fewer values than the field has
+   * occurrences on the page — which is exactly what the column consumers' completeness oracle
+   * refuses to serve, so those pages fell back to the records, and what the dictionary sketch
+   * (consulted BEFORE that oracle) turned into a confident {@code count(f eq "") = 0}. Only an
+   * unpopulated slot or a negative length — neither of which is a value — answers {@code null}.
+   *
+   * @return the stored bytes, or {@code null} when the slot holds no payload at all
    */
   public byte[] readFusedObjectNamedStringStoredBytes(final int slotNumber) {
     final MemorySegment sp = slottedPage;
@@ -2002,8 +2011,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
     final long lenOff = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
-    if (length <= 0)
+    if (length < 0)
       return null;
+    if (length == 0)
+      return EMPTY_STRING_VALUE_BYTES;
     final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
     final byte[] out = new byte[length];
     MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, out, 0, length);
@@ -2011,8 +2022,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
   /**
-   * Shared result for a zero-length {@code STRING_VALUE} payload: an empty string is a legitimate
-   * value and must stay distinguishable from a corrupt slot, which answers {@code null}.
+   * Shared result for a zero-length string payload: an empty string is a legitimate value and must
+   * stay distinguishable from a corrupt or absent slot, which answers {@code null}.
    */
   private static final byte[] EMPTY_STRING_VALUE_BYTES = new byte[0];
 
@@ -3200,8 +3211,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
 
   /**
    * Expand every chunk this page still holds compressed, so the whole heap is readable without
-   * further gating. What a consumer that walks the page from end to end calls once, instead of
-   * gating per slot.
+   * further gating. What a consumer that walks the page from end to end calls once, instead of gating
+   * per slot.
    */
   public void ensureAllChunks() {
     final LazyChunkedBody lazy = lazyChunkedBody;

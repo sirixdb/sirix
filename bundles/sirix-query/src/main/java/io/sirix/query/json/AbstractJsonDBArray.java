@@ -29,6 +29,7 @@ import java.lang.ref.Cleaner.Cleanable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
 
 public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> extends AbstractArray
     implements TemporalJsonDBItem<T>, JsonDBItem, Array, StructuredDBItem<JsonNodeReadOnlyTrx>, SplittableMembers {
@@ -58,8 +59,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private final JsonItemSequence jsonItemSequence;
 
   /**
-   * Cached values. Populated only by {@link #values()} and by RANDOM access through {@link #at(int)};
-   * a purely sequential scan never builds it.
+   * Cached values. Populated only by an explicit {@link #values()} — {@link #at(int)} never builds it
+   * at any index or access pattern, because the size of this list is the size of the array and it
+   * lives as long as the query does.
    */
   private List<Sequence> values;
 
@@ -84,16 +86,6 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   private long childCount;
 
   /**
-   * Index of the element returned by the last SEQUENTIAL {@link #at(int)} call, or -1.
-   *
-   * <p>
-   * Together with {@link #seqNodeKey} this turns {@code for $x in $doc[]} into a sibling walk:
-   * re-anchor on the previously returned element and hop right, instead of materializing every
-   * element up front. The re-anchor is needed because the cursor is shared — evaluating
-   * {@code $x.field} moves it — and lands on the page the element already lives on, so it takes the
-   * cursor's own same-page fast path.
-   */
-  /**
    * Overlaps record-page decoding with this walk; {@code null} when prefetching is disabled or the
    * resource is too small to be worth it. Created on the first sequential step and closed when the
    * walk ends, so a query that never scans never starts a worker.
@@ -109,10 +101,71 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
   /** Whether {@link #prefetcher} has been considered yet (it may legitimately resolve to null). */
   private boolean prefetcherInitialized;
 
-  private int seqIndex = -1;
+  /**
+   * Anchor slot A: index of an element {@link #at(int)} has served, or -1 when the slot is empty.
+   *
+   * <p>
+   * Together with {@link #anchorKeyA} this turns {@code for $x in $doc[]} into a sibling walk:
+   * re-anchor on a previously returned element and hop right, instead of walking a fresh child axis
+   * per index. The re-anchor is needed because the cursor is shared — evaluating {@code $x.field}
+   * moves it — and lands on the page the element already lives on, so it takes the cursor's own
+   * same-page fast path.
+   */
+  private int anchorIndexA = -1;
 
-  /** Node key of the element at {@link #seqIndex}; meaningless when {@code seqIndex < 0}. */
-  private long seqNodeKey;
+  /** Node key of the element at {@link #anchorIndexA}; meaningless when that is negative. */
+  private long anchorKeyA;
+
+  /**
+   * Anchor slot B, which exists because ONE anchor is not enough: two consumers can walk the same
+   * array item at once, and with a single slot each one's hop destroys the other's place.
+   *
+   * <p>
+   * That is not hypothetical. brackit decides whether a spilled tuple column is copied or held by
+   * reference by RENDERING it under a 64 KiB cap ({@code TupleSerializer.serializeToJson}), and the
+   * renderer walks an array with the same {@code len()}/{@code at(i)} protocol the unbox loop uses
+   * ({@code StringSerializer}). So spilling a tuple that carries {@code $doc} runs a second walk from
+   * index 0 across the very array the {@code for} loop is streaming, and abandons it a hundred-odd
+   * elements in. With one slot the streaming walk came back to an anchor it did not set, fell into
+   * the RANDOM branch below, and materialized every element of the array; measured on a 100 M-element
+   * corpus that is 4.8 GB of items retained for the rest of the query. A second slot lets both walks
+   * keep their place, and each stays a single sibling hop per element.
+   *
+   * <p>
+   * Two, not more: two is what an interleaved pair costs, and a third walk still gets correct answers
+   * from the positional re-anchor below — only more slowly. The slots are scalar fields rather than
+   * an array because an array item is constructed per array node on a scan.
+   */
+  private int anchorIndexB = -1;
+
+  /** Node key of the element at {@link #anchorIndexB}; meaningless when that is negative. */
+  private long anchorKeyB;
+
+  /**
+   * Which slot served most recently. A miss evicts the OTHER one, so the walk that is making progress
+   * keeps its anchor and a one-off probe cannot displace it.
+   */
+  private boolean lastServedB;
+
+  /**
+   * Whether {@link #prefetcher} follows slot B. Read-ahead belongs to ONE walk — the one that was
+   * long enough to justify starting it — so the other slot's hops must not drag it backwards.
+   */
+  private boolean prefetchFollowsB;
+
+  /**
+   * Whether the cursor can see structural change, i.e. whether an anchor may become stale.
+   *
+   * <p>
+   * An anchor is a bet that the node it names is still this array's child at that index. Under a
+   * read-only cursor the bet cannot lose: the revision is fixed, so nothing can move a node out of
+   * this array, and the sibling chain reachable from an anchor is by construction this array's
+   * elements. Under a writer it can: an edit made through a DIFFERENT item bound to the same array,
+   * or straight through the transaction, is invisible here — the same reason {@link #childCount} is
+   * left unknown for a writer. So a writer verifies the anchor's parent before trusting it, and a
+   * reader — which is every scan — pays nothing for a check that cannot fail.
+   */
+  private final boolean cursorMayMutate;
 
   private enum Op {
     Replace,
@@ -120,6 +173,47 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     Insert,
 
     Append
+  }
+
+  /**
+   * Walk statistics.
+   *
+   * <p>
+   * Every counter sits on a path a healthy scan never takes — a hop that lands touches none of them —
+   * so measuring costs the walk nothing. They exist because the difference between "the scan walked"
+   * and "the scan quietly fell back to something quadratic or unbounded" is invisible in a result and
+   * enormous in cost, and a timing alone cannot tell them apart.
+   */
+  private static final LongAdder POSITIONAL_REANCHORS = new LongAdder();
+
+  private static final LongAdder MATERIALIZATIONS = new LongAdder();
+
+  /** Prints the state behind every re-anchor and materialization; costs a probe per event. */
+  private static final boolean SCAN_DIAG = Boolean.getBoolean("sirix.jsonArray.scanDiag");
+
+  /**
+   * Number of {@link #at(int)} calls neither anchor could serve with a single hop, so the element had
+   * to be located by walking. Every walk contributes one — its own first element — so the number to
+   * read this against is the number of walks, not zero. Process-wide and monotonic; diagnostics and
+   * tests only.
+   */
+  public static long positionalReanchors() {
+    return POSITIONAL_REANCHORS.sum();
+  }
+
+  /**
+   * Number of times an array's full element list was built and cached. {@link #at(int)} never does
+   * this — only an explicit {@link #values()} does. Process-wide and monotonic; diagnostics and tests
+   * only.
+   */
+  public static long materializations() {
+    return MATERIALIZATIONS.sum();
+  }
+
+  /** Resets the counters. Tests only — there is no process-wide coordination. */
+  public static void resetScanCounters() {
+    POSITIONAL_REANCHORS.reset();
+    MATERIALIZATIONS.reset();
   }
 
   AbstractJsonDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection,
@@ -134,7 +228,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     jsonItemSequence = new JsonItemSequence();
     // See the field javadoc: only a read-only cursor sees a fixed revision, so only there can the
     // count be trusted for the lifetime of this item.
-    childCount = rtx instanceof JsonNodeTrx
+    cursorMayMutate = rtx instanceof JsonNodeTrx;
+    childCount = cursorMayMutate
         ? CHILD_COUNT_UNKNOWN
         : rtx.getChildCount();
   }
@@ -439,7 +534,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * both: the anchor's right sibling may no longer be the next element, and the count has moved.
    */
   private void invalidateScanState() {
-    seqIndex = -1;
+    anchorIndexA = -1;
+    anchorIndexB = -1;
     childCount = CHILD_COUNT_UNKNOWN;
     // A mutation ends the walk the read-ahead was serving; whatever it has in flight is for a
     // shape that no longer exists.
@@ -541,6 +637,10 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   private List<Sequence> getValues() {
     moveRtx();
+    MATERIALIZATIONS.increment();
+    if (SCAN_DIAG) {
+      System.err.printf("[jsonArrayScan] MATERIALIZING array nodeKey=%d childCount=%d%n", nodeKey, childCount);
+    }
     final var values = new ArrayList<Sequence>();
 
     // Single sequential scan via the installable seam: with an io_uring prefetch factory installed,
@@ -586,36 +686,182 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // fitting in memory.
     //
     // Walking instead costs a re-anchor plus a sibling hop per element, both landing on the page
-    // the element already occupies.
-    if (index == seqIndex + 1 && seqIndex >= 0) {
-      final long previousNodeKey = seqNodeKey;
-      if (rtx.moveTo(seqNodeKey) && rtx.moveToRightSibling()) {
-        seqIndex = index;
-        seqNodeKey = rtx.getNodeKey();
-        onSequentialAdvance(index, previousNodeKey);
-        return jsonItemFactory.getSequence(rtx, collection);
+    // the element already occupies. Both slots are tried: see the anchorIndexB javadoc for the
+    // interleaved walk this exists to survive.
+    if (index > 0) {
+      if (index == anchorIndexA + 1) {
+        final Sequence hopped = hopFrom(index, anchorKeyA, false);
+        if (hopped != null) {
+          return hopped;
+        }
+      } else if (index == anchorIndexB + 1) {
+        final Sequence hopped = hopFrom(index, anchorKeyB, true);
+        if (hopped != null) {
+          return hopped;
+        }
       }
-      // Ran off the end, or the anchor is gone: fall through rather than guess.
-      seqIndex = -1;
-      closePrefetcher();
-    } else if (index == 0) {
-      moveRtx();
-      if (rtx.moveToFirstChild()) {
-        seqIndex = 0;
-        seqNodeKey = rtx.getNodeKey();
-        return jsonItemFactory.getSequence(rtx, collection);
-      }
-      return null;
     }
 
-    // RANDOM access (or a sequential walk that lost its anchor): materialize once and answer from
-    // the list from here on, which keeps the old O(n) guarantee for index jumping.
-    closePrefetcher();
-    final List<Sequence> built = getValues();
-    values = built;
-    return index >= built.size()
-        ? null
-        : built.get(index);
+    // Re-reading the element an anchor already sits on: one move, and — unlike a re-anchor — it
+    // leaves both slots and the read-ahead exactly as they were, so a consumer that reads an element
+    // twice (peek then take, or a `for` whose body re-evaluates the binding) does not cost the walk
+    // its place. An empty slot holds -1 and a negative index was rejected above, so no equality here
+    // can match by accident.
+    if (index == anchorIndexA && moveToAnchor(anchorKeyA)) {
+      lastServedB = false;
+      return jsonItemFactory.getSequence(rtx, collection);
+    }
+    if (index == anchorIndexB && moveToAnchor(anchorKeyB)) {
+      lastServedB = true;
+      return jsonItemFactory.getSequence(rtx, collection);
+    }
+
+    // Neither anchor is one hop away -- a fresh walk, an interleaved one, or a hop that did not
+    // land. Locate the element by walking, from the closest anchor at or below it when there is one
+    // and from the first child otherwise.
+    //
+    // This is where the whole element list used to be materialized and cached, "to keep the old O(n)
+    // guarantee for index jumping". It is not worth its price: the cache is unbounded in the size of
+    // the array, it is retained for the lifetime of the query, and one interleaved walk is enough to
+    // trigger it, so a single 64 KiB render of $doc during a spill turned a streaming scan into
+    // 99,999,968 live items. Walking costs O(distance) and nothing at all in memory, and the
+    // anchors keep that distance at 1 for every consumer that reads forward -- which is every
+    // consumer that matters. JsonDBArraySlice.sequenceAtSliceIndex has always resolved a lost
+    // anchor this way.
+    return atByWalking(index);
+  }
+
+  /**
+   * Serves {@code index} by hopping right from an anchor known to sit at {@code index - 1}.
+   *
+   * @param index the index to serve
+   * @param anchorKey node key of the element at {@code index - 1}
+   * @param slotB whether the anchor is slot B
+   * @return the element, or {@code null} if the anchor no longer resolves or has no right sibling —
+   *         the caller then locates the element by walking
+   */
+  private Sequence hopFrom(final int index, final long anchorKey, final boolean slotB) {
+    if (!moveToAnchor(anchorKey) || !rtx.moveToRightSibling()) {
+      return null;
+    }
+    recordAnchor(index, rtx.getNodeKey(), slotB);
+    onSequentialAdvance(index, anchorKey, slotB);
+    return jsonItemFactory.getSequence(rtx, collection);
+  }
+
+  /**
+   * Locates {@code index} by walking the sibling chain, starting from the closest anchor strictly
+   * below it when there is one and from the array's first child otherwise.
+   *
+   * <p>
+   * Allocation-free apart from the returned item: the walk is cursor moves only.
+   *
+   * @param index the index to serve
+   * @return the element, or {@code null} when the array has fewer elements
+   */
+  private Sequence atByWalking(final int index) {
+    POSITIONAL_REANCHORS.increment();
+    if (SCAN_DIAG) {
+      System.err.printf("[jsonArrayScan] re-anchor array nodeKey=%d childCount=%d index=%d anchors=[%d,%d]%n", nodeKey,
+          childCount, index, anchorIndexA, anchorIndexB);
+    }
+
+    // The better anchor is the higher one still below the target; an anchor at or above it says
+    // nothing about where the target is, because the chain is only walkable forwards.
+    int from = -1;
+    long fromKey = 0L;
+    boolean fromB = false;
+    if (anchorIndexA >= 0 && anchorIndexA < index) {
+      from = anchorIndexA;
+      fromKey = anchorKeyA;
+    }
+    if (anchorIndexB >= 0 && anchorIndexB < index && anchorIndexB > from) {
+      from = anchorIndexB;
+      fromKey = anchorKeyB;
+      fromB = true;
+    }
+
+    // Evict the slot that did NOT serve last, so a walk in progress keeps its place. Reusing the
+    // anchor we started from is the exception: it has just been superseded by this very walk.
+    final boolean target = from >= 0
+        ? fromB
+        : !lastServedB;
+
+    if (from >= 0 && moveToAnchor(fromKey)) {
+      for (int i = from; i < index; i++) {
+        if (!rtx.moveToRightSibling()) {
+          // The anchor is stale (the chain no longer reaches the target). Start over from the top
+          // rather than report the element missing on its evidence.
+          return atByDescent(index, target);
+        }
+      }
+      recordAnchor(index, rtx.getNodeKey(), target);
+      return jsonItemFactory.getSequence(rtx, collection);
+    }
+    return atByDescent(index, target);
+  }
+
+  /**
+   * Locates {@code index} by walking from the array's first child.
+   *
+   * @param index the index to serve
+   * @param slotB the anchor slot to record the result in
+   * @return the element, or {@code null} when the array has fewer elements
+   */
+  private Sequence atByDescent(final int index, final boolean slotB) {
+    moveRtx();
+    if (!rtx.moveToFirstChild()) {
+      clearAnchor(slotB);
+      return null;
+    }
+    for (int i = 0; i < index; i++) {
+      if (!rtx.moveToRightSibling()) {
+        clearAnchor(slotB);
+        return null;
+      }
+    }
+    recordAnchor(index, rtx.getNodeKey(), slotB);
+    return jsonItemFactory.getSequence(rtx, collection);
+  }
+
+  /**
+   * Positions the cursor on an anchor, refusing one that is no longer this array's child.
+   *
+   * <p>
+   * The parent test only runs for a cursor that can see structural change — see
+   * {@link #cursorMayMutate}. Making a scan pay it would be a per-element decode for a question whose
+   * answer is fixed at the revision the scan reads. {@code JsonDBArraySlice.sequenceAtSliceIndex}
+   * makes the same test for the same reason.
+   *
+   * @param anchorKey node key an anchor slot names
+   * @return whether the cursor now sits on a usable anchor
+   */
+  private boolean moveToAnchor(final long anchorKey) {
+    if (!rtx.moveTo(anchorKey)) {
+      return false;
+    }
+    return !cursorMayMutate || rtx.getParentKey() == nodeKey;
+  }
+
+  /** Points an anchor slot at {@code index} and marks it as the one that served most recently. */
+  private void recordAnchor(final int index, final long elementNodeKey, final boolean slotB) {
+    if (slotB) {
+      anchorIndexB = index;
+      anchorKeyB = elementNodeKey;
+    } else {
+      anchorIndexA = index;
+      anchorKeyA = elementNodeKey;
+    }
+    lastServedB = slotB;
+  }
+
+  /** Empties an anchor slot. */
+  private void clearAnchor(final boolean slotB) {
+    if (slotB) {
+      anchorIndexB = -1;
+    } else {
+      anchorIndexA = -1;
+    }
   }
 
   /**
@@ -633,17 +879,31 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * cannot affect the result. The two keys bracket one element, so their distance is this walk's
    * measured stride: together with the elements still to come it says how far the walk will actually
    * reach, which is what decides whether read-ahead can pay for itself here.
+   *
+   * @param index the index just landed on
+   * @param previousNodeKey node key of the element before it
+   * @param slotB whether the advancing walk holds slot B
    */
-  private void onSequentialAdvance(final int index, final long previousNodeKey) {
+  private void onSequentialAdvance(final int index, final long previousNodeKey, final boolean slotB) {
+    // Unconditional, whichever slot got here: the read-ahead belongs to the ARRAY's walk, and the
+    // last element is the only point at which that walk is observably over. Gating this on the
+    // owning slot leaked a worker transaction per array whenever a re-anchor moved the walk to the
+    // other slot — which is exactly what a re-read of the current element used to cause.
     if (childCount != CHILD_COUNT_UNKNOWN && index == childCount - 1L) {
       closePrefetcher();
       return;
     }
-    startPrefetchOnce(Math.max(1L, seqNodeKey - previousNodeKey), childCount == CHILD_COUNT_UNKNOWN
+    // Another walk owns the read-ahead. Steering it from here would drag it back to wherever that
+    // other walk is, so leave it alone; it only warms a cache and cannot affect any answer.
+    if (prefetcher != null && prefetchFollowsB != slotB) {
+      return;
+    }
+    final long landedKey = rtx.getNodeKey();
+    startPrefetchOnce(Math.max(1L, landedKey - previousNodeKey), childCount == CHILD_COUNT_UNKNOWN
         ? 0L
-        : childCount - 1L - index);
+        : childCount - 1L - index, slotB);
     if (prefetcher != null) {
-      prefetcher.advanceTo(seqNodeKey);
+      prefetcher.advanceTo(landedKey);
     }
   }
 
@@ -657,12 +917,15 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * @param remainingElements elements still to visit; {@code 0} when the count is unknown, which
    *        declines — a walk of unmeasurable length cannot be shown to amortize read-ahead, and an
    *        unknown count also means the last-element teardown can never fire for it
+   * @param slotB whether the walk that earns the read-ahead holds slot B; the other slot's hops must
+   *        not steer it, or an interleaved walk would drag it back to where it started
    */
-  private void startPrefetchOnce(final long nodeStride, final long remainingElements) {
+  private void startPrefetchOnce(final long nodeStride, final long remainingElements, final boolean slotB) {
     if (!prefetcherInitialized) {
       prefetcherInitialized = true;
+      prefetchFollowsB = slotB;
       final RecordPagePrefetcher started =
-          RecordPagePrefetcher.createOrNull(rtx, seqNodeKey, nodeStride, remainingElements);
+          RecordPagePrefetcher.createOrNull(rtx, rtx.getNodeKey(), nodeStride, remainingElements);
       prefetcher = started;
       if (started != null) {
         // Last resort for a walk that is simply ABANDONED -- an existential quantifier that
@@ -743,8 +1006,8 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // full wrapper set (PageGuard, RecordPage, SlotLocation, PageReferenceToPage, MemorySegment
     // slice) -- 78.7% of ALL allocations in a filter scan.
     //
-    // Reading the size off the cached list is exact: at() materializes that list from one child
-    // scan and every element of the array is in it.
+    // Reading the size off the cached list is exact: values() builds it from one child scan and
+    // every element of the array is in it.
     final var materialized = values;
     if (materialized != null) {
       return materialized.size();

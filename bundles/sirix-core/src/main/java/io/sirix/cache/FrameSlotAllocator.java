@@ -269,7 +269,12 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   @Override
   public void init(final long maxBufferSize) {
     if (initialized.compareAndSet(false, true)) {
-      initInternal(maxBufferSize);
+      final long granted = MemorySegmentAllocator.clampToPhysicalHeadroom(maxBufferSize);
+      if (granted < maxBufferSize) {
+        LOGGER.warn("Off-heap arena clamped from {} MiB to {} MiB to leave headroom for the heap and the OS",
+            maxBufferSize / (1024 * 1024), granted / (1024 * 1024));
+      }
+      initInternal(granted);
     } else {
       // Another thread already claimed initialization but may not have published `classes` yet
       // (initInternal maps several large regions before assigning it). Wait for the volatile

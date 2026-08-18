@@ -161,9 +161,9 @@ public final class ChunkedBodyConfig {
    * Record a point-lookup load that could not be served lazily.
    *
    * <p>
-   * Counted at the policy site rather than inferred from the difference between loads and lazy
-   * loads, because the two have different denominators — and a feature that quietly stops firing
-   * while its tests still pass is how the column read path was disabled twice.
+   * Counted at the policy site rather than inferred from the difference between loads and lazy loads,
+   * because the two have different denominators — and a feature that quietly stops firing while its
+   * tests still pass is how the column read path was disabled twice.
    */
   public static void recordEagerFallback() {
     if (diag) {

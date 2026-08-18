@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.JsonTestHelper;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * End-to-end coverage of the EXECUTOR-SIDE catalog serving path: the plain function tests run the
@@ -931,11 +934,12 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
                 + "produce identical bytes, so this counter is the only route-level evidence)");
         // Stable count-descending over first-appearance order 7, 0, 3, null, -5:
         // 7 (3 rows) > 3 (2 rows) > 0 (1 row, first-seen before the other singletons).
-        Assertions.assertEquals("{\"g\":7,\"c\":3,\"total\":87,\"hi\":45}"
-            + " {\"g\":3,\"c\":2,\"total\":23,\"hi\":15}" + " {\"g\":0,\"c\":1,\"total\":20,\"hi\":20}", served);
+        Assertions.assertEquals("{\"g\":7,\"c\":3,\"total\":87,\"hi\":45}" + " {\"g\":3,\"c\":2,\"total\":23,\"hi\":15}"
+            + " {\"g\":0,\"c\":1,\"total\":20,\"hi\":20}", served);
         // 7: aa+bbbb+dd = 8; 3: (missing→0)+ee = 2; 0: c = 1.
-        Assertions.assertEquals("{\"g\":7,\"c\":3,\"slen\":8}"
-            + " {\"g\":3,\"c\":2,\"slen\":2}" + " {\"g\":0,\"c\":1,\"slen\":1}", servedStrlen);
+        Assertions.assertEquals(
+            "{\"g\":7,\"c\":3,\"slen\":8}" + " {\"g\":3,\"c\":2,\"slen\":2}" + " {\"g\":0,\"c\":1,\"slen\":1}",
+            servedStrlen);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
@@ -1089,8 +1093,8 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // (1,A): uids {10,11} u=2 n=3; (1,B): {10} u=1 n=1; (2,A): {12,14} u=2 n=2;
         // (1,missing): {13} u=1 n=1. Count-distinct desc, first-appearance tiebreak:
         // (1,A) u=2, (2,A) u=2, then (1,B) u=1 (seen before the missing-model group).
-        Assertions.assertEquals("{\"p\":1,\"m\":\"A\",\"u\":2,\"n\":3}"
-            + " {\"p\":2,\"m\":\"A\",\"u\":2,\"n\":2}" + " {\"p\":1,\"m\":\"B\",\"u\":1,\"n\":1}", served);
+        Assertions.assertEquals("{\"p\":1,\"m\":\"A\",\"u\":2,\"n\":3}" + " {\"p\":2,\"m\":\"A\",\"u\":2,\"n\":2}"
+            + " {\"p\":1,\"m\":\"B\",\"u\":1,\"n\":1}", served);
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
@@ -2018,11 +2022,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         // DESCENDING: the collation adversaries are the top-2 — untested by ClickBench
         "subsequence(" + src + "for $r in $doc[] order by $r.name descending return $r, 1, 3)",
         // fn:contains predicate + string key (the Q23 shape; the predsSliceable widening)
-        "subsequence(" + src
-            + "for $r in $doc[] where contains($r.name, \"a\") order by $r.name return $r, 1, 5)",
+        "subsequence(" + src + "for $r in $doc[] where contains($r.name, \"a\") order by $r.name return $r, 1, 5)",
         // NE '' predicate + return-field projection (the Q24 shape)
-        "subsequence(" + src
-            + "for $r in $doc[] where $r.phrase != \"\" order by $r.name return $r.phrase, 1, 6)",
+        "subsequence(" + src + "for $r in $doc[] where $r.phrase != \"\" order by $r.name return $r.phrase, 1, 6)",
         // two string keys; the alpha tie resolves on phrase "" vs "z" (the Q26 shape)
         "subsequence(" + src + "for $r in $doc[] order by $r.name, $r.phrase return $r, 1, 7)",
         // numeric first key, string second key: the age-2 plateau orders by name
@@ -2082,8 +2084,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         """);
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
-    final String[] queries = {
-        "avg(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
+    final String[] queries = {"avg(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
         "sum(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
         "min(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)",
         "max(let $doc := jn:doc('json-path1','wide.jn') for $r in $doc[] return $r.uid)"};
@@ -2142,8 +2143,7 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     ProjectionIndexRegistry.clear();
     ProjectionIndexCatalog.clearCache();
     final String src = "let $doc := jn:doc('json-path1','strsort4.jn')\n";
-    final String windowHasMissing =
-        "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.phrase, 1, 2)";
+    final String windowHasMissing = "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.phrase, 1, 2)";
     final String unboundedSkips = src + "for $r in $doc[] order by $r.age return $r.phrase";
     final String windowClean =
         "subsequence(" + src + "for $r in $doc[] order by $r.name descending return $r.phrase, 1, 2)";
@@ -2241,18 +2241,241 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
       try {
         long servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        final long emittedBefore = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
         for (int i = 0; i < queries.length; i++) {
           Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries[i]),
               "predicate-scan parity, query " + i);
         }
-        Assertions.assertEquals(queries.length, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
-            "every predicate-scan query must be SERVED from the projection");
+        // Query 2 returns ONE projected field, so the value-emission route (stage 7e) claims it
+        // before any record is materialized; the other four still materialize records.
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.predicateValueEmissionsServedCount() - emittedBefore,
+            "the single-field return must be SERVED by value emission");
+        Assertions.assertEquals(queries.length - 1, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
+            "every remaining predicate-scan query must be SERVED from the projection");
         // The unfiltered shape must decline (and still answer identically via the fallback).
         servedBefore = SirixVectorizedExecutor.predicateScanServedCount();
         Assertions.assertEquals(genericAll, evaluateQuery(chain, ctx, unfiltered),
             "unfiltered scan must answer identically via the fallback");
         Assertions.assertEquals(0L, SirixVectorizedExecutor.predicateScanServedCount() - servedBefore,
             "an unfiltered scan must NOT serve through the predicate-scan route");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void predicateValueEmissionServesEveryProjectedKindAtEverySelectivity() throws IOException {
+    // Stage 7e: `for $r in P where p return $r.field` emits the FIELD's values straight off the
+    // predicate mask — no record key, no record page, no deref. Three things this corpus is
+    // built to catch:
+    //
+    // 1. SELECTIVITY SWEEP — common (~1/3), mid (~1/25), rare (exactly 1) and zero matches. A
+    // wrong-answer bug once hid behind a common literal for a whole session; the error scaled
+    // with rarity, and rarity is also what makes the zone/fingerprint prune drop leaves, which
+    // is where a value column resolved WITHOUT the prune mask would read the wrong leaf.
+    // 2. EVERY EMITTABLE KIND — long, string (dict-encoded), boolean and double each construct a
+    // different atomic, and the bar is what the record deref produces, not what is convenient.
+    // 3. MULTIPLE LEAVES — 3000 rows is three row groups, so leaf order vs row order shows up in
+    // the emission order; a single-leaf corpus cannot tell document order from anything.
+    final int rows = 3000;
+    final StringBuilder corpus = new StringBuilder(rows * 90).append('[');
+    for (int i = 0; i < rows; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      // ratio alternates a fractional and an INTEGRAL double value: `3.0` vs `3` is exactly the
+      // kind of drift an atomic swap produces while every value stays numerically right. The
+      // exponent form is load-bearing: {@code JsonNumber} keeps a plain `3.5` as a BigDecimal and
+      // only an exactly-round-tripping exponent literal becomes a Double, which is what the
+      // column's pure-source bit — and therefore the Dbl emission arm — requires.
+      corpus.append("{\"uid\":")
+            .append(i % 3 == 0
+                ? 7
+                : i % 25 == 4
+                    ? 3
+                    : 100 + i)
+            .append(",\"name\":\"n")
+            .append(i % 137)
+            .append("\",\"flag\":")
+            .append(i % 2 == 0)
+            .append(",\"ratio\":")
+            .append(i % 7)
+            .append(i % 2 == 0
+                ? ".0e0"
+                : ".5e0")
+            .append('}');
+    }
+    corpus.append(']');
+    query("jn:store('json-path1','predemit.jn','" + corpus + "')");
+    query("""
+          let $doc := jn:doc('json-path1','predemit.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name', '/[]/flag', '/[]/ratio'),
+              ('long', 'string', 'boolean', 'double'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','predemit.jn')\n";
+    // Common, mid, rare (uid 1100 is row 1000 and nothing else), zero, and two string predicates.
+    final String[] wheres =
+        {"$r.uid = 7", "$r.uid = 3", "$r.uid = 1100", "$r.uid = -1", "$r.name = \"n5\"", "contains($r.name, \"n12\")"};
+    final List<String> queries = new ArrayList<>();
+    for (final String where : wheres) {
+      for (final String field : new String[] {"uid", "name", "flag", "ratio"}) {
+        queries.add(src + "for $r in $doc[] where " + where + " return $r." + field);
+      }
+      // Sole-consumer cap: the document-order prefix must be the same prefix.
+      queries.add("subsequence(" + src + "for $r in $doc[] where " + where + " return $r.name, 1, 3)");
+    }
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("predemit.jn");
+      final String[] generic = new String[queries.size()];
+      for (int i = 0; i < queries.size(); i++) {
+        generic[i] = evaluateQuery(chain, ctx, queries.get(i));
+      }
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long failedBefore = SirixVectorizedExecutor.predicateValueEmissionsFailedCount();
+        final List<String> declined = new ArrayList<>();
+        for (int i = 0; i < queries.size(); i++) {
+          final long before = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries.get(i)),
+              "value-emission parity, query " + i + ": " + queries.get(i));
+          if (SirixVectorizedExecutor.predicateValueEmissionsServedCount() == before) {
+            declined.add(queries.get(i));
+          }
+        }
+        // Equality alone passes vacuously when both legs run the same pipeline, so every query
+        // has to be shown to have taken the route under test.
+        Assertions.assertEquals(List.of(), declined, "every single-field predicate scan must be SERVED");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.predicateValueEmissionsFailedCount() - failedBefore,
+            "no value-emission attempt may fail with an exception");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void predicateValueEmissionSkipsAbsentCellsAndDeclinesUnderACap() throws IOException {
+    // An emitted field the matching row does NOT have: the interpreter's deref is empty, so the
+    // row contributes nothing. Unbounded, emission reproduces that by skipping the row. Under a
+    // fn:subsequence cap it cannot — the window counts ITEMS, and a skipped row shifts it past
+    // the rows the mask fetched — so the route declines and the record path (which throws on the
+    // same shape) hands the query to the interpreter.
+    query("""
+          jn:store('json-path1','predemitgap.jn','[
+            {"uid": 7, "name": "a"},
+            {"uid": 7},
+            {"uid": 7, "name": "c"},
+            {"uid": 3, "name": "d"},
+            {"uid": 7, "name": "e"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','predemitgap.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name'),
+              ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','predemitgap.jn')\n";
+    final String unbounded = src + "for $r in $doc[] where $r.uid = 7 return $r.name";
+    final String capped = "subsequence(" + src + "for $r in $doc[] where $r.uid = 7 return $r.name, 1, 2)";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("predemitgap.jn");
+      final String genericUnbounded = evaluateQuery(chain, ctx, unbounded);
+      final String genericCapped = evaluateQuery(chain, ctx, capped);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        long emittedBefore = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
+        Assertions.assertEquals(genericUnbounded, evaluateQuery(chain, ctx, unbounded),
+            "an absent cell must contribute nothing, exactly as the empty deref does");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.predicateValueEmissionsServedCount() - emittedBefore,
+            "the unbounded shape must still SERVE across the hole");
+        emittedBefore = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
+        Assertions.assertEquals(genericCapped, evaluateQuery(chain, ctx, capped),
+            "the capped shape must answer identically through the fallback");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.predicateValueEmissionsServedCount() - emittedBefore,
+            "a cap over a hole must DECLINE — the window would be off by the skipped row");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void predicateValueEmissionDeclinesOnNullCellsAndUnprojectedFields() throws IOException {
+    // Two declines that must leave the RECORD-materializing predicate scan in charge:
+    //
+    // 1. A JSON null is present-but-unrepresentable, which clears the column's sparse-clean bit.
+    // Without that gate an absent presence bit could mean EITHER "no field" (emit nothing) or
+    // "null" (emit null), and skipping would silently drop the nulls.
+    // 2. A return field outside the projection has no column to read at all.
+    query("""
+          jn:store('json-path1','predemitnull.jn','[
+            {"uid": 7, "name": "a", "extra": "p"},
+            {"uid": 7, "name": null, "extra": "q"},
+            {"uid": 7, "name": "c", "extra": "r"},
+            {"uid": 3, "name": "d", "extra": "s"}
+          ]')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','predemitnull.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/uid', '/[]/name'),
+              ('long', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','predemitnull.jn')\n";
+    final String nullBearing = src + "for $r in $doc[] where $r.uid = 7 return $r.name";
+    final String unprojected = src + "for $r in $doc[] where $r.uid = 7 return $r.extra";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("predemitnull.jn");
+      final String genericNull = evaluateQuery(chain, ctx, nullBearing);
+      final String genericExtra = evaluateQuery(chain, ctx, unprojected);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long emittedBefore = SirixVectorizedExecutor.predicateValueEmissionsServedCount();
+        final long scannedBefore = SirixVectorizedExecutor.predicateScanServedCount();
+        Assertions.assertEquals(genericNull, evaluateQuery(chain, ctx, nullBearing),
+            "a null-bearing column must answer identically through the record route");
+        Assertions.assertEquals(genericExtra, evaluateQuery(chain, ctx, unprojected),
+            "an unprojected return field must answer identically through the record route");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.predicateValueEmissionsServedCount() - emittedBefore,
+            "neither shape may be served by value emission");
+        Assertions.assertEquals(2L, SirixVectorizedExecutor.predicateScanServedCount() - scannedBefore,
+            "both must fall through to the record-materializing predicate scan, not to the row path");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();
@@ -2333,11 +2556,9 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
     final String[] queries = {
         // 30 winners, all name "N0", straddling leaves — pure rank-tiebreak territory
         "subsequence(" + src + "for $r in $doc[] order by $r.name return $r, 1, 30)",
-        "subsequence(" + src
-            + "for $r in $doc[] order by $r.name descending, $r.val descending return $r, 1, 15)",
+        "subsequence(" + src + "for $r in $doc[] order by $r.name descending, $r.val descending return $r, 1, 15)",
         // string NE predicate + two keys through the sliced path
-        "subsequence(" + src
-            + "for $r in $doc[] where $r.name != \"N3\" order by $r.name, $r.val return $r, 1, 20)",
+        "subsequence(" + src + "for $r in $doc[] where $r.name != \"N3\" order by $r.name, $r.val return $r, 1, 20)",
         // numeric return field under a string order key
         "subsequence(" + src + "for $r in $doc[] order by $r.name return $r.val, 1, 25)"};
     try (
@@ -2362,6 +2583,175 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         }
         Assertions.assertEquals(queries.length, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
             "every multi-leaf string sorted-scan query must be SERVED");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void predicatedTopKSweepsSelectivityAndSkipsLeaves() throws IOException {
+    // The ClickBench `SELECT * WHERE <p> ORDER BY <col> LIMIT k` family. Four things have to hold
+    // at once, and each has burned this route before:
+    //
+    // 1. SELECTIVITY SWEEP — the same shape at four match rates. A wrong-answer bug once hid
+    // behind a common literal for a whole session; the error scaled with RARITY, because a rare
+    // predicate is what lets the bounded heap stop early.
+    // 2. LEAF ORDER != DOCUMENT ORDER — the four 1024-row leaves get key bands 3000/1005/5010/2010,
+    // so the best leaf is the SECOND one and the plan must reorder. A corpus whose leaf minima
+    // already ascend cannot tell best-first from the document-order walk.
+    // 3. TIES, INCLUDING ACROSS LEAVES — 100 distinct keys per leaf over 1024 rows (~10 rows each)
+    // and deliberately OVERLAPPING bands on a shared step-15 grid, so limits land mid-tie and
+    // only the DOCUMENT-order tiebreak separates the winners.
+    // 4. THE PRUNE ACTUALLY RAN — a route that quietly stops pruning returns the same answer, so
+    // equality alone cannot tell the two apart; the skipped-leaf counter has to move.
+    final int rows = 4000;
+    final int[] band = {3000, 1005, 5010, 2010};
+    final StringBuilder corpus = new StringBuilder(rows * 90).append('[');
+    for (int i = 0; i < rows; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      final int ord = band[i / 1024] + i * 977 % 100 * 15;
+      final String tag = i % 300 == 7
+          ? "few"
+          : i % 3 == 0
+              ? "hit"
+              : "other";
+      corpus.append("{\"ts\":\"T")
+            .append(String.format("%05d", ord))
+            .append("\",\"n\":")
+            .append(ord)
+            .append(",\"tag\":\"")
+            .append(tag)
+            .append("\",\"url\":\"http://")
+            .append(i % 7 == 0
+                ? "google"
+                : "example")
+            .append(".com/")
+            .append(i)
+            .append("\"}");
+    }
+    corpus.append(']');
+    query("jn:store('json-path1','topksweep.jn','" + corpus + "')");
+    query("""
+          let $doc := jn:doc('json-path1','topksweep.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/ts', '/[]/n', '/[]/tag', '/[]/url'),
+              ('string', 'long', 'string', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String src = "let $doc := jn:doc('json-path1','topksweep.jn')\n";
+    // where-clauses at four match rates: all 4000 rows, 1333, ~14, and none.
+    final String[] wheres = {"$r.tag != \"zzz\"", "$r.tag = \"hit\"", "$r.tag = \"few\"", "$r.tag = \"zzz\"",
+        "contains($r.url, \"google\")"};
+    final List<String> queries = new ArrayList<>();
+    for (final String where : wheres) {
+      for (final int limit : new int[] {1, 25}) {
+        // String order key, both directions; numeric order key; and a two-key sort whose second
+        // key only ever decides rows tied on the first.
+        queries.add(
+            "subsequence(" + src + "for $r in $doc[] where " + where + " order by $r.ts return $r, 1, " + limit + ")");
+        queries.add("subsequence(" + src + "for $r in $doc[] where " + where
+            + " order by $r.ts descending return $r, 1, " + limit + ")");
+        queries.add("subsequence(" + src + "for $r in $doc[] where " + where + " order by $r.n return $r.url, 1, "
+            + limit + ")");
+        queries.add("subsequence(" + src + "for $r in $doc[] where " + where + " order by $r.n descending, $r.url"
+            + " return $r, 1, " + limit + ")");
+      }
+    }
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("topksweep.jn");
+      final String[] generic = new String[queries.size()];
+      for (int i = 0; i < queries.size(); i++) {
+        generic[i] = evaluateQuery(chain, ctx, queries.get(i));
+      }
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 4);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        final long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        final long skippedBefore = ProjectionColumnScan.topKLeavesSkippedCount();
+        for (int i = 0; i < queries.size(); i++) {
+          Assertions.assertEquals(generic[i], evaluateQuery(chain, ctx, queries.get(i)),
+              "predicated top-K parity, query " + i + ": " + queries.get(i));
+        }
+        Assertions.assertEquals(queries.size(), SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "every predicated top-K query must be SERVED — equality over two fallbacks proves nothing");
+        Assertions.assertTrue(ProjectionColumnScan.topKLeavesSkippedCount() > skippedBefore,
+            "the bounded scan must SKIP leaves — otherwise the sweep only proved the unpruned walk");
+      } finally {
+        SequentialPipelineStrategy.setVectorizedExecutor(null);
+        executor.close();
+      }
+    }
+  }
+
+  @Test
+  public void predicatedTopKDeclinesWhenTheOrderKeyIsMissingInALateLeaf() throws IOException {
+    // The hazard the best-first stop introduces: a matching row whose order key is ABSENT sorts
+    // FIRST in ascending order (empty least), and it sits in the LAST leaf — precisely the leaf an
+    // early stop would never open. Serving must decline outright and let the interpreter place it.
+    final int rows = 3000;
+    final StringBuilder corpus = new StringBuilder(rows * 40).append('[');
+    for (int i = 0; i < rows; i++) {
+      if (i > 0) {
+        corpus.append(',');
+      }
+      // Row 2900 (last leaf) matches the predicate but carries NO order key.
+      if (i == 2900) {
+        corpus.append("{\"tag\":\"hit\"}");
+      } else {
+        corpus.append("{\"ts\":\"T").append(String.format("%04d", i * 977 % 300)).append("\",\"tag\":\"hit\"}");
+      }
+    }
+    corpus.append(']');
+    query("jn:store('json-path1','topkgap.jn','" + corpus + "')");
+    query("""
+          let $doc := jn:doc('json-path1','topkgap.jn')
+          let $stats := jn:create-projection-index($doc, '/[]',
+              ('/[]/ts', '/[]/tag'),
+              ('string', 'string'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String q = "subsequence(let $doc := jn:doc('json-path1','topkgap.jn')\n"
+        + "for $r in $doc[] where $r.tag = \"hit\" order by $r.ts return $r, 1, 10)";
+    // Control over the SAME corpus: `tag` has no absent cell, so this one must serve. Without it a
+    // decline assertion also passes when the projection was never built or never reached.
+    final String control = "subsequence(let $doc := jn:doc('json-path1','topkgap.jn')\n"
+        + "for $r in $doc[] where $r.tag = \"hit\" order by $r.tag return $r, 1, 10)";
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+      final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
+      final JsonResourceSession session = collection.getDatabase().beginResourceSession("topkgap.jn");
+      final String generic = evaluateQuery(chain, ctx, q);
+      final String genericControl = evaluateQuery(chain, ctx, control);
+      final SirixVectorizedExecutor executor =
+          new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 4);
+      SequentialPipelineStrategy.setVectorizedExecutor(executor);
+      try {
+        long servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(genericControl, evaluateQuery(chain, ctx, control), "control query parity");
+        Assertions.assertEquals(1L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "the control must SERVE — otherwise the decline below proves nothing about this route");
+        servedBefore = SirixVectorizedExecutor.sortedScanServedCount();
+        Assertions.assertEquals(generic, evaluateQuery(chain, ctx, q),
+            "a missing order key in a late leaf must not change the answer");
+        Assertions.assertEquals(0L, SirixVectorizedExecutor.sortedScanServedCount() - servedBefore,
+            "an order column with an absent cell must DECLINE, never be skipped past");
       } finally {
         SequentialPipelineStrategy.setVectorizedExecutor(null);
         executor.close();

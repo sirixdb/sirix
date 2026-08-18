@@ -48,17 +48,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * is seeded from the page's index so a failure is reproducible rather than a Heisenbug.
  *
  * <p>
- * <b>Why the sweep runs poisoned.</b> The set of readers that must consult the expansion gate cannot
- * be closed by enumeration — it is whatever reaches the heap today plus whatever reaches it next
- * year. So the unexpanded heap is filled with {@code 0xCC} and the comparison against the eagerly
- * decoded twin does the enforcing: a reader that bypasses the gate returns poison and fails, here,
- * deterministically, rather than returning plausible stale bytes somewhere downstream.
+ * <b>Why the sweep runs poisoned.</b> The set of readers that must consult the expansion gate
+ * cannot be closed by enumeration — it is whatever reaches the heap today plus whatever reaches it
+ * next year. So the unexpanded heap is filled with {@code 0xCC} and the comparison against the
+ * eagerly decoded twin does the enforcing: a reader that bypasses the gate returns poison and
+ * fails, here, deterministically, rather than returning plausible stale bytes somewhere downstream.
  *
  * <p>
- * <b>What is compared.</b> Per slot, the record bytes, which is what a point reader sees. Then, after
- * expanding everything, the FULL slotted segment — header, bitmap, directory and heap including the
- * DeweyID trailers that live between records and belong to no slot's bytes. A slot-by-slot
- * comparison alone would pass a page whose trailers had shifted.
+ * <b>What is compared.</b> Per slot, the record bytes, which is what a point reader sees. Then,
+ * after expanding everything, the FULL slotted segment — header, bitmap, directory and heap
+ * including the DeweyID trailers that live between records and belong to no slot's bytes. A
+ * slot-by-slot comparison alone would pass a page whose trailers had shifted.
  */
 @DisplayName("Chunked body lazy expansion")
 final class ChunkedBodyLazyExpansionTest {
@@ -232,8 +232,8 @@ final class ChunkedBodyLazyExpansionTest {
    * Many readers racing for the same page expand each chunk exactly once.
    *
    * <p>
-   * The count is the assertion that matters. Whether the bytes come out right is already covered; what
-   * a race breaks is the double-checked locking around the expansion, and a chunk expanded twice
+   * The count is the assertion that matters. Whether the bytes come out right is already covered;
+   * what a race breaks is the double-checked locking around the expansion, and a chunk expanded twice
    * would rewrite records another thread is already reading. Counting is how that shows up
    * deterministically — a torn read on x86 would not.
    */

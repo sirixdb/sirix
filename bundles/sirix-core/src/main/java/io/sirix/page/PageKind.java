@@ -1132,13 +1132,12 @@ public enum PageKind {
         // Last, because the state it hands the page has to be able to reach the regions: an
         // expansion re-injects the values the writer moved out of the records, and those live in the
         // region table this page was just given.
-        attachLazyChunks(page, slottedPage, recordPageKey, populatedCount, templateCount, templatePoolBytes,
-            compactDir, slotTemplateIds, templatePool, templateOffsets, inMemDataLengths, hashElisionActive,
-            zeroHashBitmap, parentKeyColumnActive, parentKeyValues, parentKeyWidths, pathNodeKeyColumnActive,
-            pathNodeKeyColumnBytes, pathNodeKeyColumnLen, pathNodeKeyWidths, valueElisionActive, valueElidedCount,
-            valueElidedSlots, valueElidedTypes, valueElidedWidths, valueElidedAbsIdx, valueOffs, valueWidths,
-            nameKeyElisionActive, nameKeyOffs, nameKeyWidths, slotOfEntry, chunkFirstSlot, chunkLastSlot,
-            chunkHeapFrom, chunkHeapTo);
+        attachLazyChunks(page, slottedPage, recordPageKey, populatedCount, templateCount, templatePoolBytes, compactDir,
+            slotTemplateIds, templatePool, templateOffsets, inMemDataLengths, hashElisionActive, zeroHashBitmap,
+            parentKeyColumnActive, parentKeyValues, parentKeyWidths, pathNodeKeyColumnActive, pathNodeKeyColumnBytes,
+            pathNodeKeyColumnLen, pathNodeKeyWidths, valueElisionActive, valueElidedCount, valueElidedSlots,
+            valueElidedTypes, valueElidedWidths, valueElidedAbsIdx, valueOffs, valueWidths, nameKeyElisionActive,
+            nameKeyOffs, nameKeyWidths, slotOfEntry, chunkFirstSlot, chunkLastSlot, chunkHeapFrom, chunkHeapTo);
       }
 
       return page;
@@ -1150,9 +1149,9 @@ public enum PageKind {
      * <p>
      * Every array below is a per-thread scratch the next page decoded on this thread overwrites, so
      * each is copied at exactly the width this page uses. That copying is the price of laziness: a
-     * chunk is expanded by whichever thread first reads a slot in it, arbitrarily long after the
-     * thread that parsed the sections moved on. Only the levers the page actually activated are
-     * copied — most pages carry two or three.
+     * chunk is expanded by whichever thread first reads a slot in it, arbitrarily long after the thread
+     * that parsed the sections moved on. Only the levers the page actually activated are copied — most
+     * pages carry two or three.
      */
     private static void attachLazyChunks(final KeyValueLeafPage page, final MemorySegment slottedPage,
         final long recordPageKey, final int populatedCount, final int templateCount, final int templatePoolBytes,
@@ -1183,12 +1182,14 @@ public enum PageKind {
             : null);
         state.bindParentKeyColumn(parentKeyColumnActive, parentKeyColumnActive
             ? Arrays.copyOf(parentKeyValues, populatedCount)
-            : null, parentKeyColumnActive
+            : null,
+            parentKeyColumnActive
                 ? Arrays.copyOf(parentKeyWidths, populatedCount)
                 : null);
         state.bindPathNodeKeyColumn(pathNodeKeyColumnActive, pathNodeKeyColumnActive
             ? Arrays.copyOf(pathNodeKeyColumnBytes, pathNodeKeyColumnLen)
-            : null, pathNodeKeyColumnActive
+            : null,
+            pathNodeKeyColumnActive
                 ? Arrays.copyOf(pathNodeKeyWidths, populatedCount)
                 : null);
         final short[] elidedSlots = valueElisionActive
@@ -1205,7 +1206,8 @@ public enum PageKind {
             : null;
         state.bindValueElision(valueElisionActive, valueElidedCount, elidedSlots, elidedWidths, valueElisionActive
             ? Arrays.copyOf(valueOffs, populatedCount)
-            : null, valueElisionActive
+            : null,
+            valueElisionActive
                 ? Arrays.copyOf(valueWidths, populatedCount)
                 : null);
         final short[] nkOffs = nameKeyElisionActive
@@ -1235,9 +1237,8 @@ public enum PageKind {
         }
       }
       final LazyChunkedBody lazyBody =
-          new LazyChunkedBody(recordPageKey, recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT,
-              READ_CHUNK_TABLE.get(), chunkFirstSlot, chunkLastSlot, chunkHeapFrom, chunkHeapTo, slotOfEntry, state,
-              injector);
+          new LazyChunkedBody(recordPageKey, recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT, READ_CHUNK_TABLE.get(),
+              chunkFirstSlot, chunkLastSlot, chunkHeapFrom, chunkHeapTo, slotOfEntry, state, injector);
       if (ChunkedBodyConfig.poisonEnabled()) {
         lazyBody.poison(slottedPage);
       }
@@ -2889,8 +2890,8 @@ public enum PageKind {
      *
      * @param bodyTotalLen the prefix's account of the body size, checked against the frames
      * @param lazy stop after META: the chunk payloads are read but left encoded, in the table's
-     *        {@code pendingWire} slots, for {@link LazyChunkedBody} to decode when a reader first
-     *        asks for a slot inside one
+     *        {@code pendingWire} slots, for {@link LazyChunkedBody} to decode when a reader first asks
+     *        for a slot inside one
      * @return the staging segment holding {@code META || heap}, or META alone when {@code lazy}; the
      *         META length lands in the thread's {@link ChunkTable}
      */
@@ -2982,9 +2983,9 @@ public enum PageKind {
      *
      * <p>
      * Over-sized by the native decoder's input tail slack. Sized exactly, the buffer fails
-     * {@link SirixLZ77Codec}'s {@code off + len + NATIVE_INPUT_TAIL_SLACK <= input.length}
-     * precondition and every lazily expanded chunk silently takes the pure-Java decoder — which is
-     * precisely what happened to the deferred region payloads before they carried the same slack.
+     * {@link SirixLZ77Codec}'s {@code off + len + NATIVE_INPUT_TAIL_SLACK <= input.length} precondition
+     * and every lazily expanded chunk silently takes the pure-Java decoder — which is precisely what
+     * happened to the deferred region payloads before they carried the same slack.
      */
     private static byte[] readPendingChunk(final BytesIn<?> source, final int encLen) {
       final byte[] wire = new byte[encLen + SirixLZ77Codec.NATIVE_INPUT_TAIL_SLACK];

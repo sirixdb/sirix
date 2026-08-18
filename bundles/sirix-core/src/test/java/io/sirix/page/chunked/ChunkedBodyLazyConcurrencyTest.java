@@ -164,8 +164,8 @@ final class ChunkedBodyLazyConcurrencyTest {
    * This is the eviction interaction: the sweeper closes pages under readers all the time, and the
    * only thing standing between it and a released segment being decoded into is the guard count.
    * Expansion holds the page monitor, close is synchronized on the same monitor, and close refuses
-   * outright while a guard is outstanding — so the failure this test would catch is an expansion
-   * that runs after the segment went away.
+   * outright while a guard is outstanding — so the failure this test would catch is an expansion that
+   * runs after the segment went away.
    */
   @Test
   @DisplayName("a guarded reader keeps a page alive through a concurrent close, and a closed page's gate is inert")

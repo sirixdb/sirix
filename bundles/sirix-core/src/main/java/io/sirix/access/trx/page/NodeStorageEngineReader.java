@@ -1339,20 +1339,28 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <b>The one policy decision behind chunk-lazy loading.</b> A point lookup opens a page to answer
    * for a single slot; on a chunk-framed body the reader can stop after the page's metadata and
    * expand only the chunk that slot lives in, which is most of a millisecond it does not spend. A
-   * scan reads every slot, so laziness would buy it nothing and cost it a gate per record — hence
-   * the default on the one-argument form above, which is what every scan operator calls.
+   * scan reads every slot, so laziness would buy it nothing and cost it a gate per record — hence the
+   * default on the one-argument form above, which is what every scan operator calls.
    *
    * <p>
    * The request is honoured only where it is safe and worth it: a single-fragment page (per the
-   * plan's A6 — an N-fragment chain is combined, and combine consumes whole pages), read through the
-   * buffer manager rather than the write transaction's intent log. Anything else is served eagerly
-   * and counted as such.
+   * plan's A6 — an N-fragment chain is combined, and combine consumes whole pages), loaded by a READ
+   * transaction. Anything else is served eagerly and counted as such.
+   *
+   * <p>
+   * <b>Why a write transaction never asks.</b> It reads a record in order to change it, and changing
+   * it copies the whole page: the writer's copy-on-write asks {@code getPageFragments} for the very
+   * page its own {@code moveTo} just put in the cache, and hands it to a combine that reads every
+   * slot. Laziness there buys a single record's decode and pays for the whole page twice over. This
+   * is not a hypothetical — the versioned sweep's FULL-versioning arm tripped the combine's
+   * assert-not-lazy guard on exactly that path before the intent-log test was added here.
    *
    * @param pointLookup whether this load is resolving one record key rather than feeding a scan
    */
-  PageReferenceToPage getRecordPage(IndexLogKey indexLogKey, boolean pointLookup) {
+  PageReferenceToPage getRecordPage(final IndexLogKey indexLogKey, final boolean pointLookup) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
+    final boolean lazyEligible = pointLookup && trxIntentLog == null;
 
     // Symbol tables must be in hand BEFORE the page-cache compute below runs: a document page's
     // fragments are combined inside that compute, combining decodes FSST strings, and fetching a
@@ -1443,7 +1451,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         LOGGER.debug("  - revision: {}", indexLogKey.getRevisionNumber());
       }
 
-      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage, pointLookup);
+      page = getFromBufferManager(indexLogKey, pageReferenceToRecordPage, lazyEligible);
 
       if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY
           && page instanceof KeyValueLeafPage kvp) {
@@ -1476,7 +1484,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
 
     // Bypass load for a write transaction's path summary: combined, hence eager (A6).
-    if (pointLookup) {
+    if (lazyEligible) {
       ChunkedBodyConfig.recordEagerFallback();
     }
     var loadedPage =
@@ -2038,11 +2046,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // thread is already loading is never loaded twice with two different policies: whoever wins
       // the compute decides, and the loser reads whatever that produced. Both answers are correct;
       // they differ only in when the records get expanded.
-      KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
-                                                   .getOrLoadAndGuard(pageReferenceToRecordPage, pointLookup
-                                                       ? ref -> (KeyValueLeafPage) pageReader.readRecordPageLazily(ref,
-                                                           config)
-                                                       : ref -> (KeyValueLeafPage) pageReader.read(ref, config));
+      KeyValueLeafPage page =
+          resourceBufferManager.getRecordPageCache()
+                               .getOrLoadAndGuard(pageReferenceToRecordPage, pointLookup
+                                   ? ref -> (KeyValueLeafPage) pageReader.readRecordPageLazily(ref, config)
+                                   : ref -> (KeyValueLeafPage) pageReader.read(ref, config));
 
       if (page != null) {
         pageReferenceToRecordPage.setPage(page);
@@ -2282,6 +2290,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                                                        key -> (KeyValueLeafPage) pageReader.read(key, config));
 
       if (page != null && !page.isClosed()) {
+        page.ensureAllChunks();
         return new PageFragmentsResult(Collections.singletonList(page), Collections.emptyList(),
             pageReference.getKey());
       }
@@ -2313,6 +2322,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     pages.add(page);
 
     if (originalPageFragments.isEmpty() || page.size() == Constants.NDP_NODE_COUNT) {
+      page.ensureAllChunks();
       return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
     }
 
@@ -2321,7 +2331,33 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     pageFragmentKeys.addAll(originalPageFragments);
     pages.addAll(getPreviousPageFragments(pageFragmentKeys));
 
+    materializeFragments(pages);
     return new PageFragmentsResult(pages, originalPageFragments, originalStorageKey);
+  }
+
+  /**
+   * Make sure every fragment about to be combined holds its records rather than its chunks.
+   *
+   * <p>
+   * <b>Why this is here and not at the load.</b> Whether a page was loaded lazily is a property of
+   * the page, not of the caller that finds it: the record-page cache is shared, so a page a read
+   * transaction opened for one slot is the same instance a later writer's copy-on-write pulls out of
+   * the cache and hands to a combine. Declining laziness at the load site cannot cover that — the two
+   * callers are different transactions, possibly minutes apart. Asking here, where the fragments are
+   * handed to a consumer that reads every slot of every one of them, makes the invariant true by
+   * construction instead of by prediction. On an eagerly decoded page it is a single volatile read;
+   * on a lazy one it does exactly the work the combine was about to demand anyway.
+   *
+   * <p>
+   * The assert-not-lazy guards in {@code VersioningType} stay, and they stay meaningful: they now
+   * cover a combine reached by some future path that does not come through here.
+   */
+  private static void materializeFragments(final List<KeyValuePage<DataRecord>> pages) {
+    for (int i = 0, size = pages.size(); i < size; i++) {
+      if (pages.get(i) instanceof KeyValueLeafPage kvlPage) {
+        kvlPage.ensureAllChunks();
+      }
+    }
   }
 
   private List<KeyValuePage<DataRecord>> getPreviousPageFragments(final List<PageFragmentKey> pageFragments) {

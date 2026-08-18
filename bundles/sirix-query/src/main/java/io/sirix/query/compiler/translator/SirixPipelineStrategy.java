@@ -53,8 +53,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       // Gap 3: a sole-consumer fn:subsequence over this pipe caps how many sorted rows
       // can ever be pulled — the executor then heap-selects top-K instead of full-sorting.
       final Long topK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
-      final String returnField =
-          (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
+      final String returnField = (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
       if (sortSourcePath != null && orderFields != null && descending != null && orderFields.length == descending.length
           && acceptsOrRuntimeCheckable(sortExecutor, sortSourceRef)) {
         return new SirixSortedScanExpr(sortExecutor, sortSourcePath,
@@ -74,13 +73,11 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       final PredicateNode predTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
       final SourceRef predSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
       final Long predTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
-      final String predReturnField =
-          (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
+      final String predReturnField = (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
       if (predSourcePath != null && predTree != null && acceptsOrRuntimeCheckable(predExecutor, predSourceRef)) {
         return new SirixSortedScanExpr(predExecutor, predSourcePath, predTree, null, null, predTopK == null
             ? -1L
-            : predTopK,
-            predReturnField, predExecutor.boundDatabaseName(), runtimeRef(predSourceRef), generic);
+            : predTopK, predReturnField, predExecutor.boundDatabaseName(), runtimeRef(predSourceRef), generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
@@ -114,9 +111,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       if (constSourcePath != null && constFuncs != null && constFields != null && constOutNames != null
           && constOffsets != null && constOffsets.length == constFuncs.length
           && acceptsOrRuntimeCheckable(constExecutor, constRef)) {
-        return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath,
-            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), constFuncs, constFields, constOffsets,
-            constOutNames, runtimeRef(constRef), generic);
+        return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath, servedPredicate(node), constFuncs,
+            constFields, constOffsets, constOutNames, runtimeRef(constRef), generic);
       }
       return generic;
     }
@@ -147,7 +143,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return generic;
     }
     final String[] sourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
-    final PredicateNode predicate = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
+    final PredicateNode predicate = servedPredicate(node);
     final String[] groupFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_GROUP_FIELDS);
     final String[] keyNames = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_NAMES);
     final String[] funcs = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
@@ -173,8 +169,8 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     final Long groupTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
     final long[] keyOffsets = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_OFFSETS);
     final int[] keySubstr = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_SUBSTR);
-    if (keyOffsets != null
-        && (keySubstr == null || keyOffsets.length != groupFields.length || keySubstr.length != 2 * groupFields.length)) {
+    if (keyOffsets != null && (keySubstr == null || keyOffsets.length != groupFields.length
+        || keySubstr.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
     final String[] keyRegexPattern =
@@ -184,17 +180,25 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         || keyRegexRepl.length != groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
+    final long[] keyDivMod = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DIVMOD);
+    if (keyDivMod != null && (keyOffsets == null || keyDivMod.length != 2 * groupFields.length)) {
+      // A divmod key is a key TRANSFORM: without the offsets/substr pair the executor never takes
+      // the transform-carrying arm, and the divisor would silently vanish.
+      return generic;
+    }
+    final boolean[] keyStringify = (boolean[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_STRINGIFY);
+    if (keyStringify != null && (keyOffsets == null || keyStringify.length != groupFields.length)) {
+      return generic;
+    }
     final long[] having = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_HAVING);
     if (having != null && having.length != 2) {
       return generic; // not an annotation this strategy wrote
     }
-    final String[] keyCondFields =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_FIELDS);
+    final String[] keyCondFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_FIELDS);
     final long[] keyCondLits = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_LITS);
     final String[] keyCondElse = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_ELSE);
-    if (keyCondElse != null && (keyCondFields == null || keyCondLits == null
-        || keyCondElse.length != groupFields.length || keyCondFields.length != 2 * groupFields.length
-        || keyCondLits.length != 2 * groupFields.length)) {
+    if (keyCondElse != null && (keyCondFields == null || keyCondLits == null || keyCondElse.length != groupFields.length
+        || keyCondFields.length != 2 * groupFields.length || keyCondLits.length != 2 * groupFields.length)) {
       return generic; // not an annotation this strategy wrote
     }
     final int[] decorPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_POS);
@@ -217,9 +221,23 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
         outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
             ? groupTopK
             : -1L,
-        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, having,
-        decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues, runtimeRef(sourceRef),
-        generic);
+        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
+        keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
+        runtimeRef(sourceRef), generic);
+  }
+
+  /**
+   * The predicate a group-aggregate serving expr applies: Brackit's own tree when it represented the
+   * {@code where}, else the chain-aware tree {@link GroupAggregateDetectionStage} built for a
+   * nested-deref filter Brackit's direct-deref leaves cannot name. Never both — the detection stage
+   * writes its own only when Brackit's is absent — and never neither when the pipeline HAS a
+   * selection: the stage declines instead, so a served pipeline always carries the filter.
+   */
+  private static PredicateNode servedPredicate(final AST node) {
+    final PredicateNode brackitTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
+    return brackitTree != null
+        ? brackitTree
+        : (PredicateNode) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PREDICATE);
   }
 
   /**

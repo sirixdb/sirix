@@ -6,7 +6,9 @@ package io.sirix.index.projection;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.page.NamePage;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
@@ -69,6 +71,90 @@ public final class ProjectionIndexBuilder {
   private ProjectionIndexRowGroupPage currentLeaf;
   private long rowsEmitted;
   private long leavesEmitted;
+
+  /**
+   * How many leading leaves are held back to measure string-column cardinality on. 64 leaves is
+   * 65,536 rows — enough that a column's repetition pattern is visible, small enough that holding
+   * them costs a few megabytes and delays nothing measurable.
+   */
+  private static final int SAMPLE_LEAVES = 64;
+
+  /**
+   * Below this many dictionary entries in the sample, keep the per-leaf dictionaries whatever the
+   * deduplication factor says. A small dictionary is cheap per leaf, packs into a couple of bits
+   * per row, and materialises with no record read at all; the resource-wide machinery cannot repay
+   * itself against that.
+   */
+  private static final int MIN_GLOBAL_DICTIONARY_ENTRIES =
+      Integer.getInteger("sirix.projection.globalDict.minEntries", 4096);
+
+  /**
+   * The per-leaf deduplication factor a column must fail to reach before it goes global — rows per
+   * distinct value within a leaf. At 4, a 1024-row leaf holds at most 256 distinct values and the
+   * per-leaf dictionary is genuinely compressing; above that number of distinct values it is
+   * mostly storing each string once and adding an id per row on top.
+   */
+  private static final int MIN_PER_LEAF_DEDUP_FACTOR =
+      Integer.getInteger("sirix.projection.globalDict.dedupFactor", 4);
+
+  /** How the per-column choice between per-leaf and resource-wide dictionaries is made. */
+  private enum GlobalDictionaryMode {
+    /** Measure the sample and decide per column. */
+    AUTO,
+    /** Force every string column global — for testing both encodings on one corpus. */
+    ALWAYS,
+    /** Never go global; every string column keeps its per-leaf dictionary. */
+    NEVER
+  }
+
+  /**
+   * {@code -Dsirix.projection.globalDict=auto|always|never}. Overridable so one corpus can be built
+   * both ways and the two compared, which is the only way to show the encodings agree.
+   *
+   * <p><b>Defaults to {@code auto}</b>, now that the executor consumes the kind: a global column's
+   * group key runs through the integer kernel, its ids feed a distinct fold directly, predicate
+   * literals resolve to ids once per query, and winners reverse-map in one batch. What {@code auto}
+   * does NOT do is force the encoding — the per-leaf dedup factor decides per column, so a column
+   * with a few dozen repeated labels keeps its per-leaf dictionary and every route it already had.
+   *
+   * <p>{@code always} is a testing knob and nothing else. It forces the encoding onto columns the
+   * heuristic would never choose it for, including low-cardinality ones, which is exactly what makes
+   * it useful for a differential — and also means it moves shapes that need STRING VALUES rather
+   * than identities (ordering by the key, substring and stringify transforms, composite keys) onto
+   * the generic pipeline. Those decline; they do not answer differently.
+   */
+  private static GlobalDictionaryMode globalDictionaryMode() {
+    // Read per BUILD rather than cached in a static: a differential test has to build the same
+    // corpus both ways inside one JVM to show the two encodings answer identically, and a mode
+    // frozen at class-load makes that impossible. A build is not a hot path.
+    final String configured = System.getProperty("sirix.projection.globalDict", "auto");
+    return switch (configured.toLowerCase(java.util.Locale.ROOT)) {
+      case "always" -> GlobalDictionaryMode.ALWAYS;
+      case "never", "off", "false" -> GlobalDictionaryMode.NEVER;
+      default -> GlobalDictionaryMode.AUTO;
+    };
+  }
+
+  /**
+   * Columns the most recent build encoded with a resource-wide dictionary.
+   *
+   * <p>Test observability, and load-bearing for one thing in particular: a differential that
+   * compares the two encodings proves nothing unless the "global" arm actually produced a global
+   * column, and nothing else about the outcome reveals whether it did.
+   */
+  private static final java.util.concurrent.atomic.AtomicInteger GLOBAL_DICTIONARY_COLUMNS =
+      new java.util.concurrent.atomic.AtomicInteger();
+
+  /** How many columns the most recent build encoded with a resource-wide dictionary. */
+  public static int globalDictionaryColumnsBuilt() {
+    return GLOBAL_DICTIONARY_COLUMNS.get();
+  }
+
+  /** Leading leaves held back until the per-column dictionary choice is made; null afterwards. */
+  private List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
+
+  /** Per-column resource-wide dictionaries; null slots are columns that stayed per-leaf. */
+  private GlobalValueDictionaryWriter[] globalDictionaries;
 
   public ProjectionIndexBuilder(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final Consumer<byte[]> leafSink) {
@@ -254,7 +340,7 @@ public final class ProjectionIndexBuilder {
         columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i), indexDef.getProjectionFields().get(i));
       }
       finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds, null, null);
+          rtx.getRevisionNumber(), columnKinds, null, null, null);
       return;
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
@@ -285,8 +371,45 @@ public final class ProjectionIndexBuilder {
       storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), encoded);
     });
     builder.build(rtx);
+    // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
+    // so nothing can be persisted about a dictionary until every id it will ever mint is known.
+    final long[] valueDictionaryHeaderKeys =
+        flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
     finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
-        builder.columnKinds(), setValueRowCounts, bloomPerColumn);
+        builder.columnKinds(), setValueRowCounts, bloomPerColumn, valueDictionaryHeaderKeys);
+  }
+
+  /**
+   * Persist every resource-wide dictionary the build produced and return their header keys.
+   *
+   * <p>The in-memory intern tables are released as soon as their contents are on the page: they are
+   * the largest transient allocation of a build over a high-cardinality column, and nothing needs
+   * them once the records exist.
+   *
+   * @return per-column header node keys, {@code 0} where the column has no dictionary, or
+   *         {@code null} when the build produced none at all
+   */
+  private static long @Nullable [] flushValueDictionaries(
+      final GlobalValueDictionaryWriter @Nullable [] dictionaries,
+      final StorageEngineWriter storageEngineWriter) {
+    if (dictionaries == null) {
+      return null;
+    }
+    long[] headerKeys = null;
+    final NamePage namePage = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+    final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(storageEngineWriter);
+    for (int c = 0; c < dictionaries.length; c++) {
+      final GlobalValueDictionaryWriter dictionary = dictionaries[c];
+      if (dictionary == null) {
+        continue;
+      }
+      if (headerKeys == null) {
+        headerKeys = new long[dictionaries.length];
+      }
+      headerKeys[c] = dictionary.flush(namePage, databaseType, storageEngineWriter, storageEngineWriter.getLog());
+      dictionary.release();
+    }
+    return headerKeys;
   }
 
   /**
@@ -299,7 +422,10 @@ public final class ProjectionIndexBuilder {
     final int[] ids = encoded.columnSegmentIds();
     for (int i = 0; i < ids.length; i++) {
       final int id = ids[i];
-      if (id > 0 && id % ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN == 0) {
+      // Stride ids only: the DICT_HASH region sits above them, and its residues would otherwise
+      // read as another column's fingerprint — a WRONG bloom block, which prunes real leaves away.
+      if (id > 0 && id < ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE
+          && id % ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN == 0) {
         final int column = id / ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN - 1;
         final List<byte[]> list = bloomPerColumn.computeIfAbsent(column, unused -> new ArrayList<>());
         while (list.size() < rowGroupId - 1) {
@@ -427,7 +553,7 @@ public final class ProjectionIndexBuilder {
   private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
       final int buildRevision, final byte[] columnKinds, final Map<Integer, Map<String, Long>> setValueRowCounts,
-      final @Nullable Map<Integer, List<byte[]>> bloomPerColumn) {
+      final @Nullable Map<Integer, List<byte[]>> bloomPerColumn, final long @Nullable [] valueDictionaryHeaderKeys) {
     final int rowGroupCount = firstKeys.size();
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
       storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
@@ -440,7 +566,7 @@ public final class ProjectionIndexBuilder {
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names, columnKinds,
-        rowGroupCount, buildRevision, setValueRowCounts);
+        rowGroupCount, buildRevision, setValueRowCounts, valueDictionaryHeaderKeys);
     storage.putBlob(0, metadata.serialize());
     // Fingerprint BLOCKS — the contiguous acceleration over the per-leaf segments just written.
     // A full build is the ONLY writer of blocks; incremental maintenance tombstones them
@@ -485,6 +611,12 @@ public final class ProjectionIndexBuilder {
         }
       }
       flushCurrentRowGroup();
+      // A build shorter than the sample never reaches the decision inside the flush, and a build
+      // whose last leaf was empty leaves the flush returning early — either way the buffer must
+      // still be decided on and drained, or the whole index would be silently dropped.
+      if (sample != null) {
+        decideDictionaryKindsAndDrainSample();
+      }
     } finally {
       rtx.moveTo(restoreNodeKey);
     }
@@ -629,16 +761,128 @@ public final class ProjectionIndexBuilder {
     extractor.extractAt(rtx, recordKey);
     if (!extractor.appendTo(currentLeaf, recordKey)) {
       flushCurrentRowGroup();
-      currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+      currentLeaf = newLeaf();
       extractor.appendTo(currentLeaf, recordKey);
     }
     rowsEmitted++;
   }
 
+  /** The per-column resource-wide dictionaries this build produced; null slots stayed per-leaf. */
+  GlobalValueDictionaryWriter @Nullable [] globalDictionaries() {
+    return globalDictionaries;
+  }
+
+  private ProjectionIndexRowGroupPage newLeaf() {
+    final ProjectionIndexRowGroupPage leaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+    leaf.setGlobalDictionaries(globalDictionaries);
+    return leaf;
+  }
+
   private void flushCurrentRowGroup() {
     if (currentLeaf.getRowCount() == 0)
       return;
+    if (sample != null) {
+      sample.add(currentLeaf);
+      if (sample.size() >= SAMPLE_LEAVES) {
+        decideDictionaryKindsAndDrainSample();
+      }
+      return;
+    }
     leafSink.accept(currentLeaf.serialize());
     leavesEmitted++;
+  }
+
+  /**
+   * Choose per string column between the per-leaf dictionary it was built with and a resource-wide
+   * one, then re-encode the buffered leaves accordingly and let them through.
+   *
+   * <h2>Why the decision is made here rather than up front</h2>
+   *
+   * Which of the two shapes wins is a property of the DATA, not of the declared type: the same
+   * {@code string} column is a handful of repeated labels in one resource and millions of distinct
+   * identifiers in another. It cannot be known before rows are seen, and walking the resource twice
+   * to find out would double the build. So the build runs normally, the leading leaves are held
+   * back, and the per-leaf dictionaries they already contain ARE the measurement — converting them
+   * afterwards costs one intern per dictionary entry, not per row.
+   *
+   * <h2>The measurement</h2>
+   *
+   * Not the distinct ratio but the per-leaf DEDUPLICATION FACTOR: sampled rows divided by the total
+   * size of the per-leaf dictionaries. That is the quantity the choice actually turns on. A per-leaf
+   * dictionary earns its keep by storing a recurring value once per leaf; when a leaf's dictionary
+   * is nearly as large as its row count the dictionary stores almost nothing twice, so it has
+   * become a second copy of the column plus an id per row. A global distinct ratio would not say
+   * this — a column can have a million distinct values resource-wide and still repeat heavily
+   * inside a leaf.
+   */
+  private void decideDictionaryKindsAndDrainSample() {
+    final byte[] kinds = extractor.columnKindsRef();
+    final GlobalValueDictionaryWriter[] dictionaries = new GlobalValueDictionaryWriter[kinds.length];
+    final GlobalDictionaryMode mode = globalDictionaryMode();
+    if (mode != GlobalDictionaryMode.NEVER) {
+      long sampledRows = 0;
+      for (final ProjectionIndexRowGroupPage leaf : sample) {
+        sampledRows += leaf.getRowCount();
+      }
+      for (int c = 0; c < kinds.length; c++) {
+        if (kinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          continue;
+        }
+        long perLeafDictTotal = 0;
+        for (final ProjectionIndexRowGroupPage leaf : sample) {
+          perLeafDictTotal += leaf.stringDictionarySize(c);
+        }
+        if (mode == GlobalDictionaryMode.ALWAYS
+            || isGlobalDictionaryWorthwhile(sampledRows, perLeafDictTotal)) {
+          dictionaries[c] = new GlobalValueDictionaryWriter();
+        }
+      }
+    }
+
+    // Convert every buffered leaf BEFORE flipping the shared kinds array — the array is one
+    // instance shared by the extractor and all of them, so flipping first would make the second
+    // leaf reject itself as already global.
+    for (int c = 0; c < dictionaries.length; c++) {
+      if (dictionaries[c] == null) {
+        continue;
+      }
+      for (final ProjectionIndexRowGroupPage leaf : sample) {
+        leaf.convertStringDictColumnToGlobal(c, dictionaries[c]);
+      }
+      kinds[c] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    }
+
+    int globalColumns = 0;
+    for (final GlobalValueDictionaryWriter dictionary : dictionaries) {
+      if (dictionary != null) {
+        globalColumns++;
+      }
+    }
+    GLOBAL_DICTIONARY_COLUMNS.set(globalColumns);
+    globalDictionaries = dictionaries;
+    for (final ProjectionIndexRowGroupPage leaf : sample) {
+      leaf.setGlobalDictionaries(dictionaries);
+      leafSink.accept(leaf.serialize());
+      leavesEmitted++;
+    }
+    // currentLeaf is the last buffered leaf (flushCurrentRowGroup buffered it before calling
+    // here), so it has already been converted and drained; extractRow replaces it with one built
+    // under the new kinds.
+    sample = null;
+  }
+
+  /**
+   * Whether a resource-wide dictionary beats the per-leaf ones for a column, given the sample.
+   *
+   * @param sampledRows rows in the sample
+   * @param perLeafDictTotal summed size of the sample's per-leaf dictionaries for the column
+   */
+  private static boolean isGlobalDictionaryWorthwhile(final long sampledRows, final long perLeafDictTotal) {
+    if (perLeafDictTotal < MIN_GLOBAL_DICTIONARY_ENTRIES || sampledRows <= 0) {
+      // Too few values for the machinery to repay itself: a small dictionary is cheap to store per
+      // leaf, packs into very few bits per row, and needs no record reads at all to materialise.
+      return false;
+    }
+    return sampledRows < (long) MIN_PER_LEAF_DEDUP_FACTOR * perLeafDictTotal;
   }
 }

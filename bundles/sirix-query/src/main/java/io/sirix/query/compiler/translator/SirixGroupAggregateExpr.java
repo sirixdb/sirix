@@ -60,8 +60,8 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final Ordering.OrderModifier[] orderModifiers;
   /**
    * Sole-consumer {@code fn:subsequence} cap over the ORDERED groups ({@code start+length-1}), or
-   * {@code -1}: with a cap the executor may heap-select the first {@code limit} groups of the
-   * stable order instead of sorting and materializing every group.
+   * {@code -1}: with a cap the executor may heap-select the first {@code limit} groups of the stable
+   * order instead of sorting and materializing every group.
    */
   private final long limit;
   /** Per-key transform annotations (see the detection stage), or {@code null} for plain keys. */
@@ -74,6 +74,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   /** Regex key transform (Q28's REGEXP_REPLACE shape), or {@code null}s for none. */
   private final String[] keyRegexPattern;
   private final String[] keyRegexRepl;
+  /** Integer date-part key transform ({@code {divisor, modulus}} per key), or {@code null}. */
+  private final long[] keyDivMod;
+  /** Per key: {@code fn:string(<chain>)} — a missing field groups and prints as {@code ""}. */
+  private final boolean[] keyStringify;
   /** HAVING over the group count ({@code long[]{op, literal}}), or {@code null}. */
   private final long[] having;
   /** Concat-emitted key entries: literal prefix/suffix decoration per annotated position. */
@@ -93,10 +97,10 @@ public final class SirixGroupAggregateExpr implements Expr {
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
       final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
-      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] having,
-      final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix, final int[] constEntryPos,
-      final String[] constEntryNames, final long[] constEntryValues, final SourceRef runtimeSourceRef,
-      final Expr genericFallback) {
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
+      final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
+      final SourceRef runtimeSourceRef, final Expr genericFallback) {
     this.executor = executor;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
@@ -114,6 +118,8 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.keyCondElse = keyCondElse;
     this.keyRegexPattern = keyRegexPattern;
     this.keyRegexRepl = keyRegexRepl;
+    this.keyDivMod = keyDivMod;
+    this.keyStringify = keyStringify;
     this.having = having;
     this.decorPos = decorPos;
     this.decorPrefix = decorPrefix;
@@ -152,10 +158,10 @@ public final class SirixGroupAggregateExpr implements Expr {
       return genericFallback.evaluate(ctx, tuple);
     }
     if (executor.canExecute(ctx)) {
-      final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
-          predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc, orderEmptyLeast,
-          limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl,
-          having);
+      final SirixVectorizedExecutor.ServedGroups served =
+          executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields,
+              outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+              keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having);
       if (served != null) {
         if (orderIndexes == null || served.ordered()) {
           // Either no order-by, or the kernel already ordered (and under a limit, truncated to
@@ -279,8 +285,8 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   /**
    * Weave the CONSTANT key entries (`group by $one, $k` with `$one := 1`) back into each served
-   * record at their annotated positions. They partition nothing, so the kernels never see them;
-   * K records at most, so this is emission cost, not scan cost.
+   * record at their annotated positions. They partition nothing, so the kernels never see them; K
+   * records at most, so this is emission cost, not scan cost.
    */
   private Sequence spliceConstEntries(final Sequence served) throws QueryException {
     if (constEntryPos == null) {

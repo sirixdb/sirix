@@ -20,27 +20,27 @@ import java.util.Arrays;
  * and the machinery that expands one chunk when a reader first asks for a slot inside it.
  *
  * <p>
- * A chunk-framed body states its section lengths on the wire, which is what makes this possible: the
- * reader can decode the META frame alone, derive every entry's in-memory length from it, and lay out
- * the complete directory of a heap whose bytes it has not looked at. Heap addresses are therefore
- * final from the moment the page exists — expansion only ever fills bytes in, never moves them — so
- * every zero-copy reader keeps its contract behind a single acquire-load gate.
+ * A chunk-framed body states its section lengths on the wire, which is what makes this possible:
+ * the reader can decode the META frame alone, derive every entry's in-memory length from it, and
+ * lay out the complete directory of a heap whose bytes it has not looked at. Heap addresses are
+ * therefore final from the moment the page exists — expansion only ever fills bytes in, never moves
+ * them — so every zero-copy reader keeps its contract behind a single acquire-load gate.
  *
  * <p>
  * <b>What is retained.</b> Each chunk's encoded bytes, in a page-owned array that is dropped the
  * moment the chunk is expanded, plus the page's own copy of the META-derived state the expansion
- * needs. That copy is not an optimisation but a correctness requirement: the eager path derives into
- * per-thread scratches, and a chunk expanded later runs on whichever thread happens to read the
- * slot, long after the deserializing thread reused its scratches for other pages.
+ * needs. That copy is not an optimisation but a correctness requirement: the eager path derives
+ * into per-thread scratches, and a chunk expanded later runs on whichever thread happens to read
+ * the slot, long after the deserializing thread reused its scratches for other pages.
  *
  * <p>
  * <b>Why the pending bytes are a byte array and not a segment.</b> Every codec's decode entry point
  * takes a {@code byte[]} input, so a native pending buffer would have to be copied back to the heap
  * before it could be decoded. The uniform-native-provenance rule exists for the segments the column
  * kernels load from (oracle/graal#14255); a decoder input reaches no vector load site. This is the
- * same shape {@code RegionTable} defers a compressed region in, tail slack included — sized exactly,
- * the buffer fails the native decoder's precondition and every expansion silently takes the Java
- * decoder.
+ * same shape {@code RegionTable} defers a compressed region in, tail slack included — sized
+ * exactly, the buffer fails the native decoder's precondition and every expansion silently takes
+ * the Java decoder.
  */
 final class LazyChunkedBody {
 
@@ -67,7 +67,8 @@ final class LazyChunkedBody {
   }
 
   /** No-op injector for pages on which neither elision fired. */
-  private static final RangeInjector NO_INJECTION = (_, _, _, _, _, _) -> {};
+  private static final RangeInjector NO_INJECTION = (_, _, _, _, _, _) -> {
+  };
 
   /**
    * Per-chunk expansion scratch: native, because the decoders write into a {@link MemorySegment}, and
@@ -152,8 +153,8 @@ final class LazyChunkedBody {
    *
    * <p>
    * The table itself is a per-thread scratch the next page decoded on this thread will overwrite, so
-   * every row is copied out at exactly the width this page needs. The slot ranges and heap ranges come
-   * from the caller because only the directory walk knows them.
+   * every row is copied out at exactly the width this page needs. The slot ranges and heap ranges
+   * come from the caller because only the directory walk knows them.
    *
    * @param table the parsed chunk table, whose pending wire buffers are taken over and cleared
    * @param firstSlot first slot of each chunk, and {@code lastSlot} its last, both inclusive
@@ -230,8 +231,8 @@ final class LazyChunkedBody {
   }
 
   /**
-   * Fill the heap ranges of every unexpanded chunk with the poison byte, so a reader that bypasses the
-   * gate fails on bytes that cannot be mistaken for a record.
+   * Fill the heap ranges of every unexpanded chunk with the poison byte, so a reader that bypasses
+   * the gate fails on bytes that cannot be mistaken for a record.
    */
   void poison(final MemorySegment slottedPage) {
     for (int c = 0; c < chunkCount; c++) {
@@ -309,8 +310,8 @@ final class LazyChunkedBody {
               pageKeyBase);
         }
         if (srcOff != chunkRawLen) {
-          throw new SirixIOException("page " + recordPageKey + " chunk " + chunk + " expanded " + srcOff
-              + " of its " + chunkRawLen + " heap bytes");
+          throw new SirixIOException("page " + recordPageKey + " chunk " + chunk + " expanded " + srcOff + " of its "
+              + chunkRawLen + " heap bytes");
         }
         injector.inject(slottedPage, page.getRegionTable(), from, to, firstSlot[chunk], lastSlot[chunk]);
       }

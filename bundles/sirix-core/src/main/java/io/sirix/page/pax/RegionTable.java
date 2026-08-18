@@ -114,11 +114,11 @@ public final class RegionTable {
   /**
    * Sentinel empty payload, so an absent-but-present region needs no special case. NATIVE (a
    * zero-length reinterpret of NULL), deliberately not {@code ofArray(new byte[0])}: the heap
-   * sentinel was the ONLY heap-backed {@code MemorySegment} flowing into the region slot arrays,
-   * and that single polymorphic type was enough for GraalVM native image to leave
-   * {@code unsafeGetBase()} undevirtualized at the SIMD load sites and add the isolate heap base
-   * to a native address — the oracle/graal#14255 segfault. Every read bails on the size check
-   * before touching bytes, so the sentinel's backing store is otherwise irrelevant.
+   * sentinel was the ONLY heap-backed {@code MemorySegment} flowing into the region slot arrays, and
+   * that single polymorphic type was enough for GraalVM native image to leave {@code unsafeGetBase()}
+   * undevirtualized at the SIMD load sites and add the isolate heap base to a native address — the
+   * oracle/graal#14255 segfault. Every read bails on the size check before touching bytes, so the
+   * sentinel's backing store is otherwise irrelevant.
    */
   private static final MemorySegment EMPTY = MemorySegment.NULL.reinterpret(0);
 

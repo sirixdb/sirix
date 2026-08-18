@@ -643,7 +643,11 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     if (maxWeightBytes <= 0 || map.isEmpty()) {
       return;
     }
-    final long target = maxWeightBytes * 3 / 4;
+    // Shed a quarter of what is actually HELD, not a quarter of the budget. Gating on the budget
+    // made this a no-op in the one situation it exists for: a cache far under its own budget whose
+    // pages are nevertheless pinning every frame the allocator owns. The caller only reaches here
+    // because an allocation already failed, so making no progress means the retry loop OOMs.
+    final long target = Math.min(maxWeightBytes, currentWeightBytes.get()) * 3 / 4;
     evictionLock.lock();
     try {
       var iterator = map.entrySet().iterator();

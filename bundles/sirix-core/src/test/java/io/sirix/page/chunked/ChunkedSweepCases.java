@@ -19,8 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The pages the chunked-body sweeps run over, so the format sweep and the lazy-expansion sweep cover
- * exactly the same ground.
+ * The pages the chunked-body sweeps run over, so the format sweep and the lazy-expansion sweep
+ * cover exactly the same ground.
  *
  * <p>
  * The structural levers, page shapes, entry counts, record sizes and chunk targets are a full

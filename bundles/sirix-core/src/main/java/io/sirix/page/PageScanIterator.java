@@ -10,14 +10,20 @@ import org.jspecify.annotations.Nullable;
 /**
  * Sequential iterator over all {@link KeyValueLeafPage}s in a revision's document index.
  *
- * <p>Resolves page keys via the indirect page trie using {@link StorageEngineReader#getRecordPage}.
+ * <p>
+ * Resolves page keys via the indirect page trie using {@link StorageEngineReader#getRecordPage}.
  * Each returned page is guarded (reference-counted) to prevent cache eviction during processing.
- * The guard is released when {@link #nextPage()} is called again or when the iterator is closed.</p>
+ * The guard is released when {@link #nextPage()} is called again or when the iterator is closed.
+ * </p>
  *
- * <p>Non-existent page keys (sparse trie) are silently skipped. The iterator terminates when
- * all page keys up to {@code maxNodeKey >> NDP_NODE_COUNT_EXPONENT} have been visited.</p>
+ * <p>
+ * Non-existent page keys (sparse trie) are silently skipped. The iterator terminates when all page
+ * keys up to {@code maxNodeKey >> NDP_NODE_COUNT_EXPONENT} have been visited.
+ * </p>
  *
- * <p>Usage:
+ * <p>
+ * Usage:
+ * 
  * <pre>{@code
  * try (var iter = new PageScanIterator(reader)) {
  *   KeyValueLeafPage page;
@@ -25,7 +31,8 @@ import org.jspecify.annotations.Nullable;
  *     // Process page — guarded until next nextPage() or close()
  *   }
  * }
- * }</pre></p>
+ * }</pre>
+ * </p>
  */
 public final class PageScanIterator implements AutoCloseable {
 
@@ -58,9 +65,11 @@ public final class PageScanIterator implements AutoCloseable {
   /**
    * Advance to the next non-null page.
    *
-   * <p>The returned page is guarded — it remains valid until {@link #nextPage()} is called
-   * again or {@link #close()} is called. The caller may acquire additional guards if the
-   * page must outlive the iterator's current position (e.g., for multi-page batch accumulation).</p>
+   * <p>
+   * The returned page is guarded — it remains valid until {@link #nextPage()} is called again or
+   * {@link #close()} is called. The caller may acquire additional guards if the page must outlive the
+   * iterator's current position (e.g., for multi-page batch accumulation).
+   * </p>
    *
    * @return the next page, or {@code null} when the scan is exhausted
    */
@@ -82,20 +91,26 @@ public final class PageScanIterator implements AutoCloseable {
   /**
    * Load the page at one key and acquire our own guard on it.
    *
-   * <p>The guard must be our own: the reader's internal guard is released on the next
+   * <p>
+   * The guard must be our own: the reader's internal guard is released on the next
    * {@link StorageEngineReader#getRecordPage} call, so without one the frame could be recycled while
-   * the caller is still reading the page it was handed.</p>
+   * the caller is still reading the page it was handed.
+   * </p>
    *
-   * <p>{@code acquireGuard()} returns false WITHOUT incrementing on a closed or orphaned page, so
+   * <p>
+   * {@code acquireGuard()} returns false WITHOUT incrementing on a closed or orphaned page, so
    * wrapping its result unconditionally builds a guard object backed by nothing — and that object's
    * {@code close()} then releases SOMEONE ELSE'S guard, freeing the page under its real holder. The
    * {@link PageGuard} constructor rejects exactly this; {@code wrapAlreadyGuarded} trusts the caller
-   * instead, so the check has to happen here.</p>
+   * instead, so the check has to happen here.
+   * </p>
    *
-   * <p>A failed acquire means this instance is being torn down, not that the key has no page: the
-   * cache drops the dead mapping, so re-reading the key yields a live instance. Hence retry rather
-   * than skip — skipping would silently drop a whole page of nodes from the scan, and this iterator
-   * backs query results.</p>
+   * <p>
+   * A failed acquire means this instance is being torn down, not that the key has no page: the cache
+   * drops the dead mapping, so re-reading the key yields a live instance. Hence retry rather than
+   * skip — skipping would silently drop a whole page of nodes from the scan, and this iterator backs
+   * query results.
+   * </p>
    *
    * @param pageKey the document-index page key to load
    * @return the guarded page, or {@code null} if the trie has no usable page at that key
@@ -118,11 +133,19 @@ public final class PageScanIterator implements AutoCloseable {
         kvlPage.releaseGuard();
         return null;
       }
+      // Every consumer of this iterator walks the whole page, and some take its heap segment
+      // directly rather than going through the accessors that expand chunks for themselves. Asking
+      // here rather than trusting the load policy, because whether a page still holds chunks is a
+      // property of the cached page and not of the caller that found it: the same instance a scan
+      // pulls out of the record-page cache may have been put there by a point lookup on another
+      // transaction, which loaded exactly the one chunk it needed. One volatile read on a page that
+      // was decoded whole.
+      kvlPage.ensureAllChunks();
       return kvlPage;
     }
 
-    throw new IllegalStateException("Could not guard document page " + pageKey + " after "
-        + MAX_GUARD_ATTEMPTS + " attempts: every cached instance was being torn down");
+    throw new IllegalStateException("Could not guard document page " + pageKey + " after " + MAX_GUARD_ATTEMPTS
+        + " attempts: every cached instance was being torn down");
   }
 
   /**

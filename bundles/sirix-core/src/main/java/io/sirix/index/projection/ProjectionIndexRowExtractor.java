@@ -469,9 +469,12 @@ public final class ProjectionIndexRowExtractor {
         }
       }
       case OBJECT_NAMED_STRING -> {
+        // Both string kinds take the value the same way; they differ only in which dictionary the
+        // page interns it into, which is the page's business and not the extractor's.
         final String v = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            ? rtx.getValue()
-            : null;
+            || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+                ? rtx.getValue()
+                : null;
         if (v != null) {
           rowStrings[col] = v;
         } else {

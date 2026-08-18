@@ -12,6 +12,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.node.LE;
@@ -19,6 +20,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -31,9 +33,11 @@ import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
+import java.util.function.Consumer;
 
 /**
  * HOT-backed persistent storage for projection-index leaf payloads in the <b>segment-slot
@@ -708,8 +712,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * segment raw), or {@code marker}+{@code offset} (a committed reference batch-resolved after the
    * walk; {@code marker} is non-null only for descriptors, which still hash-verify).
    */
-  record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker,
-      long offset, long slotKey) {
+  record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker, long offset,
+      long slotKey) {
   }
 
   /**
@@ -778,8 +782,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * The slot walk over ONE row-group id range, {@code [fromRowGroup, toRowGroup]} inclusive —
-   * the unit a PARALLEL materialization partitions across per-thread readers (each range touches
+   * The slot walk over ONE row-group id range, {@code [fromRowGroup, toRowGroup]} inclusive — the
+   * unit a PARALLEL materialization partitions across per-thread readers (each range touches
    * mostly-disjoint trie leaves, so the page decodes the cursor forces run concurrently into the
    * shared buffer manager). Negative bounds = the historical UNBOUNDED walk.
    */
@@ -955,10 +959,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Phases 3-5 over an already-collected slot set — the shared tail of the serial walk above and
-   * the catalog's PARALLEL collection (partitioned {@link #collectSlotsRange} calls merged by the
-   * caller). Batch I/O (descriptor resolution, committed segment refs) runs on the ONE reader
-   * passed here; the per-leaf assembly fans out as before.
+   * Phases 3-5 over an already-collected slot set — the shared tail of the serial walk above and the
+   * catalog's PARALLEL collection (partitioned {@link #collectSlotsRange} calls merged by the
+   * caller). Batch I/O (descriptor resolution, committed segment refs) runs on the ONE reader passed
+   * here; the per-leaf assembly fans out as before.
    */
   static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots) {
@@ -966,8 +970,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * {@code parallelReaders}: pre-opened extra readers for PARTITIONED committed-segment
-   * resolution (the caller owns their transactions). {@code null} keeps the single-reader batch.
+   * {@code parallelReaders}: pre-opened extra readers for PARTITIONED committed-segment resolution
+   * (the caller owns their transactions). {@code null} keeps the single-reader batch.
    */
   static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
@@ -1004,9 +1008,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         accum.payloads[pos] = s.resolved();
       } else if (s.inlineValue() != null) {
         accum.payloads[pos] = s.inlineValue();
-      } else {
+      } else if (columnSegmentId < ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE) {
         pendingSeg.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
       }
+      // A referenced DICT_HASHES segment is deliberately NOT fetched here: the raw scan form
+      // reassembles from KEYS/BODY/DICT alone, so its bytes would be pages read and thrown away —
+      // and on a high-cardinality string column that is the largest chain in the leaf after the
+      // dictionary itself. Its descriptor entry is still validated above; assembleRaw never asks
+      // for the id, and the column-sliced fill fetches the chain on its own when a fold needs it.
     }
     final long p4 = DIAG
         ? System.nanoTime()
@@ -1146,10 +1155,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * loop.
    */
   /**
-   * {@link #resolvePending} partitioned across pre-opened readers. The refs sort by OFFSET first
-   * and each reader takes a CONTIGUOUS run of the sorted order, so per-thread reads keep the
-   * coalescing locality the single-reader batch had — cold storage sees T mostly-sequential
-   * streams instead of one.
+   * {@link #resolvePending} partitioned across pre-opened readers. The refs sort by OFFSET first and
+   * each reader takes a CONTIGUOUS run of the sorted order, so per-thread reads keep the coalescing
+   * locality the single-reader batch had — cold storage sees T mostly-sequential streams instead of
+   * one.
    */
   private static void resolvePendingParallel(final StorageEngineReader[] readers,
       final ArrayList<PendingSegRef> pending) {
@@ -1434,6 +1443,531 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return Arrays.asList(out);
   }
 
+  /**
+   * {@link #readAllRowGroupDirectoriesFromColumnSegmentSlots(StorageEngineReader, int, int)} with the
+   * per-leaf page decode fanned out across {@code workerReaders}' leases.
+   *
+   * <p>
+   * The serial form is one HOT range scan that demand-faults every leaf page in turn and pays that
+   * page's decompress+expand before it can look at the next reference — strictly serial CPU over
+   * strictly serial I/O. Measured on a 977-row-group ClickBench projection: 160 ms, the single
+   * largest item of a cold serve. Nothing about the walk needs order (see {@link DirectoryWalk} — row
+   * groups are completed in place and emitted together), so the leaf pages can be decoded
+   * independently and replayed afterwards.
+   *
+   * <p>
+   * <b>Committed read-only contexts only.</b> A writer's reader resolves through a transaction intent
+   * log whose read path mutates shared state (reference rebinding), so it keeps the serial cursor
+   * walk — as does every caller that passes no {@code workerReaders}. This is the same line
+   * {@code decodeRowGroups(StorageEngineReader, IndexDef)} draws for the eager hydrate.
+   *
+   * <p>
+   * <b>Fail-soft.</b> Anything the parallel machinery itself gets wrong — an unexpected page type, a
+   * worker that could not be run — falls back to the full serial walk and returns its result.
+   * Verified-content corruption ({@link IllegalStateException} from the decode and verify helpers)
+   * propagates instead, exactly as it does from the serial walk, so the catalog still marks the index
+   * unusable rather than silently re-reading it.
+   *
+   * @param workerReaders opens one short-lived read-only reader per worker, or {@code null} to force
+   *        the serial walk
+   */
+  public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final @Nullable ParallelWalkReaders workerReaders) {
+    if (workerReaders != null && PARALLEL_DIRECTORY_WALK && !reader.hasTrxIntentLog()) {
+      List<RowGroupDirectory> parallel;
+      try {
+        parallel = parallelRowGroupDirectories(reader, indexNumber, rowGroupCount, workerReaders);
+      } catch (final IllegalStateException corrupt) {
+        throw corrupt; // verified-content corruption — the serial walk would fail identically
+      } catch (final RuntimeException infrastructure) {
+        LOGGER.debug("Parallel projection directory walk failed for indexNumber=" + indexNumber
+            + " — falling back to the serial walk (" + infrastructure + ")");
+        parallel = PARALLEL_WALK_DECLINED;
+      }
+      if (parallel != PARALLEL_WALK_DECLINED) {
+        return parallel;
+      }
+    }
+    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount);
+  }
+
+  /**
+   * Opens one short-lived read-only reader for a parallel directory-walk worker and closes it again
+   * when the worker returns. Implemented by the caller, which owns the session and the revision — a
+   * worker must never share the coordinating reader (page resolution keeps per-reader positional
+   * state).
+   */
+  @FunctionalInterface
+  public interface ParallelWalkReaders {
+    /** Runs {@code worker} against a fresh reader, closing that reader before returning. */
+    void runWithReader(Consumer<StorageEngineReader> worker);
+  }
+
+  /**
+   * Master switch for the parallel directory walk, {@code -Dsirix.projection.parallelWalk=false} to
+   * disable. Resolved once: it is a JVM-lifetime switch, and reading it per walk would put a lookup
+   * in the JDK's synchronized system-properties table on a path that also runs under a read lock.
+   * Tests exercise the two routes by entry point rather than by property.
+   */
+  private static final boolean PARALLEL_DIRECTORY_WALK =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.parallelWalk", "true"));
+
+  /**
+   * Worker ceiling. The walk is one-per-(resource, revision) and bounded by page I/O, not by cores;
+   * past a handful of concurrent readers the device is saturated and the extra threads only add
+   * transaction-open cost and lock traffic on the shared buffer manager.
+   */
+  private static final int MAX_DIRECTORY_WALK_WORKERS = 8;
+
+  /**
+   * Two partitions already halve a cold walk whose cost is per-leaf page expansion (measured: a
+   * 977-row-group store is FIVE fat leaves under one root — ~33 ms of decode each, 165 ms serial), so
+   * the only shape worth declining is the one that cannot be split at all.
+   */
+  private static final int MIN_PARTITIONS_FOR_PARALLEL_WALK = 2;
+
+  /** Partitions to aim for before handing the frontier to the workers — see {@link #walkFrontier}. */
+  private static final int PARTITIONS_PER_WORKER = 8;
+
+  /** Page references per batched {@link StorageEngineReader#prefetchPageSpans} hint. */
+  private static final int WALK_PREFETCH_BATCH = 128;
+
+  /** Mirrors {@code HOTTrieReader.MAX_TREE_HEIGHT}: a descent past it means a corrupt trie. */
+  private static final int MAX_WALK_DEPTH = 64;
+
+  /** Names the parallel walk in {@link HOTTrieReader#recoverTorn} exhaustion diagnostics. */
+  private static final String PARALLEL_WALK_OP = "projection parallel directory walk";
+
+  /** Decline/engage diagnostics for the parallel walk, off unless {@code -Dsirix.projDiag=true}. */
+  private static final boolean WALK_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /**
+   * Distinguishes "the parallel walk did not run" from its two real answers (a directory list, or
+   * {@code null} for an unresolved page). A private instance, so no legitimate empty result can be
+   * mistaken for it.
+   */
+  private static final List<RowGroupDirectory> PARALLEL_WALK_DECLINED =
+      Collections.unmodifiableList(new ArrayList<>(0));
+
+  /**
+   * The parallel walk proper: enumerate a frontier of subtree references without decoding leaves,
+   * decode each partition of it on its own reader, then replay the captures into one
+   * {@link DirectoryWalk}.
+   *
+   * @return the directories, {@code null} for an unresolved page, or {@link #PARALLEL_WALK_DECLINED}
+   *         when this store is not worth (or not shaped for) the parallel route
+   */
+  private static @Nullable List<RowGroupDirectory> parallelRowGroupDirectories(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount, final ParallelWalkReaders workerReaders) {
+    if (rowGroupCount <= 0) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final int cores = Math.min(Runtime.getRuntime().availableProcessors(), MAX_DIRECTORY_WALK_WORKERS);
+    if (cores < 2) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final PageReference[] frontier;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      frontier = walkFrontier(reader, trieReader, rootRef, cores * PARTITIONS_PER_WORKER);
+    }
+    if (frontier == null || frontier.length < MIN_PARTITIONS_FOR_PARALLEL_WALK) {
+      if (WALK_DIAG) {
+        System.err.println("[parwalk] DECLINED: frontier " + (frontier == null
+            ? "null (unresolved page)"
+            : frontier.length + " < " + MIN_PARTITIONS_FOR_PARALLEL_WALK));
+      }
+      return PARALLEL_WALK_DECLINED;
+    }
+    if (WALK_DIAG) {
+      System.err.println("[parwalk] ENGAGED: frontier=" + frontier.length + " workers~" + cores);
+    }
+    final int chunk = (frontier.length + Math.min(cores, frontier.length) - 1) / Math.min(cores, frontier.length);
+    // Re-derive the worker count from the chunk size: a ceiling division can leave the last
+    // partitions empty (9 references over 8 workers is 5 chunks of 2), and an empty partition
+    // still costs a thread and a read transaction.
+    final int workers = (frontier.length + chunk - 1) / chunk;
+    final DirectoryWalkWorker[] tasks = new DirectoryWalkWorker[workers];
+    final Thread[] threads = new Thread[workers];
+    final Throwable[] failures = new Throwable[workers];
+    for (int w = 0; w < workers; w++) {
+      final int from = w * chunk;
+      final DirectoryWalkWorker task =
+          new DirectoryWalkWorker(frontier, from, Math.min(from + chunk, frontier.length), indexNumber);
+      final int slot = w;
+      tasks[w] = task;
+      final Thread thread = new Thread(() -> {
+        try {
+          workerReaders.runWithReader(task);
+        } catch (final Throwable failure) {
+          failures[slot] = failure;
+        }
+      }, "sirix-projection-dirwalk-" + w);
+      thread.setDaemon(true);
+      threads[w] = thread;
+      thread.start();
+    }
+    // Every worker is joined before anything it produced is read, so its buffer, its unresolved
+    // flag and its failure slot are all published by the join's happens-before edge — no volatile
+    // and no synchronization on the per-worker state.
+    boolean interrupted = false;
+    for (final Thread thread : threads) {
+      try {
+        thread.join();
+      } catch (final InterruptedException e) {
+        interrupted = true;
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+      return PARALLEL_WALK_DECLINED;
+    }
+    IllegalStateException corrupt = null;
+    Throwable infrastructure = null;
+    for (final Throwable failure : failures) {
+      if (failure == null) {
+        continue;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+      if (failure instanceof IllegalStateException stateFailure) {
+        corrupt = stateFailure;
+      } else if (infrastructure == null) {
+        infrastructure = failure;
+      }
+    }
+    if (corrupt != null) {
+      throw corrupt; // slot content that failed a verify — must reach the catalog, not be re-read
+    }
+    if (infrastructure != null) {
+      LOGGER.debug("Parallel projection directory walk worker failed for indexNumber=" + indexNumber
+          + " — falling back to the serial walk (" + infrastructure + ")");
+      return PARALLEL_WALK_DECLINED;
+    }
+    for (final DirectoryWalkWorker task : tasks) {
+      if (task.unresolved) {
+        return null; // an unresolved page — offset-lazy fetching cannot serve it
+      }
+    }
+    final RowGroupDirectory[] out = new RowGroupDirectory[rowGroupCount];
+    final DirectoryWalk walk = new DirectoryWalk(out, rowGroupCount, indexNumber);
+    // Partition order, not completion order: the walk is order-agnostic, but a deterministic
+    // replay keeps a corrupt store failing with the same message on every run.
+    for (final DirectoryWalkWorker task : tasks) {
+      task.buffer.replayInto(walk);
+    }
+    walk.finish();
+    return Arrays.asList(out);
+  }
+
+  /**
+   * The set of subtree references the workers partition: descend the trie one level at a time from
+   * the root, widening the frontier until it holds at least {@code target} references.
+   *
+   * <p>
+   * The point is to reach the leaf level WITHOUT decoding a leaf, since decoding one is the very cost
+   * being parallelized. A reference's page kind is only knowable by resolving it, so the expansion of
+   * a level stops the moment a resolved page turns out to be a leaf: at most ONE leaf is decoded
+   * serially, and that one is left swizzled for its worker. The frontier is then whatever the current
+   * level holds — leaves in the ordinary case, subtree roots when the trie is deeper than
+   * {@code target} needed, and a mix of the two on a ragged level. Workers descend whatever they are
+   * handed, so this stays correct for all three; only the balance of the partitions varies.
+   *
+   * <p>
+   * Each level is offset-sorted before it is prefetched and handed on, so the batched span hints —
+   * and the workers' contiguous slices of the result — read the file in mostly ascending order
+   * instead of in trie order.
+   *
+   * @return the frontier, or {@code null} when a page is unresolved or of an unexpected kind
+   */
+  private static PageReference @Nullable [] walkFrontier(final StorageEngineReader reader,
+      final HOTTrieReader trieReader, final PageReference rootRef, final int target) {
+    PageReference[] frontier = {rootRef};
+    int frontierCount = 1;
+    for (int level = 0; level < MAX_WALK_DEPTH && frontierCount < target; level++) {
+      PageReference[] next = new PageReference[Math.max(32, frontierCount << 2)];
+      int nextCount = 0;
+      boolean leafLevelReached = false;
+      for (int i = 0; i < frontierCount; i++) {
+        final Page page = trieReader.resolvePage(frontier[i]);
+        if (page == null) {
+          return null;
+        }
+        if (page instanceof HOTLeafPage) {
+          leafLevelReached = true;
+          break;
+        }
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          return null;
+        }
+        final int children = indirect.getNumChildren();
+        for (int c = 0; c < children; c++) {
+          // A null child reference is skipped rather than rejected, mirroring the cursor's
+          // sibling walk: its right-hand siblings are still live subtrees.
+          final PageReference child = indirect.getChildReference(c);
+          if (child == null) {
+            continue;
+          }
+          if (nextCount == next.length) {
+            next = Arrays.copyOf(next, nextCount << 1);
+          }
+          next[nextCount++] = child;
+        }
+      }
+      if (leafLevelReached || nextCount == 0) {
+        break;
+      }
+      frontier = next;
+      frontierCount = nextCount;
+      Arrays.sort(frontier, 0, frontierCount, Comparator.comparingLong(PageReference::getKey));
+      prefetchWalkFrontier(reader, frontier, frontierCount);
+    }
+    return frontierCount == frontier.length
+        ? frontier
+        : Arrays.copyOf(frontier, frontierCount);
+  }
+
+  /**
+   * Test hook: how many partitions {@link #parallelRowGroupDirectories} would fan this store out
+   * over. A store whose frontier is narrower than {@link #MIN_PARTITIONS_FOR_PARALLEL_WALK} takes the
+   * serial walk, so a differential test needs this to know it is exercising the route it names.
+   */
+  static int parallelWalkPartitionsForTest(final StorageEngineReader reader, final int indexNumber) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return 0;
+    }
+    final int cores = Math.min(Runtime.getRuntime().availableProcessors(), MAX_DIRECTORY_WALK_WORKERS);
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final PageReference[] frontier = walkFrontier(reader, trieReader, rootRef, cores * PARTITIONS_PER_WORKER);
+      return frontier == null
+          ? 0
+          : frontier.length;
+    }
+  }
+
+  /**
+   * Batched read-ahead hints for a whole frontier level; a no-op on backends without the primitive.
+   */
+  private static void prefetchWalkFrontier(final StorageEngineReader reader, final PageReference[] refs,
+      final int count) {
+    if (reader.recordPagePrefetchBatch() <= 0) {
+      return;
+    }
+    final PageReference[] batch = new PageReference[WALK_PREFETCH_BATCH];
+    int fill = 0;
+    for (int i = 0; i < count; i++) {
+      final PageReference ref = refs[i];
+      if (ref.getPage() != null || ref.getKey() < 0) {
+        continue; // already resident, or log-resident — nothing for the device to read ahead
+      }
+      batch[fill++] = ref;
+      if (fill == batch.length) {
+        reader.prefetchPageSpans(batch, fill);
+        fill = 0;
+      }
+    }
+    if (fill > 0) {
+      reader.prefetchPageSpans(batch, fill);
+    }
+  }
+
+  /**
+   * One partition of the frontier, decoded on its own reader. Holds no shared state: the captures go
+   * into its own buffer and are replayed by the coordinator after the join.
+   */
+  private static final class DirectoryWalkWorker implements Consumer<StorageEngineReader> {
+    private final PageReference[] frontier;
+    private final int from;
+    private final int to;
+    private final int indexNumber;
+
+    /** Captured slots, in visit order. Read by the coordinator only after {@link Thread#join()}. */
+    final DirectorySlotBuffer buffer = new DirectorySlotBuffer();
+
+    /** Set when a referenced segment or descriptor page could not be resolved. */
+    boolean unresolved;
+
+    DirectoryWalkWorker(final PageReference[] frontier, final int from, final int to, final int indexNumber) {
+      this.frontier = frontier;
+      this.from = from;
+      this.to = to;
+      this.indexNumber = indexNumber;
+    }
+
+    @Override
+    public void accept(final StorageEngineReader reader) {
+      final SlotCapture capture = new SlotCapture();
+      try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+        for (int i = from; i < to; i++) {
+          if (!walkDirectorySubtree(reader, trieReader, indexNumber, frontier[i], 0, capture, buffer)) {
+            unresolved = true;
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Decode every leaf under {@code ref} into {@code out}. Handles a frontier entry that turns out to
+   * be an inner node — the frontier is built without proving each entry's page kind.
+   *
+   * @return {@code false} as soon as a page is unresolved, matching
+   *         {@link #collectRowGroupDirectorySlots}'s early return
+   */
+  private static boolean walkDirectorySubtree(final StorageEngineReader reader, final HOTTrieReader trieReader,
+      final int indexNumber, final PageReference ref, final int depth, final SlotCapture capture,
+      final DirectorySlotBuffer out) {
+    if (depth >= MAX_WALK_DEPTH) {
+      throw new IllegalStateException(
+          "segment-slot trie exceeds the maximum height of " + MAX_WALK_DEPTH + " (indexNumber=" + indexNumber + ")");
+    }
+    final Page page = trieReader.resolvePage(ref);
+    if (page == null) {
+      return false;
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      return captureLeafDirectorySlots(reader, trieReader, indexNumber, leaf, capture, out);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      return false;
+    }
+    final int children = indirect.getNumChildren();
+    for (int c = 0; c < children; c++) {
+      final PageReference child = indirect.getChildReference(c);
+      if (child == null) {
+        continue;
+      }
+      if (!walkDirectorySubtree(reader, trieReader, indexNumber, child, depth + 1, capture, out)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Every live slot of ONE leaf, captured into {@code out} under the same optimistic-stamp discipline
+   * the cursor walk uses: each entry's reads are a batch, the stamp is validated before the capture
+   * is kept, and a torn batch is re-read on a freshly reloaded copy of the leaf.
+   *
+   * <p>
+   * The validation is NOT redundant on a committed snapshot. Page CONTENT per reference is immutable,
+   * but the off-heap slot backing this page object is not owned by this reader: the ClockSweeper can
+   * reclaim it mid-read, which is precisely what the stamp detects. {@code entryCount} survives a
+   * reload for the same reason the cursor's entry index does — content per reference is immutable, so
+   * the fresh copy has the identical entries.
+   */
+  private static boolean captureLeafDirectorySlots(final StorageEngineReader reader, final HOTTrieReader trieReader,
+      final int indexNumber, final HOTLeafPage resolved, final SlotCapture capture, final DirectorySlotBuffer out) {
+    HOTLeafPage leaf = resolved;
+    int tornRounds = 0;
+    int entryCount;
+    while (true) {
+      try {
+        entryCount = leaf.getEntryCount();
+      } catch (final RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e; // stable bytes — genuine corruption, not a torn read
+        }
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      break;
+    }
+    tornRounds = 0;
+    for (int entryIndex = 0; entryIndex < entryCount;) {
+      try {
+        readDirectorySlot(reader, indexNumber, leaf, entryIndex, capture);
+      } catch (final RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e;
+        }
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      tornRounds = 0;
+      if (!capture.skip) {
+        if (capture.unresolved) {
+          return false;
+        }
+        out.add(capture);
+      }
+      entryIndex++;
+    }
+    return true;
+  }
+
+  /** Reload the current leaf after a failed stamp validation and re-adopt the fresh page object. */
+  private static HOTLeafPage reloadTornLeaf(final HOTTrieReader trieReader, final int round) {
+    trieReader.recoverTorn(round, PARALLEL_WALK_OP);
+    final HOTLeafPage refreshed = trieReader.currentLeafPage();
+    if (refreshed == null) {
+      throw new IllegalStateException(PARALLEL_WALK_OP + ": reloaded page is no longer a leaf");
+    }
+    return refreshed;
+  }
+
+  /**
+   * One walking thread's captures, as parallel primitive arrays — the coordinator replays them into
+   * the {@link DirectoryWalk} after the join, so nothing here is allocated per slot beyond the
+   * payload arrays that are handed on anyway.
+   */
+  private static final class DirectorySlotBuffer {
+    private static final int INITIAL_CAPACITY = 4096;
+
+    private long[] rowGroupIds = new long[INITIAL_CAPACITY];
+    private int[] slotKinds = new int[INITIAL_CAPACITY];
+    private long[] offsets = new long[INITIAL_CAPACITY];
+    private byte[][] payloads = new byte[INITIAL_CAPACITY][];
+    private int count;
+
+    void add(final SlotCapture capture) {
+      if (count == rowGroupIds.length) {
+        final int grown = count << 1;
+        rowGroupIds = Arrays.copyOf(rowGroupIds, grown);
+        slotKinds = Arrays.copyOf(slotKinds, grown);
+        offsets = Arrays.copyOf(offsets, grown);
+        payloads = Arrays.copyOf(payloads, grown);
+      }
+      rowGroupIds[count] = capture.rowGroupId;
+      slotKinds[count] = capture.slotKind;
+      offsets[count] = capture.segmentOffset;
+      payloads[count] = capture.slotKind == 0
+          ? capture.descriptor
+          : capture.inlinePayload;
+      count++;
+    }
+
+    /** The same call sequence {@link #emitDirectorySlot} makes, deferred. */
+    void replayInto(final DirectoryWalk walk) {
+      for (int i = 0; i < count; i++) {
+        final int slotKind = slotKinds[i];
+        final byte[] payload = payloads[i];
+        if (slotKind == 0) {
+          walk.beginRowGroup(rowGroupIds[i], payload);
+        } else if (payload != null) {
+          walk.putInline(rowGroupIds[i], slotKind - 1, payload);
+        } else {
+          walk.putOffset(rowGroupIds[i], slotKind - 1, offsets[i]);
+        }
+      }
+    }
+  }
+
 
   /**
    * Builder for the directory walk — the projection tier's one-per-(resource, revision) cold cost, so
@@ -1692,54 +2226,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // effects cannot be retracted) or the unresolved-page early return. A torn batch
       // re-evaluates the SAME slot on a refreshed leaf copy.
       int tornRounds = 0;
+      final SlotCapture capture = new SlotCapture();
       while (cursor.hasNext()) {
+        // Re-read per round: a torn recovery re-adopts the SAME position on a NEW page object.
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int entryIndex = cursor.currentEntryIndex();
-        long rowGroupId = 0;
-        int slotKind = 0;
-        boolean skip = false;
-        boolean unresolved = false;
-        byte[] descriptor = null;
-        byte[] inlinePayload = null;
-        long segmentOffset = Constants.NULL_ID_LONG;
         try {
-          final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
-          rowGroupId = slotKey >>> 16;
-          // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
-          // need only their size plus a discriminator byte, and materializing a MemorySegment per
-          // slot made the walk's largest allocation a set of objects it immediately threw away.
-          // Every read below reuses this one handle. A malformed slot reports length -1, which the
-          // tombstone branch already covers.
-          final long valueRef = leaf.valueRef(entryIndex);
-          final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
-          if (valueSize > leaf.slotCapacity()) {
-            // Never let a length no slot can hold size an allocation: torn (validation fails —
-            // retried) or genuine corruption (it holds — the throw escapes).
-            throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
-          }
-          // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
-          // documented on readAllRowGroupsFromColumnSegmentSlots.
-          if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
-            skip = true;
-          } else {
-            slotKind = (int) (slotKey & 0xFFFF);
-            if (slotKind == 0) {
-              descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
-              unresolved = descriptor == null;
-            } else {
-              final byte kind = leaf.refByteAt(valueRef, 0);
-              if (kind == SEG_KIND_INLINE) {
-                inlinePayload = new byte[valueSize - 1];
-                leaf.copyRefInto(valueRef, 1, inlinePayload, 0, valueSize - 1);
-              } else if (kind != SEG_KIND_REF) {
-                throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown"
-                    + " discriminator " + kind + " (indexNumber=" + indexNumber + ")");
-              } else {
-                segmentOffset = resolvedSegmentPageOffset(leaf, slotKey);
-                unresolved = segmentOffset == Constants.NULL_ID_LONG;
-              }
-            }
-          }
+          readDirectorySlot(reader, indexNumber, leaf, entryIndex, capture);
         } catch (RuntimeException e) {
           if (cursor.validateLeaf()) {
             throw e; // stable bytes — genuine corruption, not a torn read
@@ -1752,22 +2245,111 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           continue;
         }
         tornRounds = 0;
-        if (!skip) {
-          if (unresolved) {
+        if (!capture.skip) {
+          if (capture.unresolved) {
             return false;
           }
-          if (slotKind == 0) {
-            walk.beginRowGroup(rowGroupId, descriptor);
-          } else if (inlinePayload != null) {
-            walk.putInline(rowGroupId, slotKind - 1, inlinePayload);
-          } else {
-            walk.putOffset(rowGroupId, slotKind - 1, segmentOffset);
-          }
+          emitDirectorySlot(capture, walk);
         }
         cursor.advance();
       }
     }
     return true;
+  }
+
+  /**
+   * One slot's captured content. Reused across the entries of a walk — a walking thread allocates
+   * exactly one of these, and only the payload arrays it hands on are per-slot.
+   */
+  private static final class SlotCapture {
+    long rowGroupId;
+    int slotKind;
+    boolean skip;
+    boolean unresolved;
+    byte @Nullable [] descriptor;
+    byte @Nullable [] inlinePayload;
+    long segmentOffset;
+
+    void reset() {
+      rowGroupId = 0;
+      slotKind = 0;
+      skip = false;
+      unresolved = false;
+      descriptor = null;
+      inlinePayload = null;
+      segmentOffset = Constants.NULL_ID_LONG;
+    }
+  }
+
+  /**
+   * Read ONE entry of {@code leaf} into {@code capture}: which row group it belongs to, and either
+   * its descriptor bytes, its bare inline payload, or its referenced segment's durable page offset
+   * (CAPTURED, never fetched).
+   *
+   * <p>
+   * Deliberately does no stamp validation and no torn-read recovery: the leaf is unpinned, so the
+   * caller owns the validate-then-commit boundary — the serial walk validates through its cursor, the
+   * parallel walk through its own trie reader, and neither may let a capture reach a consumer whose
+   * effects cannot be retracted before the batch has been proven stable. Keeping the decode itself in
+   * one place is what stops the two routes from drifting apart.
+   */
+  private static void readDirectorySlot(final StorageEngineReader reader, final int indexNumber, final HOTLeafPage leaf,
+      final int entryIndex, final SlotCapture capture) {
+    capture.reset();
+    final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
+    final long rowGroupId = slotKey >>> 16;
+    capture.rowGroupId = rowGroupId;
+    // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
+    // need only their size plus a discriminator byte, and materializing a MemorySegment per
+    // slot made the walk's largest allocation a set of objects it immediately threw away.
+    // Every read below reuses this one handle. A malformed slot reports length -1, which the
+    // tombstone branch already covers.
+    final long valueRef = leaf.valueRef(entryIndex);
+    final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
+    if (valueSize > leaf.slotCapacity()) {
+      // Never let a length no slot can hold size an allocation: torn (validation fails —
+      // retried) or genuine corruption (it holds — the throw escapes).
+      throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
+    }
+    // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
+    // documented on readAllRowGroupsFromColumnSegmentSlots.
+    if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
+      capture.skip = true;
+      return;
+    }
+    final int slotKind = (int) (slotKey & 0xFFFF);
+    capture.slotKind = slotKind;
+    if (slotKind == 0) {
+      final byte[] descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
+      capture.descriptor = descriptor;
+      capture.unresolved = descriptor == null;
+      return;
+    }
+    final byte kind = leaf.refByteAt(valueRef, 0);
+    if (kind == SEG_KIND_INLINE) {
+      final byte[] inlinePayload = new byte[valueSize - 1];
+      leaf.copyRefInto(valueRef, 1, inlinePayload, 0, valueSize - 1);
+      capture.inlinePayload = inlinePayload;
+      return;
+    }
+    if (kind != SEG_KIND_REF) {
+      throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown" + " discriminator "
+          + kind + " (indexNumber=" + indexNumber + ")");
+    }
+    final long segmentOffset = resolvedSegmentPageOffset(leaf, slotKey);
+    capture.segmentOffset = segmentOffset;
+    capture.unresolved = segmentOffset == Constants.NULL_ID_LONG;
+  }
+
+  /** Hand one captured, stamp-validated slot to the builder. */
+  private static void emitDirectorySlot(final SlotCapture capture, final DirectoryWalk walk) {
+    if (capture.slotKind == 0) {
+      walk.beginRowGroup(capture.rowGroupId, capture.descriptor);
+    } else if (capture.inlinePayload != null) {
+      walk.putInline(capture.rowGroupId, capture.slotKind - 1, capture.inlinePayload);
+    } else {
+      walk.putOffset(capture.rowGroupId, capture.slotKind - 1, capture.segmentOffset);
+    }
   }
 
 

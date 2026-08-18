@@ -60,7 +60,9 @@ test {
     systemProperty "io.brackit.query.debug", System.getProperty("io.brackit.query.debug")
     systemProperty "io.brackit.query.debugDir", System.getProperty("io.brackit.query.debugDir")
     systemProperty "sirix.projDiag", System.getProperty("sirix.projDiag")
-    
+    systemProperty "sirix.probe.segmentDump", System.getProperty("sirix.probe.segmentDump")
+    systemProperty "sirix.probe.segmentDump.out", System.getProperty("sirix.probe.segmentDump.out")
+
     // Async-profiler support
     def profilerPath = System.getenv("ASYNC_PROFILER")
     def profileEvent = System.getenv("PROFILE_EVENT") ?: "cpu"
@@ -221,6 +223,62 @@ tasks.register('clickBench', JavaExec) {
         '-Xmx12g'
     ]
     def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// JSONBench loader: shreds the Bluesky firehose events (NDJSON, optionally gzipped)
+// into a Sirix JSON resource and prints "Load time:" / "Data size:". Usage:
+//   ./gradlew :sirix-query:jsonBenchLoad -Pjsonbench.args="/tmp/jb/db-1m /tmp/jb/data/file_0001.json.gz"
+tasks.register('jsonBenchLoad', JavaExec) {
+    group = 'verification'
+    description = 'Load the JSONBench Bluesky dataset into a SirixDB JSON resource.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.jsonbench.JsonBenchLoadMain'
+    def argsStr = (findProperty('jsonbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('jsonbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+// JSONBench runner: runs the 5 Bluesky queries against a loaded resource. Usage:
+//   ./gradlew :sirix-query:jsonBench -Pjsonbench.args="/tmp/jb/db-1m --tries 3 --json /tmp/jb.json"
+//   ./gradlew :sirix-query:jsonBench -Pjsonbench.args="/tmp/jb/db-1m --tries 1 --dump /tmp/jb/dump-sirix"
+tasks.register('jsonBench', JavaExec) {
+    group = 'verification'
+    description = 'Run the 5 JSONBench queries against a loaded SirixDB resource.'
+    classpath = sourceSets.main.runtimeClasspath
+    if (project.hasProperty('enterprise.jars')) {
+        classpath += files(project.property('enterprise.jars').toString().split(':'))
+    }
+    mainClass = 'io.sirix.query.bench.jsonbench.JsonBenchRunMain'
+    def argsStr = (findProperty('jsonbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('jsonbench.jvmArgs') ?: '').toString().trim()
     jvmArgs = extraJvmArgs.isEmpty()
         ? baseJvmArgs
         : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }

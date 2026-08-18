@@ -78,19 +78,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * State of transaction including all cached stuff.
    *
-   * <p>Volatile because auto-commit swaps the engine from the commit-timer thread
+   * <p>
+   * Volatile because auto-commit swaps the engine from the commit-timer thread
    * ({@code reInstantiate()} closes the old engine, then publishes the new one via
-   * {@link #setPageReadTransaction(StorageEngineReader)}) while the owning thread may
-   * concurrently read — a plain field could pin a stale (closed) engine forever.
+   * {@link #setPageReadTransaction(StorageEngineReader)}) while the owning thread may concurrently
+   * read — a plain field could pin a stale (closed) engine forever.
    */
   protected volatile StorageEngineReader storageEngineReader;
 
   /**
-   * The revision this transaction works on, cached from the engine at every engine handoff.
-   * The value is immutable per engine instance, so reading it here instead of dereferencing
-   * {@link #storageEngineReader} keeps {@link #getRevisionNumber()} safe against the
-   * post-auto-commit swap window in which the field is momentarily {@code null} or still
-   * points at the just-closed engine (auto-commit explicitly invites such cross-thread reads).
+   * The revision this transaction works on, cached from the engine at every engine handoff. The value
+   * is immutable per engine instance, so reading it here instead of dereferencing
+   * {@link #storageEngineReader} keeps {@link #getRevisionNumber()} safe against the post-auto-commit
+   * swap window in which the field is momentarily {@code null} or still points at the just-closed
+   * engine (auto-commit explicitly invites such cross-thread reads).
    */
   private volatile int revisionNumber;
 
@@ -110,11 +111,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private volatile boolean isClosed;
 
   /**
-   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at
-   * the END of the close body (so {@code assertNotClosed} stays quiet during cleanup), which
-   * used to let a concurrent or reentrant second close pass the {@code !isClosed} check and
-   * close the underlying {@code StorageEngineReader} twice — double-deregistering its
-   * epoch-tracker ticket (issue #1102). CASed 0 → 1 on entry; losers return immediately.
+   * One-shot latch making {@link #close()} run exactly once. {@link #isClosed} is only set at the END
+   * of the close body (so {@code assertNotClosed} stays quiet during cleanup), which used to let a
+   * concurrent or reentrant second close pass the {@code !isClosed} check and close the underlying
+   * {@code StorageEngineReader} twice — double-deregistering its epoch-tracker ticket (issue #1102).
+   * CASed 0 → 1 on entry; losers return immediately.
    */
   @SuppressWarnings("unused")
   private volatile int closeInitiated;
@@ -134,40 +135,39 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Read-transaction-exclusive item list.
    */
   protected final ItemList<AtomicValue> itemList;
-  
+
   // ==================== CURSOR STATE ====================
-  
+
   /**
    * The current node's key (used for delta decoding).
    */
   private long currentNodeKey;
-  
+
   /**
    * The current node's kind.
    */
   private NodeKind currentNodeKind;
-  
+
   /**
-   * Page guard protecting the current page from eviction.
-   * MUST be released when moving to a different node or closing the transaction.
+   * Page guard protecting the current page from eviction. MUST be released when moving to a different
+   * node or closing the transaction.
    */
   private PageGuard currentPageGuard;
-  
+
   /**
-   * The page key of the currently held page guard.
-   * Used to detect same-page moves and avoid guard release/reacquire overhead.
+   * The page key of the currently held page guard. Used to detect same-page moves and avoid guard
+   * release/reacquire overhead.
    */
   private long currentPageKey = -1;
-  
+
   /**
-   * The current page reference (same page as currentPageGuard).
-   * Cached to avoid re-lookup when moving within the same page.
+   * The current page reference (same page as currentPageGuard). Cached to avoid re-lookup when moving
+   * within the same page.
    */
   private KeyValueLeafPage currentPage;
-  
+
   /**
-   * Reusable BytesIn instance for reading node data.
-   * Avoids allocation on every moveTo() call.
+   * Reusable BytesIn instance for reading node data. Avoids allocation on every moveTo() call.
    */
   private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
 
@@ -195,7 +195,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private static final int LEFT_SIBLING_CACHED = 1 << 2;
   private static final int PARENT_CACHED = 1 << 3;
 
-  /** {@code Fixed.NULL_NODE_KEY}, hoisted so the hot comparisons are against a compile-time constant. */
+  /**
+   * {@code Fixed.NULL_NODE_KEY}, hoisted so the hot comparisons are against a compile-time constant.
+   */
   private static final long NULL_NODE_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
 
   /** Which of the {@code cached*Key} fields hold a value for the CURRENT position. */
@@ -209,11 +211,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Whether decoded structural keys may be remembered at all.
    *
-   * <p>False for write transactions. A writer mutates the record under the cursor in place —
+   * <p>
+   * False for write transactions. A writer mutates the record under the cursor in place —
    * {@code setFirstChildKey} while inserting a child, {@code setRightSiblingKey} while linking a
-   * sibling — without repositioning, so there is no moment at which the mask could be invalidated
-   * and a cached key would go stale under it. Read-only cursors have no such mutation, which is
-   * exactly why the repeats are safe to elide there.
+   * sibling — without repositioning, so there is no moment at which the mask could be invalidated and
+   * a cached key would go stale under it. Read-only cursors have no such mutation, which is exactly
+   * why the repeats are safe to elide there.
    */
   private boolean structKeyCacheEnabled;
 
@@ -231,31 +234,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected final ResourceConfiguration resourceConfig;
 
   /**
-   * Cached {@link NodeStorageEngineReader} resolved once from {@link #storageEngineReader}.
-   * For read-only transactions, this is the reader itself.
-   * For write transactions, this is the delegate reader extracted from the writer.
-   * Used by {@link #moveTo(long)} to enable singleton mode without per-call instanceof checks.
+   * Cached {@link NodeStorageEngineReader} resolved once from {@link #storageEngineReader}. For
+   * read-only transactions, this is the reader itself. For write transactions, this is the delegate
+   * reader extracted from the writer. Used by {@link #moveTo(long)} to enable singleton mode without
+   * per-call instanceof checks.
    */
   private NodeStorageEngineReader cachedNodeReader;
 
   /**
-   * Cached {@link StorageEngineWriter} reference, non-null only for write transactions.
-   * Used by {@link #moveToSingletonSlowPath} to resolve TIL modified pages.
+   * Cached {@link StorageEngineWriter} reference, non-null only for write transactions. Used by
+   * {@link #moveToSingletonSlowPath} to resolve TIL modified pages.
    */
   private StorageEngineWriter cachedWriter;
 
   /**
    * Constructor.
    *
-   * @param trxId               the transaction ID
+   * @param trxId the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
-   * @param documentNode        the document root node
-   * @param resourceSession     The resource manager for the current transaction
-   * @param itemList            Read-transaction-exclusive item list.
+   * @param documentNode the document root node
+   * @param resourceSession The resource manager for the current transaction
+   * @param itemList Read-transaction-exclusive item list.
    */
   protected AbstractNodeReadOnlyTrx(final int trxId, final StorageEngineReader pageReadTransaction,
-      final N documentNode, final InternalResourceSession<T, W> resourceSession,
-      final ItemList<AtomicValue> itemList) {
+      final N documentNode, final InternalResourceSession<T, W> resourceSession, final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
@@ -265,7 +267,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
     this.cachedNodeReader = resolveNodeReader(pageReadTransaction);
-    this.cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+    this.cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w)
+        ? w
+        : null;
     this.structKeyCacheEnabled = this.cachedWriter == null;
 
     // Initialize cursor state from document node.
@@ -288,10 +292,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     return currentNode;
   }
-  
+
   /**
-   * Create a deep copy snapshot of the current singleton node.
-   * The snapshot is a new object with all values copied, safe to hold across cursor moves.
+   * Create a deep copy snapshot of the current singleton node. The snapshot is a new object with all
+   * values copied, safe to hold across cursor moves.
    *
    * @return a snapshot of the current singleton
    */
@@ -321,7 +325,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       default -> throw new IllegalStateException("Unexpected singleton kind: " + currentNodeKind);
     };
   }
-  
+
   @Override
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
@@ -395,17 +399,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Decode the left-sibling key of the current position, remembering it when the cursor is allowed
-   * to. Split out of {@link #getLeftSiblingKey()} so the cache hit — the overwhelmingly common
-   * case on a traversal — inlines as a mask test and a field read.
+   * to. Split out of {@link #getLeftSiblingKey()} so the cache hit — the overwhelmingly common case
+   * on a traversal — inlines as a mask test and a field read.
    */
   private long loadLeftSiblingKey() {
     if (fusedSyntheticChildMode) {
       return NULL_NODE_KEY;
     }
-    final long leftSiblingKey =
-        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
-            ? sn.getLeftSiblingKey()
-            : getStructuralNodeView().getLeftSiblingKey();
+    final long leftSiblingKey = SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+        ? sn.getLeftSiblingKey()
+        : getStructuralNodeView().getLeftSiblingKey();
     if (structKeyCacheEnabled) {
       cachedLeftSiblingKey = leftSiblingKey;
       structKeysCached |= LEFT_SIBLING_CACHED;
@@ -528,36 +531,39 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * @return true if the cursor currently targets a fused {@code OBJECT_NAMED_*} record
-   *         (and we are NOT already descended into its synthetic child).
+   * @return true if the cursor currently targets a fused {@code OBJECT_NAMED_*} record (and we are
+   *         NOT already descended into its synthetic child).
    */
   private boolean isOnFusedNamedPrimitive() {
     if (fusedSyntheticChildMode) {
       return false;
     }
-    final NodeKind kind = SINGLETON_ENABLED && singletonMode ? currentNodeKind
-        : getCurrentNode() != null ? (NodeKind) getCurrentNode().getKind() : null;
-    return kind == NodeKind.OBJECT_NAMED_BOOLEAN
-        || kind == NodeKind.OBJECT_NAMED_NUMBER
-        || kind == NodeKind.OBJECT_NAMED_STRING
-        || kind == NodeKind.OBJECT_NAMED_NULL;
+    final NodeKind kind = SINGLETON_ENABLED && singletonMode
+        ? currentNodeKind
+        : getCurrentNode() != null
+            ? (NodeKind) getCurrentNode().getKind()
+            : null;
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL;
   }
 
   /**
-   * @return the underlying (non-synthetic) kind of the cursor, regardless of whether we are
-   *         in fused synthetic-child mode.
+   * @return the underlying (non-synthetic) kind of the cursor, regardless of whether we are in fused
+   *         synthetic-child mode.
    */
   protected NodeKind getFusedParentKind() {
     if (SINGLETON_ENABLED && singletonMode) {
       return currentNodeKind;
     }
     final N node = getCurrentNode();
-    return node != null ? (NodeKind) node.getKind() : null;
+    return node != null
+        ? (NodeKind) node.getKind()
+        : null;
   }
 
   /**
-   * @return true if we are currently viewing the synthetic primitive-value child of a
-   *         fused {@code OBJECT_NAMED_*} record (Option A virtual navigation).
+   * @return true if we are currently viewing the synthetic primitive-value child of a fused
+   *         {@code OBJECT_NAMED_*} record (Option A virtual navigation).
    */
   public boolean isFusedSyntheticChild() {
     return fusedSyntheticChildMode;
@@ -599,8 +605,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // short-circuit to writers broke DiffFileCreationTest, HashTest and OverallTest exactly that
     // way. A read-only transaction has no TIL, and its guard keeps the bound page alive, so
     // reusing the binding is sound there.
-    if (cachedWriter == null && nodeKey == currentNodeKey && currentPage != null
-        && !currentPage.isClosed() && (currentSingleton != null || currentNode != null)) {
+    if (cachedWriter == null && nodeKey == currentNodeKey && currentPage != null && !currentPage.isClosed()
+        && (currentSingleton != null || currentNode != null)) {
       return true;
     }
 
@@ -619,55 +625,56 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Fallback to traditional object mode
     return moveToLegacy(nodeKey);
   }
-  
+
   /**
-   * Toggle for singleton mode. Set to true to enable singleton node reuse.
-   * Singleton mode uses mutable singleton nodes that are repopulated on each moveTo().
-   * When combined with cache checking, uses cached records when available.
+   * Toggle for singleton mode. Set to true to enable singleton node reuse. Singleton mode uses
+   * mutable singleton nodes that are repopulated on each moveTo(). When combined with cache checking,
+   * uses cached records when available.
    */
   private static final boolean SINGLETON_ENABLED = true;
-  
+
   /**
    * Whether currently in singleton mode (using singleton nodes).
    */
   private boolean singletonMode = false;
-  
+
   /**
    * The current singleton node (set when in singletonMode).
    */
   private ImmutableNode currentSingleton;
 
   /**
-   * Array-based singleton lookup indexed by NodeKind.getId().
-   * Replaces the 19-case switch in getSingletonForKind with O(1) array access.
-   * Lazily populated on first access per kind. Max NodeKind ID is 58 (VECTOR_INDEX_METADATA);
-   * sized to 64 so iter#30 OBJECT_NAMED_* IDs (48-51) fit headroom.
+   * Array-based singleton lookup indexed by NodeKind.getId(). Replaces the 19-case switch in
+   * getSingletonForKind with O(1) array access. Lazily populated on first access per kind. Max
+   * NodeKind ID is 58 (VECTOR_INDEX_METADATA); sized to 64 so iter#30 OBJECT_NAMED_* IDs (48-51) fit
+   * headroom.
    */
   private final ImmutableNode[] singletonByKindId = new ImmutableNode[64];
 
   /**
    * Option-A virtual-child mode for fused {@code OBJECT_NAMED_*} kinds.
    *
-   * <p>When {@code true}, the cursor is conceptually positioned on the synthetic primitive
-   * value child of a fused node, while physically still bound to the fused record. In this
-   * mode: {@code getKind()} returns the corresponding {@code OBJECT_*_VALUE} kind,
-   * {@code getValue()} / {@code getBooleanValue()} / {@code getNumberValue()} report the
-   * primitive payload, {@code hasFirstChild()} / {@code hasLeftSibling()} /
-   * {@code hasRightSibling()} return false (synthetic child is a leaf), and
-   * {@code moveToParent()} clears the flag so we "return" to the fused node proper.
+   * <p>
+   * When {@code true}, the cursor is conceptually positioned on the synthetic primitive value child
+   * of a fused node, while physically still bound to the fused record. In this mode:
+   * {@code getKind()} returns the corresponding {@code OBJECT_*_VALUE} kind, {@code getValue()} /
+   * {@code getBooleanValue()} / {@code getNumberValue()} report the primitive payload,
+   * {@code hasFirstChild()} / {@code hasLeftSibling()} / {@code hasRightSibling()} return false
+   * (synthetic child is a leaf), and {@code moveToParent()} clears the flag so we "return" to the
+   * fused node proper.
    *
-   * <p>The flag is cleared on every call to {@link #moveTo(long)} entry as well as on
-   * {@link #close()} / {@link #releaseCurrentPageGuard()}.
+   * <p>
+   * The flag is cleared on every call to {@link #moveTo(long)} entry as well as on {@link #close()} /
+   * {@link #releaseCurrentPageGuard()}.
    */
   private boolean fusedSyntheticChildMode = false;
-  
+
   /**
-   * Move to a node using singleton mode (zero allocation).
-   * Repopulates a mutable singleton instance from serialized data.
-   * NO allocation happens here - only when getCurrentNode() is called.
+   * Move to a node using singleton mode (zero allocation). Repopulates a mutable singleton instance
+   * from serialized data. NO allocation happens here - only when getCurrentNode() is called.
    *
    * @param nodeKey the node key to move to
-   * @param reader  the storage engine reader
+   * @param reader the storage engine reader
    * @return true if the move was successful
    */
   private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
@@ -771,7 +778,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
       reusableBytesIn.reset(slottedPage.asSlice(PageLayout.HEAP_START + heapOffset, recordLength), 1);
       // Only fetch DeweyID if actually stored (avoids byte[] allocation)
-      final byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      final byte[] deweyId = resourceConfig.areDeweyIDsStored
+          ? page.getDeweyIdAsByteArray(slotOffset)
+          : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
@@ -779,15 +788,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
-    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
     return true;
   }
 
   /**
-   * Slow path for moveToSingleton when moving to a different page (read-only transactions only).
-   * Uses the reader's lookupSlotWithGuard with guard management.
+   * Slow path for moveToSingleton when moving to a different page (read-only transactions only). Uses
+   * the reader's lookupSlotWithGuard with guard management.
    */
   private boolean moveToSingletonSlowPath(final long nodeKey, final NodeStorageEngineReader reader) {
     var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
@@ -795,13 +804,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return false;
     }
 
-    return moveToSingletonFromPage(nodeKey, slotLocation.page(), reader,
-        nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT, slotLocation.guard());
+    return moveToSingletonFromPage(nodeKey, slotLocation.page(), reader, nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT,
+        slotLocation.guard());
   }
 
   /**
-   * Move to a node on a given page using singleton mode.
-   * Shared logic for both write (TIL modified page) and read (guarded page) paths.
+   * Move to a node on a given page using singleton mode. Shared logic for both write (TIL modified
+   * page) and read (guarded page) paths.
    *
    * @param nodeKey the node key
    * @param page the page to read from
@@ -891,7 +900,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // The legacy parser needs the record's length, and a non-positive one is the empty-slot case
     // getSlot used to report as null — decided here, while the new guard can still be released on
     // the way out.
-    final int recordLength = isFlyweight ? 0 : PageLayout.getRecordOnlyLength(slottedPage, slotOff);
+    final int recordLength = isFlyweight
+        ? 0
+        : PageLayout.getRecordOnlyLength(slottedPage, slotOff);
     if (!isFlyweight && recordLength <= 0) {
       if (newGuard != null) {
         newGuard.close();
@@ -922,7 +933,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Legacy format: populate from serialized data (NO ALLOCATION)
       reusableBytesIn.reset(slottedPage.asSlice(recordAbsOffset, recordLength), 1);
       final byte[] deweyId = resourceConfig.areDeweyIDsStored
-          ? page.getDeweyIdAsByteArray(slotOff) : null;
+          ? page.getDeweyIdAsByteArray(slotOff)
+          : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
@@ -933,7 +945,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
-    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
     return true;
@@ -941,8 +953,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Write-transaction singleton moveTo. Uses the writer's TIL for page resolution (modified pages).
-   * Same-page optimization caches the modified page between calls.
-   * Falls back to moveToLegacy if the page is not in TIL.
+   * Same-page optimization caches the modified page between calls. Falls back to moveToLegacy if the
+   * page is not in TIL.
    *
    * @param nodeKey the node key to move to
    * @param reader the underlying storage engine reader (for pageKey calculation)
@@ -1039,7 +1051,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
       reusableBytesIn.reset(sp.asSlice(recordAbs, recordLength), 1);
       final byte[] deweyId = resourceConfig.areDeweyIDsStored
-          ? page.getDeweyIdAsByteArray(slotOffset) : null;
+          ? page.getDeweyIdAsByteArray(slotOffset)
+          : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
@@ -1054,8 +1067,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Propagate FSST symbol table from page to a flyweight string node.
-   * Required for lazy decompression of FSST-compressed strings in singleton mode.
+   * Propagate FSST symbol table from page to a flyweight string node. Required for lazy decompression
+   * of FSST-compressed strings in singleton mode.
    */
   private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page) {
     final byte[] fsstTable = page.getFsstSymbolTable();
@@ -1069,8 +1082,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Get the singleton instance for a given node kind.
-   * Lazily creates singletons on first use.
+   * Get the singleton instance for a given node kind. Lazily creates singletons on first use.
    *
    * @param kind the node kind
    * @return the singleton instance, or null if not supported
@@ -1096,18 +1108,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   private ImmutableNode createSingletonForKind(NodeKind kind) {
     return switch (kind) {
-      case OBJECT -> new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case ARRAY -> new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case STRING_VALUE -> new StringNode(0, 0, 0, 0, 0, 0, 0, null,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case NUMBER_VALUE -> new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case BOOLEAN_VALUE -> new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case NULL_VALUE -> new NullNode(0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT -> new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
+      case ARRAY -> new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
+      case STRING_VALUE -> new StringNode(0, 0, 0, 0, 0, 0, 0, null, resourceConfig.nodeHashFunction, (byte[]) null);
+      case NUMBER_VALUE -> new NumberNode(0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
+      case BOOLEAN_VALUE -> new BooleanNode(0, 0, 0, 0, 0, 0, 0, false, resourceConfig.nodeHashFunction, (byte[]) null);
+      case NULL_VALUE -> new NullNode(0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
       case OBJECT_NAMED_BOOLEAN -> new ObjectNamedBooleanNode(0, resourceConfig.nodeHashFunction);
       case OBJECT_NAMED_NUMBER -> new ObjectNamedNumberNode(0, resourceConfig.nodeHashFunction);
       case OBJECT_NAMED_STRING -> new ObjectNamedStringNode(0, resourceConfig.nodeHashFunction);
@@ -1125,24 +1131,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       default -> null;
     };
   }
-  
+
   /**
    * Populate a singleton node from serialized data.
    *
    * @param singleton the singleton to populate
-   * @param source    the BytesIn source positioned after the kind byte
-   * @param nodeKey   the node key
-   * @param deweyId   the DeweyID bytes
-   * @param kind      the node kind
+   * @param source the BytesIn source positioned after the kind byte
+   * @param nodeKey the node key
+   * @param deweyId the DeweyID bytes
+   * @param kind the node kind
    */
-  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, 
-                                  long nodeKey, byte[] deweyId, NodeKind kind,
-                                  KeyValueLeafPage page) {
+  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, long nodeKey, byte[] deweyId,
+      NodeKind kind, KeyValueLeafPage page) {
     switch (kind) {
-      case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, 
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT ->
+        ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case ARRAY ->
+        ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -1152,12 +1157,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           stringNode.setFsstSymbolTable(fsstSymbolTable);
         }
       }
-      case NUMBER_VALUE -> ((NumberNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case NUMBER_VALUE ->
+        ((NumberNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case BOOLEAN_VALUE ->
+        ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case NULL_VALUE ->
+        ((NullNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) singleton).readFrom(source, nodeKey, deweyId,
@@ -1178,27 +1183,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case ELEMENT -> ((ElementNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case ATTRIBUTE -> ((AttributeNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case TEXT -> ((TextNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case COMMENT -> ((CommentNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case PROCESSING_INSTRUCTION -> ((PINode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case NAMESPACE -> ((NamespaceNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
+      case ELEMENT ->
+        ((ElementNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case ATTRIBUTE ->
+        ((AttributeNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case TEXT ->
+        ((TextNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case COMMENT ->
+        ((CommentNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case PROCESSING_INSTRUCTION ->
+        ((PINode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case NAMESPACE ->
+        ((NamespaceNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       case XML_DOCUMENT -> ((XmlDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       default -> throw new IllegalStateException("Unexpected singleton kind: " + kind);
     }
   }
-  
+
   /**
-   * Move to an item in the item list (negative keys).
-   * Falls back to object mode since item list uses objects.
+   * Move to an item in the item list (negative keys). Falls back to object mode since item list uses
+   * objects.
    *
    * @param nodeKey the negative node key
    * @return true if the move was successful
@@ -1209,7 +1214,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (item != null) {
         // Move succeeded - release previous page guard and switch to object mode
         releaseCurrentPageGuard();
-        //noinspection unchecked
+        // noinspection unchecked
         setCurrentNode((N) item);
         this.currentNodeKey = nodeKey;
         return true;
@@ -1218,7 +1223,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Item not found - keep the current position unchanged
     return false;
   }
-  
+
   /**
    * Legacy object-based moveTo for when flyweight mode is not available.
    *
@@ -1241,16 +1246,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         releaseCurrentPageGuard();
         singletonMode = false;
       }
-      //noinspection unchecked
+      // noinspection unchecked
       setCurrentNode((N) newNode);
       this.currentNodeKey = nodeKey;
       return true;
     }
   }
-  
+
   /**
-   * Release the current page guard if one is held.
-   * This allows the page to be evicted if needed.
+   * Release the current page guard if one is held. This allows the page to be evicted if needed.
    */
   protected void releaseCurrentPageGuard() {
     if (currentPageGuard != null) {
@@ -1260,7 +1264,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       currentPageKey = -1;
     }
   }
-  
+
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
@@ -1284,9 +1288,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public long getHash() {
     assertNotClosed();
     if (SINGLETON_ENABLED && singletonMode) {
-      return currentSingleton != null ? currentSingleton.getHash() : 0L;
+      return currentSingleton != null
+          ? currentSingleton.getHash()
+          : 0L;
     }
-    return currentNode != null ? currentNode.getHash() : 0L;
+    return currentNode != null
+        ? currentNode.getHash()
+        : 0L;
   }
 
   @Override
@@ -1296,7 +1304,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return currentNodeKind;
     }
     final N node = getCurrentNode();
-    return node != null ? (NodeKind) node.getKind() : null;
+    return node != null
+        ? (NodeKind) node.getKind()
+        : null;
   }
 
   /**
@@ -1333,7 +1343,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     storageEngineReader = pageReadTransaction;
     cachedNodeReader = resolveNodeReader(pageReadTransaction);
-    cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+    cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w)
+        ? w
+        : null;
     structKeyCacheEnabled = cachedWriter == null;
     // The engine handoff can re-resolve the same node key against a different revision, so keys
     // decoded under the previous engine cannot be carried across it.
@@ -1341,17 +1353,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Resolve the underlying {@link NodeStorageEngineReader} from a storage engine reader.
-   * For read-only transactions, this is the reader itself.
-   * For write transactions (where the reader is a {@link StorageEngineWriter}),
-   * extracts the delegate reader via {@link StorageEngineWriter#getStorageEngineReader()}.
+   * Resolve the underlying {@link NodeStorageEngineReader} from a storage engine reader. For
+   * read-only transactions, this is the reader itself. For write transactions (where the reader is a
+   * {@link StorageEngineWriter}), extracts the delegate reader via
+   * {@link StorageEngineWriter#getStorageEngineReader()}.
    */
   private static NodeStorageEngineReader resolveNodeReader(@Nullable final StorageEngineReader reader) {
     if (reader instanceof NodeStorageEngineReader r) {
       return r;
     }
-    if (reader instanceof StorageEngineWriter w
-        && w.getStorageEngineReader() instanceof NodeStorageEngineReader r) {
+    if (reader instanceof StorageEngineWriter w && w.getStorageEngineReader() instanceof NodeStorageEngineReader r) {
       return r;
     }
     return null;
@@ -1378,14 +1389,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public final StructNode getStructuralNodeView() {
-    return getCurrentNodeView() instanceof StructNode structNode ? structNode : getStructuralNode();
+    return getCurrentNodeView() instanceof StructNode structNode
+        ? structNode
+        : getStructuralNode();
   }
 
   /**
-   * Get a live, allocation-free view of the current node. In singleton mode this returns the
-   * reused per-kind singleton bound to the current position instead of a deep-copy snapshot —
-   * callers must consume it before the next cursor move and must never retain it. Non-singleton
-   * positions fall back to {@link #getCurrentNode()}. Single source of the view dispatch chain
+   * Get a live, allocation-free view of the current node. In singleton mode this returns the reused
+   * per-kind singleton bound to the current position instead of a deep-copy snapshot — callers must
+   * consume it before the next cursor move and must never retain it. Non-singleton positions fall
+   * back to {@link #getCurrentNode()}. Single source of the view dispatch chain
    * ({@link #getStructuralNodeView()} is expressed through it).
    *
    * @return live view of the current node
@@ -1478,10 +1491,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (fusedSyntheticChildMode) {
       return NULL_NODE_KEY;
     }
-    final long rightSiblingKey =
-        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
-            ? sn.getRightSiblingKey()
-            : getStructuralNodeView().getRightSiblingKey();
+    final long rightSiblingKey = SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+        ? sn.getRightSiblingKey()
+        : getStructuralNodeView().getRightSiblingKey();
     if (structKeyCacheEnabled) {
       cachedRightSiblingKey = rightSiblingKey;
       structKeysCached |= RIGHT_SIBLING_CACHED;
@@ -1505,10 +1517,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (fusedSyntheticChildMode) {
       return NULL_NODE_KEY;
     }
-    final long firstChildKey =
-        SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
-            ? sn.getFirstChildKey()
-            : getStructuralNodeView().getFirstChildKey();
+    final long firstChildKey = SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn
+        ? sn.getFirstChildKey()
+        : getStructuralNodeView().getFirstChildKey();
     if (structKeyCacheEnabled) {
       cachedFirstChildKey = firstChildKey;
       structKeysCached |= FIRST_CHILD_CACHED;
@@ -1527,8 +1538,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Decode the parent key of the current position; see {@link #loadLeftSiblingKey()}. The fused
-   * synthetic-child answer is deliberately NOT cached: it is the cursor's own node key rather than
-   * a decoded field, and the mode is cleared by the same {@code moveTo} that clears the mask.
+   * synthetic-child answer is deliberately NOT cached: it is the cursor's own node key rather than a
+   * decoded field, and the mode is cleared by the same {@code moveTo} that clears the mask.
    */
   private long loadParentKey() {
     // From the synthetic primitive child, parent is the fused node's own nodeKey (we are still
@@ -1678,9 +1689,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
     if (SINGLETON_ENABLED && singletonMode) {
-      return currentSingleton != null ? currentSingleton.getDeweyID() : null;
+      return currentSingleton != null
+          ? currentSingleton.getDeweyID()
+          : null;
     }
-    return currentNode != null ? currentNode.getDeweyID() : null;
+    return currentNode != null
+        ? currentNode.getDeweyID()
+        : null;
   }
 
   @Override
@@ -1693,30 +1708,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public boolean isClosed() {
     return isClosed;
   }
-  
+
   /**
-   * Check if flyweight mode is currently active.
-   * Package-private for testing purposes.
+   * Check if flyweight mode is currently active. Package-private for testing purposes.
    *
    * @return always {@code false}; flyweight mode has been removed.
    */
   boolean isFlyweightMode() {
     return false;
   }
-  
+
   /**
-   * Check if singleton mode is currently active.
-   * Package-private for testing purposes.
+   * Check if singleton mode is currently active. Package-private for testing purposes.
    *
    * @return true if singleton mode is active (using mutable singleton nodes)
    */
   boolean isSingletonMode() {
     return singletonMode;
   }
-  
+
   /**
-   * Check if zero-allocation mode is active.
-   * Package-private for testing purposes.
+   * Check if zero-allocation mode is active. Package-private for testing purposes.
    *
    * @return true if singleton mode is active
    */

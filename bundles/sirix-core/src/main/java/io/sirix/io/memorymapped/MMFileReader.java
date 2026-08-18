@@ -58,8 +58,7 @@ public final class MMFileReader extends AbstractReader {
 
   static final ValueLayout.OfByte LAYOUT_BYTE = ValueLayout.JAVA_BYTE;
   /** Record length prefixes are pinned little-endian like every other on-disk scalar. */
-  static final ValueLayout.OfInt LAYOUT_INT =
-      ValueLayout.JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  static final ValueLayout.OfInt LAYOUT_INT = ValueLayout.JAVA_INT.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
   /** The revisions records and beacon trailers are pinned little-endian. */
   static final ValueLayout.OfLong LAYOUT_LONG_LE =
       ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
@@ -145,10 +144,8 @@ public final class MMFileReader extends AbstractReader {
     MethodHandle h = null;
     try {
       final Linker linker = Linker.nativeLinker();
-      h = linker.downcallHandle(
-          linker.defaultLookup().find("madvise").orElseThrow(),
-          FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG,
-              ValueLayout.JAVA_INT));
+      h = linker.downcallHandle(linker.defaultLookup().find("madvise").orElseThrow(), FunctionDescriptor.of(
+          ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.JAVA_INT));
     } catch (final Throwable ignored) {
       // madvise unavailable — hints become no-ops.
     }
@@ -170,8 +167,8 @@ public final class MMFileReader extends AbstractReader {
   }
 
   /**
-   * Async-readahead hint for one page-aligned region of the data mapping. Purely advisory —
-   * failures are ignored; correctness never depends on it.
+   * Async-readahead hint for one page-aligned region of the data mapping. Purely advisory — failures
+   * are ignored; correctness never depends on it.
    */
   private void adviseWillNeed(final long offset, final long length) {
     if (MADVISE_HANDLE == null) {
@@ -197,9 +194,9 @@ public final class MMFileReader extends AbstractReader {
    * Batched read with COLD-MAPPING readahead: the inherited default demand-faults each segment's
    * pages one at a time (~100 µs of device latency per 4 KiB page, serially — a cold projection
    * column fetch measured ~1,100 major faults for one query). Two WILLNEED passes turn that into
-   * kernel-parallel readahead: first every reference's length-header page, then — once the
-   * headers are resident enough to read cheaply — every full span. The copy/deserialize loop
-   * then runs over mostly-resident pages. Semantics identical to the default loop.
+   * kernel-parallel readahead: first every reference's length-header page, then — once the headers
+   * are resident enough to read cheaply — every full span. The copy/deserialize loop then runs over
+   * mostly-resident pages. Semantics identical to the default loop.
    */
   @Override
   public Page[] read(final PageReference[] references, final @Nullable ResourceConfiguration resourceConfiguration) {
@@ -239,8 +236,10 @@ public final class MMFileReader extends AbstractReader {
     }
   }
 
-  /** Per-batch cap for {@link #prefetch}: the one-build A/B hatch — {@code 0} disables every
-   * downstream prefetch consumer including its reference-resolution work. */
+  /**
+   * Per-batch cap for {@link #prefetch}: the one-build A/B hatch — {@code 0} disables every
+   * downstream prefetch consumer including its reference-resolution work.
+   */
   private static final int PREFETCH_BATCH = Integer.getInteger("sirix.mm.prefetchBatch", 128);
 
   /**
@@ -248,10 +247,12 @@ public final class MMFileReader extends AbstractReader {
    * ({@code StorageEngineReader.prefetchRecordPages}): a cold point/scan query's winner
    * materialization demand-faults each slotted leaf's span serially without it.
    */
-  /** Fixed advisory span per prefetched reference: covers most slotted leaves (~10-60 KiB)
-   * without reading the length header — a header read FAULTS on the calling thread, and a
-   * serial fault chain there is exactly what the consumer's parallel lanes would have
-   * overlapped (measured +62 ms on a 179-record cold point lookup at full clocks). */
+  /**
+   * Fixed advisory span per prefetched reference: covers most slotted leaves (~10-60 KiB) without
+   * reading the length header — a header read FAULTS on the calling thread, and a serial fault chain
+   * there is exactly what the consumer's parallel lanes would have overlapped (measured +62 ms on a
+   * 179-record cold point lookup at full clocks).
+   */
   private static final long PREFETCH_SPAN_BYTES = Long.getLong("sirix.mm.prefetchSpan", 64 * 1024L);
 
   @Override
@@ -279,9 +280,9 @@ public final class MMFileReader extends AbstractReader {
 
   /**
    * Fail-fast parity with {@code FileChannelReader#checkDataLength}: the declared length comes
-   * straight from the file, so corrupt input can present any 32-bit value — validate it BEFORE
-   * sizing a slice or a byte[] (a huge bogus length surfaces as an opaque
-   * {@link IndexOutOfBoundsException} from {@code asSlice} or an OOM-prone allocation).
+   * straight from the file, so corrupt input can present any 32-bit value — validate it BEFORE sizing
+   * a slice or a byte[] (a huge bogus length surfaces as an opaque {@link IndexOutOfBoundsException}
+   * from {@code asSlice} or an OOM-prone allocation).
    */
   private void checkDataLength(final int dataLength) {
     final long fileSize = dataFileSegment.byteSize();
@@ -292,8 +293,7 @@ public final class MMFileReader extends AbstractReader {
   }
 
   @Override
-  public Page read(final PageReference reference,
-      final @Nullable ResourceConfiguration resourceConfiguration) {
+  public Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
     return read(reference, resourceConfiguration, false);
   }
 
@@ -334,11 +334,10 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public RegionsOnlyPage readRegionsOnly(final PageReference reference,
-      final ResourceConfiguration resourceConfiguration, final int regionKindMask,
-      final int regionDeferMask) {
+      final ResourceConfiguration resourceConfiguration, final int regionKindMask, final int regionDeferMask) {
     try {
       if (!byteHandler.supportsMemorySegments()) {
-        return null;  // caller falls back to the full read path
+        return null; // caller falls back to the full read path
       }
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
@@ -428,7 +427,9 @@ public final class MMFileReader extends AbstractReader {
     final long lastRecordOffset = IOStorage.revisionsFileOffset(fromRevision + count - 1);
     if (lastRecordOffset + 4L * Long.BYTES > revisionsOffsetFileSegment.byteSize()) {
       final long tail = revisionsOffsetFileSegment.byteSize() - IOStorage.REVISIONS_RECORDS_START - 4L * Long.BYTES;
-      final long firstTruncated = tail < 0 ? 0 : tail / IOStorage.REVISIONS_FILE_RECORD_SIZE + 1;
+      final long firstTruncated = tail < 0
+          ? 0
+          : tail / IOStorage.REVISIONS_FILE_RECORD_SIZE + 1;
       throw new SirixIOException("Truncated revisions record for revision " + Math.max(fromRevision, firstTruncated));
     }
     final RevisionFileData[] result = new RevisionFileData[count];

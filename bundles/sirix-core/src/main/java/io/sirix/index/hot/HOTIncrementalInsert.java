@@ -9,11 +9,13 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -31,6 +33,17 @@ import java.util.function.LongSupplier;
  * @author Johannes Lichtenberger
  */
 public final class HOTIncrementalInsert {
+
+  /**
+   * Diagnostic: leaf splits that carried a segment-reference side map onto their halves. The
+   * shape is rare (only the projection index attaches side maps, and only an overflowing
+   * ref-bearing leaf reaches here), so a test that means to exercise
+   * {@link #routeSegmentRefs} must assert this counter moved.
+   */
+  public static final AtomicLong SPLIT_SEGMENT_REF_CARRIES = new AtomicLong();
+
+  /** Diagnostic: individual segment references re-homed by {@link #routeSegmentRefs}. */
+  public static final AtomicLong SPLIT_SEGMENT_REFS_ROUTED = new AtomicLong();
 
   private HOTIncrementalInsert() {
     throw new AssertionError("utility class — static primitives only");
@@ -69,8 +82,16 @@ public final class HOTIncrementalInsert {
    * this leaf's {@code R(S)}-subtree; if it duplicates an existing key the values are OR-merged
    * ({@link #mergeIndexValues}). Tombstones are entries and are carried through unchanged.
    *
-   * <p><b>Purity.</b> Allocates only new pages; never mutates or closes {@code source}. The
-   * caller owns {@code source}'s lifecycle (it becomes an orphaned page after the splice).
+   * <p><b>Segment references.</b> A leaf's side map (projection-index segment references,
+   * {@code docs/PROJECTION_INDEX_STORAGE_REDESIGN.md} §2.3) is not part of the {@code (key,
+   * value)} entry set, so the rebuilt halves would not carry it. Each reference is re-homed onto
+   * the half that now holds its OWNING SLOT ({@link #routeSegmentRefs}) — the owner-slot-residency
+   * contract {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} applies to the in-place split
+   * variants, and {@code AbstractHOTIndexWriter#reattachSegmentRefs} to the rebuild paths.
+   *
+   * <p><b>Purity.</b> Allocates only new pages; never mutates or closes {@code source} (its side
+   * map is copied onto the halves, not moved off it). The caller owns {@code source}'s lifecycle
+   * (it becomes an orphaned page after the splice).
    *
    * @param source           the overflowing leaf page (≥ 2 entries; the caller checks
    *                         {@link HOTLeafPage#canSplit()})
@@ -89,15 +110,6 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(newValue, "newValue");
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
-    // Loud backstop: this split rebuilds both halves from (key, value) pairs and abandons the
-    // source leaf — a segment-reference side map would be silently dropped. Projection trees
-    // (the only side-map users) split via HOTLeafPage's instrumented split variants instead;
-    // fail attributably if the wiring ever routes them here.
-    if (source.segmentRefCount() > 0) {
-      throw new IllegalStateException("Incremental leaf split would drop " + source.segmentRefCount()
-          + " segment reference(s) on leaf pageKey=" + source.getPageKey()
-          + " — this split path is not instrumented for segment-ref routing.");
-    }
 
     // The sorted, distinct union of the leaf's entries with the new one spliced in at its
     // lexicographic position (its value OR-merged into an existing key, if present).
@@ -139,8 +151,83 @@ public final class HOTIncrementalInsert {
 
     final Page left = buildHalf(union.subList(0, m), revision, indexType, pageKeyAllocator);
     final Page right = buildHalf(union.subList(m, n), revision, indexType, pageKeyAllocator);
+    if (source.segmentRefCount() > 0) {
+      routeSegmentRefs(source, left, right, splitBit);
+    }
     final int height = 1 + Math.max(heightOf(left), heightOf(right));
     return new BiNode(splitBit, height, swizzle(left), swizzle(right));
+  }
+
+  /**
+   * Re-home {@code source}'s segment-reference side map onto the split halves: every reference
+   * lands on the leaf that now holds its owning slot, so a reader navigating to the post-split
+   * leaf finds the slot AND its out-of-line segment page.
+   *
+   * <p>A reference key encodes its owner as {@code (ownerSlot << 16) | subId}
+   * ({@code HOTLeafPage#overflowPageRefKey}), and the owner's stored key bytes are
+   * {@link PathKeySerializer}'s encoding of {@code ownerSlot} — the same derivation
+   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and
+   * {@code HOTTrieWriter#redistributeLeafKeysIfMisrouted} use. The owning slot is an entry of
+   * {@code source}, hence of the union, hence of exactly one half — the one selected by the
+   * owner key's {@code splitBit} (the union's partition predicate); the other half is probed as a
+   * backstop. Residency is decided by {@link HOTLeafPage#findEntry}, never by a routed descent:
+   * the reference must sit on the page that PHYSICALLY holds the slot, exactly as
+   * {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half
+   * is data loss and fails loudly.
+   *
+   * <p>References are <em>copied</em>, not moved: {@code source} is abandoned by the splice, and
+   * the same {@link PageReference} instances keep whatever durable key an earlier commit assigned
+   * (an unreachable page is never re-committed), so the halves share the committed segment pages
+   * exactly as the rebuild paths' reattach does.
+   */
+  private static void routeSegmentRefs(final HOTLeafPage source, final Page left, final Page right,
+      final int splitBit) {
+    final long[] refKeys = source.overflowPageRefKeysSorted();
+    final byte[] ownerKey = new byte[HOTLongKeySerializer.SERIALIZED_SIZE];
+    SPLIT_SEGMENT_REF_CARRIES.incrementAndGet();
+    SPLIT_SEGMENT_REFS_ROUTED.addAndGet(refKeys.length);
+    for (int i = 0; i < refKeys.length; i++) {
+      final long refKey = refKeys[i];
+      final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(refKey);
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      final boolean rightSide = HOTBulkBuilder.bitAt(ownerKey, splitBit);
+      HOTLeafPage target = findOwningLeaf(rightSide ? right : left, ownerKey);
+      if (target == null) {
+        target = findOwningLeaf(rightSide ? left : right, ownerKey);
+      }
+      if (target == null) {
+        throw new IllegalStateException(
+            "Incremental leaf split: owning slot " + ownerSlot + " (refKey=" + refKey + ") of leaf pageKey="
+                + source.getPageKey() + " is in neither half — the split dropped an entry it carried.");
+      }
+      target.setPageReference(refKey, source.getPageReference(refKey));
+    }
+  }
+
+  /**
+   * The leaf of {@code half} that physically holds {@code ownerKey}, or {@code null} when the half
+   * does not hold it. A half is a single leaf in the common case; only a half too large for one
+   * page is a {@link HOTBulkBuilder} subtree, and then the walk is bounded by that half's few
+   * pages. Every page of a half is in memory and swizzled onto its reference
+   * ({@link HOTBulkBuilder} and {@link #swizzle}), so this needs no page resolution.
+   */
+  private static @Nullable HOTLeafPage findOwningLeaf(final Page half, final byte[] ownerKey) {
+    if (half instanceof HOTLeafPage leaf) {
+      return leaf.findEntry(ownerKey) >= 0 ? leaf : null;
+    }
+    if (half instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        final Page child = childRef == null ? null : childRef.getPage();
+        if (child != null) {
+          final HOTLeafPage found = findOwningLeaf(child, ownerKey);
+          if (found != null) {
+            return found;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   /**

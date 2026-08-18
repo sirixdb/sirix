@@ -1818,6 +1818,105 @@ public enum NodeKind implements DeweyIdSerializer {
     }
   },
 
+  /**
+   * One value of a global projection value dictionary, keyed by its own id. See
+   * {@link ValueDictionaryEntryNode}.
+   */
+  VALUE_DICTIONARY_ENTRY((byte) 37) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int length = source.readInt();
+      if (length < 0) {
+        throw new IllegalStateException(
+            "Value dictionary entry " + recordID + " declares a negative length of " + length);
+      }
+      final byte[] value = new byte[length];
+      source.read(value);
+      return new ValueDictionaryEntryNode(recordID, value);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryEntryNode node = (ValueDictionaryEntryNode) record;
+      final byte[] value = node.getValue();
+      sink.writeInt(value.length);
+      sink.write(value);
+    }
+  },
+
+  /**
+   * One block of a global projection value dictionary's forward directory. See
+   * {@link ValueDictionaryDirectoryNode}.
+   */
+  VALUE_DICTIONARY_DIRECTORY((byte) 38) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int count = source.readInt();
+      if (count <= 0) {
+        throw new IllegalStateException(
+            "Value dictionary directory block " + recordID + " declares " + count + " entries");
+      }
+      final long[] hashes = new long[count];
+      for (int i = 0; i < count; i++) {
+        hashes[i] = source.readLong();
+      }
+      final int[] ids = new int[count];
+      for (int i = 0; i < count; i++) {
+        ids[i] = source.readInt();
+      }
+      return new ValueDictionaryDirectoryNode(recordID, hashes, ids);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryDirectoryNode node = (ValueDictionaryDirectoryNode) record;
+      final long[] hashes = node.getHashes();
+      final int[] ids = node.getIds();
+      sink.writeInt(hashes.length);
+      for (final long hash : hashes) {
+        sink.writeLong(hash);
+      }
+      for (final int id : ids) {
+        sink.writeInt(id);
+      }
+    }
+  },
+
+  /**
+   * The header of one global projection value dictionary namespace. See
+   * {@link ValueDictionaryHeaderNode}.
+   */
+  VALUE_DICTIONARY_HEADER((byte) 39) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int version = source.readInt();
+      final int entryCount = source.readInt();
+      final long entryBase = source.readLong();
+      final long directoryBase = source.readLong();
+      final int directoryBlockCount = source.readInt();
+      final int directoryCoversMaxId = source.readInt();
+      return new ValueDictionaryHeaderNode(recordID, version, entryCount, entryBase, directoryBase,
+          directoryBlockCount, directoryCoversMaxId);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryHeaderNode node = (ValueDictionaryHeaderNode) record;
+      sink.writeInt(node.getVersion());
+      sink.writeInt(node.getEntryCount());
+      sink.writeLong(node.getEntryBase());
+      sink.writeLong(node.getDirectoryBase());
+      sink.writeInt(node.getDirectoryBlockCount());
+      sink.writeInt(node.getDirectoryCoversMaxId());
+    }
+  },
+
   PROJECTION_INDEX_LEAF((byte) 44) {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,

@@ -199,9 +199,51 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_STRING_SET = 4;
 
+  /**
+   * A string column whose cells store ids into the resource-wide
+   * {@link GlobalValueDictionary} instead of into a per-leaf dictionary.
+   *
+   * <p>{@link #COLUMN_KIND_STRING_DICT} is the right shape for a column with a few dozen distinct
+   * values and the wrong one for a column with millions. A per-leaf dictionary stores a recurring
+   * value once <em>per leaf</em> — hundreds of copies of the same string across a large resource —
+   * so the column's bytes come out roughly the size of the raw strings, and because nothing about a
+   * per-leaf id is comparable across leaves, group identity has to be recovered by hashing the
+   * bytes back out of every leaf's dictionary.
+   *
+   * <p>Here the id IS the identity, resource-wide. Grouping becomes an integer group-by, distinct
+   * counting a fold over integers, and equality an integer compare after one dictionary probe.
+   * There is no per-leaf dictionary and no dict-entry hash segment: both exist only to recover what
+   * the id already says.
+   *
+   * <p><b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b> — the cells are
+   * integers, zone-mapped and bit-packed exactly like any other integer column. That is deliberate
+   * and follows the precedent {@link #COLUMN_KIND_NUMERIC_DOUBLE} already set: every layout-level
+   * surface (zone maps, packing, presence, segment codecs) works unchanged, and only the sites that
+   * care what the integer MEANS need to know about the kind. {@link #isLongLaneKind} is the
+   * predicate layout sites test; {@link #isNumericKind} stays what it was, so nothing that treats a
+   * column as arithmetically numeric — a sum, an average, a min that must return a value rather
+   * than an id — can pick this kind up by accident.
+   */
+  public static final byte COLUMN_KIND_STRING_GLOBAL = 5;
+
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
     return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
+  /**
+   * {@code true} for every kind stored as one signed long per row — the two numeric kinds and
+   * {@link #COLUMN_KIND_STRING_GLOBAL}.
+   *
+   * <p>The predicate for LAYOUT sites only: anything that packs, unpacks, zone-maps, skips or
+   * copies cells without interpreting them. A site that interprets a cell as a number must keep
+   * using {@link #isNumericKind}, because a global string id is an integer that is not a quantity —
+   * summing it, averaging it or returning it as a minimum are all wrong answers rather than slow
+   * ones.
+   */
+  public static boolean isLongLaneKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE
+        || kind == COLUMN_KIND_STRING_GLOBAL;
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -280,6 +322,14 @@ public final class ProjectionIndexRowGroupPage {
    * per-column without cross-column lookup overhead.
    */
   private final byte[][][] stringDicts;
+
+  /**
+   * Per-column resource-wide value dictionary for {@link #COLUMN_KIND_STRING_GLOBAL}. Slot
+   * {@code c} is non-null exactly when column {@code c} carries that kind; the builder owns the
+   * writers and shares one per column across every leaf, which is the whole point — a value
+   * interned in leaf 1 keeps its id in leaf 10000.
+   */
+  private GlobalValueDictionaryWriter[] globalDicts;
 
   /**
    * Per-column element counts for {@link #COLUMN_KIND_STRING_SET}: how many dict ids row {@code r}
@@ -435,6 +485,26 @@ public final class ProjectionIndexRowGroupPage {
     return stringSetLen[column];
   }
 
+  /**
+   * How many entries column {@code column}'s per-leaf dictionary holds. The array is over-allocated
+   * and null-terminated, so its length is not the answer.
+   *
+   * @param column the column ordinal
+   * @return the live entry count, {@code 0} for a column with no per-leaf dictionary
+   */
+  public int stringDictionarySize(final int column) {
+    final byte[][] dict = stringDicts[column];
+    if (dict == null) {
+      return 0;
+    }
+    for (int i = 0; i < dict.length; i++) {
+      if (dict[i] == null) {
+        return i;
+      }
+    }
+    return dict.length;
+  }
+
   public byte[][] stringDictionary(final int column) {
     return stringDicts[column];
   }
@@ -528,7 +598,10 @@ public final class ProjectionIndexRowGroupPage {
       for (int c = 0; c < columnCount; c++) {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> numericCols[c] = new long[MAX_ROWS];
+          // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
+          // exactly like any other integer column.
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+              numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
@@ -651,6 +724,21 @@ public final class ProjectionIndexRowGroupPage {
               columnMax[c] = v;
           }
         }
+        // Absent and unrepresentable cells store id 0, which is never minted — so "no value" needs
+        // no placeholder entry in the dictionary the way a per-leaf dict column's "" does, and the
+        // zone map stays a range over real ids because only clean cells widen it.
+        case COLUMN_KIND_STRING_GLOBAL -> {
+          final long id = clean
+              ? internGlobal(c, stringValues[c])
+              : 0L;
+          numericCols[c][row] = id;
+          if (clean) {
+            if (id < columnMin[c])
+              columnMin[c] = id;
+            if (id > columnMax[c])
+              columnMax[c] = id;
+          }
+        }
         case COLUMN_KIND_BOOLEAN -> {
           if (boolValues[c]) {
             booleanCols[c][row >>> 6] |= 1L << (row & 63);
@@ -708,6 +796,96 @@ public final class ProjectionIndexRowGroupPage {
     }
     ids[len] = dictId;
     stringSetLen[c] = len + 1;
+  }
+
+  /**
+   * Attach the resource-wide value dictionaries a {@link #COLUMN_KIND_STRING_GLOBAL} column interns
+   * into. One array shared by every leaf of a build; slots for other kinds stay {@code null}.
+   *
+   * @param dictionaries per-column writers, index-aligned with the column kinds
+   */
+  void setGlobalDictionaries(final GlobalValueDictionaryWriter[] dictionaries) {
+    this.globalDicts = dictionaries;
+  }
+
+  /** Intern one value into column {@code c}'s resource-wide dictionary and return its id. */
+  private long internGlobal(final int c, final String value) {
+    final GlobalValueDictionaryWriter dictionary = globalDicts == null
+        ? null
+        : globalDicts[c];
+    if (dictionary == null) {
+      throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+    }
+    final byte[] bytes = (value == null
+        ? ""
+        : value).getBytes(StandardCharsets.UTF_8);
+    return dictionary.intern(bytes, 0, bytes.length);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_GLOBAL},
+   * interning this leaf's dictionary entries into the resource-wide one.
+   *
+   * <p>Exists because the cardinality that decides between the two kinds is only knowable after
+   * some rows have been seen. The builder buffers the leading leaves, measures, and then converts
+   * the ones it already built rather than walking the resource twice — the per-leaf dictionary it
+   * is converting from is exactly the set of distinct values it would otherwise have to re-derive.
+   *
+   * <p>Interning is per DICTIONARY ENTRY, not per row: a leaf's rows are then remapped by an array
+   * lookup.
+   *
+   * <p>Flips the column's KIND on this page. Each page holds its OWN copy of the kinds array (the
+   * constructor clones what it is handed), so this affects nothing else — the builder separately
+   * flips the extractor's array so that later leaves are built as global from the start.
+   *
+   * @param c the column to convert
+   * @param dictionary the resource-wide dictionary to intern into
+   */
+  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryWriter dictionary) {
+    if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
+    }
+    final long[] converted = new long[MAX_ROWS];
+    if (rowCount > 0) {
+      final byte[][] dict = stringDicts[c];
+      final int[] ids = stringDictIdCols[c];
+      // Memo per dict entry; 0 doubles as "not yet interned" because minted ids start at 1.
+      final long[] localToGlobal = new long[dict.length];
+      final long[] presence = presenceCols[c];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (int row = 0; row < rowCount; row++) {
+        // Absent cells carry the "" a dict column interns as a placeholder; they map to id 0
+        // ("no id"), matching what the streaming append path stores, rather than to a real entry
+        // for the empty string. Present-but-unrepresentable cells are not distinguishable here
+        // (the flag is per column, not per row) and do not need to be: a column carrying one is
+        // declined wholesale by every consumer.
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0) {
+          converted[row] = 0L;
+          continue;
+        }
+        final int local = ids[row];
+        long global = localToGlobal[local];
+        if (global == 0L) {
+          final byte[] bytes = dict[local];
+          global = dictionary.intern(bytes, 0, bytes.length);
+          localToGlobal[local] = global;
+        }
+        converted[row] = global;
+        if (global < min) {
+          min = global;
+        }
+        if (global > max) {
+          max = global;
+        }
+      }
+      columnMin[c] = min;
+      columnMax[c] = max;
+    }
+    numericCols[c] = converted;
+    stringDictIdCols[c] = null;
+    stringDicts[c] = null;
+    columnKinds[c] = COLUMN_KIND_STRING_GLOBAL;
   }
 
   private int appendString(final int c, final String value) {
@@ -775,7 +953,7 @@ public final class ProjectionIndexRowGroupPage {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -901,7 +1079,8 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> writeLongs(baos, numericCols[c], rowCount);
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+            writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {
           writeDictionary(baos, stringDicts[c]);
