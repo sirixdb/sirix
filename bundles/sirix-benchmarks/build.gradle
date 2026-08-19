@@ -284,6 +284,6 @@ tasks.register('bulkBenchClasspath') {
 if (project.hasProperty('enterpriseCoreJar')) {
     dependencies {
         jmhImplementation files(project.property('enterpriseCoreJar'))
-        jmhImplementation 'org.jctools:jctools-core:4.0.6'
+        jmhImplementation 'org.jctools:jctools-core:4.0.7'
     }
 }
