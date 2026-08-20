@@ -28,16 +28,17 @@
 
 package io.sirix.page;
 
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.hot.SparsePartialKeys;
+import io.sirix.node.BytesOut;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
 import org.jspecify.annotations.Nullable;
 
-import io.sirix.api.StorageEngineWriter;
-import io.sirix.settings.Constants;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
@@ -108,6 +109,12 @@ public final class HOTIndirectPage implements Page {
 
   /** Maximum children for a node (from reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32). */
   public static final int MAX_NODE_ENTRIES = 32;
+
+  /** Immutable fallback for the legacy SingleMask MultiNode child-index payload. */
+  private static final byte[] ZERO_CHILD_INDEX = new byte[256];
+
+  /** Immutable zero payload for a MultiNode whose partial-key array has not been populated. */
+  private static final byte[] ZERO_PARTIAL_KEYS = new byte[MAX_NODE_ENTRIES * Integer.BYTES];
 
   /**
    * Node type enumeration. Each constant carries an explicit stable id byte that is written to disk —
@@ -1068,8 +1075,8 @@ public final class HOTIndirectPage implements Page {
       }
       return (bitMask & (1L << (63 - rel))) != 0;
     }
-    final byte[] positions = getExtractionPositions();
-    final long[] masks = getExtractionMasks();
+    final byte[] positions = extractionPositions;
+    final long[] masks = extractionMasks;
     if (positions == null || masks == null) {
       return false;
     }
@@ -1123,6 +1130,42 @@ public final class HOTIndirectPage implements Page {
     return partialKeys != null
         ? partialKeys
         : new int[numChildren];
+  }
+
+  /**
+   * Trusted serializer bridge that preserves the zero-filled null fallback without materialising an
+   * {@code int[]} or exposing the mutable backing array.
+   */
+  void writePartialKeys(final BytesOut<?> sink) {
+    Objects.requireNonNull(sink);
+    final int width = determinePartialKeyWidthFromBitCount(getTotalDiscBits());
+    if (partialKeys == null) {
+      sink.write(ZERO_PARTIAL_KEYS, 0, Math.multiplyExact(numChildren, width));
+      return;
+    }
+    if (partialKeys.length != numChildren) {
+      throw new IllegalStateException(
+          "HOT indirect partial-key count " + partialKeys.length + " does not match child count " + numChildren);
+    }
+
+    switch (width) {
+      case Byte.BYTES -> {
+        for (int index = 0; index < numChildren; index++) {
+          sink.writeByte((byte) partialKeys[index]);
+        }
+      }
+      case Short.BYTES -> {
+        for (int index = 0; index < numChildren; index++) {
+          sink.writeShort((short) partialKeys[index]);
+        }
+      }
+      case Integer.BYTES -> {
+        for (int index = 0; index < numChildren; index++) {
+          sink.writeInt(partialKeys[index]);
+        }
+      }
+      default -> throw new IllegalStateException("Unsupported HOT indirect partial-key width: " + width);
+    }
   }
 
   /**
@@ -1182,6 +1225,20 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Trusted serializer bridge for the legacy 256-byte child-index tail. A null child index retains
+   * the historical all-zero payload through a shared immutable fallback.
+   */
+  void writeChildIndex(final BytesOut<?> sink) {
+    Objects.requireNonNull(sink);
+    if (childIndex != null && childIndex.length != ZERO_CHILD_INDEX.length) {
+      throw new IllegalStateException(
+          "HOT indirect child-index length " + childIndex.length + " does not match wire length "
+              + ZERO_CHILD_INDEX.length);
+    }
+    sink.write(childIndex == null ? ZERO_CHILD_INDEX : childIndex);
+  }
+
+  /**
    * Get extraction byte positions for MultiMask layout.
    *
    * @return copy of extraction positions, or null if not MultiMask
@@ -1190,6 +1247,24 @@ public final class HOTIndirectPage implements Page {
     return extractionPositions != null
         ? extractionPositions.clone()
         : null;
+  }
+
+  /** Write extraction positions directly without returning a defensive clone. */
+  void writeExtractionPositions(final BytesOut<?> sink) {
+    Objects.requireNonNull(sink);
+    if (extractionPositions == null) {
+      if (numExtractionBytes != 0) {
+        throw new IllegalStateException(
+            "HOT indirect has " + numExtractionBytes + " extraction bytes but no positions");
+      }
+      return;
+    }
+    if (extractionPositions.length != numExtractionBytes) {
+      throw new IllegalStateException(
+          "HOT indirect extraction-position count " + extractionPositions.length
+              + " does not match wire count " + numExtractionBytes);
+    }
+    sink.write(extractionPositions, 0, numExtractionBytes);
   }
 
   /**
@@ -1201,6 +1276,27 @@ public final class HOTIndirectPage implements Page {
     return extractionMasks != null
         ? extractionMasks.clone()
         : null;
+  }
+
+  /** Write extraction-mask words directly without returning a defensive clone. */
+  void writeExtractionMasks(final BytesOut<?> sink) {
+    Objects.requireNonNull(sink);
+    final int expectedMaskCount = (numExtractionBytes + Long.BYTES - 1) / Long.BYTES;
+    if (extractionMasks == null) {
+      if (expectedMaskCount != 0) {
+        throw new IllegalStateException(
+            "HOT indirect requires " + expectedMaskCount + " extraction masks but has none");
+      }
+      return;
+    }
+    if (extractionMasks.length != expectedMaskCount) {
+      throw new IllegalStateException(
+          "HOT indirect extraction-mask count " + extractionMasks.length
+              + " does not match wire count " + expectedMaskCount);
+    }
+    for (int index = 0; index < expectedMaskCount; index++) {
+      sink.writeLong(extractionMasks[index]);
+    }
   }
 
   /**
@@ -1496,4 +1592,3 @@ public final class HOTIndirectPage implements Page {
         + mostSignificantBitIndex + '}';
   }
 }
-

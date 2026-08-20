@@ -6,8 +6,12 @@ package io.sirix.index.projection;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
+import io.sirix.access.trx.node.json.FusedStringCursor;
+import io.sirix.access.trx.node.json.ForwardingJsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
@@ -147,6 +151,106 @@ final class ProjectionIndexNestedPathTest {
     // No east record carries nested/city — column all-missing.
     assertFalse(presentAt(leaf, 2, 0));
     assertFalse(presentAt(leaf, 2, 1));
+  }
+
+  @Test
+  void scalarExtractionUsesValueBytesWithoutMaterializingStrings() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var delegate = manager.beginNodeReadOnlyTrx();
+         final var pathSummary = manager.openPathSummary()) {
+      final IndexDef def = IndexDefs.createProjectionIdxDef(
+          parse("/east/records/[]", PathParser.Type.JSON),
+          List.of(parse("/east/records/[]/name", PathParser.Type.JSON)),
+          List.of(Type.STR),
+          0,
+          IndexDef.DbType.JSON);
+      final int[] valueByteReads = new int[1];
+      final JsonNodeReadOnlyTrx byteOnlyCursor = new ForwardingJsonNodeReadOnlyTrx() {
+        @Override
+        public JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
+          return delegate;
+        }
+
+        @Override
+        public SirixDeweyID getDeweyID() {
+          return delegate.getDeweyID();
+        }
+
+        @Override
+        public String getValue() {
+          throw new AssertionError("scalar projection extraction must not materialize a String");
+        }
+
+        @Override
+        public int readFusedStringUtf8(final byte[] valueOut) {
+          return FusedStringCursor.UNAVAILABLE;
+        }
+
+        @Override
+        public byte[] getValueBytes() {
+          valueByteReads[0]++;
+          return delegate.getValueBytes();
+        }
+      };
+      final List<byte[]> leaves = new ArrayList<>();
+
+      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(byteOnlyCursor);
+
+      assertEquals(2, valueByteReads[0], "each projected fused string should be read exactly once as UTF-8");
+      assertEquals(1, leaves.size());
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.get(0));
+      assertEquals("a", stringAt(leaf, 0, 0));
+      assertEquals("b", stringAt(leaf, 0, 1));
+    }
+  }
+
+  @Test
+  void scalarExtractionUsesCallerOwnedFusedUtf8Scratch() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var delegate = manager.beginNodeReadOnlyTrx();
+         final var pathSummary = manager.openPathSummary()) {
+      final IndexDef def = IndexDefs.createProjectionIdxDef(
+          parse("/east/records/[]", PathParser.Type.JSON),
+          List.of(parse("/east/records/[]/name", PathParser.Type.JSON)),
+          List.of(Type.STR),
+          0,
+          IndexDef.DbType.JSON);
+      final int[] fusedReads = new int[1];
+      final JsonNodeReadOnlyTrx cursor = new ForwardingJsonNodeReadOnlyTrx() {
+        @Override
+        public JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
+          return delegate;
+        }
+
+        @Override
+        public SirixDeweyID getDeweyID() {
+          return delegate.getDeweyID();
+        }
+
+        @Override
+        public int readFusedStringUtf8(final byte[] valueOut) {
+          fusedReads[0]++;
+          return ForwardingJsonNodeReadOnlyTrx.super.readFusedStringUtf8(valueOut);
+        }
+
+        @Override
+        public byte[] getValueBytes() {
+          throw new AssertionError("production fused-string extraction must not materialize a byte array");
+        }
+      };
+      final List<byte[]> leaves = new ArrayList<>();
+
+      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(cursor);
+
+      // The first one-byte value asks for capacity and retries; the second reuses the grown buffer.
+      assertEquals(3, fusedReads[0]);
+      assertEquals(1, leaves.size());
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
+      assertEquals("a", stringAt(leaf, 0, 0));
+      assertEquals("b", stringAt(leaf, 0, 1));
+    }
   }
 
   // ==================== multi-PCR root + multi-PCR fields ====================

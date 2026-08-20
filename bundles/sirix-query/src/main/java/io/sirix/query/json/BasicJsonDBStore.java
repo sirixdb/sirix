@@ -1,5 +1,6 @@
 package io.sirix.query.json;
 
+import com.fasterxml.jackson.core.JsonParser;
 import com.google.gson.stream.JsonReader;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -12,11 +13,14 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixRuntimeException;
+import io.sirix.index.IndexDef;
+import io.sirix.index.projection.ProjectionBulkLoad;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.service.json.shredder.ParallelJsonShredder;
@@ -49,6 +53,11 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class BasicJsonDBStore implements JsonDBStore {
+
+  @FunctionalInterface
+  private interface InitialJsonLoader {
+    void load(JsonNodeTrx wtx);
+  }
 
   private static final Logger LOGGER = LoggerFactory.getLogger(BasicJsonDBStore.class);
 
@@ -551,8 +560,83 @@ public final class BasicJsonDBStore implements JsonDBStore {
     return createCollection(collName, resourceName, reader, options);
   }
 
+  /**
+   * Create a resource and shred {@code reader} into it with {@code projection} maintained by the load
+   * itself — a ONE-PASS load.
+   *
+   * <p>
+   * The alternative is to shred first and then run {@code jn:create-projection-index}, which walks the
+   * whole finished resource a second time; at real corpus sizes that second pass costs about as much
+   * as the load. Here the definition is catalogued on the still-empty resource, and the shred's own
+   * change notifications feed the projection builder, so the index is complete when the load commits.
+   *
+   * <p>
+   * The projection is only readable after that final commit: until then its metadata slot holds the
+   * stale tombstone, so an interrupted load leaves a resource whose queries fall back to the generic
+   * pipeline rather than one whose queries answer from an index missing most of its rows.
+   */
+  public JsonDBCollection create(final String collName, final String resourceName, final JsonReader reader,
+      final ProjectionSpec projection) {
+    return createCollection(collName, resourceName, reader, new ArrayObject(new QNm[0], new Sequence[0]),
+        requireNonNull(projection));
+  }
+
+  /**
+   * High-throughput one-pass creation path backed by Jackson's token-forwarding shredder. Field
+   * names are canonicalized by the parser and string values are UTF-8 encoded into a reusable
+   * buffer, avoiding Gson's per-token byte-array churn on analytical imports.
+   */
+  public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser,
+      final ProjectionSpec projection) {
+    return createWithJackson(collName, resourceName, parser, requireNonNull(projection), false);
+  }
+
+  /** High-throughput Jackson creation path with explicit JSON-array versus LDJSON framing. */
+  public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser,
+      final ProjectionSpec projection, final boolean ldjson) {
+    return createWithJackson(collName, resourceName, parser, requireNonNull(projection), ldjson);
+  }
+
+  /** High-throughput Jackson creation path without a load-time projection. */
+  public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser) {
+    return createWithJackson(collName, resourceName, parser, null, false);
+  }
+
+  /** High-throughput Jackson creation path without a projection and with explicit framing. */
+  public JsonDBCollection create(final String collName, final String resourceName, final JsonParser parser,
+      final boolean ldjson) {
+    return createWithJackson(collName, resourceName, parser, null, ldjson);
+  }
+
+  private JsonDBCollection createWithJackson(final String collName, final String resourceName,
+      final JsonParser parser, final @Nullable ProjectionSpec projection, final boolean ldjson) {
+    requireNonNull(parser);
+    return createCollectionWithLoader(collName, resourceName,
+        wtx -> {
+          if (ldjson) {
+            wtx.insertLdjsonAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+          } else {
+            wtx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+          }
+        },
+        new ArrayObject(new QNm[0], new Sequence[0]), projection);
+  }
+
   private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
       final JsonReader reader, final Object options) {
+    return createCollection(collName, optionalResourceName, reader, options, null);
+  }
+
+  private JsonDBCollection createCollection(final String collName, final String optionalResourceName,
+      final JsonReader reader, final Object options, final @Nullable ProjectionSpec projection) {
+    final InitialJsonLoader loader = reader == null
+        ? null
+        : wtx -> wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
+    return createCollectionWithLoader(collName, optionalResourceName, loader, options, projection);
+  }
+
+  private JsonDBCollection createCollectionWithLoader(final String collName, final String optionalResourceName,
+      final @Nullable InitialJsonLoader loader, final Object options, final @Nullable ProjectionSpec projection) {
     final Path dbPath = location.resolve(collName);
     final DatabaseConfiguration dbConf = new DatabaseConfiguration(dbPath);
     try {
@@ -585,7 +669,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
 
-      if (reader == null) {
+      if (loader == null) {
         // Even without initial data, persist the valid-time interval index definition so the
         // change listener maintains the index for all subsequent insertions.
         if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
@@ -600,18 +684,69 @@ public final class BasicJsonDBStore implements JsonDBStore {
       // memory counter is monotonic within a trx (only decrements on commit
       // via page release), and a multi-GB shred exhausts the budget long
       // before the single final commit fires.
-      try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
-        wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
-        if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
-          ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+      final IndexDef projectionDef = projection == null ? null : projection.toIndexDef();
+      final long projectionExpectedRows = projection == null ? -1L : projection.expectedRows();
+      ProjectionBulkLoad projectionBulkLoad = null;
+      try {
+        try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+            final JsonNodeTrx wtx = beginImportTrx(resourceSession)) {
+          if (projectionDef != null) {
+            // BEFORE the shred: the definition has to be catalogued and its listener bound while the
+            // record set is still empty, or the load has nothing to feed and the index would have to be
+            // derived by a second full walk afterwards. Retain the exact build we armed: a failed parser
+            // must retire that owner even though the write transaction subsequently rolls back.
+            final JsonIndexController indexController =
+                resourceSession.getWtxIndexController(wtx.getRevisionNumber());
+            projectionBulkLoad = indexController.createProjectionIndexAtLoadStart(projectionDef, wtx,
+                projectionExpectedRows);
+          }
+          loader.load(wtx);
+          if (resourceOptions.shouldAutoCreateValidTimeIndex()) {
+            ValidTimeIndexes.createValidTimeIndexesIfConfigured(resourceSession, wtx, collName);
+          }
+          // The FINAL commit closes the load-time projection build: it writes the dictionaries,
+          // fingerprint blocks, fences and metadata that replace the tombstone.
+          wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
         }
-        wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+      } catch (final Throwable loadFailure) {
+        abortProjectionBulkLoad(projectionBulkLoad, loadFailure);
+        if (loadFailure instanceof SirixException) {
+          // The outer store boundary historically translates SirixException to DocumentException by
+          // wrapping only e.getCause(). Doing that here would discard THIS exact primary object and
+          // every cleanup failure suppressed onto it above. Preserve it as the cause instead; failures
+          // before the load boundary retain the existing outer translation.
+          throw new DocumentException(loadFailure);
+        }
+        throw BasicJsonDBStore.<RuntimeException>rethrowUnchecked(loadFailure);
       }
       return collection;
     } catch (final SirixException e) {
       throw new DocumentException(e.getCause());
     }
+  }
+
+  /**
+   * Retire exactly the load owned by this create call. A controller-side partial-arm failure cleans up
+   * the exact {@code begin} results before throwing, so this method must never recover an owner from
+   * the process-global ACTIVE map: that entry could belong to a concurrent/earlier caller.
+   */
+  private static void abortProjectionBulkLoad(final @Nullable ProjectionBulkLoad ownedLoad,
+      final Throwable primaryFailure) {
+    try {
+      if (ownedLoad != null) {
+        ownedLoad.abort();
+      }
+    } catch (final Throwable cleanupFailure) {
+      if (cleanupFailure != primaryFailure) {
+        primaryFailure.addSuppressed(cleanupFailure);
+      }
+    }
+  }
+
+  /** Rethrow a load failure without replacing its type, identity, cause, or suppressed cleanup. */
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> T rethrowUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
   }
 
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
@@ -892,4 +1027,3 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 }
-

@@ -166,12 +166,12 @@ public final class ProjectionIndexRowGroupCodec {
             }
           }
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
-            encodeStringDict(out, page.stringDictionary(c), page.stringDictIdColumn(c), rowCount);
+            encodeStringDict(out, page, c, page.stringDictIdColumn(c), rowCount);
           case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
             // Dictionary, then per-row counts, then the flat element run — the same order every
             // other encoder of this column uses. A whole-leaf codec has to handle EVERY column on
             // the leaf, so omitting this would throw for a query that never touches the set.
-            encodeDictEntries(out, page.stringDictionary(c));
+            encodeDictEntries(out, page, c);
             final int[] counts = page.stringSetCountColumn(c);
             int maxCount = 0;
             for (int r = 0; r < rowCount; r++) {
@@ -180,7 +180,7 @@ public final class ProjectionIndexRowGroupCodec {
               }
             }
             encodePackedIds(out, counts, rowCount, maxCount);
-            encodeDictIds(out, page.stringDictionary(c), page.stringSetIdColumn(c), page.stringSetLength(c));
+            encodeDictIds(out, page.stringDictionarySize(c), page.stringSetIdColumn(c), page.stringSetLength(c));
           }
           default -> throw new IllegalStateException("Unknown column kind " + page.columnKind(c));
         }
@@ -315,10 +315,10 @@ public final class ProjectionIndexRowGroupCodec {
     return 8 + 1 + ((rowCount * width + 7) >>> 3);
   }
 
-  private static void encodeStringDict(final ByteArrayOutputStream out, final byte[][] dict, final int[] ids,
-      final int rowCount) {
-    encodeDictEntries(out, dict);
-    encodeDictIds(out, dict, ids, rowCount);
+  private static void encodeStringDict(final ByteArrayOutputStream out, final ProjectionIndexRowGroupPage page,
+      final int column, final int[] ids, final int rowCount) {
+    encodeDictEntries(out, page, column);
+    encodeDictIds(out, page.stringDictionarySize(column), ids, rowCount);
   }
 
   /** Number of populated (null-terminated) dictionary slots. Shared dict-size authority. */
@@ -342,9 +342,28 @@ public final class ProjectionIndexRowGroupCodec {
     }
   }
 
+  /** Range-backed dictionary encoder used by live pages without materialising {@code byte[][]}. */
+  static void encodeDictEntries(final ByteArrayOutputStream out, final ProjectionIndexRowGroupPage page,
+      final int column) {
+    final int dictSize = page.stringDictionarySize(column);
+    putIntLE(out, dictSize);
+    for (int i = 0; i < dictSize; i++) {
+      putIntLE(out, page.stringDictionaryEntryLength(column, i));
+    }
+    for (int i = 0; i < dictSize; i++) {
+      out.write(page.stringDictionaryEntryBacking(column, i), page.stringDictionaryEntryOffset(column, i),
+          page.stringDictionaryEntryLength(column, i));
+    }
+  }
+
   /** Id-stream half of the string-dict wire form: width byte, packed ids. */
   static void encodeDictIds(final ByteArrayOutputStream out, final byte[][] dict, final int[] ids, final int rowCount) {
-    final int dictSize = dictSizeOf(dict);
+    encodeDictIds(out, dictSizeOf(dict), ids, rowCount);
+  }
+
+  /** Id-stream encoder when the caller already has the representation-independent live size. */
+  static void encodeDictIds(final ByteArrayOutputStream out, final int dictSize, final int[] ids,
+      final int rowCount) {
     final int width = dictSize <= 1
         ? 0
         : widthOf(dictSize - 1L);

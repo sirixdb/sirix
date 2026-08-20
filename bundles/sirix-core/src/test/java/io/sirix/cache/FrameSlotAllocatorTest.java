@@ -10,9 +10,12 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -21,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -133,6 +137,47 @@ class FrameSlotAllocatorTest {
     final FrameSlot reborn = allocator.allocateSlot(slotSize);
     assertNotNull(reborn, "post-release allocation must succeed once budget frees up");
     reborn.close();
+  }
+
+  @Test
+  void clusteredRecycledSlotsDrainTheirCurrentBitsetWordBeforeAdvancing() {
+    final int classIdx = FrameSlotAllocator.indexForSize(4096);
+    final FrameSlot[] lowerWord = new FrameSlot[Long.SIZE];
+    for (int slot = 0; slot < lowerWord.length; slot++) {
+      lowerWord[slot] = allocator.allocateSlot(4096);
+      assertNotNull(lowerWord[slot]);
+      assertEquals(slot, lowerWord[slot].slotIndex());
+    }
+    final FrameSlot first = allocator.allocateSlot(4096);
+    final FrameSlot second = allocator.allocateSlot(4096);
+    assertNotNull(first);
+    assertNotNull(second);
+    final int clusteredWord = first.slotIndex() >>> 6;
+    assertEquals(1, clusteredWord, "the regression must exercise a word away from the initial cursor");
+    assertEquals(clusteredWord, second.slotIndex() >>> 6);
+
+    first.close();
+    second.close();
+    assertEquals(clusteredWord, allocator.recycledScanWord(classIdx),
+        "release must relocate the scan cursor to its newly nonempty word");
+
+    final FrameSlot hinted = allocator.allocateSlot(4096);
+    assertNotNull(hinted);
+    assertEquals(second.slotIndex(), hinted.slotIndex());
+    assertEquals(clusteredWord, allocator.recycledScanWord(classIdx),
+        "the cursor must keep draining a word that still has free bits");
+
+    final FrameSlot scanned = allocator.allocateSlot(4096);
+    assertNotNull(scanned);
+    assertEquals(first.slotIndex(), scanned.slotIndex());
+    assertEquals(clusteredWord + 1, allocator.recycledScanWord(classIdx),
+        "the cursor advances only after the claimed word becomes empty");
+
+    hinted.close();
+    scanned.close();
+    for (final FrameSlot slot : lowerWord) {
+      slot.close();
+    }
   }
 
   @Test
@@ -255,17 +300,26 @@ class FrameSlotAllocatorTest {
    */
   @Test
   void staleReleaseOfRecycledAddressMustNotFreeTheNewOwnersSlot() {
+    final int classIdx = FrameSlotAllocator.indexForSize(4096);
+    final long allocationsBefore = allocator.allocateCount(classIdx);
+    final long releasesBefore = allocator.releaseCount(classIdx);
     final MemorySegment segA = allocator.allocate(4096);
     assertNotNull(segA);
     final long address = segA.address();
+    final long coordinatesA = allocator.slotCoordinates(segA);
+    assertFalse(coordinatesA == FrameSlotAllocator.NO_SLOT_COORDINATES);
 
     // Legitimate release; slot goes on the free stack.
     allocator.release(segA);
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES, allocator.slotCoordinates(segA));
 
     // LIFO recycling: the next allocation of the class reuses the same slot/address.
     final MemorySegment segB = allocator.allocate(4096);
     assertNotNull(segB);
     assertEquals(address, segB.address(), "precondition: LIFO free stack must recycle the slot");
+    assertEquals(coordinatesA, allocator.slotCoordinates(segB));
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES, allocator.slotCoordinates(segA),
+        "a stale scope must not bind to the current owner at the recycled address");
 
     // STALE double-release of the prior era's segment. Must be rejected — B still owns the slot.
     allocator.release(segA);
@@ -284,6 +338,12 @@ class FrameSlotAllocatorTest {
 
     allocator.release(segC);
     allocator.release(segD);
+
+    assertEquals(allocationsBefore + 4L, allocator.allocateCount(classIdx));
+    assertEquals(releasesBefore + 4L, allocator.releaseCount(classIdx),
+        "the stale A-era release must not increment the release counter");
+    assertEquals(0, allocator.liveSlotCount(classIdx));
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
   }
 
   /**
@@ -299,6 +359,9 @@ class FrameSlotAllocatorTest {
 
     // Simulate the KeyValueLeafPage pattern: hold a truncated view, release a re-widened view.
     final MemorySegment truncated = seg.reinterpret(4096);
+    assertSame(seg.scope(), truncated.scope(), "reinterpret must retain the exact allocation-era scope object");
+    assertSame(seg.scope(), seg.asSlice(0, 4096).scope(),
+        "a zero-offset slice must retain the exact allocation-era scope object");
     allocator.release(truncated.reinterpret(8192));
 
     // The slot must actually be free again: same class allocation recycles the address.
@@ -306,6 +369,111 @@ class FrameSlotAllocatorTest {
     assertNotNull(again);
     assertEquals(address, again.address(), "derived-segment release must free the slot");
     allocator.release(again);
+  }
+
+  @Test
+  void addressLookupRequiresAnExactLiveSlotBaseAndScope() {
+    final MemorySegment segment = allocator.allocate(4096);
+    assertNotNull(segment);
+
+    final long coordinates = allocator.slotCoordinates(segment);
+    assertFalse(coordinates == FrameSlotAllocator.NO_SLOT_COORDINATES);
+    assertEquals(coordinates, allocator.slotCoordinates(segment.asSlice(0, 1024)));
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES, allocator.slotCoordinates(segment.asSlice(1)),
+        "an interior address must not decode as a slot base");
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES,
+        allocator.slotCoordinates(MemorySegment.ofAddress(segment.address())),
+        "the right address under a foreign scope must not identify a live allocation");
+
+    allocator.release(segment);
+    assertEquals(FrameSlotAllocator.NO_SLOT_COORDINATES, allocator.slotCoordinates(segment));
+  }
+
+  @Test
+  void concurrentDoubleReleaseChangesAccountingExactlyOnce() throws Exception {
+    final int classIdx = FrameSlotAllocator.indexForSize(4096);
+    final MemorySegment segment = allocator.allocate(4096);
+    final long address = segment.address();
+    final long releasesBefore = allocator.releaseCount(classIdx);
+    final ExecutorService pool = Executors.newFixedThreadPool(8);
+    final CountDownLatch start = new CountDownLatch(1);
+    final List<Future<?>> releases = new ArrayList<>();
+    for (int i = 0; i < 8; i++) {
+      releases.add(pool.submit(() -> {
+        start.await();
+        allocator.release(segment);
+        return null;
+      }));
+    }
+
+    start.countDown();
+    pool.shutdown();
+    for (final Future<?> release : releases) {
+      release.get(10, TimeUnit.SECONDS);
+    }
+    assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+    assertEquals(releasesBefore + 1L, allocator.releaseCount(classIdx));
+    assertEquals(0, allocator.liveSlotCount(classIdx));
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    final MemorySegment recycled = allocator.allocate(4096);
+    assertEquals(address, recycled.address());
+    allocator.release(recycled);
+  }
+
+  @Test
+  void oneSlotInterfaceAllocatorMakesBoundedProgressUnderContention() throws Exception {
+    allocator.shutdown();
+    final int classIdx = FrameSlotAllocator.SIZE_CLASSES.length - 1;
+    final long slotSize = FrameSlotAllocator.SIZE_CLASSES[classIdx];
+    allocator = new FrameSlotAllocator(slotSize);
+
+    final int workers = 4;
+    final int iterations = 100;
+    final ExecutorService pool = Executors.newFixedThreadPool(workers);
+    final CountDownLatch start = new CountDownLatch(1);
+    final AtomicBoolean exclusivelyOwned = new AtomicBoolean();
+    final AtomicLong soleAddress = new AtomicLong(Long.MIN_VALUE);
+    final List<Future<?>> futures = new ArrayList<>();
+    for (int worker = 0; worker < workers; worker++) {
+      final int workerId = worker;
+      futures.add(pool.submit(() -> {
+        start.await();
+        for (int iteration = 0; iteration < iterations; iteration++) {
+          final MemorySegment segment = allocator.allocate(slotSize);
+          if (!exclusivelyOwned.compareAndSet(false, true)) {
+            allocator.release(segment);
+            throw new AssertionError("two callers concurrently owned the allocator's only slot");
+          }
+          try {
+            soleAddress.compareAndSet(Long.MIN_VALUE, segment.address());
+            assertEquals(soleAddress.get(), segment.address());
+            assertFalse(allocator.slotCoordinates(segment) == FrameSlotAllocator.NO_SLOT_COORDINATES);
+            segment.set(ValueLayout.JAVA_LONG, 0, ((long) workerId << 32) | iteration);
+          } finally {
+            // Ownership ends when release starts. FREE is published inside release, so clearing this
+            // after release returned would falsely overlap with a legitimate next owner.
+            exclusivelyOwned.set(false);
+            allocator.release(segment);
+          }
+        }
+        return null;
+      }));
+    }
+
+    start.countDown();
+    pool.shutdown();
+    for (final Future<?> future : futures) {
+      future.get(30, TimeUnit.SECONDS);
+    }
+    assertTrue(pool.awaitTermination(10, TimeUnit.SECONDS));
+
+    assertEquals((long) workers * iterations, allocator.allocateCount(classIdx));
+    assertEquals((long) workers * iterations, allocator.releaseCount(classIdx));
+    assertEquals(1, allocator.recycledSlotCount(classIdx));
+    assertEquals(allocator.recycledSlotCount(classIdx), allocator.recycledSlotBitCount(classIdx));
+    assertEquals(0, allocator.liveSlotCount(classIdx));
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
   }
 
 }

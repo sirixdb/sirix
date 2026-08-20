@@ -5,6 +5,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.util.Objects;
 import net.openhft.hashing.LongHashFunction;
 
 /**
@@ -34,7 +35,22 @@ import net.openhft.hashing.LongHashFunction;
  */
 public final class PooledBytesOut implements BytesOut<MemorySegment> {
 
+  /**
+   * Ownership contract for an empty byte-handler pipeline's identity result.
+   *
+   * <p>The default requires the page serializer to retain an owned copy, because this writer's
+   * pooled segment is reused as soon as serialization returns. The alternate policy is deliberately
+   * explicit and narrow: its caller must copy the exact written prefix into owned storage before
+   * returning this writer to the pool.</p>
+   */
+  public enum IdentityCachePolicy {
+    RETAIN_OWNED_COPY,
+    CALLER_COPIES_BEFORE_RELEASE
+  }
+
   private final PooledGrowingSegment segment;
+
+  private final IdentityCachePolicy identityCachePolicy;
 
   /**
    * Create a new PooledBytesOut wrapping a PooledGrowingSegment.
@@ -42,7 +58,18 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
    * @param segment the pooled segment to write to
    */
   public PooledBytesOut(PooledGrowingSegment segment) {
-    this.segment = segment;
+    this(segment, IdentityCachePolicy.RETAIN_OWNED_COPY);
+  }
+
+  /**
+   * Create a pooled writer with an explicit identity-cache ownership contract.
+   *
+   * @param segment the pooled segment to write to
+   * @param identityCachePolicy ownership policy for an empty byte-handler pipeline's result
+   */
+  public PooledBytesOut(final PooledGrowingSegment segment, final IdentityCachePolicy identityCachePolicy) {
+    this.segment = Objects.requireNonNull(segment);
+    this.identityCachePolicy = Objects.requireNonNull(identityCachePolicy);
   }
 
   /**
@@ -52,9 +79,27 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
    * @param initialCapacity the initial capacity in bytes
    */
   public PooledBytesOut(int initialCapacity) {
+    if (initialCapacity < 0) {
+      throw new IllegalArgumentException("initialCapacity must be non-negative: " + initialCapacity);
+    }
     // Use heap-backed segment - no Arena needed, GC handles cleanup
     MemorySegment buffer = MemorySegment.ofArray(new byte[initialCapacity]);
     this.segment = new PooledGrowingSegment(buffer);
+    this.identityCachePolicy = IdentityCachePolicy.RETAIN_OWNED_COPY;
+  }
+
+  /**
+   * Return the empty-pipeline identity-cache ownership policy for this invocation.
+   *
+   * @return the explicit identity-cache policy
+   */
+  public IdentityCachePolicy identityCachePolicy() {
+    return identityCachePolicy;
+  }
+
+  @Override
+  public boolean retainsEmptyPipelineIdentityCache() {
+    return identityCachePolicy == IdentityCachePolicy.RETAIN_OWNED_COPY;
   }
 
   @Override
@@ -290,4 +335,3 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
     // No-op: pool manages segment lifecycle
   }
 }
-

@@ -570,17 +570,46 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public boolean moveTo(final long nodeKey) {
+  public final void prepareForApprovedSelfMove() {
+    prepareForMove();
+  }
+
+  @Override
+  public final boolean tryMoveToLastAllocatedDocumentNode(final StorageEngineWriter writer,
+      final long nodeKey) {
+    if (cachedWriter != writer || writer.getAllocNodeKey() != nodeKey) {
+      return false;
+    }
+
+    final KeyValueLeafPage page = writer.getAllocKvl();
+    final int slotOffset = writer.getAllocSlotOffset();
+    final long pageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    final int expectedSlotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
+    if (page == null || page.isClosed() || page.getPageKey() != pageKey || slotOffset != expectedSlotOffset) {
+      return false;
+    }
+
+    // Insertion preflight (including an async epoch rotation, when due) runs before the factory
+    // allocates this record. No commit check or second document allocation occurs between that
+    // allocation and this immediate bind. We can therefore use the exact active KVL/slot without
+    // resolving the page through the TIL again. The slot binder below rereads the directory entry,
+    // so parent/sibling updates that resized the same page's heap cannot leave a stale offset.
+    prepareForMove();
+    return bindWritePageSlot(nodeKey, page, slotOffset, false);
+  }
+
+  private void prepareForMove() {
     assertNotClosed();
-
-    // Any moveTo implicitly exits fused synthetic-child mode — the caller is redirecting the
-    // cursor so the virtual-child state does not survive.
     fusedSyntheticChildMode = false;
-
-    // Likewise for the structural keys decoded at the OLD position. Cleared here, at the single
-    // entry point every move funnels through (singleton, write-singleton, legacy, item list), so
-    // no individual move path can forget to.
     invalidateStructKeys();
+  }
+
+  @Override
+  public boolean moveTo(final long nodeKey) {
+    // Any move implicitly exits fused synthetic-child mode and invalidates structural keys decoded
+    // at the old position. Keep this prelude shared with the approved write-cursor self-move path
+    // so skipping only the physical rebind never skips observable cursor state changes.
+    prepareForMove();
 
     // Handle negative keys (item list) - fall back to object mode
     if (nodeKey < 0) {
@@ -619,7 +648,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     // Write path: use moveToSingletonWrite for TIL-aware singleton mode
     if (SINGLETON_ENABLED && cachedWriter != null && cachedNodeReader != null) {
-      return moveToSingletonWrite(nodeKey, cachedNodeReader, cachedWriter);
+      return moveToSingletonWrite(nodeKey, cachedWriter);
     }
 
     // Fallback to traditional object mode
@@ -957,12 +986,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * page is not in TIL.
    *
    * @param nodeKey the node key to move to
-   * @param reader the underlying storage engine reader (for pageKey calculation)
    * @param writer the storage engine writer (for TIL page resolution)
    * @return true if the move was successful
    */
-  private boolean moveToSingletonWrite(final long nodeKey, final NodeStorageEngineReader reader,
-      final StorageEngineWriter writer) {
+  private boolean moveToSingletonWrite(final long nodeKey, final StorageEngineWriter writer) {
     // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
     final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
@@ -983,6 +1010,21 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Page not in TIL — fall back to legacy (allocating) moveTo
       return moveToLegacy(nodeKey);
     }
+
+    return bindWritePageSlot(nodeKey, page, slotOffset, true);
+  }
+
+  /**
+   * Bind this cursor's own singleton to a record on an already-resolved write page.
+   *
+   * <p>The node factory owns a separate set of reusable creation singletons. Never installing one
+   * of those objects as the cursor node is essential: the next same-kind creation rebinds the
+   * factory singleton in place. This method instead selects and binds the read cursor's private
+   * singleton, exactly like the ordinary TIL-aware write move.</p>
+   */
+  private boolean bindWritePageSlot(final long nodeKey, final KeyValueLeafPage page,
+      final int slotOffset, final boolean fallbackToLegacy) {
+    final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     if (page != currentPage) {
       // Release previous guard (if any) and update page tracking
       // TIL pages don't need guarding — they're pinned by the transaction
@@ -1014,14 +1056,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // which is hot on shred (every moveTo allocates a MemorySegment view just
     // to read one byte). Read the kind byte directly from the slotted page.
     final MemorySegment sp = page.getSlottedPage();
-    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
-      return moveToLegacy(nodeKey);
+    if (sp == null) {
+      return fallbackToLegacy && moveToLegacy(nodeKey);
+    }
+    // One dense 8-byte directory load replaces three foreign-memory accesses (bitmap word, heap
+    // offset, and scattered heap kind byte). Every populated record is at least its one-byte kind,
+    // so dataLength==0 is an unambiguous empty-slot sentinel. The directory belongs to the eagerly
+    // decoded META section; only the heap payload needs lazy-chunk materialization afterwards.
+    final long dirEntry = PageLayout.getDirEntry(sp, slotOffset);
+    if (PageLayout.dirEntryDataLength(dirEntry) == 0) {
+      return fallbackToLegacy && moveToLegacy(nodeKey);
     }
     page.ensureChunkFor(slotOffset);
-    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
-    final int recordAbs = PageLayout.HEAP_START + heapOffset;
-    final byte kindByte = sp.get(ValueLayout.JAVA_BYTE, recordAbs);
-    final NodeKind kind = NodeKind.getKind(kindByte);
+    final int heapOffset = PageLayout.dirEntryHeapOffset(dirEntry);
+    final int nodeKindId = PageLayout.dirEntryNodeKindId(dirEntry);
+    final NodeKind kind = nodeKindId > 0
+        ? NodeKind.getKind((byte) nodeKindId)
+        : NodeKind.getKind(sp.get(ValueLayout.JAVA_BYTE, PageLayout.HEAP_START + heapOffset));
 
     if (kind == NodeKind.DELETE) {
       return false;
@@ -1030,13 +1081,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Get singleton instance for this node type
     final ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
-      return moveToLegacy(nodeKey);
+      return fallbackToLegacy && moveToLegacy(nodeKey);
     }
 
     // Bind singleton to page data (zero allocation)
     if (singleton instanceof FlyweightNode fn) {
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(sp, recordBase, nodeKey, slotOffset);
+      // Fresh strings may already be FSST-compressed in the page. The cursor singleton is distinct
+      // from the factory singleton that performed the write, so propagate the page table again.
+      propagateFsstToFlyweight(fn, page);
       // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
       // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
@@ -1047,9 +1101,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Size the view from the record length (skip kind byte).
       final int recordLength = PageLayout.getRecordOnlyLength(sp, slotOffset);
       if (recordLength <= 0) {
-        return moveToLegacy(nodeKey);
+        return fallbackToLegacy && moveToLegacy(nodeKey);
       }
-      reusableBytesIn.reset(sp.asSlice(recordAbs, recordLength), 1);
+      reusableBytesIn.reset(sp.asSlice(PageLayout.HEAP_START + heapOffset, recordLength), 1);
       final byte[] deweyId = resourceConfig.areDeweyIDsStored
           ? page.getDeweyIdAsByteArray(slotOffset)
           : null;
@@ -1072,12 +1126,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page) {
     final byte[] fsstTable = page.getFsstSymbolTable();
-    if (fsstTable != null && fsstTable.length > 0) {
-      if (fn instanceof StringNode sn) {
-        sn.setFsstSymbolTable(fsstTable);
-      } else if (fn instanceof ObjectNamedStringNode ons) {
-        ons.setFsstSymbolTable(fsstTable);
-      }
+    if (fn instanceof StringNode sn) {
+      // Null is meaningful: clear the table retained from this singleton's previous binding.
+      sn.setFsstSymbolTable(fsstTable);
+    } else if (fn instanceof ObjectNamedStringNode ons) {
+      ons.setFsstSymbolTable(fsstTable);
     }
   }
 

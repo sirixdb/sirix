@@ -50,12 +50,12 @@ public final class ProjectionIndexFences {
   /**
    * First reserved slot key for fence chunks. In the DESCRIPTOR layout data-leaf slots run
    * 1..rowGroupCount (bounded by {@code MAX_PROBED_LEAVES = 2^24}) and slot 0 is the metadata. In the
-   * segment-slot layout a leaf slot is {@code (rowGroupId << 16) | slotKind}, so its max is
-   * {@code 2^24 << 16 = 2^40} — the base must clear that (the old 2^40 assumed an 8-bit slotKind and
-   * a {@code << 8} shift). 2^42 sits above every leaf slot of both layouts, so leaf probing never
-   * reaches the fence chunks and the ranges cannot alias; it also stays below the side-map owner-slot
-   * ceiling (2^47) so a fence chunk that spills to an OverflowPage still keys legally. Chunk
-   * {@code c} lives at {@code CHUNK_SLOT_BASE + c}.
+   * segment-slot layout a leaf slot is {@code (rowGroupId << 16) | slotKind}, so its exact max is
+   * {@code (2^24 << 16) | 0xffff = 2^40 + 65535} — the base must clear that (the old 2^40 assumed an
+   * 8-bit slotKind and a {@code << 8} shift). 2^42 sits above every leaf slot of both layouts, so
+   * leaf probing never reaches the fence chunks and the ranges cannot alias; it also stays below the
+   * side-map owner-slot ceiling (2^47) so a fence chunk that spills to an OverflowPage still keys
+   * legally. Chunk {@code c} lives at {@code CHUNK_SLOT_BASE + c}.
    */
   static final long CHUNK_SLOT_BASE = 1L << 42;
 

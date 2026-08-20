@@ -549,8 +549,6 @@ public final class ProjectionIndexCatalog {
       final int revision, final IndexDef def, final StorageEngineReader reader) {
     final ProjectionIndexMetadata metadata;
     final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories;
-    final Thread bloomThread;
-    final Object[] bloomResult = new Object[1];
     final long tParse;
     final long t0 = DIAG
         ? System.nanoTime()
@@ -563,7 +561,6 @@ public final class ProjectionIndexCatalog {
       tParse = DIAG
           ? System.nanoTime()
           : 0L;
-      bloomThread = startBloomBlockRead(session, revision, def, metadata, bloomResult);
       // Column-pruned serving works for BOTH layouts: the segment-slot directory reader captures each
       // referenced segment's durable offset (and each bare-inline segment's bytes), so a column fill
       // batches ONLY the queried column's offsets — reading one column's segments across all row
@@ -616,11 +613,12 @@ public final class ProjectionIndexCatalog {
         ? System.nanoTime()
         : 0L;
     final ProjectionColumnStore store = new ProjectionColumnStore(live);
-    // Fingerprint BLOCKS (one blob per string column, absent on pre-fingerprint stores and after
-    // incremental maintenance tombstoned them): one sequential read here replaces a scattered
-    // per-leaf chain fetch on every string-equality query. Absence is fine — the store falls
-    // back to the chain, and past that to keeping every leaf.
-    final byte[][] bloomBlocks = joinBloomBlockRead(bloomThread, bloomResult);
+    // Fingerprint manifests and durable chunk locators are captured synchronously on this already
+    // owned reader. Payload pages remain deferred to the caller-scoped fetcher, so hydration is a
+    // small, resource-free range walk and there is no daemon transaction to leak on an early return.
+    final ProjectionBloomChunks.ColumnEvidence[] bloomBlocks =
+        readBloomBlocks(reader, def, metadata.columnKinds(), metadata.rowGroupCount());
+    projectedBytes += ProjectionBloomChunks.retainedBytes(bloomBlocks);
     if (DIAG) {
       final long tBloom = System.nanoTime();
       System.err.printf(
@@ -643,41 +641,6 @@ public final class ProjectionIndexCatalog {
     // top-level deref of the same trailing name (Handle#columnOf).
     handle.setFieldChains(metadata.fieldChains());
     return handle;
-  }
-
-  /**
-   * The bloom-block read overlapped with the directory walk: it needs only the parsed metadata, so it
-   * runs on its own read transaction while the walk owns the caller's. Result slot 0 carries either
-   * the {@code byte[][]} (possibly null — absence is normal) or the {@link RuntimeException} the read
-   * threw, so the join can preserve the exact failure semantics of the serial call.
-   */
-  private static Thread startBloomBlockRead(final JsonResourceSession session, final int revision, final IndexDef def,
-      final ProjectionIndexMetadata metadata, final Object[] result) {
-    final Thread t = new Thread(() -> {
-      try (JsonNodeReadOnlyTrx bloomRtx = session.beginNodeReadOnlyTrx(revision)) {
-        result[0] =
-            readBloomBlocks(bloomRtx.getStorageEngineReader(), def, metadata.columnKinds(), metadata.rowGroupCount());
-      } catch (final RuntimeException failure) {
-        result[0] = failure;
-      }
-    }, "sirix-projection-bloom");
-    t.setDaemon(true);
-    t.start();
-    return t;
-  }
-
-  /** Join's happens-before edge publishes the result slot; a captured failure rethrows here. */
-  private static byte[] @Nullable [] joinBloomBlockRead(final Thread bloomThread, final Object[] result) {
-    try {
-      bloomThread.join();
-    } catch (final InterruptedException e) {
-      Thread.currentThread().interrupt();
-      return null; // absence is a supported state — the store falls back to the chain
-    }
-    if (result[0] instanceof RuntimeException failure) {
-      throw failure;
-    }
-    return (byte[][]) result[0];
   }
 
   /**
@@ -713,25 +676,10 @@ public final class ProjectionIndexCatalog {
    * attaching. A block covering fewer leaves than the store has is ignored rather than trusted: it
    * predates leaves that were added since, and a filter that has not seen a value cannot exclude it.
    */
-  private static byte[] @Nullable [] readBloomBlocks(final StorageEngineReader reader, final IndexDef def,
+  private static ProjectionBloomChunks.ColumnEvidence @Nullable [] readBloomBlocks(final StorageEngineReader reader,
+      final IndexDef def,
       final byte[] columnKinds, final int rowGroupCount) {
-    final byte[][] bloomBlocks = new byte[columnKinds.length][];
-    boolean any = false;
-    for (int c = 0; c < columnKinds.length; c++) {
-      if (columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          && columnKinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-        continue;
-      }
-      final byte[] block =
-          ProjectionIndexHOTStorage.readBlob(reader, def.getID(), ProjectionIndexHOTStorage.bloomBlockSlotKey(c));
-      if (ProjectionIndexColumnSegmentCodec.bloomBlockLeafCount(block) >= rowGroupCount) {
-        bloomBlocks[c] = block;
-        any = true;
-      }
-    }
-    return any
-        ? bloomBlocks
-        : null;
+    return ProjectionBloomChunks.read(reader, def.getID(), columnKinds, rowGroupCount);
   }
 
   /**
@@ -758,8 +706,11 @@ public final class ProjectionIndexCatalog {
         // materialize walk already relies on it), a single one is not thread-safe, and the offsets
         // ascend with the leaf index — so a contiguous range still coalesces into ranged reads.
         try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+          final long[] requested = from == 0 && to == offsets.length
+              ? offsets
+              : Arrays.copyOfRange(offsets, from, to);
           final byte[][] part = ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(),
-              Arrays.copyOfRange(offsets, from, to));
+              requested);
           if (part == null || part.length != len) {
             throw new IllegalStateException("Segment fetcher returned " + (part == null
                 ? "null"

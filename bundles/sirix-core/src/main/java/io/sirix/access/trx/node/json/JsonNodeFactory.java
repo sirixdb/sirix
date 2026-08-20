@@ -109,6 +109,30 @@ public interface JsonNodeFactory extends NodeFactory {
       long rightSibKey, long pathNodeKey, String name, Number value, SirixDeweyID id);
 
   /**
+   * Create a fused object-named number from an {@code int}.
+   *
+   * <p>The default preserves source compatibility for third-party factory implementations. The
+   * production factory overrides it with an allocation-free writer.</p>
+   */
+  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, int value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        Integer.valueOf(value), id);
+  }
+
+  /**
+   * Create a fused object-named number from a {@code long}.
+   *
+   * <p>The default preserves source compatibility for third-party factory implementations. The
+   * production factory overrides it with an allocation-free writer.</p>
+   */
+  default ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, long value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        Long.valueOf(value), id);
+  }
+
+  /**
    * Create a {@link ObjectNamedStringNode} — fused OBJECT_KEY + STRING value.
    */
   ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,

@@ -21,14 +21,15 @@
 
 package io.sirix.page.delegates;
 
-import io.sirix.utils.ToStringHelper;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import io.sirix.page.DeserializedReferencesPage4Tuple;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
+import io.sirix.utils.ToStringHelper;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
-import io.sirix.node.BytesIn;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -97,6 +98,11 @@ public final class ReferencesPage4 implements Page {
   @Override
   public List<PageReference> getReferences() {
     return references;
+  }
+
+  /** Serialize the retained compact lists through the trusted codec without intermediary views. */
+  public void serializeReferences(final BytesOut<?> sink, final SerializationType type) {
+    type.serializeReferencesPage4(sink, references, offsets);
   }
 
   /**

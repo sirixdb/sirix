@@ -75,6 +75,80 @@ public final class GlobalValueDictionaryWriter {
 
   private boolean released;
 
+  /**
+   * The column this dictionary belongs to, carried only so a breach can name it.
+   */
+  private final int column;
+
+  /**
+   * Hard ceiling on {@link #retainedBytes()}, or {@link Long#MAX_VALUE} for unbounded.
+   *
+   * <p>
+   * The class comment above prices the memory at "about 45 MB per million distinct 32-byte values"
+   * and calls it affordable. That is true of the corpus it was written against and false of the one
+   * that broke it: ClickBench URL/Referer/Title are neither 32 bytes nor low-cardinality, and at
+   * 100M rows this structure wanted more than a 16 GB heap. It did not fail — it doubled its arena
+   * until the collector took every core and the load stopped producing rows while still looking
+   * alive. A bound turns that into a decline.
+   * </p>
+   */
+  private final long budgetBytes;
+
+  /**
+   * Unbounded, for callers with no budget to enforce (the post-pass build, tests).
+   *
+   * <p>
+   * PUBLIC deliberately: before the budget existed this class had only the implicit public no-arg
+   * constructor, and narrowing it here would break every caller outside this package for no reason
+   * — the bound is opt-in, and adding it must not change who may construct one.
+   * </p>
+   */
+  public GlobalValueDictionaryWriter() {
+    this(-1, Long.MAX_VALUE);
+  }
+
+  /**
+   * What an EMPTY writer already retains: the initial arena plus the initial index and table arrays.
+   *
+   * <p>
+   * A budget below this can never be satisfied — the structure is over it before a single value is
+   * interned, so it would refuse its first {@link #intern} with an entry count of zero and leave the
+   * column permanently unusable rather than merely un-promoted. Callers must therefore decline the
+   * column instead of constructing one; see the election in {@code ProjectionIndexBuilder}. Derived
+   * from the same initial sizes as the fields, so it cannot drift from them.
+   * </p>
+   */
+  public static final long MINIMUM_BUDGET_BYTES =
+      INITIAL_ARENA_BYTES + 64L * Integer.BYTES + 64L * Integer.BYTES + 64L * Long.BYTES
+          + (long) INITIAL_TABLE_CAPACITY * Long.BYTES + (long) INITIAL_TABLE_CAPACITY * Integer.BYTES;
+
+  /**
+   * @param column the column this dictionary encodes, for the breach message
+   * @param budgetBytes ceiling on retained bytes, at least {@link #MINIMUM_BUDGET_BYTES};
+   *        {@link Long#MAX_VALUE} disables the check
+   */
+  GlobalValueDictionaryWriter(final int column, final long budgetBytes) {
+    if (budgetBytes < MINIMUM_BUDGET_BYTES) {
+      throw new IllegalArgumentException("budgetBytes must be at least MINIMUM_BUDGET_BYTES ("
+          + MINIMUM_BUDGET_BYTES + "), got " + budgetBytes
+          + " — an empty dictionary already retains that much, so a smaller budget refuses its own first value."
+          + " Decline the column instead of constructing a writer that cannot hold anything.");
+    }
+    this.column = column;
+    this.budgetBytes = budgetBytes;
+  }
+
+  /**
+   * Everything this dictionary holds on the heap: the value arena plus the six index and table
+   * arrays. Counted from array LENGTHS, not from the data written into them, because the doubling
+   * is what actually costs — a half-full arena of 4 GB is 4 GB.
+   */
+  public long retainedBytes() {
+    return (long) arena.length + (long) offsets.length * Integer.BYTES + (long) lengths.length * Integer.BYTES
+        + (long) hashes.length * Long.BYTES + (long) tableHashes.length * Long.BYTES
+        + (long) tableIds.length * Integer.BYTES;
+  }
+
   /** How many distinct values have been interned. */
   public int entryCount() {
     return entryCount;
@@ -123,6 +197,13 @@ public final class GlobalValueDictionaryWriter {
   }
 
   private int insertAt(final int slot, final long hash, final byte[] src, final int off, final int len) {
+    // Checked here and only here: this runs once per DISTINCT value, never on a hit, so the cost is
+    // a few field reads on the path that is already allocating. Checking BEFORE the growth below
+    // bounds the peak at the budget plus one doubling step rather than after the array that broke
+    // it has already been allocated.
+    if (budgetBytes != Long.MAX_VALUE && retainedBytes() + len >= budgetBytes) {
+      throw new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes, entryCount);
+    }
     final int id = entryCount + 1;
     if (id + 1 >= offsets.length) {
       final int grown = offsets.length << 1;

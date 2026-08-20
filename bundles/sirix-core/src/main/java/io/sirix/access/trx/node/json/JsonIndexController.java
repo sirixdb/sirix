@@ -22,6 +22,7 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.json.JsonPathIndexImpl;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.projection.ProjectionBulkLoad;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -74,6 +75,114 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     createIndexListeners(indexDefs, nodeWriteTrx);
 
     return this;
+  }
+
+  /**
+   * Declare projection indexes on a resource that has no records yet, and arm the LOAD-TIME build
+   * that maintains them as the data is shredded.
+   *
+   * <p>
+   * The ordinary creation path ({@link #createIndexes}) derives a projection from a finished resource
+   * by walking it — a second full pass whose cost is proportional to the corpus, and which at real
+   * scale takes as long again as the load. This path instead catalogues the definition first and lets
+   * the shred itself produce the rows, through the same change-notification lifecycle that maintains
+   * the PATH/CAS/NAME indexes, so a load is one pass.
+   *
+   * <p>
+   * Nothing readable is written until the load's final commit: {@link ProjectionBulkLoad} tombstones
+   * slot 0 for the duration, so a load that never finishes leaves an index every reader skips rather
+   * than an empty one every reader trusts.
+   *
+   * @throws IllegalStateException if the resource already holds records under a definition's root path
+   *         — the load-time build appends, and would append after rows nobody extracted
+   */
+  public JsonIndexController createProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
+      final JsonNodeTrx nodeWriteTrx) {
+    return createProjectionIndexesAtLoadStart(indexDefs, nodeWriteTrx, -1L);
+  }
+
+  /**
+   * As above, carrying an expected record count so each build's global-dictionary election can
+   * decline a column that would not fit its budget. {@code -1} means unknown, and leaves the
+   * writer's runtime cap as the only protection.
+   */
+  public JsonIndexController createProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
+      final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
+    armProjectionIndexesAtLoadStart(indexDefs, nodeWriteTrx, expectedRows);
+    return this;
+  }
+
+  /**
+   * Arm one load-time projection and return its exact lifecycle owner. Unlike an ACTIVE-map lookup,
+   * the returned handle can never name a pre-existing build that won a concurrent/duplicate arm.
+   */
+  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef,
+      final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
+    final ProjectionBulkLoad[] ownedLoads =
+        armProjectionIndexesAtLoadStart(Set.of(indexDef), nodeWriteTrx, expectedRows);
+    return ownedLoads[0];
+  }
+
+  /**
+   * Arm all requested definitions as one ownership transaction. Every successful {@code begin}
+   * result is captured before listener setup; a later begin/listener failure aborts only those exact
+   * owners. In particular, a failed {@code putIfAbsent} never resolves and aborts the winning owner.
+   */
+  private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
+      final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
+    final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
+    for (final IndexDef indexDef : indexDefs) {
+      if (!indexDef.isProjectionIndex()) {
+        throw new IllegalArgumentException(
+            "createProjectionIndexesAtLoadStart accepts PROJECTION definitions only; got " + indexDef.getType());
+      }
+      if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+        throw new IllegalStateException("Projection indexes require a resource created with a path summary "
+            + "(buildPathSummary=true) — the builder resolves its paths through it.");
+      }
+      if (!nodeWriteTrx.getPathSummary().getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+        throw new IllegalStateException("Projection root path '" + indexDef.getProjectionRootPath()
+            + "' already has records — a load-time build can only start on an empty record set. Use "
+            + "jn:create-projection-index to build over existing data.");
+      }
+    }
+
+    // Allocate all ownership bookkeeping before publishing the first ACTIVE entry. Once begin()
+    // returns, storing its reference in the preallocated array cannot fail and strand the owner.
+    final ProjectionBulkLoad[] ownedLoads = new ProjectionBulkLoad[indexDefs.size()];
+    int ownedCount = 0;
+    try {
+      for (final IndexDef indexDef : indexDefs) {
+        // Catalogues the def so it serializes on commit and is discoverable after re-open, exactly as
+        // createIndexBuilders does for the walking path.
+        indexes.add(indexDef);
+        final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey,
+            nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
+        ownedLoads[ownedCount] = ownedLoad;
+        ownedCount++;
+      }
+      // Binds the listeners that feed the armed builds, and sets the projection capability flag without
+      // which the write hot paths drop every notification.
+      createIndexListeners(indexDefs, nodeWriteTrx);
+      return ownedLoads;
+    } catch (final Throwable armFailure) {
+      for (int i = ownedCount - 1; i >= 0; i--) {
+        try {
+          ownedLoads[i].abort();
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != armFailure) {
+            armFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      throw JsonIndexController.<RuntimeException>rethrowUnchecked(armFailure);
+    }
+  }
+
+  /** Preserve the original arm/listener failure, including any suppressed owner cleanup failures. */
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> T rethrowUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
   }
 
   /**

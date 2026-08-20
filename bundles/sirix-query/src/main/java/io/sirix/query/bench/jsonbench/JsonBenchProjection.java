@@ -4,8 +4,10 @@ import io.brackit.query.Query;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.ProjectionSpec;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -59,6 +61,19 @@ public final class JsonBenchProjection {
       throw new IllegalArgumentException("no declared type for projection path " + path);
     }
     return type;
+  }
+
+  /**
+   * The same declaration as {@link #createQuery()}, in the form the LOAD-TIME build takes: the index
+   * is catalogued before the shred and maintained by it, so the corpus is walked once instead of
+   * twice.
+   */
+  public static ProjectionSpec spec() {
+    final List<String> types = new ArrayList<>(COLUMN_PATHS.size());
+    for (final String path : COLUMN_PATHS) {
+      types.add(projectionType(path));
+    }
+    return new ProjectionSpec(JsonBenchSchema.ROOT_PATH, COLUMN_PATHS, types);
   }
 
   /** The {@code jn:create-projection-index} call for the projected columns. */

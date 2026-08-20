@@ -46,6 +46,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public <V extends DataRecord> V prepareRecordForModificationDocument(final long recordKey) {
+    return delegate().prepareRecordForModificationDocument(recordKey);
+  }
+
+  @Override
   public void persistRecord(DataRecord record, IndexType indexType, int index) {
     delegate().persistRecord(record, indexType, index);
   }
@@ -81,6 +86,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void commit(PageReference reference) {
     delegate().commit(reference);
+  }
+
+  @Override
+  public boolean stageUncommittedOverflowPage(final PageReference reference) {
+    return delegate().stageUncommittedOverflowPage(reference);
   }
 
   @Override

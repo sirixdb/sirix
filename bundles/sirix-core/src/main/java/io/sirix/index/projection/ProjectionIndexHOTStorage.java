@@ -35,6 +35,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
 import java.util.function.Consumer;
@@ -91,6 +92,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexHOTStorage.class));
 
+  /**
+   * Shared upper bound for the segment-slot row-group id space. Composite row-group slots use
+   * {@code rowGroupId << 16}; bounding the id at 2^24 makes the exact maximum composite key
+   * {@code (2^24 << 16) | 0xffff = 2^40 + 65535}, safely below the fence (2^42) and Bloom-chunk
+   * (2^43) namespaces.
+   */
+  public static final int MAX_ROW_GROUPS = 1 << 24;
+
   /** Diagnostic switch shared with the executor's {@code sirix.projDiag}. */
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
 
@@ -102,9 +111,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   private final PathKeySerializer keySerializer = PathKeySerializer.INSTANCE;
 
+  /** Whether fresh side refs may enter the bounded pre-publication append pipeline. */
+  private final boolean stageFreshSidePages;
+
   public ProjectionIndexHOTStorage(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
+    this(storageEngineWriter, indexNumber, false);
+  }
+
+  private ProjectionIndexHOTStorage(final StorageEngineWriter storageEngineWriter, final int indexNumber,
+      final boolean stageFreshSidePages) {
     super(storageEngineWriter, IndexType.PROJECTION, indexNumber);
+    this.stageFreshSidePages = stageFreshSidePages;
     initializeProjectionIndex();
+  }
+
+  /**
+   * Create storage for an append-oriented bulk build.
+   *
+   * <p>Only genuinely fresh side-map keys are staged; a rebuild/update that replaces an existing
+   * reference stays resident until final commit, so an intermediate append cannot become a
+   * permanent hole inside a successfully published revision.</p>
+   */
+  public static ProjectionIndexHOTStorage forBulkBuild(final StorageEngineWriter storageEngineWriter,
+      final int indexNumber) {
+    return new ProjectionIndexHOTStorage(storageEngineWriter, indexNumber, true);
   }
 
   private void initializeProjectionIndex() {
@@ -223,23 +253,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * @param knownLiveCount row groups already known live (the metadata's declared count)
    */
   public int probeLiveRowGroupCountFrom(final int knownLiveCount) {
-    if (knownLiveCount < 0) {
-      throw new IllegalArgumentException("knownLiveCount must be >= 0, got " + knownLiveCount);
+    if (knownLiveCount < 0 || knownLiveCount > MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException(
+          "knownLiveCount out of range [0, " + MAX_ROW_GROUPS + "]: " + knownLiveCount);
     }
     int count = knownLiveCount;
-    for (long slot = knownLiveCount + 1L; slot <= MAX_PROBED_LEAVES; slot++) {
+    for (long slot = knownLiveCount + 1L; slot <= MAX_ROW_GROUPS; slot++) {
       final byte[] value = readSlotValueForWrite(rowGroupDescriptorSlotKey(slot));
       if (value == null || value.length == 0) {
         return count;
       }
       count++;
     }
-    throw new IllegalStateException("More than " + MAX_PROBED_LEAVES
+    throw new IllegalStateException("More than " + MAX_ROW_GROUPS
         + " contiguous projection leaves — implausible store, refusing to probe further");
   }
-
-  /** Safety bound for {@link #probeLiveRowGroupCount} (16M leaves ≈ 16G rows — far beyond scale). */
-  private static final int MAX_PROBED_LEAVES = 1 << 24;
 
   /**
    * Shared slow path for slot writes: place {@code sized} under {@code keyBuf} when the in-place fast
@@ -372,6 +400,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** slotKind 0 — the zone-map descriptor slot for {@code rowGroupId}. */
   static long rowGroupDescriptorSlotKey(final long rowGroupId) {
+    checkRowGroupId(rowGroupId);
     return rowGroupId << 16;
   }
 
@@ -380,6 +409,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * {@code rowGroupId}.
    */
   static long columnSegmentSlotKey(final long rowGroupId, final int columnSegmentId) {
+    checkRowGroupId(rowGroupId);
     // columnSegmentId+1 must fit the 16-bit slotKind; columnSegmentId==0xFFFF would alias the NEXT
     // leaf's descriptor slot.
     if (columnSegmentId < 0 || columnSegmentId >= HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID) {
@@ -388,6 +418,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
               + columnSegmentId);
     }
     return (rowGroupId << 16) | (columnSegmentId + 1);
+  }
+
+  private static void checkRowGroupId(final long rowGroupId) {
+    if (rowGroupId < 1 || rowGroupId > MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException(
+          "rowGroupId out of range [1, " + MAX_ROW_GROUPS + "]: " + rowGroupId);
+    }
   }
 
   /**
@@ -406,7 +443,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * every row-group walker already skips the whole space, so the block is invisible to them.
    */
   public static long bloomBlockSlotKey(final int column) {
-    if (column < 0 || column >= 0xFFF0) {
+    if (column < 0 || column >= RowGroupDescriptor.MAX_COLUMNS) {
       throw new IllegalArgumentException("column out of bloom-block key range: " + column);
     }
     return 16L + column;
@@ -434,9 +471,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   public void putRowGroupAsColumnSegmentSlots(final long rowGroupId,
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
-    if (rowGroupId < 1) {
-      throw new IllegalArgumentException("rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
-    }
+    checkRowGroupId(rowGroupId);
     if (encoded == null) {
       throw new IllegalArgumentException("encoded leaf must not be null — use tombstoneRowGroupAsColumnSegmentSlots");
     }
@@ -537,9 +572,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * Write one segment's bytes into its own BARE slot — no blob marker/hash. Small payloads (≤
    * {@link #BLOB_INLINE_MAX}) go inline (leading {@link #SEG_KIND_INLINE} byte + raw bytes, no page);
    * larger ones go referenced (a lone {@link #SEG_KIND_REF} byte in the slot value + one
-   * {@link OverflowPage}). The slot value is written BEFORE the page ({@link #putSegmentPage}'s
-   * owner-slot-residency precondition); a referenced→inline shrink drops the now-orphan page, an
-   * inline→referenced growth's prior (page-less) slot just gets overwritten.
+   * {@link OverflowPage}). A referenced value writes its slot BEFORE the page
+   * ({@link #putSegmentPage}'s owner-slot-residency precondition). A referenced→inline shrink fully
+   * allocates the inline value, then removes the old resolved ref before installing it; a pending
+   * bulk ref fails before either structure changes. An inline→referenced growth's prior (page-less)
+   * slot just gets overwritten.
    */
   public void putColumnSegmentSlot(final long slotKey, final byte[] bytes) {
     if (bytes == null) {
@@ -551,8 +588,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] value = new byte[1 + bytes.length];
       value[0] = SEG_KIND_INLINE;
       System.arraycopy(bytes, 0, value, 1, bytes.length);
-      writeSlotValue(slotKey, value);
+      // Check/remove first: a pending bulk ref is append-only and must fail before the inline value
+      // replaces its owner marker. The value is fully allocated above, so OOME cannot strand a
+      // resolved ref between removal and the owner-slot update.
       removeSegmentPage(slotKey, BLOB_SEGMENT_ID); // no-op unless the prior segment was referenced
+      writeSlotValue(slotKey, value);
     } else {
       writeSlotValue(slotKey, SEG_REF_VALUE);
       putSegmentPage(slotKey, BLOB_SEGMENT_ID, bytes);
@@ -595,24 +635,48 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] value =
-          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readColumnSegmentSlot");
-      if (value == null) {
-        return null;
+      final byte[] keyBuf = KEY_BUFFER.get();
+      final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        byte @Nullable [] value;
+        PageReference ref = null;
+        try {
+          final int idx = leaf.findEntry(keyBuf);
+          value = idx < 0
+              ? null
+              : leaf.getValue(idx);
+          if (value != null && value.length != 0 && value[0] == SEG_KIND_REF) {
+            ref = leaf.getPageReference(refKey);
+          }
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (value == null || value.length == 0) {
+          return null;
+        }
+        final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
+        if (inline != null) {
+          return inline;
+        }
+        if (ref == null) {
+          return null;
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        return page == null
+            ? null
+            : page.getDataBytes();
       }
-      final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
-      if (inline != null) {
-        return inline;
-      }
-      final PageReference ref =
-          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-      if (ref == null) {
-        return null;
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      return page == null
-          ? null
-          : page.getDataBytes();
+      throw HOTTrieReader.stampRetriesExhausted("readColumnSegmentSlot(slot " + slotKey + ")");
     }
   }
 
@@ -621,9 +685,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * descriptor, then the descriptor slot itself.
    */
   public void tombstoneRowGroupAsColumnSegmentSlots(final long rowGroupId) {
-    if (rowGroupId < 1) {
-      throw new IllegalArgumentException("rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
-    }
+    checkRowGroupId(rowGroupId);
     // Lenient for the same reason as putRowGroupAsColumnSegmentSlots: this runs during a rebuild's
     // orphan reclamation, so it must make progress over damage rather than fail on it. Segment slots
     // left behind by an unreadable descriptor are reclaimed by the builder's sub-tree reset.
@@ -714,6 +776,191 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker, long offset,
       long slotKey) {
+  }
+
+  /**
+   * Deferred, content-verified blob locations captured by one HOT range scan. Referenced payloads
+   * retain only their durable offset plus the PIXB marker's exact length/hash; inline payloads are
+   * verified and retained directly. Arrays are index-aligned with {@code firstSlotKey + i}.
+   */
+  static final class BlobLocators {
+    private final long firstSlotKey;
+    private final long[] offsets;
+    private final int[] lengths;
+    private final long[] hashes;
+    private final byte[][] inlinePayloads;
+
+    private BlobLocators(final long firstSlotKey, final int count) {
+      this.firstSlotKey = firstSlotKey;
+      offsets = new long[count];
+      Arrays.fill(offsets, Constants.NULL_ID_LONG);
+      lengths = new int[count];
+      Arrays.fill(lengths, -1);
+      hashes = new long[count];
+      inlinePayloads = new byte[count][];
+    }
+
+    int size() {
+      return offsets.length;
+    }
+
+    long slotKey(final int index) {
+      Objects.checkIndex(index, offsets.length);
+      return firstSlotKey + index;
+    }
+
+    long offset(final int index) {
+      return offsets[index];
+    }
+
+    int length(final int index) {
+      return lengths[index];
+    }
+
+    long hash(final int index) {
+      return hashes[index];
+    }
+
+    byte @Nullable [] inlinePayload(final int index) {
+      return inlinePayloads[index];
+    }
+
+    long retainedBytes() {
+      // Primitive arrays plus one object-reference array. Charge references pessimistically at
+      // eight bytes so the cache weight remains safe with or without compressed oops.
+      long bytes = 64L + (long) offsets.length * (Long.BYTES + Integer.BYTES + Long.BYTES + Long.BYTES);
+      for (final byte[] inline : inlinePayloads) {
+        if (inline != null) {
+          bytes += inline.length;
+        }
+      }
+      return bytes;
+    }
+
+    private void put(final int index, final BlobLocatorCapture capture) {
+      offsets[index] = capture.offset;
+      lengths[index] = capture.length;
+      hashes[index] = capture.hash;
+      inlinePayloads[index] = capture.inlinePayload;
+    }
+  }
+
+  /** Reused while a range cursor optimistically reads one blob slot. */
+  private static final class BlobLocatorCapture {
+    private boolean skip;
+    private long offset;
+    private int length;
+    private long hash;
+    private byte @Nullable [] inlinePayload;
+
+    private void reset() {
+      skip = false;
+      offset = Constants.NULL_ID_LONG;
+      length = -1;
+      hash = 0L;
+      inlinePayload = null;
+    }
+  }
+
+  /**
+   * Capture {@code count} adjacent blob slots without reading referenced payload pages. One bounded
+   * HOT range walk replaces a root descent per slot; malformed/missing entries remain empty locators
+   * so derived accelerations can fail open locally.
+   */
+  static BlobLocators collectBlobLocators(final StorageEngineReader reader, final int indexNumber,
+      final long firstSlotKey, final int count) {
+    // The two callers are the <=13,104 manifest family and one <=65,536 Bloom-chunk family. Keep
+    // this generic primitive bounded at that proven ceiling so damaged metadata can never request a
+    // corpus-sized/object-sized allocation here.
+    final int maxLocatorCount = ProjectionIndexHOTStorage.MAX_ROW_GROUPS / ProjectionBloomChunks.CHUNK_LEAVES;
+    if (count < 0 || count > maxLocatorCount) {
+      throw new IllegalArgumentException("count out of range [0, " + maxLocatorCount + "]: " + count);
+    }
+    final BlobLocators out = new BlobLocators(firstSlotKey, count);
+    if (count == 0) {
+      return out;
+    }
+    final long lastSlotKey;
+    try {
+      lastSlotKey = Math.addExact(firstSlotKey, count - 1L);
+    } catch (final ArithmeticException overflow) {
+      throw new IllegalArgumentException("blob locator key range overflows long", overflow);
+    }
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return out;
+    }
+    final BlobLocatorCapture capture = new BlobLocatorCapture();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+        HOTRangeCursor cursor = trieReader.range(rootRef, slotKeyBytes(firstSlotKey), slotKeyBytes(lastSlotKey))) {
+      int tornRounds = 0;
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIndex = cursor.currentEntryIndex();
+        long slotKey = firstSlotKey;
+        RuntimeException stableFailure = null;
+        capture.reset();
+        try {
+          slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
+          readBlobLocatorSlot(leaf, entryIndex, slotKey, capture);
+        } catch (final RuntimeException failure) {
+          stableFailure = failure;
+        }
+        if (!cursor.validateLeaf()) {
+          cursor.recoverTorn(++tornRounds);
+          continue;
+        }
+        tornRounds = 0;
+        // Stable corruption is absence for a derived Bloom acceleration. The authoritative row-group
+        // segment remains available through the per-leaf chain, so throwing here would lose a whole
+        // projection merely because an optional locator is damaged.
+        if (stableFailure == null && !capture.skip && slotKey >= firstSlotKey && slotKey <= lastSlotKey) {
+          out.put((int) (slotKey - firstSlotKey), capture);
+        }
+        cursor.advance();
+      }
+    }
+    return out;
+  }
+
+  /** Same bounded locator walk against this writer's uncommitted CoW view. */
+  BlobLocators collectBlobLocatorsForWrite(final long firstSlotKey, final int count) {
+    return collectBlobLocators(storageEngineWriter, indexNumber, firstSlotKey, count);
+  }
+
+  /** Decode one PIXB marker directly from a HOT leaf without materializing referenced payload. */
+  private static void readBlobLocatorSlot(final HOTLeafPage leaf, final int entryIndex, final long slotKey,
+      final BlobLocatorCapture capture) {
+    final long valueRef = leaf.valueRef(entryIndex);
+    final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
+    if (valueSize == 0) {
+      capture.skip = true;
+      return;
+    }
+    if (valueSize < BLOB_MARKER_BYTES || leaf.refIntLEAt(valueRef, 0) != BLOB_MAGIC
+        || leaf.refByteAt(valueRef, Integer.BYTES) != BLOB_VERSION) {
+      throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
+    }
+    final int encodedLength = leaf.refIntLEAt(valueRef, 5);
+    final boolean inline = (encodedLength & BLOB_INLINE_FLAG) != 0;
+    final int length = encodedLength & ~BLOB_INLINE_FLAG;
+    if (length < 0) {
+      throw new IllegalStateException("Blob slot " + slotKey + " has negative payload length " + length);
+    }
+    capture.length = length;
+    capture.hash = leaf.refLongLEAt(valueRef, 9);
+    if (inline) {
+      capture.inlinePayload = verifyInlineBlobFromSlot(leaf, valueRef, valueSize, slotKey);
+      return;
+    }
+    if (valueSize != BLOB_MARKER_BYTES) {
+      throw new IllegalStateException("Referenced blob slot " + slotKey + " has marker length " + valueSize
+          + " instead of " + BLOB_MARKER_BYTES);
+    }
+    capture.offset = resolvedSegmentPageOffset(leaf, slotKey);
+    if (capture.offset == Constants.NULL_ID_LONG) {
+      capture.skip = true;
+    }
   }
 
   /**
@@ -2500,6 +2747,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final boolean priorWasReferencedBlob = prior != null && prior.length == BLOB_MARKER_BYTES
         && ProjectionIndexRowGroupCodec.getIntLE(prior, 0) == BLOB_MAGIC
         && (ProjectionIndexRowGroupCodec.getIntLE(prior, 5) & BLOB_INLINE_FLAG) == 0;
+    if (priorWasReferencedBlob) {
+      rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
+    }
     if (inline) {
       final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
       RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
@@ -2576,22 +2826,47 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readBlob");
-      if (value == null) {
-        return null;
+      final byte[] keyBuf = KEY_BUFFER.get();
+      final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        byte @Nullable [] value;
+        PageReference ref = null;
+        try {
+          final int idx = leaf.findEntry(keyBuf);
+          value = idx < 0
+              ? null
+              : leaf.getValue(idx);
+          if (value != null && value.length != 0 && !isInlineBlob(value)) {
+            ref = leaf.getPageReference(refKey);
+          }
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (value == null || value.length == 0) {
+          return null;
+        }
+        if (isInlineBlob(value)) {
+          return verifyInlineBlob(value, slotKey);
+        }
+        if (ref == null) {
+          return verifyBlob(value, null, slotKey);
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        return verifyBlob(value, page == null
+            ? null
+            : page.getDataBytes(), slotKey);
       }
-      if (isInlineBlob(value)) {
-        return verifyInlineBlob(value, slotKey);
-      }
-      final PageReference ref =
-          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-      if (ref == null) {
-        return verifyBlob(value, null, slotKey);
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      return verifyBlob(value, page == null
-          ? null
-          : page.getDataBytes(), slotKey);
+      throw HOTTrieReader.stampRetriesExhausted("readBlob(slot " + slotKey + ")");
     }
   }
 
@@ -2647,61 +2922,34 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
       final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
-      if (leaf == null) {
-        return Constants.NULL_ID_LONG;
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
+        if (leaf == null) {
+          return Constants.NULL_ID_LONG;
+        }
+        long offset;
+        try {
+          final PageReference ref = leaf.getPageReference(refKey);
+          offset = ref == null
+              ? Constants.NULL_ID_LONG
+              : ref.getKey();
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        return offset;
       }
-      final PageReference ref = leaf.getPageReference(refKey);
-      return ref == null
-          ? Constants.NULL_ID_LONG
-          : ref.getKey();
+      throw HOTTrieReader.stampRetriesExhausted(
+          "segmentPageOffset(slot " + ownerSlotKey + ", segment " + columnSegmentId + ")");
     }
   }
 
   // ==================== descriptor-layout internals ====================
-
-  /**
-   * Navigate to {@code slotKey}'s leaf and read its raw value under the optimistic-stamp protocol:
-   * the found/absent decision and the value copy are both validated before anything is derived from
-   * them, and a torn batch re-descends on freshly reloaded copies. Shared by the two reader-side slot
-   * reads, which differ only in how they interpret the bytes — restating this scaffolding per caller
-   * meant a fix to the validation discipline had to be applied twice, 1300 lines apart.
-   *
-   * <p>
-   * The leaf the value came from is NOT returned: {@code loadPage} installs every leaf it resolves as
-   * the reader's current leaf, so the caller reads it back with {@code trieReader.currentLeafPage()}
-   * and no per-read holder has to be allocated.
-   *
-   * @return the validated value bytes, or {@code null} when the slot is absent or tombstoned
-   */
-  private static byte @Nullable [] readValidatedSlotValue(final HOTTrieReader trieReader, final PageReference rootRef,
-      final long slotKey, final byte[] keyBuf, final String operation) {
-    for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-      if (leaf == null) {
-        return null;
-      }
-      final byte[] value;
-      try {
-        final int idx = leaf.findEntry(keyBuf);
-        value = idx < 0
-            ? null
-            : leaf.getValue(idx);
-      } catch (RuntimeException e) {
-        if (trieReader.validateCurrentLeaf()) {
-          throw e; // stable bytes — genuine corruption, not a torn read
-        }
-        continue;
-      }
-      if (!trieReader.validateCurrentLeaf()) {
-        continue;
-      }
-      return value == null || value.length == 0
-          ? null
-          : value;
-    }
-    throw HOTTrieReader.stampRetriesExhausted(operation + "(slot " + slotKey + ")");
-  }
 
   /**
    * Shared navigation preamble of the reader-side descriptor-layout statics: serialize the slot key
@@ -2783,9 +3031,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * rollback simply never writes it.
    *
    * <p>
-   * Re-attaching the same {@code (ownerSlotKey, columnSegmentId)} replaces the reference —
-   * whole-segment last-writer-wins. An unchanged segment is shared across revisions by NOT
-   * re-attaching it (the carried-forward reference keeps its resolved key).
+   * Re-attaching the same {@code (ownerSlotKey, columnSegmentId)} replaces a resolved reference —
+   * whole-segment last-writer-wins. A reference still owned by the append-only bulk batch cannot be
+   * replaced: its old payload would still be written but no revision could reach it, permanently
+   * stranding space inside an otherwise successful commit. An unchanged segment is shared across
+   * revisions by NOT re-attaching it (the carried-forward reference keeps its resolved key).
    */
   public void putSegmentPage(final long ownerSlotKey, final int columnSegmentId, final byte[] bytes) {
     if (rootReference == null) {
@@ -2808,9 +3058,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           + indexNumber + ") — write the owning slot before"
           + " attaching its segments, or the reference cannot follow it across splits.");
     }
+    final PageReference previousReference = navResult.leaf().getPageReference(refKey);
+    if (previousReference != null && previousReference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation("replace", ownerSlotKey, columnSegmentId);
+    }
     final PageReference ref = new PageReference();
     ref.setPage(new OverflowPage(bytes));
     navResult.leaf().setPageReference(refKey, ref);
+
+    // Projection row groups are immutable once emitted. Keeping every referenced segment byte[]
+    // reachable through transaction-long pinned HOT leaves made the live set grow with the corpus
+    // (~1.9 GiB after 10M ClickBench rows). A bulk build therefore stages only NEW side-map keys in
+    // the writer's bounded, single-owner append pipeline. Replacements deliberately stay resident:
+    // prewriting a value that is superseded before the root is published would leave a permanent
+    // hole inside an otherwise successful revision. Unsupported backends return false and likewise
+    // fall back to the ordinary recursive final commit.
+    if (stageFreshSidePages && previousReference == null) {
+      storageEngineWriter.stageUncommittedOverflowPage(ref);
+    }
   }
 
   /**
@@ -2829,11 +3094,41 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // on an empty trie it would even create a spurious root leaf. Only pay the CoW when the
     // reference actually exists.
     final HOTLeafPage probeLeaf = getLeafForRead(keyBuf);
-    if (probeLeaf == null || probeLeaf.getPageReference(refKey) == null) {
+    if (probeLeaf == null) {
       return;
+    }
+    final PageReference existingReference = probeLeaf.getPageReference(refKey);
+    if (existingReference == null) {
+      return;
+    }
+    if (existingReference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation("remove", ownerSlotKey, columnSegmentId);
     }
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, 8);
     navResult.leaf().removePageReference(refKey);
+  }
+
+  private IllegalStateException pendingSidePageMutation(final String operation, final long ownerSlotKey,
+      final int columnSegmentId) {
+    return new IllegalStateException("Cannot " + operation + " pending projection side page (ownerSlotKey="
+        + ownerSlotKey + ", columnSegmentId=" + columnSegmentId + ", indexNumber=" + indexNumber
+        + "): bulk-staged side keys are append-only until foreground publication; abort the transaction instead");
+  }
+
+  /** Fail before an owning slot is rewritten when its side reference still belongs to the append batch. */
+  private void rejectPendingSidePageMutation(final long ownerSlotKey, final int columnSegmentId,
+      final String operation) {
+    final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    final HOTLeafPage leaf = getLeafForRead(keyBuf);
+    if (leaf == null) {
+      return;
+    }
+    final PageReference reference = leaf.getPageReference(refKey);
+    if (reference != null && reference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation(operation, ownerSlotKey, columnSegmentId);
+    }
   }
 
   /**
@@ -2876,19 +3171,34 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
       final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
-      if (leaf == null) {
-        return null;
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        PageReference ref;
+        try {
+          ref = leaf.getPageReference(refKey);
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (ref == null) {
+          return null;
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
+        return page == null
+            ? null
+            : page.getDataBytes();
       }
-      final PageReference ref = leaf.getPageReference(refKey);
-      if (ref == null) {
-        return null;
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
-      return page == null
-          ? null
-          : page.getDataBytes();
+      throw HOTTrieReader.stampRetriesExhausted(
+          "readSegmentPageBytes(slot " + ownerSlotKey + ", segment " + columnSegmentId + ")");
     }
   }
 

@@ -5,7 +5,9 @@ package io.sirix.page;
 
 import io.sirix.JsonTestHelper;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.Bytes;
@@ -18,12 +20,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
+import java.lang.foreign.Arena;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Slot-granular CoW correctness for {@link HOTLeafPage}: verifies that under non-FULL versioning
@@ -64,6 +74,60 @@ final class HOTLeafPageCowTest {
       }
     } finally {
       src.close();
+    }
+  }
+
+  @Test
+  @DisplayName("copy() releases a newly allocated frame when the source read fails")
+  void copyReleasesRawFrameWhenSourceReadFails() {
+    final FrameSlotAllocator frameAllocator = assertInstanceOf(FrameSlotAllocator.class, allocator);
+    final HOTLeafPage source;
+    try (Arena sourceArena = Arena.ofConfined()) {
+      source = new HOTLeafPage(2L, 1, IndexType.PATH, sourceArena.allocate(HOTLeafPage.DEFAULT_SIZE), null,
+          new int[HOTLeafPage.MAX_ENTRIES], 0, 1);
+    }
+
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    try {
+      assertThrows(IllegalStateException.class, source::copy);
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "the frame allocated before reading the closed source segment must be returned");
+    } finally {
+      source.close();
+    }
+  }
+
+  @Test
+  @DisplayName("versioning retires its local copy and preserves fragment cleanup failures")
+  void versioningRetiresLocalCopyAndPreservesCleanupFailure() {
+    final FrameSlotAllocator frameAllocator = assertInstanceOf(FrameSlotAllocator.class, allocator);
+    final HOTLeafPage source = newPopulatedLeaf(IndexType.PATH, 1);
+    final HOTLeafPage failingFragment = mock(HOTLeafPage.class);
+    final StorageEngineReader reader = mock(StorageEngineReader.class);
+    final PageReference reference = new PageReference().setKey(17L)
+        .setPageFragments(List.of(new PageFragmentKeyImpl(1, 16L, 1L, 1L)));
+    final List<HOTLeafPage> fragments = List.of(failingFragment);
+    final AssertionError carryFailure = new AssertionError("injected carry-forward failure");
+    final IllegalStateException releaseFailure = new IllegalStateException("injected fragment release failure");
+
+    when(reader.loadHOTLeafFragments(reference)).thenReturn(fragments);
+    when(failingFragment.getEntryCount()).thenThrow(carryFailure);
+    doThrow(releaseFailure).when(reader).releaseHOTLeafFragments(fragments, source);
+
+    final int frameClass = FrameSlotAllocator.indexForSize(HOTLeafPage.DEFAULT_SIZE);
+    final int liveBefore = frameAllocator.liveSlotCount(frameClass);
+    try {
+      final AssertionError thrown = assertThrows(AssertionError.class,
+          () -> VersioningType.SLIDING_SNAPSHOT.combineHOTLeafPagesForModification(source, 2, reader, reference));
+
+      assertSame(carryFailure, thrown);
+      assertEquals(1, thrown.getSuppressed().length);
+      assertSame(releaseFailure, thrown.getSuppressed()[0]);
+      assertEquals(liveBefore, frameAllocator.liveSlotCount(frameClass),
+          "the unreturned CoW page must be retired after carry-forward fails");
+    } finally {
+      source.close();
     }
   }
 

@@ -31,6 +31,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -88,6 +89,9 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Maximum navigable tree depth — pre-allocates path arrays at this depth. */
   private static final int MAX_PATH_DEPTH = 64;
+
+  /** Bound retries when pressure eviction wins the race before a writer can guard a HOT leaf. */
+  private static final int MAX_HOT_LEAF_GUARD_RETRIES = 256;
 
   /** Inserts between periodic leaf-consolidation sweeps ({@link #consolidateSubtree}). */
   private static final int CONSOLIDATION_INTERVAL = 4096;
@@ -717,10 +721,135 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private HOTLeafPage cowHOTLeafForModification(final PageReference currentRef, final HOTLeafPage hotLeaf) {
     final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
-    final HOTLeafPage modifiedLeaf = cfg.versioningType.combineHOTLeafPagesForModification(hotLeaf,
-        cfg.maxNumberOfRevisionsToRestore, storageEngineWriter, currentRef);
-    storageEngineWriter.getLog().put(currentRef, PageContainer.getInstance(hotLeaf, modifiedLeaf));
-    return modifiedLeaf;
+    final TransactionIntentLog log = storageEngineWriter.getLog();
+    HOTLeafPage sourceLeaf = hotLeaf;
+    for (int attempt = 0; attempt < MAX_HOT_LEAF_GUARD_RETRIES; attempt++) {
+      final PageContainer existing = log.get(currentRef);
+      if (existing != null && existing.getModified() instanceof HOTLeafPage modifiedLeaf
+          && !modifiedLeaf.isClosed()) {
+        return modifiedLeaf;
+      }
+
+      if (sourceLeaf.acquireGuard()) {
+        Throwable guardedFailure = null;
+        try {
+          // Serialize exact cache removal with pressure eviction. A guard acquired after eviction's
+          // zero-count observation cannot by itself prevent retirement; removal either transfers
+          // ownership here or waits for that retirement, which the orphan check then rejects.
+          storageEngineWriter.getBufferManager().getHOTLeafPageCache().removePage(sourceLeaf);
+          if (!sourceLeaf.isOrphaned() && !sourceLeaf.isClosed()) {
+            HOTLeafPage modifiedLeaf = null;
+            final PageContainer leafContainer;
+            try {
+              // Combining can load fragment windows and copy() allocates before reading source
+              // bytes. The complete source stays locally owned and guarded throughout both.
+              modifiedLeaf = cfg.versioningType.combineHOTLeafPagesForModification(sourceLeaf,
+                  cfg.maxNumberOfRevisionsToRestore, storageEngineWriter, currentRef);
+              leafContainer = PageContainer.getInstance(sourceLeaf, modifiedLeaf);
+            } catch (final RuntimeException | Error copyFailure) {
+              currentRef.clearPageIfSame(sourceLeaf);
+              retireDetachedHOTLeavesAfterFailure(sourceLeaf, modifiedLeaf, copyFailure);
+              throw copyFailure;
+            }
+
+            try {
+              log.put(currentRef, leafContainer);
+            } catch (final RuntimeException | Error logFailure) {
+              cleanupFailedHOTLeafLogTransfer(log, currentRef, leafContainer, sourceLeaf, modifiedLeaf, logFailure);
+              throw logFailure;
+            }
+            return modifiedLeaf;
+          }
+        } catch (final RuntimeException | Error failure) {
+          guardedFailure = failure;
+          throw failure;
+        } finally {
+          try {
+            sourceLeaf.releaseGuard();
+          } catch (final RuntimeException | Error releaseFailure) {
+            if (guardedFailure == null) {
+              throw releaseFailure;
+            }
+            addSuppressedSafely(guardedFailure, releaseFailure);
+          }
+        }
+      }
+
+      currentRef.clearPageIfSame(sourceLeaf);
+      final Page reloaded = resolveHOTPageForTraversal(currentRef);
+      if (!(reloaded instanceof HOTLeafPage reloadedLeaf)) {
+        throw new IllegalStateException("HOT leaf disappeared while acquiring a copy-on-write guard");
+      }
+      sourceLeaf = reloadedLeaf;
+    }
+
+    throw new IllegalStateException("HOT leaf was retired before it could be guarded after "
+        + MAX_HOT_LEAF_GUARD_RETRIES + " attempts");
+  }
+
+  /**
+   * Resolve the log's ownership after a failed put. Identity with {@code attemptedContainer} proves
+   * publication; otherwise only pages not reachable through the published container remain locally
+   * owned and may be retired. If the ownership check itself fails, retain rather than risk closing a
+   * TIL-owned page.
+   */
+  private static void cleanupFailedHOTLeafLogTransfer(final TransactionIntentLog log,
+      final PageReference currentRef, final PageContainer attemptedContainer, final HOTLeafPage sourceLeaf,
+      final HOTLeafPage modifiedLeaf, final Throwable logFailure) {
+    final PageContainer published;
+    try {
+      published = log.get(currentRef);
+    } catch (final RuntimeException | Error ownershipCheckFailure) {
+      addSuppressedSafely(logFailure, ownershipCheckFailure);
+      return;
+    }
+    if (published == attemptedContainer) {
+      return;
+    }
+
+    currentRef.clearPageIfSame(sourceLeaf);
+    final HOTLeafPage unownedSource = containerOwnsPage(published, sourceLeaf)
+        ? null
+        : sourceLeaf;
+    final HOTLeafPage unownedModified = containerOwnsPage(published, modifiedLeaf)
+        ? null
+        : modifiedLeaf;
+    retireDetachedHOTLeavesAfterFailure(unownedSource, unownedModified, logFailure);
+  }
+
+  private static boolean containerOwnsPage(final @Nullable PageContainer container, final HOTLeafPage page) {
+    return container != null && (container.getComplete() == page || container.getModified() == page);
+  }
+
+  /** Retire locally owned HOT pages after combine/container/log transfer failure. */
+  private static void retireDetachedHOTLeavesAfterFailure(final @Nullable HOTLeafPage sourceLeaf,
+      final @Nullable HOTLeafPage modifiedLeaf, final Throwable primaryFailure) {
+    if (modifiedLeaf != null && modifiedLeaf != sourceLeaf) {
+      try {
+        modifiedLeaf.retire();
+      } catch (final RuntimeException | Error retirementFailure) {
+        addSuppressedSafely(primaryFailure, retirementFailure);
+      }
+    }
+    if (sourceLeaf != null) {
+      try {
+        sourceLeaf.retire();
+      } catch (final RuntimeException | Error retirementFailure) {
+        addSuppressedSafely(primaryFailure, retirementFailure);
+      }
+    }
+  }
+
+  /** Never let secondary cleanup failure replace the combine/copy failure being propagated. */
+  private static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // The primary allocation/copy failure remains authoritative.
+    }
   }
 
   /**
@@ -3636,4 +3765,3 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
   }
 }
-

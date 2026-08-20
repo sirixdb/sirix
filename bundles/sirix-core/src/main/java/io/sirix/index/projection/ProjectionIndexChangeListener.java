@@ -125,6 +125,25 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   private final @Nullable JsonNodeReadOnlyTrx maintenanceTrx;
 
+  /**
+   * The load-time build this transaction is feeding, or {@code null} for ordinary maintenance. When
+   * set, every path below is bypassed: the projection is not being MAINTAINED but BUILT, by the real
+   * build machinery, and the dirty-set patcher's structures (dirty records, resolution memo,
+   * per-leaf rebuilds) are neither needed nor affordable at load scale.
+   *
+   * <p>
+   * Cleared by {@link #activeBulkLoad()} the moment the build finishes — see the HANDOFF note there.
+   */
+  private @Nullable ProjectionBulkLoad bulkLoad;
+
+  /**
+   * Bulk mode only: a fused {@code OBJECT_NAMED_*} node is an object FIELD and can never be an array
+   * element, so when the record set is the elements of an array those notifications need no ancestor
+   * read at all. The parent-aware primitive notification also makes the record-root classification a
+   * set lookup rather than a page-layer self-read in the usual one-array-root load.
+   */
+  private final boolean bulkSkipsNamedKinds;
+
   /** Root PCRs of the record set; empty ⇒ conservative mode (everything relevant). */
   private LongOpenHashSet rootPcrs;
   /** Warm cache: pathNodeKeys known to affect this projection. */
@@ -194,6 +213,47 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     this.pathSummary = pathSummary;
     this.indexDef = indexDef;
     this.maintenanceTrx = maintenanceTrx;
+    this.bulkLoad = resolveBulkLoad(indexDef, maintenanceTrx);
+    this.bulkSkipsNamedKinds = bulkLoad != null && bulkLoad.isArrayElementRoot();
+  }
+
+  /**
+   * The armed load-time build for this definition, if any. Looked up per listener because listeners
+   * are rebuilt at every auto-commit while the build spans all of them; the registry read is guarded
+   * by a map-emptiness check so a resource with no load in flight pays one field read.
+   */
+  /**
+   * The load-time build to route this notification to, or {@code null} when ordinary maintenance owns
+   * the index.
+   *
+   * <h2>Handoff</h2> A load ends at its final commit: {@link ProjectionBulkLoad#finish} writes the
+   * real metadata over the tombstone and retires the registry entry, and from that moment the
+   * projection is an ordinary maintained index. Listeners rebound at later transaction epochs
+   * therefore find no armed load and take the maintenance path by construction. THIS listener,
+   * however, was constructed before the finish and still holds the reference, so it drops it here —
+   * the same instance goes on serving the rest of its transaction through the dirty-set patcher,
+   * exactly as it would for a projection built any other way. Without this, a post-load insert on the
+   * still-open transaction would be handed to a closed build.
+   */
+  private @Nullable ProjectionBulkLoad activeBulkLoad() {
+    final ProjectionBulkLoad load = bulkLoad;
+    if (load == null) {
+      return null;
+    }
+    if (load.isFinished()) {
+      bulkLoad = null;
+      return null;
+    }
+    return load;
+  }
+
+  private static @Nullable ProjectionBulkLoad resolveBulkLoad(final IndexDef indexDef,
+      final @Nullable JsonNodeReadOnlyTrx maintenanceTrx) {
+    if (maintenanceTrx == null || !ProjectionBulkLoad.anyActive()) {
+      return null;
+    }
+    return ProjectionBulkLoad.active(maintenanceTrx.getResourceSession().getResourceConfig().getResource().toString(),
+        indexDef.getID());
   }
 
   /** Catalogue id of the definition this listener maintains. */
@@ -209,6 +269,16 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   @Override
   public void structuralChange() {
+    if (activeBulkLoad() != null) {
+      // A load-time build is an append-only contract. A move re-parents nodes without per-node
+      // notifications, so the build cannot know which already-extracted rows it invalidated, and its
+      // only honest options are to fail or to persist a wrong index.
+      throw new IllegalStateException("Subtree move rejected: projection index " + indexDef.getID()
+          + " is being built by the running load, and a load-time build appends records in document order — "
+          + "it cannot re-attribute nodes a move re-parents. Either move the subtree AFTER the load's final "
+          + "commit, where ordinary incremental maintenance handles it, or load without a declared projection "
+          + "and build the index afterwards with jn:create-projection-index.");
+    }
     scheduleRebuild();
   }
 
@@ -240,7 +310,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     onChange(nodeKey, nodeKind, PARENT_UNKNOWN, pathNodeKey);
   }
 
+  @Override
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+    onChange(nodeKey, nodeKind, parentKey, pathNodeKey);
+  }
+
   private void onChange(final long nodeKey, final NodeKind kind, final long parentKey, final long pathNodeKey) {
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
+      return;
+    }
     if (invalidated || rebuildPending) {
       return; // the rebuild re-extracts everything — attribution is moot
     }
@@ -277,6 +358,153 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     markDirty(recordKey);
+  }
+
+  /**
+   * Load-time build attribution: decide which RECORD the changed node belongs to and tell the build,
+   * which closes the previous record when the answer changes.
+   *
+   * <p>
+   * Nothing is extracted here. Extraction moves the cursor, and a notification fires in the middle of
+   * the shredder's insert — the shredder would resume from wherever the extractor left the cursor.
+   * Closed records are extracted at the commit hook instead, which is where cursor movement is already
+   * safe.
+   *
+   * <h2>Cost</h2>
+   * The overwhelmingly common notification — a field of the record being written — is rejected before
+   * any read when the record set is array-rooted (a fused named node is never an array element). A new
+   * record under the known array root is likewise classified without a read because the JSON write
+   * transaction supplies its parent key. Legacy primitive callers that omit the parent retain the
+   * exact old fallback: one self-read recovers it before the same walk. No memo is kept: at load scale
+   * the maintenance path's node→record memo would grow to its million-entry cap and stay there.
+   */
+  private void onChangeDuringBulkLoad(final ProjectionBulkLoad load, final long nodeKey, final NodeKind kind,
+      final long parentKey, final long pathNodeKey) {
+    if (!seeded) {
+      seed();
+    }
+    if (!couldBeRecordRootDuringBulkLoad(kind, pathNodeKey)) {
+      if (ProjectionBulkLoad.diagnosticsEnabled()) {
+        load.countClassification(bulkSkipsNamedKinds && kind.playsObjectKeyRole()
+            ? ProjectionBulkLoad.DIAG_SKIPPED_NAMED_KIND
+            : ProjectionBulkLoad.DIAG_SKIPPED_PATH_CLASS);
+      }
+      return;
+    }
+    final long recordKey = resolveRecordKeyDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
+    if (ProjectionBulkLoad.diagnosticsEnabled()) {
+      load.countClassification(recordKey >= 0
+          ? ProjectionBulkLoad.DIAG_OBSERVED
+          : recordKey == UNRESOLVED
+              ? ProjectionBulkLoad.DIAG_UNRESOLVED
+              : ProjectionBulkLoad.DIAG_NOT_UNDER_RECORD_SET);
+    }
+    if (recordKey < 0) {
+      // NOT_UNDER_RECORD_SET (a container above the record set, or the record-set array itself) and
+      // UNRESOLVED (a chain that cannot be read) both mean "no record starts here". An unreadable
+      // chain cannot silently lose a record: the end-of-load row count would not add up, and the
+      // build fails loudly there rather than persisting a short index.
+      return;
+    }
+    load.observeRecord(recordKey);
+  }
+
+  /**
+   * Cheap pre-filter for {@link #onChangeDuringBulkLoad}: whether this notification could possibly
+   * announce a new record root. Two facts do the work — a record root's notification carries the
+   * record set's own path class (the enclosing one, which for an array element IS the array's), and
+   * when the declared root path ends in an array step the record roots are array ELEMENTS, which the
+   * fused {@code OBJECT_NAMED_*} kinds never are.
+   *
+   * <p>
+   * A pathNodeKey of zero or less carries no provenance (kinds without a path class) and is never
+   * filtered out — the walk classifies it exactly.
+   */
+  private boolean couldBeRecordRootDuringBulkLoad(final NodeKind kind, final long pathNodeKey) {
+    if (bulkSkipsNamedKinds && kind.playsObjectKeyRole()) {
+      return false;
+    }
+    if (pathNodeKey <= 0) {
+      return true;
+    }
+    if (rootPcrs.contains(pathNodeKey)) {
+      return true;
+    }
+    if (irrelevantPcrs.contains(pathNodeKey)) {
+      return false;
+    }
+    if (relevantPcrs.contains(pathNodeKey)) {
+      // A field's own path class: relevant to maintenance, but it can never BE a record root.
+      return false;
+    }
+    // Unseen path class — it may be the record set's, appearing for the first time (on an empty
+    // resource EVERY class is unseen, the root's included). matchesRootPath reseeds rootPcrs.
+    if (matchesRootPath(pathNodeKey)) {
+      rootPcrs.add(pathNodeKey);
+      relevantPcrs.add(pathNodeKey);
+      return true;
+    }
+    irrelevantPcrs.add(pathNodeKey);
+    return false;
+  }
+
+  /**
+   * Ancestor walk for the load-time build: climb until the open record, a known record-set array
+   * instance, or a node at a record-set root path class is crossed. {@code parentKey} is normally
+   * supplied by the writer; {@link #PARENT_UNKNOWN} preserves the original self-read fallback for
+   * legacy primitive callers.
+   *
+   * @return the record's nodeKey, or {@link #NOT_UNDER_RECORD_SET} / {@link #UNRESOLVED}
+   */
+  private long resolveRecordKeyDuringBulkLoad(final ProjectionBulkLoad load, final long nodeKey,
+      final NodeKind kind, long parentKey, final long pathNodeKey) {
+    final boolean atRootPcr = pathNodeKey > 0 && rootPcrs.contains(pathNodeKey);
+    if (atRootPcr && isArrayLike(kind)) {
+      // The record SET's array instance itself — it has no row, but remembering it is what lets every
+      // one of its elements be recognised as a record in one set lookup, and what makes the
+      // end-of-load row count checkable.
+      load.noteArrayRootInstance(nodeKey);
+      return NOT_UNDER_RECORD_SET;
+    }
+    if (parentKey == PARENT_UNKNOWN) {
+      final ImmutableNode self = readNode(nodeKey);
+      if (self == null) {
+        return UNRESOLVED;
+      }
+      parentKey = self.getParentKey();
+    }
+    final long openRecordKey = load.currentRecordKey();
+    long childKey = nodeKey;
+    for (int depth = 0; depth < MAX_ANCESTOR_WALK; depth++) {
+      if (parentKey <= 0) {
+        // Nothing encloses this node. It is the record itself only when it stands at the root path —
+        // a single-record root, whose parent lies outside the record set.
+        return atRootPcr
+            ? nodeKey
+            : NOT_UNDER_RECORD_SET;
+      }
+      if (parentKey == openRecordKey) {
+        return openRecordKey; // the common case: a field of the record being shredded
+      }
+      if (load.isArrayRootInstance(parentKey)) {
+        return childKey;
+      }
+      final ImmutableNode parent = readNode(parentKey);
+      if (parent == null) {
+        return UNRESOLVED;
+      }
+      final long parentPcr = pathNodeKeyOf(parent);
+      if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
+        if (isArrayLike(parent.getKind())) {
+          load.noteArrayRootInstance(parentKey);
+          return childKey;
+        }
+        return parentKey; // a non-array root IS the record
+      }
+      childKey = parentKey;
+      parentKey = parent.getParentKey();
+    }
+    return UNRESOLVED;
   }
 
   /**
@@ -580,6 +808,79 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   @Override
   public void beforeCommit() {
+    beforeCommit(false);
+  }
+
+  @Override
+  public void beforeCommit(final boolean finalCommit) {
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      // Intermediate commits drain the records closed so far into the build (full leaves are already
+      // in the sub-tree and ride this commit); the final commit additionally writes the dictionaries,
+      // the fingerprint blocks, the fences and the metadata that replaces the tombstone, after which
+      // activeBulkLoad() hands this listener back to ordinary maintenance.
+      try {
+        if (finalCommit) {
+          load.finish(storageEngineWriter, pathSummary, maintenanceTrx, maintenanceTrx.getRevisionNumber());
+        } else {
+          load.drain(storageEngineWriter, pathSummary, maintenanceTrx);
+        }
+      } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+        abandonForOversizedDictionary(load, tooBig);
+      }
+      return;
+    }
+    applyPendingMaintenance();
+  }
+
+  /**
+   * A resource-wide dictionary hit its bound: give up the projection, keep the load.
+   *
+   * <p>
+   * The alternative is what this exists to prevent — the dictionary's arena doubling until the
+   * collector owns every core and the load stops producing rows while still looking alive, which is
+   * how a 100M ClickBench load spent two hours before it was killed. Abandoning is cheap and
+   * already modelled: {@link ProjectionBulkLoad#abort()} drops the build without finalizing, so slot
+   * 0 keeps the stale tombstone it has carried since the load began, and {@link #invalidate()} makes
+   * every later notification a no-op. Both matter — without the invalidate the listener would fall
+   * back to the dirty-set patcher and buffer a record key for every remaining row of the corpus,
+   * trading one unbounded structure for another.
+   * </p>
+   */
+  private void abandonForOversizedDictionary(final ProjectionBulkLoad load,
+      final GlobalDictionaryBudgetExceededException tooBig) {
+    LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load: column " + tooBig.column()
+        + "'s resource-wide value dictionary retained " + tooBig.retainedBytes() + " B over " + tooBig.entryCount()
+        + " distinct values, past its " + tooBig.budgetBytes() + " B budget. The load COMPLETES and the data is"
+        + " unaffected; this projection stays stale, so queries take the generic pipeline until it is rebuilt"
+        + " with jn:create-projection-index. To keep it: raise -Dsirix.projection.globalDict.budgetBytes, or give"
+        + " the load an expected-row-count hint so the election declines this column up front and the other"
+        + " columns stay indexed.", tooBig);
+    load.abort();
+    invalidate();
+  }
+
+  @Override
+  public void beforePageFlush() {
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      // Last chance to read these records: the flush hands their pages to the writer and the
+      // revision they belong to is still uncommitted, so after it they can be read from nowhere.
+      //
+      // CURSOR SAFETY: this fires from the node-count check at the TOP of an insert, which is mid
+      // shred and not at a record boundary — the insert goes on to read the cursor immediately
+      // afterwards. drain() therefore saves the cursor and restores it before returning, and
+      // ProjectionLoadTimeBuildEquivalenceTest#theShredSurvivesDrainsFiredMidRecord pins that by
+      // reading every shredded record back through the row path.
+      try {
+        load.drain(storageEngineWriter, pathSummary, maintenanceTrx);
+      } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+        abandonForOversizedDictionary(load, tooBig);
+      }
+    }
+  }
+
+  private void applyPendingMaintenance() {
     final LongOpenHashSet dirty = dirtyRecordKeys;
     dirtyRecordKeys = null;
     if (invalidated || maintenanceTrx == null) {

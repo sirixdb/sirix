@@ -37,6 +37,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.Cache;
+import io.sirix.cache.EmptyCache;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.cache.NamesCacheKey;
 import io.sirix.cache.PageContainer;
@@ -591,9 +592,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * {@inheritDoc}
    *
-   * <p>
-   * Mirrors {@link #readOverflowPage(PageReference)}: resolve by disk offset key, swizzle the
-   * immutable page onto the reference for reuse.
+   * <p>Unlike record overflow, projection side pages are deliberately <em>not</em> swizzled onto
+   * their HOT-leaf reference. HOT cache weight accounts for the leaf's slot memory, not arbitrary
+   * side-map byte arrays; swizzling a scan's segments would therefore bypass the configured cache
+   * byte bound and regrow old generation after a bounded ingest. Projection scans use the
+   * coalesced batch path for locality instead.</p>
    */
   @Override
   public @Nullable OverflowPage readSideOverflowPage(final PageReference reference) {
@@ -614,7 +617,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
               : loadedPage.getClass().getSimpleName())
           + " — dangling or corrupted side-map reference.");
     }
-    reference.setPage(segmentPage);
     return segmentPage;
   }
 
@@ -2281,9 +2283,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       final var pageReferenceWithKey =
           new PageReference().setKey(pageReference.getKey()).setDatabaseId(databaseId).setResourceId(resourceId);
       // Copy hash for checksum verification
-      if (pageReference.getHash() != null) {
-        pageReferenceWithKey.setHash(pageReference.getHash());
-      }
+      pageReferenceWithKey.copyHashFrom(pageReference);
 
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
                                                    .getOrLoadAndGuard(pageReferenceWithKey,
@@ -2308,9 +2308,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final var pageReferenceWithKey =
         new PageReference().setKey(originalStorageKey).setDatabaseId(databaseId).setResourceId(resourceId);
     // Copy hash for checksum verification of the first fragment
-    if (pageReference.getHash() != null) {
-      pageReferenceWithKey.setHash(pageReference.getHash());
-    }
+    pageReferenceWithKey.copyHashFrom(pageReference);
 
     // Load first fragment atomically with guard
     KeyValueLeafPage page =
@@ -2787,15 +2785,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final PageReference cacheKey =
         new PageReference().setKey(rootRef.getKey()).setDatabaseId(getDatabaseId()).setResourceId(getResourceId());
 
-    final HOTLeafPage cached = resourceBufferManager.getHOTLeafPageCache().get(cacheKey);
-    if (cached != null && !cached.isClosed()) {
+    final HOTLeafPage cached = handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, rootRef);
+    if (cached != null) {
       return cached;
     }
 
     try {
       final Page loadedPage = pageReader.read(rootRef, resourceConfig);
       if (loadedPage instanceof HOTLeafPage hotLeaf) {
-        return loadHOTLeafPageWithVersioning(rootRef, cacheKey, hotLeaf);
+        return loadHOTLeafPageWithVersioning(rootRef, cacheKey, rootRef, hotLeaf);
       }
       return null;
     } catch (SirixIOException e) {
@@ -2820,21 +2818,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    *
    * @param chainRef the index-root reference carrying the prior-fragment chain
    * @param cacheKey the canonical key (logKey=-1) used to store the combined page in the cache
+   * @param handoffReference caller-visible reference swizzled while the canonical page is guarded
    * @param firstPage the already-loaded newest fragment (avoids a redundant SSD read)
    * @return the combined HOTLeafPage, or null if not found
    */
   private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference chainRef, PageReference cacheKey,
-      HOTLeafPage firstPage) {
+      PageReference handoffReference, HOTLeafPage firstPage) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
     if (versioningType == VersioningType.FULL) {
-      resourceBufferManager.getHOTLeafPageCache().put(cacheKey, firstPage);
-      return firstPage;
+      return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference,
+          firstPage);
     }
 
     final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
     if (fragments.isEmpty()) {
+      firstPage.retire();
       return null;
     }
 
@@ -2843,15 +2843,142 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // complete-dump fast paths), in which case it stays open for the caller and the cache below.
     // The release must happen even if combining throws, or the guards pin their cache entries
     // permanently; a null combinedPage then simply means nothing is kept open.
-    HOTLeafPage combinedPage = null;
+    final HOTLeafPage combinedPage;
     try {
       combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
-    } finally {
-      releaseHOTLeafFragments(fragments, combinedPage);
+    } catch (final Throwable combinationFailure) {
+      try {
+        releaseHOTLeafFragments(fragments, null);
+      } catch (final Throwable releaseFailure) {
+        addSuppressedSafely(combinationFailure, releaseFailure);
+      }
+      throw combinationFailure;
     }
 
-    resourceBufferManager.getHOTLeafPageCache().put(cacheKey, combinedPage);
-    return combinedPage;
+    try {
+      releaseHOTLeafFragments(fragments, combinedPage);
+    } catch (final Throwable releaseFailure) {
+      if (combinedPage != null) {
+        try {
+          combinedPage.retire();
+        } catch (final Throwable retirementFailure) {
+          addSuppressedSafely(releaseFailure, retirementFailure);
+        }
+      }
+      throw releaseFailure;
+    }
+
+    return adoptCanonicalHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), cacheKey, handoffReference,
+        combinedPage);
+  }
+
+  /**
+   * Atomically adopt a freshly decoded/combined HOT leaf or return the live canonical instance that
+   * another loader already published for the same durable key.
+   *
+   * <p>The guarded cache primitive keeps the winner live through identity selection, loser cleanup,
+   * and swizzle handoff. The guard is always released before returning to the existing optimistic
+   * HOT API. A different winner means the incoming page was never published and must be retired
+   * here. EmptyCache is explicit caller ownership: nothing is published and no guard is needed.</p>
+   *
+   * <p>If cache admission fails after partial publication, exact instance removal precedes
+   * retirement so no mapping can expose a retired frame.</p>
+   */
+  static @Nullable HOTLeafPage adoptCanonicalHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference,
+      final @Nullable HOTLeafPage incoming) {
+    requireNonNull(cache);
+    requireNonNull(cacheKey);
+    requireNonNull(handoffReference);
+    if (incoming == null) {
+      return null;
+    }
+
+    if (cache instanceof EmptyCache<?, ?>) {
+      if (incoming.isClosed()) {
+        incoming.retire();
+        return null;
+      }
+      handoffReference.setPage(incoming);
+      return incoming;
+    }
+
+    final HOTLeafPage canonical;
+    try {
+      canonical = cache.getOrLoadAndGuard(cacheKey, _ -> incoming);
+    } catch (final Throwable adoptionFailure) {
+      detachAndRetireHOTLeaf(cache, incoming, adoptionFailure);
+      throw adoptionFailure;
+    }
+
+    if (canonical == null) {
+      detachAndRetireHOTLeaf(cache, incoming, null);
+      return null;
+    }
+
+    try {
+      if (canonical != incoming) {
+        incoming.retire();
+      }
+      handoffReference.setPage(canonical);
+      return canonical;
+    } finally {
+      canonical.releaseGuard();
+    }
+  }
+
+  /** Guard a cache hit through its swizzle handoff, then return to the optimistic HOT API. */
+  private static @Nullable HOTLeafPage handoffCachedHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final PageReference cacheKey, final PageReference handoffReference) {
+    if (cache instanceof EmptyCache<?, ?>) {
+      return null;
+    }
+    final HOTLeafPage cached = cache.getAndGuard(cacheKey);
+    if (cached == null) {
+      return null;
+    }
+    try {
+      handoffReference.setPage(cached);
+      return cached;
+    } finally {
+      cached.releaseGuard();
+    }
+  }
+
+  /** Best-effort exact detachment followed by mandatory candidate retirement. */
+  private static void detachAndRetireHOTLeaf(final Cache<PageReference, HOTLeafPage> cache,
+      final HOTLeafPage candidate, final @Nullable Throwable primaryFailure) {
+    Throwable cleanupFailure = null;
+    try {
+      cache.removePage(candidate);
+    } catch (final Throwable detachmentFailure) {
+      cleanupFailure = detachmentFailure;
+    }
+    try {
+      candidate.retire();
+    } catch (final Throwable retirementFailure) {
+      if (cleanupFailure == null) {
+        cleanupFailure = retirementFailure;
+      } else {
+        addSuppressedSafely(cleanupFailure, retirementFailure);
+      }
+    }
+
+    if (primaryFailure != null) {
+      if (cleanupFailure != null) {
+        addSuppressedSafely(primaryFailure, cleanupFailure);
+      }
+      return;
+    }
+    if (cleanupFailure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (cleanupFailure instanceof Error error) {
+      throw error;
+    }
+    if (cleanupFailure != null) {
+      throw new IllegalStateException("Failed to detach and retire an unadopted HOT leaf", cleanupFailure);
+    }
   }
 
   /**
@@ -2932,13 +3059,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Throwable, not RuntimeException: the read this guards against allocates, and allocator
       // exhaustion surfaces as OutOfMemoryError — an Error — so a RuntimeException-only catch would
       // miss the very case it exists for.
-      for (int i = 1; i < fragments.size(); i++) {
-        fragments.get(i).releaseGuard();
+      try {
+        releaseHOTLeafFragments(fragments, null);
+      } catch (final Throwable releaseFailure) {
+        addSuppressedSafely(loadFailed, releaseFailure);
       }
-      // firstPage too. On the success path the caller closes it via releaseHOTLeafFragments, but a
-      // window that is never returned has no caller — and both entry points read it fresh into a
-      // private instance, so nothing else can free its slot.
-      firstPage.close();
       throw loadFailed;
     }
 
@@ -3001,6 +3126,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     final Page loaded = pageReader.read(fragmentRef, resourceConfig);
     if (!(loaded instanceof HOTLeafPage fragment)) {
+      if (loaded != null) {
+        loaded.close();
+      }
       return null;
     }
     HOTLeafPage adopted = null;
@@ -3008,19 +3136,33 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       adopted = fragmentCache.getOrLoadAndGuard(fragmentRef, _ -> fragment);
     } catch (final UnsupportedOperationException guardUnsupported) {
       // Same fall-through as above: keep the page, just uncached.
+    } catch (final Throwable adoptionFailure) {
+      detachAndRetireHOTLeaf(fragmentCache, fragment, adoptionFailure);
+      throw adoptionFailure;
     }
     if (adopted == fragment) {
       return adopted; // adopted by the cache AND guarded for us
     }
     if (adopted != null) {
-      // Another thread's instance won the race; ours was never adopted, so free it.
-      fragment.close();
+      // Another thread's instance won the race; ours was never adopted, so free it. The winner is
+      // already guarded for the caller. If loser teardown fails, release that guard before
+      // propagating or the cache entry would remain permanently pinned with no caller to release it.
+      try {
+        fragment.retire();
+      } catch (final Throwable loserRetirementFailure) {
+        try {
+          adopted.releaseGuard();
+        } catch (final Throwable guardReleaseFailure) {
+          addSuppressedSafely(loserRetirementFailure, guardReleaseFailure);
+        }
+        throw loserRetirementFailure;
+      }
       return adopted;
     }
     // Not cached: guard it so the caller's release is uniform, then orphan it so that same release
     // drops the last guard and frees the slot instead of leaking it.
     if (!fragment.acquireGuard()) {
-      fragment.close(); // unreachable for a just-read private page, but never leak its slot
+      fragment.retire(); // unreachable for a just-read private page, but never leak its slot
       return null;
     }
     fragment.markOrphaned();
@@ -3043,15 +3185,55 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   @Override
   public void releaseHOTLeafFragments(final List<HOTLeafPage> fragments, final @Nullable HOTLeafPage keepOpen) {
+    releaseHOTLeafFragmentsCompletely(fragments, keepOpen);
+  }
+
+  /** Package-private deterministic cleanup core used by the reader and lifecycle regression tests. */
+  static void releaseHOTLeafFragmentsCompletely(final List<HOTLeafPage> fragments,
+      final @Nullable HOTLeafPage keepOpen) {
+    Throwable releaseFailure = null;
     for (int i = 0; i < fragments.size(); i++) {
       final HOTLeafPage fragment = fragments.get(i);
-      if (i == 0) {
-        if (fragment != keepOpen && !fragment.isClosed()) {
-          fragment.close();
+      try {
+        if (i == 0) {
+          if (fragment != keepOpen && !fragment.isClosed()) {
+            fragment.retire();
+          }
+        } else {
+          fragment.releaseGuard();
         }
-      } else {
-        fragment.releaseGuard();
+      } catch (final Throwable fragmentReleaseFailure) {
+        if (releaseFailure == null) {
+          releaseFailure = fragmentReleaseFailure;
+        } else {
+          addSuppressedSafely(releaseFailure, fragmentReleaseFailure);
+        }
       }
+    }
+    rethrowUnchecked(releaseFailure);
+  }
+
+  private static void rethrowUnchecked(final @Nullable Throwable failure) {
+    if (failure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    if (failure != null) {
+      throw new IllegalStateException("Unexpected checked HOT leaf cleanup failure", failure);
+    }
+  }
+
+  /** Suppress a secondary cleanup failure without letting self-suppression abort later cleanup. */
+  private static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (RuntimeException | Error ignored) {
+      // Cleanup remains best-effort. In particular, never stop releasing later guarded fragments.
     }
   }
 
@@ -3083,7 +3265,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       if (!hotSwizzled.isClosed()) {
         return hotSwizzled;
       }
-      reference.setPage(null);
+      reference.clearPageIfSame(hotSwizzled);
     } else if (swizzled instanceof HOTIndirectPage) {
       return swizzled;
     }
@@ -3098,9 +3280,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       final PageReference canonicalKey =
           new PageReference().setKey(reference.getKey()).setDatabaseId(getDatabaseId()).setResourceId(getResourceId());
 
-      final HOTLeafPage cachedHot = resourceBufferManager.getHOTLeafPageCache().get(canonicalKey);
-      if (cachedHot != null && !cachedHot.isClosed()) {
-        reference.setPage(cachedHot);
+      final HOTLeafPage cachedHot =
+          handoffCachedHOTLeaf(resourceBufferManager.getHOTLeafPageCache(), canonicalKey, reference);
+      if (cachedHot != null) {
         return cachedHot;
       }
 
@@ -3113,11 +3295,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
 
         if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, canonicalKey, hotLeaf);
-          if (combinedPage != null) {
-            reference.setPage(combinedPage);
-          }
-          return combinedPage;
+          return loadHOTLeafPageWithVersioning(reference, canonicalKey, reference, hotLeaf);
         }
       } catch (SirixIOException e) {
         return null;

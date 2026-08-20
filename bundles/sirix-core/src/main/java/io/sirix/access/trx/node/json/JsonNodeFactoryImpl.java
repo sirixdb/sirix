@@ -42,6 +42,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   /** Cached null node key constant — avoids enum method call in hot path. */
   private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
 
+  private static final byte BOXED_NUMBER = 0;
+  private static final byte INT_NUMBER = 1;
+  private static final byte LONG_NUMBER = 2;
+
   /**
    * Hash function used to hash nodes.
    */
@@ -365,6 +369,27 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
       long pathNodeKey, String name, Number value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        requireNonNull(value), BOXED_NUMBER, 0L, id);
+  }
+
+  @Override
+  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, int value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        null, INT_NUMBER, value, id);
+  }
+
+  @Override
+  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, long value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        null, LONG_NUMBER, value, id);
+  }
+
+  private ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, Number fallbackValue, byte primitiveType, long primitiveValue,
+      SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
@@ -378,9 +403,18 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         : 0;
     final long absOffset =
         kvl.prepareHeapForDirectWrite(reusableObjectNamedNumberNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes = ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
-        pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
+    final int recordBytes = switch (primitiveType) {
+      case BOXED_NUMBER -> ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, fallbackValue);
+      case INT_NUMBER -> ObjectNamedNumberNode.writeNewIntRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, (int) primitiveValue);
+      case LONG_NUMBER -> ObjectNamedNumberNode.writeNewLongRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, primitiveValue);
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    };
     kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_NUMBER.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedNumberNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedNumberNode.setOwnerPage(kvl);

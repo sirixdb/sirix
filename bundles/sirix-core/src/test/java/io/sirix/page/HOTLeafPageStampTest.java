@@ -4,6 +4,7 @@
 package io.sirix.page;
 
 import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameReusedException;
 import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.index.IndexType;
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +17,9 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -113,6 +117,48 @@ final class HOTLeafPageStampTest {
     // about to read the segment must be told to re-resolve rather than read a recycled slot.
     assertFalse(leaf.validateStamp(binding, stamp), "the leaf was closed under the reader");
     leaf = null; // tearDown must not close it twice
+  }
+
+  @Test
+  @DisplayName("a throwing frame releaser still invalidates stamps and retires side references")
+  void throwingFrameReleaserStillInvalidatesOutstandingStamp() {
+    final MemorySegment memory = Allocators.getInstance().allocate(HOTLeafPage.DEFAULT_SIZE);
+    final IllegalStateException expectedFailure = new IllegalStateException("injected frame release failure");
+    leaf = new HOTLeafPage(1L, 1, IndexType.CAS, memory, () -> {
+      throw expectedFailure;
+    }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    leaf.setPageReference(7L, new PageReference().setKey(42L));
+    leaf.setCompletePageRef(leaf);
+    final long binding = leaf.readStampBinding();
+    final long stamp = leaf.readStamp();
+    assertTrue(leaf.validateStamp(binding, stamp), "precondition: the frame-backed stamp starts valid");
+
+    try {
+      assertSame(expectedFailure, assertThrows(IllegalStateException.class, leaf::close));
+
+      assertEquals(1L, leaf.readStampBinding() & 1L, "teardown must leave a permanently invalid binding");
+      assertFalse(leaf.validateStamp(binding, stamp), "a failed external release must not preserve a valid stamp");
+      assertThrows(FrameReusedException.class, leaf::segmentRefCount);
+      assertNull(leaf.getCompletePageRef());
+      assertEquals(0L, leaf.estimatedRetainedHeapBytes());
+    } finally {
+      // The injected releaser deliberately did not return the slot; the test still owns that cleanup.
+      Allocators.getInstance().release(memory);
+      leaf = null;
+    }
+  }
+
+  @Test
+  @DisplayName("teardown suppression preserves a reused primary failure")
+  void teardownSuppressionPreservesReusedPrimaryFailure() {
+    final AssertionError sharedFailure = new AssertionError("shared teardown failure");
+    final IllegalStateException secondaryFailure = new IllegalStateException("secondary teardown failure");
+
+    HOTLeafPage.addSuppressedSafely(sharedFailure, sharedFailure);
+    HOTLeafPage.addSuppressedSafely(sharedFailure, secondaryFailure);
+
+    assertEquals(1, sharedFailure.getSuppressed().length);
+    assertSame(secondaryFailure, sharedFailure.getSuppressed()[0]);
   }
 
   @Test

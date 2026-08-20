@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * Primitive-column leaf page for a projection index. Each page holds up to {@link #MAX_ROWS}
@@ -155,6 +156,25 @@ public final class ProjectionIndexRowGroupPage {
    * lanes across projection and PAX scans alike.
    */
   public static final int MAX_ROWS = 1024;
+
+  /** Immutable placeholder for absent/unrepresentable local scalar strings. */
+  private static final byte[] EMPTY_UTF8 = new byte[0];
+
+  /** Initial number of distinct entries addressable without growing primitive indexes. */
+  private static final int INITIAL_STRING_DICTIONARY_CAPACITY = 16;
+
+  /** Build a flat primitive lookup table once linear dictionary probing stops being cheaper. */
+  private static final int STRING_DICTIONARY_HASH_THRESHOLD = 8;
+
+  /** A 2x table keeps the open-addressed lookup at or below 50% occupancy. */
+  private static final int INITIAL_STRING_DICTIONARY_HASH_CAPACITY =
+      INITIAL_STRING_DICTIONARY_CAPACITY << 1;
+
+  /** Small first slab; geometric growth quickly reaches the page's steady-state high-water mark. */
+  private static final int INITIAL_STRING_SLAB_CAPACITY = 4 * 1024;
+
+  /** Do not retain an outlier scalar string slab larger than this across page generations. */
+  private static final int MAX_RETAINED_STRING_SLAB_CAPACITY = 1024 * 1024;
 
   /**
    * Column-kind bytes written into the page header. Order matches
@@ -311,17 +331,51 @@ public final class ProjectionIndexRowGroupPage {
 
   /**
    * Per-column dict-id values. Slot {@code c} valid iff
-   * {@code columnKinds[c] == COLUMN_KIND_STRING_DICT}. Paired with {@link #stringDicts}.
+   * {@code columnKinds[c] == COLUMN_KIND_STRING_DICT}. Paired with either the build-time slab or the
+   * legacy {@link #stringDicts} representation.
    * {@code int[MAX_ROWS]}.
    */
   private final int[][] stringDictIdCols;
 
   /**
-   * Per-column local string dictionary. Slot {@code c} holds the byte[] array whose index is the
-   * dict-id stored in {@code stringDictIdCols[c]}. Arrays rather than a shared heap so we can stream
-   * per-column without cross-column lookup overhead.
+   * Per-column legacy local string dictionary. Deserialised dictionaries and STRING_SET columns keep
+   * the historical null-terminated {@code byte[][]} representation. A newly-built scalar
+   * STRING_DICT column instead lives in {@link #stringDictSlabs}; this slot is normally null until
+   * the public compatibility accessor materialises a detached view.
    */
   private final byte[][][] stringDicts;
+
+  /**
+   * Per-column grow-only UTF-8 slab for newly-built scalar STRING_DICT dictionaries. Entry bytes are
+   * addressed by {@link #stringDictOffsets} and {@link #stringDictLengths}; one retained array per
+   * column replaces one exact-sized array per distinct value.
+   */
+  private final byte[][] stringDictSlabs;
+
+  /** Start offset of each live slab-backed dictionary entry. */
+  private final int[][] stringDictOffsets;
+
+  /** Byte length of each live slab-backed dictionary entry. */
+  private final int[][] stringDictLengths;
+
+  /** Live entry count for a slab-backed scalar dictionary. */
+  private final int[] stringDictSizes;
+
+  /** Live byte count in each grow-only slab. Normal capacity is retained across builder reuse. */
+  private final int[] stringDictSlabLengths;
+
+  /** Per-entry UTF-8 hashes for slab dictionaries whose primitive lookup index has been activated. */
+  private final int[][] stringDictHashes;
+
+  /**
+   * Open-addressed hash slots for slab dictionaries. A slot stores {@code dictId + 1}; zero is the
+   * empty marker. The table is activated lazily so genuinely tiny dictionaries retain the cheaper
+   * linear path, then retained across builder reuse like the slab itself.
+   */
+  private final int[][] stringDictHashSlots;
+
+  /** Whether the current page generation crossed the hash-index cardinality threshold. */
+  private final boolean[] stringDictHashActive;
 
   /**
    * Per-column resource-wide value dictionary for {@link #COLUMN_KIND_STRING_GLOBAL}. Slot
@@ -400,6 +454,14 @@ public final class ProjectionIndexRowGroupPage {
     this.booleanCols = new long[columnCount][];
     this.stringDictIdCols = new int[columnCount][];
     this.stringDicts = new byte[columnCount][][];
+    this.stringDictSlabs = new byte[columnCount][];
+    this.stringDictOffsets = new int[columnCount][];
+    this.stringDictLengths = new int[columnCount][];
+    this.stringDictSizes = new int[columnCount];
+    this.stringDictSlabLengths = new int[columnCount];
+    this.stringDictHashes = new int[columnCount][];
+    this.stringDictHashSlots = new int[columnCount][];
+    this.stringDictHashActive = new boolean[columnCount];
     this.stringSetCountCols = new int[columnCount][];
     this.stringSetIdCols = new int[columnCount][];
     this.stringSetLen = new int[columnCount];
@@ -486,13 +548,16 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /**
-   * How many entries column {@code column}'s per-leaf dictionary holds. The array is over-allocated
-   * and null-terminated, so its length is not the answer.
+   * How many entries column {@code column}'s per-leaf dictionary holds.
    *
    * @param column the column ordinal
    * @return the live entry count, {@code 0} for a column with no per-leaf dictionary
    */
   public int stringDictionarySize(final int column) {
+    checkColumn(column);
+    if (stringDictSlabs[column] != null) {
+      return stringDictSizes[column];
+    }
     final byte[][] dict = stringDicts[column];
     if (dict == null) {
       return 0;
@@ -505,8 +570,110 @@ public final class ProjectionIndexRowGroupPage {
     return dict.length;
   }
 
-  public byte[][] stringDictionary(final int column) {
-    return stringDicts[column];
+  /**
+   * Historical {@code byte[][]} dictionary accessor.
+   *
+   * <p>A slab-backed scalar dictionary is materialised at most once per live page generation. Each
+   * entry is detached from the page-owned slab, so retaining or mutating the returned compatibility
+   * view cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
+   * consumers use the range accessors below and never invoke this method.
+   */
+  public synchronized byte[][] stringDictionary(final int column) {
+    checkColumn(column);
+    final byte[][] existing = stringDicts[column];
+    if (existing != null || stringDictSlabs[column] == null) {
+      return existing;
+    }
+    final int size = stringDictSizes[column];
+    final byte[][] materialized = new byte[Math.max(16, size)][];
+    final byte[] slab = stringDictSlabs[column];
+    final int[] offsets = stringDictOffsets[column];
+    final int[] lengths = stringDictLengths[column];
+    for (int i = 0; i < size; i++) {
+      final int length = lengths[i];
+      if (length == 0) {
+        materialized[i] = EMPTY_UTF8;
+      } else {
+        final byte[] entry = new byte[length];
+        System.arraycopy(slab, offsets[i], entry, 0, length);
+        materialized[i] = entry;
+      }
+    }
+    stringDicts[column] = materialized;
+    return materialized;
+  }
+
+  /** Borrowed backing array for one dictionary entry; pair with offset and length below. */
+  public byte[] stringDictionaryEntryBacking(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    final byte[] slab = stringDictSlabs[column];
+    return slab != null ? slab : stringDicts[column][dictId];
+  }
+
+  /** Start of one entry in {@link #stringDictionaryEntryBacking}. */
+  public int stringDictionaryEntryOffset(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    return stringDictSlabs[column] != null ? stringDictOffsets[column][dictId] : 0;
+  }
+
+  /** Byte length of one entry in {@link #stringDictionaryEntryBacking}. */
+  public int stringDictionaryEntryLength(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    return stringDictSlabs[column] != null
+        ? stringDictLengths[column][dictId]
+        : stringDicts[column][dictId].length;
+  }
+
+  /** Whether this column currently owns one flat scalar-dictionary backing array. */
+  boolean stringDictionaryIsSlabBacked(final int column) {
+    checkColumn(column);
+    return stringDictSlabs[column] != null;
+  }
+
+  /** Borrowed flat backing for FSST; valid only while the builder-owned page is borrowed. */
+  byte[] stringDictionaryFlatBacking(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictSlabs[column];
+  }
+
+  /** Borrowed entry offsets parallel to {@link #stringDictionaryFlatBacking}. */
+  int[] stringDictionaryFlatOffsets(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictOffsets[column];
+  }
+
+  /** Borrowed entry lengths parallel to {@link #stringDictionaryFlatBacking}. */
+  int[] stringDictionaryFlatLengths(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictLengths[column];
+  }
+
+  private void checkColumn(final int column) {
+    if (column < 0 || column >= columnCount) {
+      throw new IndexOutOfBoundsException("column " + column + " outside [0, " + columnCount + ")");
+    }
+  }
+
+  private void checkDictionaryEntry(final int column, final int dictId) {
+    checkColumn(column);
+    if (stringDictSlabs[column] != null) {
+      final int size = stringDictSizes[column];
+      if (dictId < 0 || dictId >= size) {
+        throw new IndexOutOfBoundsException(
+            "dictionary id " + dictId + " outside [0, " + size + ") for column " + column);
+      }
+      return;
+    }
+    final byte[][] dictionary = stringDicts[column];
+    if (dictId < 0 || dictionary == null || dictId >= dictionary.length || dictionary[dictId] == null) {
+      throw new IndexOutOfBoundsException("dictionary id " + dictId + " is not live for column " + column);
+    }
   }
 
   /** 64-way packed presence bits of {@code column}. */
@@ -593,6 +760,15 @@ public final class ProjectionIndexRowGroupPage {
 
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
   private void ensureCapacity() {
+    ensureCapacity(true);
+  }
+
+  /**
+   * Materialise row lanes, optionally including empty build-time dictionary storage. The raw
+   * deserialiser supplies complete legacy dictionaries immediately afterwards and passes false, so
+   * it does not allocate then discard a slab for every cold-opened scalar string column.
+   */
+  private void ensureCapacity(final boolean allocateBuilderDictionaries) {
     if (recordKeys == null) {
       recordKeys = new long[MAX_ROWS];
       for (int c = 0; c < columnCount; c++) {
@@ -605,17 +781,95 @@ public final class ProjectionIndexRowGroupPage {
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
-            stringDicts[c] = new byte[16][]; // grow on demand in appendString
+            if (allocateBuilderDictionaries) {
+              stringDictSlabs[c] = new byte[INITIAL_STRING_SLAB_CAPACITY];
+              stringDictOffsets[c] = new int[INITIAL_STRING_DICTIONARY_CAPACITY];
+              stringDictLengths[c] = new int[INITIAL_STRING_DICTIONARY_CAPACITY];
+            }
           }
           case COLUMN_KIND_STRING_SET -> {
             stringSetCountCols[c] = new int[MAX_ROWS];
             stringSetIdCols[c] = new int[MAX_ROWS]; // one element per row to start; grows
-            stringDicts[c] = new byte[16][];
+            if (allocateBuilderDictionaries) {
+              stringDicts[c] = new byte[INITIAL_STRING_DICTIONARY_CAPACITY][];
+            }
           }
           default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
         }
       }
     }
+  }
+
+  /**
+   * Return this builder-owned page to its empty state without releasing its primitive working
+   * arrays.
+   *
+   * <p>The builder calls this only after its synchronous borrowed-leaf callback returns
+   * successfully. Numeric values, record keys, ids and set counts are overwrite-only, so advancing
+   * {@link #rowCount} from zero makes their old tails unreachable and they need no clearing. The
+   * presence and boolean lanes are OR-written and therefore clear the words that were live in the
+   * preceding generation. Scalar dictionaries clear their live size/offset/length metadata while
+   * retaining the page-owned slab capacity; legacy/set dictionaries clear live entry references.
+   * Primitive indexes and an expanded string-set id run remain at their high-water marks.
+   *
+   * <p>Package-private by design: callers outside {@link ProjectionIndexBuilder} do not own the
+   * page exclusively and cannot prove that no borrowed accessor escaped.
+   */
+  void resetForBuilderReuse(final GlobalValueDictionaryWriter[] dictionaries) {
+    final int liveWordCount = (rowCount + 63) >>> 6;
+    for (int c = 0; c < columnCount; c++) {
+      final long[] presence = presenceCols[c];
+      if (presence != null) {
+        for (int word = 0; word < liveWordCount; word++) {
+          presence[word] = 0L;
+        }
+      }
+      if (columnKinds[c] == COLUMN_KIND_BOOLEAN) {
+        final long[] values = booleanCols[c];
+        if (values != null) {
+          for (int word = 0; word < liveWordCount; word++) {
+            values[word] = 0L;
+          }
+        }
+      }
+      if (stringDictSlabs[c] != null) {
+        // A compatibility view is detached entry-by-entry. Drop only the page's reference to it;
+        // mutating an array a caller retained would violate the accessor's ownership contract.
+        stringDicts[c] = null;
+        final int liveEntries = stringDictSizes[c];
+        for (int entry = 0; entry < liveEntries; entry++) {
+          stringDictOffsets[c][entry] = 0;
+          stringDictLengths[c][entry] = 0;
+        }
+        stringDictSizes[c] = 0;
+        stringDictSlabLengths[c] = 0;
+        if (stringDictSlabs[c].length > MAX_RETAINED_STRING_SLAB_CAPACITY) {
+          stringDictSlabs[c] = new byte[INITIAL_STRING_SLAB_CAPACITY];
+        }
+        // Retain the high-water arrays, but let each new page generation earn the hash path from
+        // its own cardinality. A high-cardinality outlier must not make later tiny dictionaries
+        // hash every value or clear a large table merely because the capacity exists.
+        stringDictHashActive[c] = false;
+      } else {
+        final byte[][] dictionary = stringDicts[c];
+        if (dictionary != null) {
+          int entry = 0;
+          while (entry < dictionary.length && dictionary[entry] != null) {
+            dictionary[entry++] = null;
+          }
+        }
+      }
+      stringSetLen[c] = 0;
+      columnUnrepresentable[c] = false;
+      columnNonIntegral[c] = false;
+      columnSawNonDoubleSource[c] = false;
+      columnMin[c] = Long.MAX_VALUE;
+      columnMax[c] = Long.MIN_VALUE;
+    }
+    rowCount = 0;
+    firstRecordKey = Long.MAX_VALUE;
+    lastRecordKey = Long.MIN_VALUE;
+    globalDicts = dictionaries;
   }
 
   /**
@@ -688,8 +942,107 @@ public final class ProjectionIndexRowGroupPage {
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final String[][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+    return appendRowInternal(recordKey, longValues, boolValues, stringValues, null, null, stringSetValues, present,
+        unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /**
+   * Extractor-only scalar-string lane that preserves already-decoded semantic UTF-8 bytes.
+   *
+   * <p>All scalar arrays are borrowed for this synchronous call. A local dictionary appends only a
+   * newly-distinct live slice to its page-owned slab; duplicates are compared in place and retain
+   * nothing. A global
+   * dictionary already copies newly-interned values into its arena. Returning {@code false} does not
+   * inspect the arrays, so the caller may retry the same row on a fresh leaf.
+   *
+   * <p>{@code stringSetValues} deliberately remains the legacy String lane. Set element order,
+   * duplicates, null skipping and empty-set representation are therefore unchanged.
+   */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final String[][] stringSetValues, final boolean[] present,
+      final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues,
+        present, unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /**
+   * Slice-aware form used by the extractor's grow-only per-column buffers. A {@code null} lengths
+   * array means every scalar's full byte array is live (the compatibility form above).
+   */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
+    if (rowCount == MAX_ROWS) {
+      return false;
+    }
+    if (stringUtf8Values == null) {
+      throw new IllegalArgumentException("stringUtf8Values must not be null");
+    }
+    validateExtractedUtf8Row(longValues, boolValues, stringUtf8Values, stringUtf8Lengths, stringSetValues, present,
+        unrepresentable, nonIntegral, nonDoubleSource);
+    return appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /** Validate the complete extractor row before {@link #ensureCapacity} or any page/dictionary mutation. */
+  private void validateExtractedUtf8Row(final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
+    if (longValues == null || longValues.length < columnCount) {
+      throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
+    }
+    if (boolValues == null || boolValues.length < columnCount) {
+      throw new IllegalArgumentException("boolValues must contain at least " + columnCount + " columns");
+    }
+    if (stringUtf8Values.length < columnCount) {
+      throw new IllegalArgumentException("stringUtf8Values must contain at least " + columnCount + " columns");
+    }
+    if (stringUtf8Lengths != null && stringUtf8Lengths.length < columnCount) {
+      throw new IllegalArgumentException("stringUtf8Lengths must contain at least " + columnCount + " columns");
+    }
+    if (stringSetValues != null && stringSetValues.length < columnCount) {
+      throw new IllegalArgumentException("stringSetValues must contain at least " + columnCount + " columns");
+    }
+    if (present != null && present.length < columnCount) {
+      throw new IllegalArgumentException("present must contain at least " + columnCount + " columns");
+    }
+    if (unrepresentable != null && unrepresentable.length < columnCount) {
+      throw new IllegalArgumentException("unrepresentable must contain at least " + columnCount + " columns");
+    }
+    if (nonIntegral != null && nonIntegral.length < columnCount) {
+      throw new IllegalArgumentException("nonIntegral must contain at least " + columnCount + " columns");
+    }
+    if (nonDoubleSource != null && nonDoubleSource.length < columnCount) {
+      throw new IllegalArgumentException("nonDoubleSource must contain at least " + columnCount + " columns");
+    }
+    for (int c = 0; c < columnCount; c++) {
+      if (columnKinds[c] != COLUMN_KIND_STRING_DICT && columnKinds[c] != COLUMN_KIND_STRING_GLOBAL) {
+        continue;
+      }
+      final boolean clean = (present == null || present[c]) && (unrepresentable == null || !unrepresentable[c]);
+      if (!clean) {
+        continue;
+      }
+      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths);
+      if (columnKinds[c] == COLUMN_KIND_STRING_GLOBAL
+          && (globalDicts == null || globalDicts.length <= c || globalDicts[c] == null)) {
+        throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+      }
+    }
+  }
+
+  private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     if (rowCount == MAX_ROWS)
       return false;
+    if (stringUtf8Values == null) {
+      validateLegacyRow(longValues, boolValues, stringValues, stringSetValues, present, unrepresentable, nonIntegral,
+          nonDoubleSource);
+    }
     ensureCapacity();
     final int row = rowCount;
     recordKeys[row] = recordKey;
@@ -729,7 +1082,10 @@ public final class ProjectionIndexRowGroupPage {
         // zone map stays a range over real ids because only clean cells widen it.
         case COLUMN_KIND_STRING_GLOBAL -> {
           final long id = clean
-              ? internGlobal(c, stringValues[c])
+              ? stringUtf8Values == null
+                  ? internGlobal(c, stringValues[c])
+                  : internGlobalUtf8(c, stringUtf8Values[c],
+                      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
               : 0L;
           numericCols[c][row] = id;
           if (clean) {
@@ -749,9 +1105,12 @@ public final class ProjectionIndexRowGroupPage {
         // non-empty dictionary entry was interned by a clean present row" a
         // STRUCTURAL invariant of the leaf (the dictionary-union
         // count-distinct kernel depends on it), not a builder convention.
-        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = appendString(c, clean
-            ? stringValues[c]
-            : "");
+        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = stringUtf8Values == null
+            ? appendString(c, clean ? stringValues[c] : "")
+            : clean
+                ? appendBorrowedStringUtf8(c, stringUtf8Values[c],
+                    extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
+                : appendBorrowedStringUtf8(c, EMPTY_UTF8, 0);
         case COLUMN_KIND_STRING_SET -> {
           // An absent or unrepresentable set contributes NO elements, which is exactly right for
           // an existential: a record without the field, or with an empty array, satisfies nothing.
@@ -777,6 +1136,49 @@ public final class ProjectionIndexRowGroupPage {
     }
     rowCount++;
     return true;
+  }
+
+  /** Validate the legacy String entry point completely before the page or a global dictionary mutates. */
+  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+    if (longValues == null || longValues.length < columnCount) {
+      throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
+    }
+    if (boolValues == null || boolValues.length < columnCount) {
+      throw new IllegalArgumentException("boolValues must contain at least " + columnCount + " columns");
+    }
+    if (stringValues == null || stringValues.length < columnCount) {
+      throw new IllegalArgumentException("stringValues must contain at least " + columnCount + " columns");
+    }
+    if (stringSetValues != null && stringSetValues.length < columnCount) {
+      throw new IllegalArgumentException("stringSetValues must contain at least " + columnCount + " columns");
+    }
+    if (present != null && present.length < columnCount) {
+      throw new IllegalArgumentException("present must contain at least " + columnCount + " columns");
+    }
+    if (unrepresentable != null && unrepresentable.length < columnCount) {
+      throw new IllegalArgumentException("unrepresentable must contain at least " + columnCount + " columns");
+    }
+    if (nonIntegral != null && nonIntegral.length < columnCount) {
+      throw new IllegalArgumentException("nonIntegral must contain at least " + columnCount + " columns");
+    }
+    if (nonDoubleSource != null && nonDoubleSource.length < columnCount) {
+      throw new IllegalArgumentException("nonDoubleSource must contain at least " + columnCount + " columns");
+    }
+    for (int c = 0; c < columnCount; c++) {
+      final boolean clean = (present == null || present[c]) && (unrepresentable == null || !unrepresentable[c]);
+      if (!clean) {
+        continue;
+      }
+      if (columnKinds[c] == COLUMN_KIND_STRING_DICT && stringValues[c] == null) {
+        throw new IllegalArgumentException("stringValues[" + c + "] must not be null for a clean STRING_DICT cell");
+      }
+      if (columnKinds[c] == COLUMN_KIND_STRING_GLOBAL
+          && (globalDicts == null || globalDicts.length <= c || globalDicts[c] == null)) {
+        throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+      }
+    }
   }
 
   /**
@@ -810,16 +1212,21 @@ public final class ProjectionIndexRowGroupPage {
 
   /** Intern one value into column {@code c}'s resource-wide dictionary and return its id. */
   private long internGlobal(final int c, final String value) {
+    final byte[] bytes = (value == null
+        ? ""
+        : value).getBytes(StandardCharsets.UTF_8);
+    return internGlobalUtf8(c, bytes, bytes.length);
+  }
+
+  /** Intern semantic UTF-8 bytes without manufacturing an intermediate {@link String}. */
+  private long internGlobalUtf8(final int c, final byte[] bytes, final int length) {
     final GlobalValueDictionaryWriter dictionary = globalDicts == null
         ? null
         : globalDicts[c];
     if (dictionary == null) {
       throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
     }
-    final byte[] bytes = (value == null
-        ? ""
-        : value).getBytes(StandardCharsets.UTF_8);
-    return dictionary.intern(bytes, 0, bytes.length);
+    return dictionary.intern(bytes, 0, length);
   }
 
   /**
@@ -842,15 +1249,18 @@ public final class ProjectionIndexRowGroupPage {
    * @param dictionary the resource-wide dictionary to intern into
    */
   void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryWriter dictionary) {
+    checkColumn(c);
     if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
       throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
     }
+    if (dictionary == null) {
+      throw new NullPointerException("dictionary must not be null");
+    }
     final long[] converted = new long[MAX_ROWS];
     if (rowCount > 0) {
-      final byte[][] dict = stringDicts[c];
       final int[] ids = stringDictIdCols[c];
       // Memo per dict entry; 0 doubles as "not yet interned" because minted ids start at 1.
-      final long[] localToGlobal = new long[dict.length];
+      final long[] localToGlobal = new long[stringDictionarySize(c)];
       final long[] presence = presenceCols[c];
       long min = Long.MAX_VALUE;
       long max = Long.MIN_VALUE;
@@ -867,8 +1277,9 @@ public final class ProjectionIndexRowGroupPage {
         final int local = ids[row];
         long global = localToGlobal[local];
         if (global == 0L) {
-          final byte[] bytes = dict[local];
-          global = dictionary.intern(bytes, 0, bytes.length);
+          final byte[] bytes = stringDictionaryEntryBacking(c, local);
+          global = dictionary.intern(bytes, stringDictionaryEntryOffset(c, local),
+              stringDictionaryEntryLength(c, local));
           localToGlobal[local] = global;
         }
         converted[row] = global;
@@ -885,11 +1296,213 @@ public final class ProjectionIndexRowGroupPage {
     numericCols[c] = converted;
     stringDictIdCols[c] = null;
     stringDicts[c] = null;
+    stringDictSlabs[c] = null;
+    stringDictOffsets[c] = null;
+    stringDictLengths[c] = null;
+    stringDictSizes[c] = 0;
+    stringDictSlabLengths[c] = 0;
+    stringDictHashes[c] = null;
+    stringDictHashSlots[c] = null;
+    stringDictHashActive[c] = false;
     columnKinds[c] = COLUMN_KIND_STRING_GLOBAL;
   }
 
   private int appendString(final int c, final String value) {
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+    return appendStringUtf8(c, bytes, bytes.length, false);
+  }
+
+  /**
+   * Intern a caller-owned semantic UTF-8 slice into a local dictionary. A newly-distinct value is
+   * copied exactly once; a duplicate is compared in place and retained nowhere.
+   */
+  private int appendBorrowedStringUtf8(final int c, final byte[] bytes, final int length) {
+    return appendStringUtf8(c, bytes, length, true);
+  }
+
+  /** Legacy String lane owns its freshly encoded array, while the extractor lane borrows scratch. */
+  private int appendStringUtf8(final int c, final byte[] bytes, final int length, final boolean borrowed) {
+    if (stringDictSlabs[c] != null) {
+      return appendStringUtf8ToSlab(c, bytes, length);
+    }
+    return appendStringUtf8Legacy(c, bytes, length, borrowed);
+  }
+
+  /** Append to a newly-built scalar dictionary without retaining one array per distinct value. */
+  private int appendStringUtf8ToSlab(final int c, final byte[] bytes, final int length) {
+    final int size = stringDictSizes[c];
+    final byte[] slab = stringDictSlabs[c];
+    final int[] offsets = stringDictOffsets[c];
+    final int[] lengths = stringDictLengths[c];
+    int hash = 0;
+    if (!stringDictHashActive[c]) {
+      // Linear probe for genuinely small dictionaries is cheaper than hashing every input byte.
+      // Comparing the borrowed extractor slice directly against the slab retains no caller-owned
+      // storage.
+      for (int i = 0; i < size; i++) {
+        if (bytesEqual(slab, offsets[i], lengths[i], bytes, length)) {
+          return i;
+        }
+      }
+      if (size + 1 >= STRING_DICTIONARY_HASH_THRESHOLD) {
+        initializeStringDictionaryHashIndex(c);
+        hash = hashUtf8(bytes, 0, length);
+      }
+    } else {
+      hash = hashUtf8(bytes, 0, length);
+      final int existing = findStringDictionaryEntry(c, bytes, length, hash);
+      if (existing >= 0) {
+        return existing;
+      }
+    }
+
+    final int used = stringDictSlabLengths[c];
+    if (length > Integer.MAX_VALUE - used) {
+      throw new IllegalStateException("STRING_DICT slab exceeds the maximum Java array size");
+    }
+    ensureStringDictionaryEntryCapacity(c, size + 1);
+    ensureStringDictionarySlabCapacity(c, used + length);
+    if (stringDictHashActive[c]) {
+      ensureStringDictionaryHashCapacity(c, size + 1);
+    }
+    final byte[] destination = stringDictSlabs[c];
+    if (length > 0) {
+      System.arraycopy(bytes, 0, destination, used, length);
+    }
+    stringDictOffsets[c][size] = used;
+    stringDictLengths[c][size] = length;
+    stringDictSlabLengths[c] = used + length;
+    stringDictSizes[c] = size + 1;
+    if (stringDictHashActive[c]) {
+      stringDictHashes[c][size] = hash;
+      insertStringDictionaryHashSlot(stringDictHashSlots[c], hash, size);
+    }
+    // Any compatibility snapshot belongs to the preceding dictionary generation. It is detached,
+    // so dropping this reference cannot mutate a caller that retained it.
+    stringDicts[c] = null;
+    updateStringDictionaryZoneMap(c, size);
+    return size;
+  }
+
+  private void ensureStringDictionaryEntryCapacity(final int c, final int required) {
+    final int[] currentOffsets = stringDictOffsets[c];
+    if (currentOffsets.length >= required) {
+      return;
+    }
+    final int capacity = Math.max(required, currentOffsets.length << 1);
+    final int[] grownOffsets = new int[capacity];
+    final int[] grownLengths = new int[capacity];
+    System.arraycopy(currentOffsets, 0, grownOffsets, 0, stringDictSizes[c]);
+    System.arraycopy(stringDictLengths[c], 0, grownLengths, 0, stringDictSizes[c]);
+    stringDictOffsets[c] = grownOffsets;
+    stringDictLengths[c] = grownLengths;
+    final int[] currentHashes = stringDictHashes[c];
+    if (currentHashes != null) {
+      final int[] grownHashes = new int[capacity];
+      System.arraycopy(currentHashes, 0, grownHashes, 0, stringDictSizes[c]);
+      stringDictHashes[c] = grownHashes;
+    }
+  }
+
+  private void initializeStringDictionaryHashIndex(final int c) {
+    int[] hashes = stringDictHashes[c];
+    if (hashes == null) {
+      hashes = new int[stringDictOffsets[c].length];
+    }
+    int[] slots = stringDictHashSlots[c];
+    if (slots == null) {
+      slots = new int[INITIAL_STRING_DICTIONARY_HASH_CAPACITY];
+    } else {
+      Arrays.fill(slots, 0);
+    }
+    final byte[] slab = stringDictSlabs[c];
+    final int size = stringDictSizes[c];
+    for (int dictId = 0; dictId < size; dictId++) {
+      final int hash = hashUtf8(slab, stringDictOffsets[c][dictId], stringDictLengths[c][dictId]);
+      hashes[dictId] = hash;
+      insertStringDictionaryHashSlot(slots, hash, dictId);
+    }
+    stringDictHashes[c] = hashes;
+    stringDictHashSlots[c] = slots;
+    stringDictHashActive[c] = true;
+  }
+
+  private int findStringDictionaryEntry(final int c, final byte[] bytes, final int length, final int hash) {
+    final int[] slots = stringDictHashSlots[c];
+    final int mask = slots.length - 1;
+    int slot = mixUtf8Hash(hash) & mask;
+    int encodedId;
+    while ((encodedId = slots[slot]) != 0) {
+      final int dictId = encodedId - 1;
+      if (stringDictHashes[c][dictId] == hash && stringDictLengths[c][dictId] == length
+          && bytesEqual(stringDictSlabs[c], stringDictOffsets[c][dictId], length, bytes, length)) {
+        return dictId;
+      }
+      slot = (slot + 1) & mask;
+    }
+    return -1;
+  }
+
+  private void ensureStringDictionaryHashCapacity(final int c, final int requiredEntries) {
+    final int[] current = stringDictHashSlots[c];
+    if (requiredEntries <= (current.length >>> 1)) {
+      return;
+    }
+    int capacity = current.length << 1;
+    while (requiredEntries > (capacity >>> 1)) {
+      capacity <<= 1;
+    }
+    final int[] replacement = new int[capacity];
+    final int size = stringDictSizes[c];
+    for (int dictId = 0; dictId < size; dictId++) {
+      insertStringDictionaryHashSlot(replacement, stringDictHashes[c][dictId], dictId);
+    }
+    stringDictHashSlots[c] = replacement;
+  }
+
+  private static void insertStringDictionaryHashSlot(final int[] slots, final int hash, final int dictId) {
+    final int mask = slots.length - 1;
+    int slot = mixUtf8Hash(hash) & mask;
+    while (slots[slot] != 0) {
+      slot = (slot + 1) & mask;
+    }
+    slots[slot] = dictId + 1;
+  }
+
+  private static int hashUtf8(final byte[] bytes, final int offset, final int length) {
+    int hash = 1;
+    for (int i = offset, end = offset + length; i < end; i++) {
+      hash = 31 * hash + bytes[i];
+    }
+    return hash;
+  }
+
+  private static int mixUtf8Hash(final int hash) {
+    final int mixed = hash * 0x9E3779B9;
+    return mixed ^ mixed >>> 16;
+  }
+
+  private void ensureStringDictionarySlabCapacity(final int c, final int required) {
+    final byte[] current = stringDictSlabs[c];
+    if (current.length >= required) {
+      return;
+    }
+    int capacity = current.length;
+    while (capacity < required) {
+      final int grown = capacity << 1;
+      if (grown <= capacity) {
+        capacity = required;
+        break;
+      }
+      capacity = grown;
+    }
+    final byte[] replacement = new byte[capacity];
+    System.arraycopy(current, 0, replacement, 0, stringDictSlabLengths[c]);
+    stringDictSlabs[c] = replacement;
+  }
+
+  /** Historical pointer-array append used by STRING_SET and deserialised scalar dictionaries. */
+  private int appendStringUtf8Legacy(final int c, final byte[] bytes, final int length, final boolean borrowed) {
     final byte[][] dict = stringDicts[c];
     // Linear probe for small dictionaries is cheaper than HashMap bookkeeping;
     // at the typical analytical-column cardinality (8-50) this is 1-2 cache lines.
@@ -900,7 +1513,7 @@ public final class ProjectionIndexRowGroupPage {
         break;
       }
       size = i + 1;
-      if (bytesEqual(dict[i], bytes))
+      if (bytesEqual(dict[i], bytes, length))
         return i;
     }
     if (size == dict.length) {
@@ -908,21 +1521,46 @@ public final class ProjectionIndexRowGroupPage {
       System.arraycopy(dict, 0, grown, 0, dict.length);
       stringDicts[c] = grown;
     }
-    stringDicts[c][size] = bytes;
-    if (size < columnMin[c])
-      columnMin[c] = size;
-    if (size > columnMax[c])
-      columnMax[c] = size;
+    if (length == 0) {
+      stringDicts[c][size] = EMPTY_UTF8;
+    } else if (borrowed) {
+      final byte[] owned = new byte[length];
+      System.arraycopy(bytes, 0, owned, 0, length);
+      stringDicts[c][size] = owned;
+    } else {
+      stringDicts[c][size] = bytes;
+    }
+    updateStringDictionaryZoneMap(c, size);
     return size;
   }
 
-  private static boolean bytesEqual(final byte[] a, final byte[] b) {
-    if (a.length != b.length)
-      return false;
-    for (int i = 0; i < a.length; i++)
-      if (a[i] != b[i])
-        return false;
-    return true;
+  private void updateStringDictionaryZoneMap(final int c, final int dictId) {
+    if (dictId < columnMin[c])
+      columnMin[c] = dictId;
+    if (dictId > columnMax[c])
+      columnMax[c] = dictId;
+  }
+
+  private static int extractedUtf8Length(final int column, final byte[] value, final int[] lengths) {
+    if (value == null) {
+      throw new IllegalStateException(
+          "extractor supplied null UTF-8 bytes for clean scalar string column " + column);
+    }
+    final int length = lengths == null ? value.length : lengths[column];
+    if (length < 0 || length > value.length) {
+      throw new IllegalArgumentException("extractor supplied UTF-8 length " + length + " for column " + column
+          + " backed by a " + value.length + "-byte array");
+    }
+    return length;
+  }
+
+  private static boolean bytesEqual(final byte[] a, final byte[] b, final int bLength) {
+    return bytesEqual(a, 0, a.length, b, bLength);
+  }
+
+  private static boolean bytesEqual(final byte[] a, final int aOffset, final int aLength, final byte[] b,
+      final int bLength) {
+    return aLength == bLength && Arrays.equals(a, aOffset, aOffset + aLength, b, 0, bLength);
   }
 
   /**
@@ -946,7 +1584,7 @@ public final class ProjectionIndexRowGroupPage {
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;
     if (rowCount > 0) {
-      page.ensureCapacity();
+      page.ensureCapacity(false);
       for (int i = 0; i < rowCount; i++)
         page.recordKeys[i] = bb.getLong();
       for (int c = 0; c < columnCount; c++) {
@@ -975,6 +1613,11 @@ public final class ProjectionIndexRowGroupPage {
               bb.get(dict[i]);
             }
             page.stringDicts[c] = dict;
+            // Cold/raw compatibility keeps the historical byte[][] ownership shape. Disable the
+            // empty builder slab ensureCapacity created for this constructor instance.
+            page.stringDictSlabs[c] = null;
+            page.stringDictOffsets[c] = null;
+            page.stringDictLengths[c] = null;
             final int[] ids = page.stringDictIdCols[c];
             for (int i = 0; i < rowCount; i++)
               ids[i] = bb.getInt();
@@ -1083,12 +1726,12 @@ public final class ProjectionIndexRowGroupPage {
             writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {
-          writeDictionary(baos, stringDicts[c]);
+          writeDictionary(baos, c);
           // dict-ids — packed 32-bit per entry for now; bit-packing is a later codec refinement.
           writeInts(baos, stringDictIdCols[c], rowCount);
         }
         case COLUMN_KIND_STRING_SET -> {
-          writeDictionary(baos, stringDicts[c]);
+          writeDictionary(baos, c);
           // Per-row counts, then the flat element run. The counts come first so a reader can size
           // the run before reading it, and their sum IS the run length — no separate total.
           writeInts(baos, stringSetCountCols[c], rowCount);
@@ -1118,20 +1761,18 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /** Entry count, then each entry's length, then the entries — the layout both string kinds share. */
-  private static void writeDictionary(final ByteArrayOutputStream baos, final byte[][] dict) {
-    int dictSize = 0;
-    while (dictSize < dict.length && dict[dictSize] != null) {
-      dictSize++;
-    }
+  private void writeDictionary(final ByteArrayOutputStream baos, final int column) {
+    final int dictSize = stringDictionarySize(column);
     final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
     baos.write(dh.array(), 0, dh.position());
     final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
     for (int i = 0; i < dictSize; i++) {
-      dl.putInt(dict[i].length);
+      dl.putInt(stringDictionaryEntryLength(column, i));
     }
     baos.write(dl.array(), 0, dl.position());
     for (int i = 0; i < dictSize; i++) {
-      baos.write(dict[i], 0, dict[i].length);
+      baos.write(stringDictionaryEntryBacking(column, i), stringDictionaryEntryOffset(column, i),
+          stringDictionaryEntryLength(column, i));
     }
   }
 

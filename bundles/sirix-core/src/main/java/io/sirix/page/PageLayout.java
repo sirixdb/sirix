@@ -452,7 +452,8 @@ public final class PageLayout {
    *
    * @param page the page segment
    * @param slotIndex the slot index
-   * @return the raw entry; decode with {@link #dirEntryHeapOffset} / {@link #dirEntryNodeKindId}
+   * @return the raw entry; decode with {@link #dirEntryHeapOffset}, {@link #dirEntryDataLength},
+   *         and {@link #dirEntryNodeKindId}
    */
   public static long getDirEntry(final MemorySegment page, final int slotIndex) {
     assert DIRENTRY_OFF_HEAP_OFFSET == 0 && DIRENTRY_OFF_LENGTH_AND_KIND == 4
@@ -463,6 +464,11 @@ public final class PageLayout {
   /** Heap offset out of a {@link #getDirEntry} result. */
   public static int dirEntryHeapOffset(final long entry) {
     return (int) entry;
+  }
+
+  /** Data length out of a {@link #getDirEntry} result; 0 denotes an empty directory slot. */
+  public static int dirEntryDataLength(final long entry) {
+    return (int) (entry >>> 40);
   }
 
   /** Node kind id out of a {@link #getDirEntry} result; 0 means "not a flyweight slot". */

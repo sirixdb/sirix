@@ -23,10 +23,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -181,8 +183,12 @@ public final class FsstRevisionSymbolTableIntegrationTest {
         assertTrue(rtx.moveToFirstChild(), "the object is missing");
         assertTrue(rtx.moveToFirstChild(), "the first field is missing");
         final List<String> read = new ArrayList<>(values.size());
+        int valueIndex = 0;
         do {
+          assertArrayEquals(values.get(valueIndex).getBytes(StandardCharsets.UTF_8), rtx.getValueBytes(),
+              "fused field semantic UTF-8 changed across the cold FSST round trip at index " + valueIndex);
           read.add(rtx.getValue());
+          valueIndex++;
         } while (rtx.moveToRightSibling());
         assertEquals(values, read,
             "fused field values did not survive the FSST pipeline round trip");

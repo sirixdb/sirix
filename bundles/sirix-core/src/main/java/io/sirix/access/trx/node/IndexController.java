@@ -226,6 +226,26 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
       @Nullable Str value);
 
   /**
+   * Notify primitive change details, including the changed node's already-known parent key.
+   *
+   * <p>The default forwards to the original primitive contract so third-party controllers remain
+   * compatible. Controllers with parent-aware listeners should override this overload and preserve
+   * the parent key through dispatch.</p>
+   *
+   * @param type type of change
+   * @param nodeKey node key of the changed node
+   * @param nodeKind node kind of the changed node
+   * @param parentKey parent key of the changed node
+   * @param pathNodeKey path node key of the changed node (or parent path key for value nodes)
+   * @param name optional name (only relevant for name-indexed kinds)
+   * @param value optional value (only relevant for value-indexed kinds)
+   */
+  default void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+    notifyChange(type, nodeKey, nodeKind, pathNodeKey, name, value);
+  }
+
+  /**
    * Create new indexes.
    *
    * @param indexDefs Set of {@link IndexDef}s
@@ -277,6 +297,26 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * serialization, so index writes still ride the committing transaction.
    */
   default void applyPendingIndexMaintenance() {
+    applyPendingIndexMaintenance(false);
+  }
+
+  /**
+   * Same hook, told whether this is the transaction's FINAL commit rather than an intermediate
+   * auto-commit — see {@link io.sirix.index.ChangeListener#beforeCommit(boolean)}. The read-your-writes
+   * serving path also calls the no-argument form, which is never final: serving a query must not end a
+   * load-time index build.
+   */
+  default void applyPendingIndexMaintenance(final boolean finalCommit) {
+  }
+
+  /**
+   * The transaction is about to flush its written pages out without committing
+   * ({@link io.sirix.access.trx.node.AfterCommitState#KEEP_OPEN_ASYNC_FLUSH}, the default for bulk
+   * imports). Listeners that maintain their index by RE-READING records must do so now: after the
+   * flush those records are neither in the transaction's log nor in any committed revision, so they
+   * cannot be read back at all until the transaction commits.
+   */
+  default void notifyBeforePageFlush() {
   }
 
   /**

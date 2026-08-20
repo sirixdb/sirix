@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.ProjectionSpec;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -73,6 +74,34 @@ public final class ClickBenchProjection {
       // Both arrive as ISO-8601 JSON strings — see the class javadoc.
       case STRING, DATE, DATETIME -> "string";
     };
+  }
+
+  /**
+   * The same declaration as {@link #createQuery()}, in the form the LOAD-TIME build takes: the index
+   * is catalogued before the shred and maintained by it, so the corpus is walked once instead of
+   * twice. Derived from the same {@link #PROJECTED_COLUMNS} list, so the two routes cannot declare
+   * different projections.
+   */
+  public static ProjectionSpec spec() {
+    return spec(-1L);
+  }
+
+  /**
+   * As above, carrying an expected record count so the resource-wide dictionary's election can
+   * decline a column whose dictionary would not fit. It matters here specifically: URL, Referer and
+   * Title are long and near-unique, and at 100M rows their dictionaries do not fit any heap this
+   * benchmark runs on.
+   *
+   * @param expectedRows the record count, or {@code -1} when unknown
+   */
+  public static ProjectionSpec spec(final long expectedRows) {
+    final List<String> paths = new ArrayList<>(PROJECTED_COLUMNS.size());
+    final List<String> types = new ArrayList<>(PROJECTED_COLUMNS.size());
+    for (final String column : PROJECTED_COLUMNS) {
+      paths.add(ROOT_PATH + '/' + column);
+      types.add(projectionType(column));
+    }
+    return new ProjectionSpec(ROOT_PATH, paths, types, expectedRows);
   }
 
   /** The {@code jn:create-projection-index} call for the projected columns. */

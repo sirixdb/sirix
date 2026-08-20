@@ -222,7 +222,14 @@ Other things to keep in mind when reading the numbers:
   the projection builder resolves its field paths through it). Building the index is charged to
   `Load time`, the way DuckDB's own per-column structures are charged to its ingest. Pass
   `-Dclickbench.projection=false` for a row-path A/B. See
-  [What the projection actually serves](#what-the-projection-actually-serves).
+  [What the projection actually serves](#what-the-projection-actually-serves);
+* the index is built **by** the shred rather than after it: the definition is catalogued on the empty
+  resource and the shred's own change notifications feed the projection builder, so the corpus is
+  walked once. At 1 M rows that is `Load time` 95.8 s against 121.7 s for shred-then-build (71.5 s +
+  50.2 s), and the saving grows with the corpus because the second pass it removes is a full walk.
+  Pass `-Dclickbench.projection.incremental=false` for the two-pass route, which is also the only
+  route available for a projection over an already-loaded resource. Both routes produce byte-identical
+  row groups and the same `# served` counters;
 
 ### Numbers
 

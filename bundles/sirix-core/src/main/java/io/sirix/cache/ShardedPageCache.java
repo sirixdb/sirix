@@ -1,7 +1,8 @@
 package io.sirix.cache;
 
-import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
+import io.sirix.page.interfaces.Page;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,33 +46,231 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   private final ConcurrentHashMap<PageReference, V> map = new ConcurrentHashMap<>();
   private final ReentrantLock evictionLock = new ReentrantLock();
   private final Shard<V> shard;
+  /** Preallocated callback + state guarded by evictionLock for allocation-free exact removal. */
+  private final BiFunction<PageReference, V, V> conditionalRemovalFunction;
+  private CacheablePage conditionalRemovalExpected;
+  private boolean conditionalRemovalSucceeded;
   private final long maxWeightBytes;
   private final AtomicLong currentWeightBytes = new AtomicLong(0L);
 
   /**
    * Weight actually CHARGED per cached entry. Removal/eviction must subtract exactly what
-   * insertion added: weightOf() returns 0 once a page is closed and changes when a page grows
-   * after insertion, so symmetric weightOf-based accounting drifted upward until the cache was
-   * permanently pinned in the severe-eviction branch.
+   * insertion added: a page's native size can become 0 once it is closed, and a HOT leaf's
+   * composite weight can change before publication, so symmetric weightOf-based accounting drifted
+   * upward until the cache was permanently pinned in the severe-eviction branch.
    */
-  private final ConcurrentHashMap<PageReference, Long> insertedWeights = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<PageReference, CacheCharge> insertedWeights = new ConcurrentHashMap<>();
 
-  /** Charge the CURRENT weight for {@code key}, replacing (and uncharging) any prior charge. */
-  private void chargeWeight(PageReference key, CacheablePage page) {
-    final long weight = weightOf(page);
-    final Long previous = (weight > 0) ? insertedWeights.put(key, weight) : insertedWeights.remove(key);
-    final long delta = weight - (previous != null ? previous : 0L);
+  /** Identity-stamped charge so a failed admission can never roll back a racing successor's weight. */
+  private static final class CacheCharge {
+    final long weight;
+
+    CacheCharge(long weight) {
+      this.weight = weight;
+    }
+  }
+
+  /** Slow-miss publication state; the cache-hit path allocates nothing. */
+  private static final class GuardedLoadState<T extends CacheablePage> {
+    T candidate;
+    T displaced;
+    CacheCharge appliedCharge;
+    CacheCharge previousCharge;
+    boolean chargeAttempted;
+    boolean weightCounterAdjusted;
+    boolean candidateGuarded;
+  }
+
+  /** Publish an already-validated weight without re-reading mutable page state. */
+  private void chargeWeight(PageReference key, long weight) {
+    final CacheCharge charge = weight > 0 ? new CacheCharge(weight) : null;
+    final CacheCharge previous = replaceCharge(key, charge);
+    final long delta = weight - chargedWeight(previous);
     if (delta != 0) {
-      currentWeightBytes.addAndGet(delta);
+      adjustCurrentWeight(delta);
+    }
+  }
+
+  /** Install one pre-created charge token, returning the exact token it replaced. */
+  private CacheCharge replaceCharge(PageReference key, CacheCharge charge) {
+    return charge != null ? insertedWeights.put(key, charge) : insertedWeights.remove(key);
+  }
+
+  private static long chargedWeight(CacheCharge charge) {
+    return charge != null ? charge.weight : 0L;
+  }
+
+  /** Stage an identity-addressable charge so a failed CHM publication can restore its predecessor. */
+  private void chargeGuardedCandidate(PageReference key, long weight, GuardedLoadState<?> state) {
+    state.appliedCharge = weight > 0 ? new CacheCharge(weight) : null;
+    state.previousCharge = insertedWeights.get(key);
+    state.chargeAttempted = true;
+    final CacheCharge actualPrevious = replaceCharge(key, state.appliedCharge);
+    state.previousCharge = actualPrevious;
+    final long delta = weight - chargedWeight(actualPrevious);
+    if (delta != 0) {
+      adjustCurrentWeight(delta);
+    }
+    state.weightCounterAdjusted = true;
+  }
+
+  /** Roll back only this admission's token; an intervening successor charge wins by identity. */
+  private void rollbackGuardedCandidateCharge(PageReference key, GuardedLoadState<?> state) {
+    if (!state.chargeAttempted) {
+      return;
+    }
+
+    final CacheCharge applied = state.appliedCharge;
+    final CacheCharge previous = state.previousCharge;
+    final boolean restored;
+    if (applied != null) {
+      restored = previous != null
+          ? insertedWeights.replace(key, applied, previous)
+          : insertedWeights.remove(key, applied);
+    } else if (previous != null) {
+      restored = insertedWeights.putIfAbsent(key, previous) == null;
+    } else {
+      restored = true;
+    }
+    if (restored && state.weightCounterAdjusted) {
+      final long delta = chargedWeight(previous) - chargedWeight(applied);
+      if (delta != 0) {
+        adjustCurrentWeight(delta);
+      }
     }
   }
 
   /** Subtract exactly the charge recorded at insertion (safe for closed/grown pages). */
   private void unchargeWeight(PageReference key) {
-    final Long previous = insertedWeights.remove(key);
-    if (previous != null && previous > 0) {
-      currentWeightBytes.addAndGet(-previous);
+    try {
+      final CacheCharge previous = insertedWeights.remove(key);
+      if (previous != null && previous.weight > 0) {
+        adjustCurrentWeight(-previous.weight);
+      }
+    } catch (RuntimeException | Error accountingFailure) {
+      // Detachment callbacks must still return null: letting an Error escape ConcurrentHashMap.compute
+      // after lifecycle mutation retains a dead mapping. The cache is already in a fatal accounting
+      // state, so report it without resurrecting ownership of the page.
+      LOGGER.error("Failed to uncharge detached cache key {}", key, accountingFailure);
     }
+  }
+
+  /** Clear only this page's swizzle; never erase a replacement installed on the same reference. */
+  private static void clearSwizzleIfSame(PageReference reference, CacheablePage page) {
+    try {
+      if (page instanceof Page swizzledPage) {
+        reference.clearPageIfSame(swizzledPage);
+      }
+    } catch (RuntimeException | Error swizzleFailure) {
+      LOGGER.error("Failed to clear detached page {} from its cache reference", page.getPageKey(), swizzleFailure);
+    }
+  }
+
+  /**
+   * Retire a page whose cache ownership has ended. A live guard becomes the sole lifecycle owner and
+   * performs the deferred physical close on its final release.
+   */
+  private static void retireDetachedPage(CacheablePage page) {
+    try {
+      if (!page.isClosed()) {
+        page.retire();
+      }
+    } catch (RuntimeException | Error retirementFailure) {
+      // Ownership has already ended. Keeping a half-retired page cache-visible would be worse than
+      // reporting the failed physical release and letting the page's own lifecycle finish it.
+      LOGGER.error("Failed to retire detached page {}: {}", page.getPageKey(), retirementFailure.getMessage(),
+          retirementFailure);
+    }
+  }
+
+  /**
+   * Remove the cache's ownership and recorded charge after an eviction selected {@code page} under
+   * {@code reference}'s map-compute lock.
+   *
+   * <p>A guard can arrive after the caller's guard-count check. {@link CacheablePage#retire()} then
+   * marks the page orphaned and defers its physical close to that holder; the mapping and charge must
+   * still disappear now. The page-local version is bumped only when no holder deferred the close.</p>
+   */
+  private void retireAndUnchargeEvictedPage(PageReference reference, CacheablePage page) {
+    try {
+      retireDetachedPage(page);
+      if (page.isClosed()) {
+        page.incrementVersion();
+      }
+    } catch (RuntimeException | Error versionFailure) {
+      LOGGER.error("Failed to finalize detached page {}: {}", page.getPageKey(), versionFailure.getMessage(),
+          versionFailure);
+    } finally {
+      try {
+        clearSwizzleIfSame(reference, page);
+      } finally {
+        unchargeWeight(reference);
+      }
+    }
+  }
+
+  /**
+   * Remove and uncharge {@code expected} only if it is still the exact mapping at {@code key}.
+   * Closed-page cleanup is rare and takes the eviction lock; the common removePage path already
+   * owns it and calls {@link #removeMappingIfSameWhileLocked(PageReference, CacheablePage)} directly.
+   */
+  private boolean removeMappingIfSame(PageReference key, CacheablePage expected) {
+    evictionLock.lock();
+    try {
+      return removeMappingIfSameWhileLocked(key, expected);
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
+  /**
+   * Exact conditional removal without a per-call holder or capturing lambda allocation.
+   * The callback and its mutable success state are cache-owned and serialized by evictionLock.
+   */
+  private boolean removeMappingIfSameWhileLocked(PageReference key, CacheablePage expected) {
+    if (!evictionLock.isHeldByCurrentThread()) {
+      throw new IllegalStateException("Exact cache removal requires the eviction lock");
+    }
+    if (conditionalRemovalExpected != null) {
+      throw new IllegalStateException("Nested exact cache removal is not supported");
+    }
+
+    conditionalRemovalExpected = expected;
+    conditionalRemovalSucceeded = false;
+    try {
+      map.compute(key, conditionalRemovalFunction);
+      return conditionalRemovalSucceeded;
+    } finally {
+      conditionalRemovalExpected = null;
+      conditionalRemovalSucceeded = false;
+    }
+  }
+
+  /** Preallocated {@link ConcurrentHashMap#compute} callback; state is guarded by evictionLock. */
+  private V removeExpectedMapping(PageReference reference, V current) {
+    if (current != conditionalRemovalExpected) {
+      return current;
+    }
+    clearSwizzleIfSame(reference, current);
+    unchargeWeight(reference);
+    conditionalRemovalSucceeded = true;
+    return null;
+  }
+
+  /** Apply an accounting delta without allowing the published byte count to wrap. */
+  private void adjustCurrentWeight(long delta) {
+    long current;
+    long adjusted;
+    do {
+      current = currentWeightBytes.get();
+      if (delta > 0) {
+        adjusted = saturatedAdd(current, delta);
+      } else {
+        // Both operands originate from non-negative recorded weights, so this subtraction cannot
+        // overflow a long. Clamp defensively if a racing lifecycle path already removed a charge.
+        adjusted = Math.max(0L, current + delta);
+      }
+    } while (!currentWeightBytes.compareAndSet(current, adjusted));
   }
 
   // ===== CACHE HIT/MISS INSTRUMENTATION =====
@@ -109,6 +308,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
    */
   public ShardedPageCache(long maxWeightBytes) {
     this.shard = new Shard(map, evictionLock);
+    this.conditionalRemovalFunction = this::removeExpectedMapping;
     this.maxWeightBytes = maxWeightBytes;
     LOGGER.info("Created ShardedPageCache (simplified single-map design) with maxWeight={} bytes", maxWeightBytes);
   }
@@ -136,19 +336,48 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   /**
    * Callback for eviction: adjust the tracked weight and bump the eviction counter.
    */
-  void onEvicted(PageReference ref) {
-    unchargeWeight(ref);
+  void onEvicted(PageReference ref, CacheablePage page) {
+    retireAndUnchargeEvictedPage(ref, page);
     CACHE_EVICTIONS.increment();
   }
 
   /**
    * Compute the weight (bytes) of a cached page.
+   *
+   * <p>HOT leaves add their allocation-free retained-heap estimate to the separately reported native
+   * frame. Re-putting a page samples its current estimate and replaces the recorded charge.</p>
    */
   long weightOf(CacheablePage page) {
     if (page == null) {
       return 0L;
     }
-    return page.getActualMemorySize();
+
+    final long nativeBytes = page.getActualMemorySize();
+    if (!(page instanceof HOTLeafPage hotLeafPage)) {
+      return nativeBytes;
+    }
+
+    return saturatedAdd(nativeBytes, hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
+  }
+
+  private static long saturatedAdd(long left, long right) {
+    try {
+      return Math.addExact(left, right);
+    } catch (ArithmeticException ignored) {
+      return Long.MAX_VALUE;
+    }
+  }
+
+  /** Record a cleanup failure without allowing self-suppression to replace the primary failure. */
+  private static void addSuppressedSafely(Throwable primary, Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (RuntimeException | Error ignored) {
+      // Preserve the failure that triggered cleanup even if suppression itself is unavailable.
+    }
   }
 
   /**
@@ -171,6 +400,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
   public V get(PageReference key) {
     V page = map.get(key);
     if (page != null) {
+      if (page.isClosed()) {
+        removeMappingIfSame(key, page);
+        return null;
+      }
       page.markAccessed();
     }
     return page;
@@ -192,18 +425,28 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       }
       V newPage = mappingFunction.apply(k, existingValue);
       if (newPage != null && !newPage.isClosed()) {
+        // Validate and sample the candidate before mutating the old mapping. If HOT cache-shape
+        // validation fails, ConcurrentHashMap keeps the existing value and its exact charge intact.
+        final long newWeight = weightOf(newPage);
         newPage.markAccessed();
         newPage.setLastCacheKey(k);
-        chargeWeight(k, newPage);
-
         if (DEBUG_MEMORY_LEAKS && newPage.getPageKey() == 0) {
           LOGGER.debug("[CACHE-COMPUTE] Page 0 computed and caching: {} rev={} instance={} guardCount={}",
               newPage.getIndexType(), newPage.getRevision(), System.identityHashCode(newPage), newPage.getGuardCount());
         }
-      } else if (existingValue != null) {
-        unchargeWeight(k); // mapping removed or replaced by a dead page — release its charge
+        // Replace the recorded charge before lifecycle mutation. After validation succeeds, the
+        // remaining detach operations are fail-closed and cannot make compute retain a dead value.
+        chargeWeight(k, newWeight);
+        if (existingValue != null) {
+          clearSwizzleIfSame(k, existingValue);
+        }
+        return newPage;
       }
-      return newPage;
+      if (existingValue != null) {
+        clearSwizzleIfSame(k, existingValue);
+        unchargeWeight(k);
+      }
+      return null;
     });
 
     evictIfOverBudget();
@@ -237,8 +480,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         return existingValue;
       }
       if (existingValue != null) {
+        retireDetachedPage(existingValue);
+        clearSwizzleIfSame(k, existingValue);
         unchargeWeight(k);
-        k.setPage(null);
       }
       return null;
     });
@@ -253,39 +497,133 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       return existing;
     }
 
-    V page = map.compute(key, (k, existingInCompute) -> {
-      // acquireGuard() can fail even after an isClosed() check: a non-compute closer
-      // (truncate sweep, TIL teardown) may close the page concurrently. A failed acquire
-      // means the mapping is dead — replace it with a fresh load instead of handing out a
-      // page the caller would use unguarded.
-      if (existingInCompute != null && !existingInCompute.isClosed() && existingInCompute.acquireGuard()) {
-        CACHE_HITS.increment();
-        existingInCompute.markAccessed();
-        return existingInCompute;
-      }
-      if (existingInCompute != null) {
-        unchargeWeight(k); // dead mapping — release its charge before replacing
-        k.setPage(null);
-      }
-      CACHE_MISSES.increment();
-      V loaded = loader.apply(k);
-      if (loaded != null && !loaded.isClosed()) {
-        loaded.markAccessed();
-        if (!loaded.acquireGuard()) {
-          // Freshly loaded page closed before we could guard it (cannot normally happen —
-          // the instance is still private). Free it and treat as a miss.
-          loaded.close();
+    final GuardedLoadState<V> loadState = new GuardedLoadState<>();
+    final V page;
+    try {
+      page = map.compute(key, (k, existingInCompute) -> {
+        // acquireGuard() can fail even after an isClosed() check: a non-compute closer
+        // (truncate sweep, TIL teardown) may close the page concurrently. A failed acquire
+        // means the mapping is dead — replace it with a fresh load instead of handing out a
+        // page the caller would use unguarded.
+        if (existingInCompute != null && !existingInCompute.isClosed() && existingInCompute.acquireGuard()) {
+          CACHE_HITS.increment();
+          existingInCompute.markAccessed();
+          return existingInCompute;
+        }
+        CACHE_MISSES.increment();
+        V loaded = loader.apply(k);
+        loadState.candidate = loaded;
+        loadState.displaced = existingInCompute;
+        long loadedWeight = 0L;
+        if (loaded != null && !loaded.isClosed()) {
+          // Admission must fail before the existing mapping is retired or uncharged.
+          loadedWeight = weightOf(loaded);
+          loaded.markAccessed();
+          if (!loaded.acquireGuard()) {
+            // Freshly loaded page closed before we could guard it (cannot normally happen —
+            // the instance is still private). Free it and treat as a miss.
+            retireDetachedPage(loaded);
+            loaded = null;
+          }
+        }
+
+        if (loaded == null || loaded.isClosed()) {
+          if (existingInCompute != null) {
+            retireDetachedPage(existingInCompute);
+            clearSwizzleIfSame(k, existingInCompute);
+            unchargeWeight(k);
+          }
           return null;
         }
+
+        // From this point until compute publishes its return, the candidate is still private and
+        // this method owns its one guard. Export just enough identity-stamped state for an outer
+        // CHM failure to restore the displaced mapping's charge without touching a racing successor.
+        loadState.candidateGuarded = true;
         loaded.setLastCacheKey(k);
-        chargeWeight(k, loaded);
-      } else {
-        return null;
+        chargeGuardedCandidate(k, loadedWeight, loadState);
+        return loaded;
+      });
+    } catch (final RuntimeException | Error publicationFailure) {
+      cleanupFailedGuardedLoad(key, loadState, publicationFailure);
+      throw publicationFailure;
+    }
+
+    if (loadState.candidate != null && loadState.candidate == page) {
+      try {
+        finalizeDisplacedGuardedLoad(key, loadState);
+      } catch (final RuntimeException | Error finalizationFailure) {
+        try {
+          page.releaseGuard();
+        } catch (final RuntimeException | Error guardReleaseFailure) {
+          addSuppressedSafely(finalizationFailure, guardReleaseFailure);
+        }
+        throw finalizationFailure;
       }
-      return loaded;
-    });
-    evictIfOverBudget();
-    return page;
+    }
+    try {
+      evictIfOverBudget();
+      return page;
+    } catch (final RuntimeException | Error enforcementFailure) {
+      if (page != null) {
+        try {
+          page.releaseGuard();
+        } catch (final RuntimeException | Error guardReleaseFailure) {
+          addSuppressedSafely(enforcementFailure, guardReleaseFailure);
+        }
+      }
+      throw enforcementFailure;
+    }
+  }
+
+  /** Complete deferred old-page ownership transfer only after CHM published the guarded candidate. */
+  private void finalizeDisplacedGuardedLoad(PageReference key, GuardedLoadState<V> state) {
+    final V displaced = state.displaced;
+    if (displaced != null && displaced != state.candidate) {
+      clearSwizzleIfSame(key, displaced);
+      retireDetachedPage(displaced);
+    }
+  }
+
+  /** Preserve the exact publication failure while restoring charge and private candidate ownership. */
+  private void cleanupFailedGuardedLoad(PageReference key, GuardedLoadState<V> state, Throwable primaryFailure) {
+    final V candidate = state.candidate;
+    if (candidate == null) {
+      return;
+    }
+
+    // Normally a throwing compute leaves its old mapping untouched. Keep the identity check because
+    // a cache/JDK implementation that published before surfacing a failure has already transferred
+    // candidate ownership; in that case its charge stays and the displaced page still needs cleanup.
+    final boolean candidatePublished = map.get(key) == candidate;
+    if (candidatePublished) {
+      try {
+        finalizeDisplacedGuardedLoad(key, state);
+      } catch (final RuntimeException | Error finalizationFailure) {
+        addSuppressedSafely(primaryFailure, finalizationFailure);
+      }
+    } else {
+      try {
+        rollbackGuardedCandidateCharge(key, state);
+      } catch (final RuntimeException | Error rollbackFailure) {
+        addSuppressedSafely(primaryFailure, rollbackFailure);
+      }
+      try {
+        candidate.retire();
+      } catch (final RuntimeException | Error retirementFailure) {
+        addSuppressedSafely(primaryFailure, retirementFailure);
+      }
+    }
+
+    if (state.candidateGuarded) {
+      try {
+        candidate.releaseGuard();
+      } catch (final RuntimeException | Error guardReleaseFailure) {
+        addSuppressedSafely(primaryFailure, guardReleaseFailure);
+      } finally {
+        state.candidateGuarded = false;
+      }
+    }
   }
 
   @Override
@@ -294,21 +632,21 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       throw new NullPointerException("Cannot cache null page");
     }
 
+    // Validate before entering compute: a rejected candidate must not retire the existing winner.
+    final long valueWeight = weightOf(value);
     value.markAccessed();
     value.setLastCacheKey(key);
     map.compute(key, (k, existing) -> {
-      if (existing instanceof KeyValueLeafPage && existing != value && !existing.isClosed()) {
-        // Replacing a live RECORD-page instance: hand the old one to the orphan protocol.
-        // Readers may still reference it (most-recent slots, in-flight lookups) — close()
-        // tears it down now when unguarded, otherwise the LAST releaseGuard() does. Leaving
-        // it open and unowned (the previous behavior) leaked its off-heap segments.
-        // HOT leaves are exempt: the same instance intentionally backs both a TIL
-        // PageContainer and this cache, and split/CoW paths re-put while older swizzled
-        // references still re-resolve through it — the TIL owns that lifecycle.
-        existing.markOrphaned();
-        existing.close();
+      chargeWeight(k, valueWeight);
+      if (existing != null && existing != value) {
+        // Returning value transfers this key's cache ownership from existing to value. Any reader
+        // that already guarded existing owns its deferred lifetime; without a guard there is no
+        // remaining owner, so retire closes it immediately. This applies equally to record and HOT
+        // leaves: a transaction that wants to retain a page must first removePage() and take
+        // ownership, rather than leave one instance simultaneously owned by the TIL and cache.
+        clearSwizzleIfSame(k, existing);
+        retireDetachedPage(existing);
       }
-      chargeWeight(k, value);
       return value;
     });
 
@@ -320,26 +658,29 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     if (value == null) {
       throw new NullPointerException("Cannot cache null page");
     }
-    value.setLastCacheKey(key);
-
     value.markAccessed();
-    V existing = map.putIfAbsent(key, value);
+    map.compute(key, (k, existing) -> {
+      if (existing != null) {
+        if (DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
+          LOGGER.debug("[CACHE-SKIP] Page 0 NOT added (already exists): {} rev={} newInstance={} existingInstance={}",
+              value.getIndexType(), value.getRevision(), System.identityHashCode(value),
+              System.identityHashCode(existing));
+        }
+        return existing;
+      }
 
-    if (DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
-      if (existing == null) {
+      // Compute the potentially-throwing HOT admission weight before publishing any mapping or
+      // accounting mutation. An existing winner bypasses this because value is never admitted.
+      final long valueWeight = weightOf(value);
+      value.setLastCacheKey(k);
+      if (DEBUG_MEMORY_LEAKS && value.getPageKey() == 0) {
         LOGGER.debug("[CACHE-ADD] Page 0 added to cache: {} rev={} instance={} guardCount={}", value.getIndexType(),
             value.getRevision(), System.identityHashCode(value), value.getGuardCount());
-      } else {
-        LOGGER.debug("[CACHE-SKIP] Page 0 NOT added (already exists): {} rev={} newInstance={} existingInstance={}",
-            value.getIndexType(), value.getRevision(), System.identityHashCode(value),
-            System.identityHashCode(existing));
       }
-    }
-
-    if (existing == null) {
-      chargeWeight(key, value);
-      evictIfOverBudget();
-    }
+      chargeWeight(k, valueWeight);
+      return value;
+    });
+    evictIfOverBudget();
   }
 
   @Override
@@ -381,7 +722,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       if (page != null) {
         removed[0] = page;
         unchargeWeight(k);
-        k.setPage(null);
+        clearSwizzleIfSame(k, page);
       }
       return null;
     });
@@ -393,7 +734,7 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     map.compute(key, (k, page) -> {
       if (page != null) {
         unchargeWeight(k);
-        k.setPage(null);
+        clearSwizzleIfSame(k, page);
       }
       return null;
     });
@@ -418,21 +759,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
       // Fast path: the page remembers the reference it was last cached under. Verified by IDENTITY
       // before acting, so a stale remembered key simply falls through to the scan below.
       final PageReference remembered = page.lastCacheKey();
-      if (remembered != null && map.get(remembered) == page) {
-        map.remove(remembered);
-        unchargeWeight(remembered);
-        remembered.setPage(null);
+      if (remembered != null && removeMappingIfSameWhileLocked(remembered, page)) {
         return;
       }
-      for (final var it = map.entrySet().iterator(); it.hasNext();) {
-        final var entry = it.next();
-        if (entry.getValue() == page) {
-          it.remove();
-          // Release the recorded charge via insertedWeights (see evictUnderPressure) so a later
-          // re-insert under the same reference is charged with a correct delta.
-          unchargeWeight(entry.getKey());
-          entry.getKey().setPage(null);
-          break;
+      for (final var entry : map.entrySet()) {
+        if (entry.getValue() == page && removeMappingIfSameWhileLocked(entry.getKey(), page)) {
+          return;
         }
       }
     } finally {
@@ -582,7 +914,6 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
           if (page == null) {
             return null;
           }
-
           // Two-pass HOT-bit only in the non-severe path; in severe mode we
           // evict cold-or-hot unguarded pages in a single pass.
           if (!severe && page.isHot()) {
@@ -600,23 +931,10 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
           }
 
           try {
-            // close() first — it's a no-op if guards are held. Only bump
-            // version and break the back-reference AFTER we know the page
-            // is dead. Previously these mutations happened before close(),
-            // so a concurrent reader with a snapshotted version (PageGuard)
-            // would see a drifted version on release and throw
-            // FrameReusedException even though the eviction never happened.
-            page.close();
-            if (!page.isClosed()) {
-              return page; // Guard acquired concurrently — no mutations applied.
-            }
-
-            page.incrementVersion();
-            ref.setPage(null);
-
-            unchargeWeight(ref);
-
-            return null; // Successfully evicted
+            // A guard may arrive after the check above. Retire makes that holder the deferred
+            // lifecycle owner, while the cache mapping and charge still disappear immediately.
+            retireAndUnchargeEvictedPage(ref, page);
+            return null;
           } catch (Exception e) {
             LOGGER.error("Failed to evict page {} during budget enforcement: {}", page.getPageKey(), e.getMessage());
             return page;
@@ -665,17 +983,9 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
             return page;
           }
           try {
-            page.close();
-            if (!page.isClosed()) {
-              return page;
-            }
-            page.incrementVersion();
-            ref.setPage(null);
-            // Release exactly the recorded charge (NOT weightOf(page) directly): a manual
-            // subtraction leaves the stale entry in insertedWeights, so the next chargeWeight
-            // for this reference computes a zero delta and the re-inserted page is never
-            // accounted — the weight drifts towards zero and budget eviction stops firing.
-            unchargeWeight(ref);
+            // Retire before detaching so a guard acquired after getGuardCount() owns the deferred
+            // close. The recorded insertion charge is removed even when physical release waits.
+            retireAndUnchargeEvictedPage(ref, page);
             return null;
           } catch (Exception e) {
             LOGGER.debug("evictUnderPressure failed for page {}: {}", page.getPageKey(), e.getMessage());
@@ -725,4 +1035,3 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         totalMemory / (1024.0 * 1024.0));
   }
 }
-

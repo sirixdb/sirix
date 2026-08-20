@@ -1266,8 +1266,8 @@ public enum VersioningType {
   /**
    * Merge HOT fragments by full key. Single newest-fragment fast path returns the page directly.
    * Multi-fragment path copies the newest, then walks older fragments inserting any keys absent from
-   * the result. Tombstones in newer fragments shadow older entries; tombstones in older fragments
-   * without a newer entry remain dropped.
+   * the result until it reaches a complete dump. Tombstones in newer fragments shadow older entries;
+   * tombstones in older fragments without a newer entry remain dropped.
    */
   private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
@@ -1314,6 +1314,15 @@ public enum VersioningType {
         } else {
           result.mergeWithNodeRefs(key, key.length, value, value.length);
         }
+      }
+
+      // A complete dump is a replacement snapshot, not another delta to layer on top of its
+      // predecessors. It can occur in the middle of a chain after a leaf split: entries moved to
+      // the right-hand leaf are absent from this page but still exist in older fragments for its
+      // former range. Continuing past this boundary would merge those stale entries back into the
+      // left-hand leaf and make them visible again.
+      if (olderPage.isCompleteDump()) {
+        break;
       }
     }
 
@@ -1389,7 +1398,8 @@ public enum VersioningType {
     // page and throws OutOfMemoryError under allocator pressure. A throw before the finally would
     // leave the fragments guarded forever, and a permanently guarded entry is skipped by every
     // eviction path while still counting against the cache budget.
-    final HOTLeafPage modifiedLeaf;
+    HOTLeafPage modifiedLeaf = null;
+    Throwable primaryFailure = null;
     try {
       // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
       // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
@@ -1406,14 +1416,54 @@ public enum VersioningType {
       } else if (differentialCumulative && windowFragments != null && !windowFragments.isEmpty()) {
         carryForwardDifferentialDelta(windowFragments.getFirst(), modifiedLeaf);
       }
+    } catch (final RuntimeException | Error failure) {
+      primaryFailure = failure;
+      retireModifiedHOTLeafAfterFailure(hotLeaf, modifiedLeaf, failure);
+      throw failure;
     } finally {
       if (windowFragments != null) {
         // Chain fragments are guarded cache entries: release them, never close. hotLeaf belongs to
         // the caller and is never part of this window, but is passed as keepOpen defensively.
-        storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
+        try {
+          storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
+        } catch (final RuntimeException | Error releaseFailure) {
+          if (primaryFailure != null) {
+            addSuppressedSafely(primaryFailure, releaseFailure);
+          } else {
+            // A successful copy has not escaped to the caller yet. If releasing the borrowed
+            // fragment window fails, this method still owns that copy and must retire it.
+            retireModifiedHOTLeafAfterFailure(hotLeaf, modifiedLeaf, releaseFailure);
+            throw releaseFailure;
+          }
+        }
       }
     }
     return modifiedLeaf;
+  }
+
+  /** Retire a locally owned CoW result without replacing the failure that prevented its return. */
+  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf,
+      final HOTLeafPage modifiedLeaf, final Throwable primaryFailure) {
+    if (modifiedLeaf == null || modifiedLeaf == sourceLeaf) {
+      return;
+    }
+    try {
+      modifiedLeaf.retire();
+    } catch (final RuntimeException | Error retirementFailure) {
+      addSuppressedSafely(primaryFailure, retirementFailure);
+    }
+  }
+
+  /** Keep the operation failure authoritative even for self/suppression-disabled throwables. */
+  private static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // The operation failure remains authoritative.
+    }
   }
 
   /**
@@ -1821,5 +1871,3 @@ public enum VersioningType {
     return System.nanoTime(); // Temporary unique key
   }
 }
-
-

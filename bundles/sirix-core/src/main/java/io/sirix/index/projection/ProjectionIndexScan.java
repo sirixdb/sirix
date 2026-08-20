@@ -457,11 +457,7 @@ public final class ProjectionIndexScan {
 
   private static void evalStringDict(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p,
       final int rowCount, final long[] out) {
-    final byte[][] dict = leaf.stringDictionary(p.column);
-    int dictSize = 0;
-    while (dictSize < dict.length && dict[dictSize] != null) {
-      dictSize++;
-    }
+    final int dictSize = leaf.stringDictionarySize(p.column);
     // Two-phase: evaluate the predicate ONCE per dictionary entry into an id bitset (dictSize
     // string operations, bounded by rowCount by format invariant), then sweep the rows as one
     // bit test each. The old single-target loop only expressed EQ/NE; the per-entry form serves
@@ -471,7 +467,9 @@ public final class ProjectionIndexScan {
     boolean any = false;
     final boolean litHasSupplementary = hasFourByteUtf8(p.stringLitBytes, 0, p.stringLitBytes.length);
     for (int i = 0; i < dictSize; i++) {
-      if (stringDictEntryMatches(dict[i], 0, dict[i].length, p.op, p.stringLitBytes, litHasSupplementary)) {
+      if (stringDictEntryMatches(leaf.stringDictionaryEntryBacking(p.column, i),
+          leaf.stringDictionaryEntryOffset(p.column, i), leaf.stringDictionaryEntryLength(p.column, i), p.op,
+          p.stringLitBytes, litHasSupplementary)) {
         idBits[i >>> 6] |= 1L << (i & 63);
         any = true;
       }
@@ -576,10 +574,13 @@ public final class ProjectionIndexScan {
       // different question no caller asks yet — fail loud, mirroring the byte kernel's guard.
       throw new IllegalStateException("STRING_SET supports EQ membership only, got " + p.op);
     }
-    final byte[][] dict = leaf.stringDictionary(p.column);
     int targetDictId = -1;
-    for (int i = 0; i < dict.length && dict[i] != null; i++) {
-      if (Arrays.equals(dict[i], p.stringLitBytes)) {
+    final int dictSize = leaf.stringDictionarySize(p.column);
+    for (int i = 0; i < dictSize; i++) {
+      final byte[] backing = leaf.stringDictionaryEntryBacking(p.column, i);
+      final int offset = leaf.stringDictionaryEntryOffset(p.column, i);
+      final int length = leaf.stringDictionaryEntryLength(p.column, i);
+      if (Arrays.equals(backing, offset, offset + length, p.stringLitBytes, 0, p.stringLitBytes.length)) {
         targetDictId = i;
         break;
       }

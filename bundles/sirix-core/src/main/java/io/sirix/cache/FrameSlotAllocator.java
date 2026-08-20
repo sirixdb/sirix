@@ -11,7 +11,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -112,6 +111,15 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(FrameSlotAllocator.class);
 
+  private static final int SCOPE_CHUNK_SHIFT = 12;
+  private static final int SCOPE_CHUNK_SIZE = 1 << SCOPE_CHUNK_SHIFT;
+  private static final int SCOPE_CHUNK_MASK = SCOPE_CHUNK_SIZE - 1;
+  private static final int MAX_RECYCLED_SCAN_PASSES = 4;
+  private static final VarHandle SCOPE_CHUNK =
+      MethodHandles.arrayElementVarHandle(MemorySegment.Scope[][].class);
+  private static final VarHandle SCOPE_ENTRY =
+      MethodHandles.arrayElementVarHandle(MemorySegment.Scope[].class);
+
   // ===== Size classes (must match LinuxMemorySegmentAllocator.SEGMENT_SIZES) =
   public static final long[] SIZE_CLASSES = {4L * 1024, // 4 KiB
       8L * 1024, // 8 KiB
@@ -133,17 +141,32 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    *
    * <p>
    * Slot-index allocation strategy: fresh slots are handed out lazily via {@link #nextFreshIndex};
-   * recycled slots land on {@link #freeSlots}. The allocator always tries the recycled stack first,
-   * so stable-address recycling dominates once the cache is warm. Lazy-fresh avoids a 512K+
-   * boxed-Integer startup cost.
+   * recycled slots are represented by one bit in {@link #recycledSlots}. The allocator always tries
+   * a recycled slot first, biased toward {@link #recycleHint}, so stable-address recycling dominates
+   * once the cache is warm. The bit set is both bounded and allocation-free: unlike a linked stack,
+   * it has neither boxed indices nor per-release nodes, and a FREE-to-OWNED CAS has no linked-head
+   * ABA state to stamp.
+   *
+   * <p>
+   * Interface allocations publish their allocation-era identity in {@link #liveScopes}. The outer
+   * table is fixed at initialization, while 4,096-slot reference chunks are materialized only when
+   * an interface allocation first reaches that range. Thus unused virtual capacity does not pin a
+   * multi-million-entry reference array, and warmed allocation/release performs no metadata
+   * allocation.
    */
   private static final class SizeClass {
     final long slotSize;
     final int slotCount;
     final MemorySegment region;
+    final long baseAddress;
+    final long regionBytes;
     final AtomicLongArray slotVersion;
     final AtomicInteger nextFreshIndex = new AtomicInteger();
-    final ConcurrentLinkedDeque<Integer> freeSlots = new ConcurrentLinkedDeque<>();
+    final AtomicLongArray recycledSlots;
+    final AtomicInteger recycledCount = new AtomicInteger();
+    final AtomicInteger recycleHint = new AtomicInteger(-1);
+    final AtomicInteger recycleScanCursor = new AtomicInteger();
+    final MemorySegment.Scope[][] liveScopes;
     final AtomicInteger liveCount = new AtomicInteger();
     final AtomicLong allocCount = new AtomicLong();
     final AtomicLong releaseCount = new AtomicLong();
@@ -152,7 +175,11 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       this.slotSize = slotSize;
       this.slotCount = slotCount;
       this.region = region;
+      this.baseAddress = region.address();
+      this.regionBytes = region.byteSize();
       this.slotVersion = new AtomicLongArray(slotCount);
+      this.recycledSlots = new AtomicLongArray((slotCount + Long.SIZE - 1) / Long.SIZE);
+      this.liveScopes = new MemorySegment.Scope[(slotCount + SCOPE_CHUNK_SIZE - 1) >>> SCOPE_CHUNK_SHIFT][];
     }
   }
 
@@ -211,26 +238,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     poisonOnRelease = poison;
   }
 
-  /**
-   * A slot issued through {@link #allocate(long)}, paired with the per-allocation scope that
-   * identifies THIS allocation era of the slot's address (#1073 Defect A). The free stack is LIFO, so
-   * a just-released slot is re-issued first — at the same stable address. An address-only release
-   * then lets a stale, dangling segment reference (a delayed double-release) look up and close the
-   * NEXT owner's live slot: silent use-after-free plus a double budget decrement. Each allocation is
-   * therefore issued under a fresh {@link Arena#ofShared()} whose scope acts as an unforgeable
-   * identity token: reinterpret/ slice-derived segments inherit the issuing scope (so all legitimate
-   * release patterns still match), while a segment from a prior era carries the prior era's scope and
-   * is rejected.
-   */
-  private record Issued(FrameSlot slot, MemorySegment.Scope scope) {
-  }
-
-  /**
-   * Address → live issued-slot map used by the {@link #release(MemorySegment)} implementation of the
-   * {@link MemorySegmentAllocator} interface. Callers using the native {@link FrameSlot} handle API
-   * don't hit this map.
-   */
-  private final ConcurrentHashMap<Long, Issued> liveByAddress = new ConcurrentHashMap<>();
+  /** Number of live interface-issued slots, maintained for diagnostics without scanning scope chunks. */
+  private final AtomicInteger issuedSlotCount = new AtomicInteger();
 
   /**
    * Address → arena map for allocations LARGER than the largest size class (e.g. decompression
@@ -355,36 +364,38 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * for optimistic reads. Returns {@code null} if the class has no free slots.
    */
   public FrameSlot allocateSlot(final long requestedBytes) {
-    // Defensive lazy-init: production code path always calls
-    // Databases.initAllocator first, but unit tests that exercise KVL pages
-    // directly skip that step. Match LinuxMemorySegmentAllocator's behavior
-    // and auto-init with a 16 GiB default budget rather than NPE'ing.
-    if (classes == null) {
-      synchronized (this) {
-        if (classes == null) {
-          LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
-          init(16L * 1024 * 1024 * 1024);
-        }
-      }
-    }
+    ensureInitialized();
     final int classIdx = indexForSize(requestedBytes);
     if (classIdx < 0) {
       throw new IllegalArgumentException("requested size " + requestedBytes + " exceeds largest class");
     }
     final SizeClass c = classes[classIdx];
+    final int slotIdx = acquireSlot(c);
+    if (slotIdx < 0) {
+      return null;
+    }
+    final long owned = c.slotVersion.getAcquire(slotIdx);
+    final MemorySegment slot = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize);
+    return new FrameSlot(this, classIdx, slotIdx, owned, slot);
+  }
 
+  /**
+   * Reserve one slot in {@code c}, returning its primitive index. The slot is exclusively owned when
+   * this method returns; no handle, map entry, boxed address, or free-list node is created.
+   */
+  private int acquireSlot(final SizeClass c) {
     // Global physical-budget reserve. Must happen before we grab a slot so a
     // budget-exceeded caller doesn't burn a slot index it can't populate.
     final long after = physicalBytes.addAndGet(c.slotSize);
     if (after > budgetBytes) {
       physicalBytes.addAndGet(-c.slotSize);
-      return null;
+      return -1;
     }
 
     final int slotIdx = popFreeSlot(c);
     if (slotIdx < 0) {
       physicalBytes.addAndGet(-c.slotSize);
-      return null;
+      return -1;
     }
 
     // Version transition: prior even → odd (writer in progress) → next even
@@ -394,7 +405,6 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     final long inProgress = prior | 1L;
     c.slotVersion.setRelease(slotIdx, inProgress);
 
-    final MemorySegment slot = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize);
     // No MADV_POPULATE_WRITE on recycle: the slot's physical pages survive
     // across allocate/release cycles. Fresh slots take the first-write fault
     // which the kernel serves from the zero page — one page fault amortized
@@ -406,12 +416,26 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     c.liveCount.incrementAndGet();
     c.allocCount.incrementAndGet();
     assert (owned & 1L) == 0L : "owned version must be even";
-    return new FrameSlot(this, classIdx, slotIdx, owned, slot);
+    return slotIdx;
+  }
+
+  // Defensive lazy-init: production code calls Databases.initAllocator first, but focused page
+  // tests construct pages directly. Match LinuxMemorySegmentAllocator's lazy behavior without
+  // allowing a concurrent caller to observe classes before all per-class metadata is published.
+  private void ensureInitialized() {
+    if (classes == null) {
+      synchronized (this) {
+        if (classes == null) {
+          LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
+          init(16L * 1024 * 1024 * 1024);
+        }
+      }
+    }
   }
 
   /**
-   * {@link MemorySegmentAllocator}-conforming allocate. Wraps {@link #allocateSlot(long)} and records
-   * the slot in an address-indexed map so {@link #release(MemorySegment)} can look it up.
+   * {@link MemorySegmentAllocator}-conforming allocate. Acquires a primitive slot index directly and
+   * publishes the allocation scope in that slot's pre-indexed metadata.
    *
    * <p>
    * On class exhaustion, parks briefly and retries — the {@link ClockSweeper} runs on a daemon thread
@@ -438,30 +462,35 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       oversizedByAddress.put(segment.address(), arena);
       return segment;
     }
-    FrameSlot slot = allocateSlot(size);
-    if (slot == null) {
+    ensureInitialized();
+    final int classIdx = indexForSize(size);
+    if (classIdx < 0) {
+      throw new IllegalArgumentException("requested size " + size + " exceeds largest class");
+    }
+    final SizeClass c = classes[classIdx];
+    int slotIdx = acquireSlot(c);
+    if (slotIdx < 0) {
       // First shot at relief before parking: the cache is the most likely
       // owner of the bytes we need, so ask it to evict synchronously. Skips
       // the 500 ms ClockSweeper cadence in the common hot-scan case.
       firePressure();
-      slot = allocateSlot(size);
+      slotIdx = acquireSlot(c);
     }
-    if (slot == null) {
+    if (slotIdx < 0) {
       long parkNanos = 50_000L;
       long totalWaitedNanos = 0L;
       final long maxWaitNanos = 10_000_000_000L;
-      while (slot == null && totalWaitedNanos < maxWaitNanos) {
+      while (slotIdx < 0 && totalWaitedNanos < maxWaitNanos) {
         java.util.concurrent.locks.LockSupport.parkNanos(parkNanos);
         totalWaitedNanos += parkNanos;
         parkNanos = Math.min(parkNanos * 2, 5_000_000L);
-        slot = allocateSlot(size);
-        if (slot == null) {
+        slotIdx = acquireSlot(c);
+        if (slotIdx < 0) {
           firePressure();
-          slot = allocateSlot(size);
+          slotIdx = acquireSlot(c);
         }
       }
-      if (slot == null) {
-        final int classIdx = indexForSize(size);
+      if (slotIdx < 0) {
         LOGGER.warn("FrameSlotAllocator class {} saturated for {} ms (size {}): sweeper unable to free slots", classIdx,
             totalWaitedNanos / 1_000_000L, size);
         dumpStateForOOM(classIdx, size, totalWaitedNanos);
@@ -469,19 +498,34 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
             + " bytes after " + (totalWaitedNanos / 1_000_000L) + " ms of retry");
       }
     }
-    // Issue the slot under a fresh shared arena: the arena's scope is this allocation era's
-    // identity token (see Issued). reinterpret keeps the address and bounds; no memory is owned
-    // by the arena, it exists purely so release() can tell this era's segments from a stale
-    // segment of a previous era at the same recycled address (#1073 Defect A).
-    final MemorySegment seg = slot.segment().reinterpret(slot.segment().byteSize(), Arena.ofShared(), null);
-    liveByAddress.put(seg.address(), new Issued(slot, seg.scope()));
-    return seg;
+    // A fresh scope is the allocation era's identity token. Slice/reinterpret-derived segments keep
+    // it, while a stale segment at this recycled address carries a different scope (#1073 Defect A).
+    // The primitive slot was already charged above, so every failure in the FFM wrapping or lazy
+    // scope-table publication must return that exact slot and budget reservation.
+    final long ownedVersion = c.slotVersion.getAcquire(slotIdx);
+    try {
+      final Arena scopeArena = Arena.ofShared();
+      final MemorySegment segment = c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize)
+          .reinterpret(c.slotSize, scopeArena, null);
+      if (!publishScope(c, slotIdx, segment.scope())) {
+        throw new IllegalStateException("slot " + slotIdx + " in size class " + classIdx
+            + " retained a live allocation scope while marked free");
+      }
+      issuedSlotCount.incrementAndGet();
+      return segment;
+    } catch (final RuntimeException | Error failure) {
+      // Do not close a shared identity arena here: GraalVM native-image requires
+      // -H:+SharedArenaSupport for any shared-arena close call, which is mutually exclusive with the
+      // Vector API configuration used by Sirix. No native memory was allocated from this arena.
+      releaseSlot(classIdx, slotIdx, ownedVersion);
+      throw failure;
+    }
   }
 
   /**
-   * {@link MemorySegmentAllocator}-conforming release. Maps {@code segment.address()} back to the
-   * live {@link FrameSlot} and closes it — which bumps the slot's version, {@code MADV_DONTNEED}s its
-   * pages, and returns the slot to the free stack at the same virtual address.
+   * {@link MemorySegmentAllocator}-conforming release. Decodes {@code segment.address()} directly
+   * against the seven reserved regions and atomically clears the slot's exact allocation-era scope
+   * before returning it to the recycled-slot set.
    *
    * <p>
    * Idempotent: a second release for the same address is a no-op. A release whose segment belongs to
@@ -495,29 +539,54 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
       return;
     }
     final long address = segment.address();
+    final int classIdx = classIndexForAddress(address);
+    if (classIdx >= 0) {
+      releaseFrameSegment(segment, address, classIdx);
+      return;
+    }
+
     // Oversized allocation (#1076): confined-arena-backed, not slot-backed — close the arena to
     // reclaim the native memory deterministically. Confined close must run on the allocating
-    // thread; a cross-thread release throws WrongThreadException, surfacing the misuse loudly.
-    // Checked first: oversized segments can never match an Issued frame-slot era token below.
+    // thread; a cross-thread release throws WrongThreadException, surfacing the misuse loudly. This
+    // boxed map probe is deliberately after primitive reserved-region decoding, so normal frame
+    // release never creates a Long key merely to prove that it is not oversized.
     final Arena oversized = oversizedByAddress.remove(address);
     if (oversized != null) {
       oversized.close();
+    }
+  }
+
+  private void releaseFrameSegment(final MemorySegment segment, final long address, final int classIdx) {
+    final SizeClass c = classes[classIdx];
+    final int slotIdx = slotIndexForAddress(c, address);
+    if (slotIdx < 0) {
       return;
     }
-    final Issued issued = liveByAddress.get(address);
-    if (issued == null) {
+    final MemorySegment.Scope allocationScope = segment.scope();
+    if (!clearScope(c, slotIdx, allocationScope)) {
+      final MemorySegment.Scope currentScope = currentScope(c, slotIdx);
+      if (currentScope != null && currentScope != allocationScope) {
+        // Stale double-release from a previous era of this recycled address. The current scope
+        // belongs to a different, live allocation; leave it and all counters untouched.
+        LOGGER.warn("Rejected stale release of address {} ({} bytes): the segment belongs to a prior "
+            + "allocation era of this slot (double-release detected).", address, segment.byteSize());
+      }
       return;
     }
-    if (!issued.scope().equals(segment.scope())) {
-      // Stale double-release from a previous era of this (recycled) address. The current
-      // mapping belongs to a different, live allocation — leave it untouched.
+
+    final long ownedVersion = c.slotVersion.getAcquire(slotIdx);
+    if (!releaseSlot(classIdx, slotIdx, ownedVersion)) {
+      // The exact current scope was claimed, so this can only indicate internal metadata corruption.
+      // Restore ownership instead of leaking the live slot behind a null identity entry.
+      if (!publishExistingScope(c, slotIdx, allocationScope)) {
+        throw new IllegalStateException("unable to restore allocation scope after failed slot release for class "
+            + classIdx + ", slot " + slotIdx);
+      }
       LOGGER.warn("Rejected stale release of address {} ({} bytes): the segment belongs to a prior "
           + "allocation era of this slot (double-release detected).", address, segment.byteSize());
       return;
     }
-    if (liveByAddress.remove(address, issued)) {
-      issued.slot().close();
-    }
+    issuedSlotCount.decrementAndGet();
   }
 
   /**
@@ -533,14 +602,8 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
-   * Hand out a slot index. Recycled slots come off {@link SizeClass#freeSlots} first (stable-address
-   * reuse, which is the core of the Umbra design). If the recycle stack is empty, a fresh index is
-   * carved off the virtual region via {@link SizeClass#nextFreshIndex}. Returns {@code -1} when both
-   * sources are exhausted.
-   */
-  /**
    * Dumps per-class allocator state when an allocation saturates — live slot count, total lifetime
-   * allocates/releases, slots still in {@code liveByAddress}, and physical-byte accounting. Emitted
+   * allocates/releases, live interface scopes, and physical-byte accounting. Emitted
    * to stderr so it lands even when logback config swallows WARN. Diagnostic tool for cases where the
    * pool appears exhausted but the cache should have evicted.
    */
@@ -551,13 +614,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         waitedNanos / 1_000_000L));
     sb.append(String.format("  physicalBytes=%d / budget=%d (%.1f%%)%n", physicalBytes.get(), budgetBytes,
         100.0 * physicalBytes.get() / budgetBytes));
-    sb.append(String.format("  liveByAddress entries=%d%n", liveByAddress.size()));
+    sb.append(String.format("  interface-issued slots=%d%n", issuedSlotCount.get()));
     for (int i = 0; i < classes.length; i++) {
       final SizeClass c = classes[i];
       sb.append(
-          String.format("  class[%d] slotSize=%d  slots=%d  live=%d  alloc=%d  release=%d  freeStack=%d  freshIdx=%d%n",
+          String.format("  class[%d] slotSize=%d  slots=%d  live=%d  alloc=%d  release=%d  recycled=%d  freshIdx=%d%n",
               i, c.slotSize, c.slotCount, c.liveCount.get(), c.allocCount.get(), c.releaseCount.get(),
-              c.freeSlots.size(), c.nextFreshIndex.get()));
+              c.recycledCount.get(), c.nextFreshIndex.get()));
     }
     sb.append("=== end FrameSlotAllocator state ===\n");
     System.err.print(sb);
@@ -575,31 +638,124 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     }
   }
 
+  /**
+   * Hand out a slot index. Recycled slots are preferred for stable-address reuse; otherwise a
+   * never-used index is carved atomically from the virtual region.
+   */
   private static int popFreeSlot(final SizeClass c) {
-    final Integer recycled = c.freeSlots.pollLast();
-    if (recycled != null) {
-      // Recycled slots stay committed across allocate/release cycles — no syscall.
-      return recycled.intValue();
+    final int recycled = popRecycledSlot(c);
+    if (recycled >= 0) {
+      return recycled;
     }
-    final int fresh = c.nextFreshIndex.getAndIncrement();
-    if (fresh < c.slotCount) {
-      // First hand-out of this slot: POSIX overcommits (no-op); Windows must MEM_COMMIT here,
-      // since reserved-but-uncommitted pages fault on first touch.
-      VM.commitFresh(c.region.asSlice((long) fresh * c.slotSize, c.slotSize));
-      return fresh;
+
+    int fresh;
+    do {
+      fresh = c.nextFreshIndex.getAcquire();
+      if (fresh >= c.slotCount) {
+        return -1;
+      }
+    } while (!c.nextFreshIndex.compareAndSet(fresh, fresh + 1));
+
+    // First hand-out of this slot: POSIX overcommits (no-op); Windows must MEM_COMMIT here, since
+    // reserved-but-uncommitted pages fault on first touch. Recycled slots remain committed.
+    VM.commitFresh(c.region.asSlice((long) fresh * c.slotSize, c.slotSize));
+    return fresh;
+  }
+
+  private static int popRecycledSlot(final SizeClass c) {
+    int available;
+    do {
+      available = c.recycledCount.getAcquire();
+      if (available == 0) {
+        return -1;
+      }
+    } while (!c.recycledCount.compareAndSet(available, available - 1));
+
+    // Reserving one count credit guarantees that at least one free bit remains for this caller.
+    // Other consumers may win individual bit races, so retry scans until this caller linearizes one
+    // FREE-to-OWNED CAS; choosing a fresh slot here would strand a known recycled slot.
+    final int hinted = c.recycleHint.getAndSet(-1);
+    if (hinted >= 0 && tryClaimRecycledSlot(c, hinted)) {
+      return hinted;
     }
-    c.nextFreshIndex.decrementAndGet();
+
+    final int wordCount = c.recycledSlots.length();
+    int firstWord = c.recycleScanCursor.getAcquire();
+    for (int pass = 0; pass < MAX_RECYCLED_SCAN_PASSES; pass++) {
+      for (int offset = 0; offset < wordCount; offset++) {
+        final int wordIndex = (firstWord + offset) % wordCount;
+        long freeBits = c.recycledSlots.get(wordIndex);
+        while (freeBits != 0L) {
+          final int bitIndex = Long.numberOfTrailingZeros(freeBits);
+          final long claimedBits = freeBits & ~(1L << bitIndex);
+          if (c.recycledSlots.compareAndSet(wordIndex, freeBits, claimedBits)) {
+            final int slotIdx = (wordIndex << 6) + bitIndex;
+            assert slotIdx < c.slotCount : "padding bit must never be published as free";
+            updateRecycleScanCursor(c, wordIndex, claimedBits);
+            return slotIdx;
+          }
+          freeBits = c.recycledSlots.get(wordIndex);
+        }
+      }
+      Thread.onSpinWait();
+      firstWord = c.recycleScanCursor.getAcquire();
+    }
+
+    // A caller can lose every observed bit to competing reserved consumers. Return this caller's
+    // count credit after bounded full scans rather than spin indefinitely; a later attempt can take
+    // the remaining recycled slot, while this attempt may safely fall back to a fresh index.
+    c.recycledCount.incrementAndGet();
     return -1;
   }
 
-  private static void pushFreeSlot(final SizeClass c, final int slotIdx) {
-    c.freeSlots.offerLast(slotIdx);
+  private static boolean tryClaimRecycledSlot(final SizeClass c, final int slotIdx) {
+    final int wordIndex = slotIdx >>> 6;
+    final long mask = 1L << slotIdx;
+    long freeBits = c.recycledSlots.get(wordIndex);
+    while ((freeBits & mask) != 0L) {
+      final long claimedBits = freeBits & ~mask;
+      if (c.recycledSlots.compareAndSet(wordIndex, freeBits, claimedBits)) {
+        updateRecycleScanCursor(c, wordIndex, claimedBits);
+        return true;
+      }
+      freeBits = c.recycledSlots.get(wordIndex);
+    }
+    return false;
+  }
+
+  private static void updateRecycleScanCursor(final SizeClass c, final int claimedWord, final long claimedBits) {
+    if (claimedBits != 0L) {
+      c.recycleScanCursor.setRelease(claimedWord);
+      return;
+    }
+    final int nextWord = claimedWord + 1 == c.recycledSlots.length() ? 0 : claimedWord + 1;
+    c.recycleScanCursor.setRelease(nextWord);
+  }
+
+  private static void pushRecycledSlot(final SizeClass c, final int slotIdx) {
+    final int wordIndex = slotIdx >>> 6;
+    final long mask = 1L << slotIdx;
+    long freeBits = c.recycledSlots.get(wordIndex);
+    while (true) {
+      if ((freeBits & mask) != 0L) {
+        throw new IllegalStateException("slot " + slotIdx + " was already present in the recycled-slot set");
+      }
+      if (c.recycledSlots.compareAndSet(wordIndex, freeBits, freeBits | mask)) {
+        break;
+      }
+      freeBits = c.recycledSlots.get(wordIndex);
+    }
+    // A release identifies a definitely nonempty word. Concurrent claims may make the hint stale,
+    // but the bit CAS remains authoritative and the bounded scan will move on if needed.
+    c.recycleScanCursor.setRelease(wordIndex);
+    c.recycleHint.set(slotIdx);
+    c.recycledCount.incrementAndGet();
   }
 
   /** Called by {@link FrameSlot#close()} — not usually invoked directly. */
-  void releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
+  boolean releaseSlot(final int classIdx, final int slotIdx, final long versionAtAlloc) {
     final SizeClass c = classes[classIdx];
-    final long prior = c.slotVersion.get(slotIdx);
+    final long prior = c.slotVersion.getAcquire(slotIdx);
 
     // Era check (#1073 Defect A, handle-API layer): a FrameSlot may only release the slot if the
     // slot's version is still the one it was allocated with. A stale handle from a previous
@@ -610,13 +766,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (prior != versionAtAlloc) {
       LOGGER.warn("Rejected stale slot release: class {} slot {} (handle era {}, current era {}).", classIdx, slotIdx,
           versionAtAlloc, prior);
-      return;
+      return false;
     }
 
     // Step 1: bump to odd ("writer in progress"). Any reader that sees this
     // value between its pre and post snapshots detects the race.
     final long inProgress = prior | 1L;
-    c.slotVersion.setRelease(slotIdx, inProgress);
+    if (!c.slotVersion.compareAndSet(slotIdx, prior, inProgress)) {
+      LOGGER.warn("Rejected concurrent slot release: class {} slot {} (handle era {}).", classIdx, slotIdx,
+          versionAtAlloc);
+      return false;
+    }
 
     // Test-only: scribble the freed slot so a use-after-close reads zeros
     // deterministically. The version is already odd ("writer in progress"), so a
@@ -639,10 +799,74 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     c.slotVersion.setRelease(slotIdx, quiescent);
     assert (quiescent & 1L) == 0L : "post-release version must be even";
 
-    pushFreeSlot(c, slotIdx);
+    pushRecycledSlot(c, slotIdx);
     c.liveCount.decrementAndGet();
     c.releaseCount.incrementAndGet();
     physicalBytes.addAndGet(-c.slotSize);
+    return true;
+  }
+
+  private static boolean publishScope(final SizeClass c, final int slotIdx,
+      final MemorySegment.Scope allocationScope) {
+    final int chunkIndex = slotIdx >>> SCOPE_CHUNK_SHIFT;
+    MemorySegment.Scope[] chunk = (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, chunkIndex);
+    if (chunk == null) {
+      final MemorySegment.Scope[] newChunk = new MemorySegment.Scope[SCOPE_CHUNK_SIZE];
+      if (SCOPE_CHUNK.compareAndSet(c.liveScopes, chunkIndex, null, newChunk)) {
+        chunk = newChunk;
+      } else {
+        chunk = (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, chunkIndex);
+      }
+    }
+    return SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, null, allocationScope);
+  }
+
+  private static boolean publishExistingScope(final SizeClass c, final int slotIdx,
+      final MemorySegment.Scope allocationScope) {
+    final MemorySegment.Scope[] chunk =
+        (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, slotIdx >>> SCOPE_CHUNK_SHIFT);
+    return chunk != null && SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, null, allocationScope);
+  }
+
+  private static boolean clearScope(final SizeClass c, final int slotIdx,
+      final MemorySegment.Scope allocationScope) {
+    final MemorySegment.Scope[] chunk =
+        (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, slotIdx >>> SCOPE_CHUNK_SHIFT);
+    return chunk != null
+        && SCOPE_ENTRY.compareAndSet(chunk, slotIdx & SCOPE_CHUNK_MASK, allocationScope, null);
+  }
+
+  private static MemorySegment.Scope currentScope(final SizeClass c, final int slotIdx) {
+    final MemorySegment.Scope[] chunk =
+        (MemorySegment.Scope[]) SCOPE_CHUNK.getAcquire(c.liveScopes, slotIdx >>> SCOPE_CHUNK_SHIFT);
+    if (chunk == null) {
+      return null;
+    }
+    return (MemorySegment.Scope) SCOPE_ENTRY.getAcquire(chunk, slotIdx & SCOPE_CHUNK_MASK);
+  }
+
+  private int classIndexForAddress(final long address) {
+    final SizeClass[] currentClasses = classes;
+    if (currentClasses == null) {
+      return -1;
+    }
+    for (int classIdx = 0; classIdx < currentClasses.length; classIdx++) {
+      final SizeClass c = currentClasses[classIdx];
+      final long offset = address - c.baseAddress;
+      if (Long.compareUnsigned(offset, c.regionBytes) < 0) {
+        return classIdx;
+      }
+    }
+    return -1;
+  }
+
+  /** Return the exact slot whose first byte is {@code address}; interior and out-of-region addresses fail. */
+  private static int slotIndexForAddress(final SizeClass c, final long address) {
+    final long offset = address - c.baseAddress;
+    if (Long.compareUnsigned(offset, c.regionBytes) >= 0 || (offset & (c.slotSize - 1L)) != 0L) {
+      return -1;
+    }
+    return Math.toIntExact(offset / c.slotSize);
   }
 
 
@@ -676,8 +900,10 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Locate the live slot backing {@code segment}, packed as {@code (classIdx << 32) | slotIdx}.
    *
    * <p>
-   * One concurrent-map probe; callers bind the result ONCE per page and thereafter read/validate the
-   * slot version with two plain array indexes — this lookup must never sit on a per-read hot path.
+   * Seven range checks at most, followed by one pre-indexed scope load. Callers bind the result ONCE
+   * per page and thereafter read/validate the slot version with two plain array indexes — this lookup
+   * must never sit on a per-read hot path. Scope identity is checked as well as address, so a stale
+   * segment cannot bind to a newer owner at the same recycled address.
    *
    * @param segment a segment previously returned by {@link #allocate(long)}
    * @return packed coordinates, or {@link #NO_SLOT_COORDINATES} when the segment is not a live slot
@@ -686,11 +912,17 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     if (segment == null) {
       return NO_SLOT_COORDINATES;
     }
-    final Issued issued = liveByAddress.get(segment.address());
-    if (issued == null) {
+    final long address = segment.address();
+    final int classIdx = classIndexForAddress(address);
+    if (classIdx < 0) {
       return NO_SLOT_COORDINATES;
     }
-    return (((long) issued.slot().classIndex()) << 32) | (issued.slot().slotIndex() & 0xFFFF_FFFFL);
+    final SizeClass c = classes[classIdx];
+    final int slotIdx = slotIndexForAddress(c, address);
+    if (slotIdx < 0 || currentScope(c, slotIdx) != segment.scope()) {
+      return NO_SLOT_COORDINATES;
+    }
+    return (((long) classIdx) << 32) | (slotIdx & 0xFFFF_FFFFL);
   }
 
   public long acquireVersion(final int classIdx, final int slotIdx) {
@@ -722,6 +954,23 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
 
   public long releaseCount(final int classIdx) {
     return classes[classIdx].releaseCount.get();
+  }
+
+  int recycledSlotCount(final int classIdx) {
+    return classes[classIdx].recycledCount.get();
+  }
+
+  int recycledSlotBitCount(final int classIdx) {
+    final AtomicLongArray recycledSlots = classes[classIdx].recycledSlots;
+    int count = 0;
+    for (int wordIndex = 0; wordIndex < recycledSlots.length(); wordIndex++) {
+      count += Long.bitCount(recycledSlots.get(wordIndex));
+    }
+    return count;
+  }
+
+  int recycledScanWord(final int classIdx) {
+    return classes[classIdx].recycleScanCursor.getAcquire();
   }
 
   /**

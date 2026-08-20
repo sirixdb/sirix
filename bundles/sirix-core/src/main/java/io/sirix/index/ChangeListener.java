@@ -26,6 +26,33 @@ public interface ChangeListener {
   }
 
   /**
+   * Same hook, told whether this is the transaction's FINAL commit rather than one of the
+   * intermediate auto-commits a bulk insert fires every {@code -Dsirix.autoCommit.nodes} nodes.
+   *
+   * <p>The distinction only matters to a listener that builds an index ACROSS commits: a load-time
+   * projection build streams full leaves into every intermediate commit but can only write its
+   * dictionaries, fingerprint blocks and metadata once no more records are coming, and the final
+   * commit is the only signal the transaction gives for that. Every other listener ignores the flag —
+   * the default forwards to {@link #beforeCommit()} so nothing else has to change.
+   */
+  default void beforeCommit(final boolean finalCommit) {
+    beforeCommit();
+  }
+
+  /**
+   * The transaction is about to write its pages out WITHOUT committing — the asynchronous pre-flush a
+   * bulk import uses instead of intermediate commits.
+   *
+   * <p>Only matters to a listener that maintains its index by re-reading the changed records, which
+   * the projection listener does: extraction reads the record's whole subtree back. Those records are
+   * reachable while their pages sit in the transaction's log, and unreachable once the flush has
+   * written them out into a revision that is not committed yet — so anything deferred past this point
+   * is deferred past the last moment it could be read.
+   */
+  default void beforePageFlush() {
+  }
+
+  /**
    * Structural lifecycle hook: the transaction performed subtree surgery —
    * currently a MOVE — whose per-node notifications cannot express the
    * change completely (moved plain containers and value elements fire no

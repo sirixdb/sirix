@@ -4,10 +4,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.SplittableRandom;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -17,6 +20,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @DisplayName("NumberRegion")
 final class NumberRegionTest {
+
+  private static final Base64.Decoder BASE64 = Base64.getDecoder();
+  private static final byte[] GOLDEN_PLAIN = BASE64.decode(
+      "AgAEAAAA////////////////////fwAAAAAAAAAAQAEAAAADAAAAAAAAAAQAAAD///////////////////9/AAAAAAAAAAD/////////f///////////KgAAAAAAAAA=");
+  private static final byte[] GOLDEN_PACKED = BASE64.decode(
+      "AwAGAAAAEgAAAAAAAABCAAAAAAAAABIAAAAAAAAABgEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAAYzpQA=");
+  private static final byte[] GOLDEN_COMPACT = BASE64.decode(
+      "BAAGAAAAEgAAAAAAAABCAAAAAAAAAAEAAAAHAAAAAAAAAAYAAAASAAAAAAAAAEIAAAAAAAAAAQYGEgAAAAAAAAAABjOlAA==");
+  private static final byte[] GOLDEN_DELTA = BASE64.decode(
+      "BQEgAAAAQEIPAAAAAAB2Qw8AAAAAAAEAAAAJAAAAAAAAACAAAABAQg8AAAAAAHZDDwAAAAAAAQAgQEIPAAAAAAAKAAAAAAAAAA==");
 
   @Test
   @DisplayName("empty encoding round-trips")
@@ -417,6 +430,110 @@ final class NumberRegionTest {
     }
     System.out.printf("[compactZmSizeWide] n=%d plainZM=%d override=%d delta=%d%n",
         n, plain.length, cm.length, cm.length - plain.length);
+  }
+
+  @Test
+  @DisplayName("reusable encoder preserves fixed plain, packed, compact and delta wire bytes")
+  void reusableEncoderPreservesWire() {
+    final NumberRegion.Encoder encoder = new NumberRegion.Encoder(1024);
+    final int n = 1024;
+    final int[] distinctTags = new int[n];
+    final long[] wideValues = new long[n];
+    for (int i = 0; i < n; i++) {
+      distinctTags[i] = i;
+      wideValues[i] = (i & 1) == 0 ? Long.MIN_VALUE + i : Long.MAX_VALUE - i;
+    }
+    final long[] packedValues = {18L, 42L, 66L, 30L, 55L, 20L};
+    final int[] packedTags = {7, 7, 7, 7, 7, 7};
+    final long[] temporalValues = new long[n];
+    final int[] temporalTags = new int[n];
+    for (int i = 0; i < n; i++) {
+      temporalValues[i] = 1_000_000L + 10L * i;
+      temporalTags[i] = 9;
+    }
+    final long[] wideDeltaValues = new long[64];
+    final int[] wideDeltaTags = new int[wideDeltaValues.length];
+    Arrays.fill(wideDeltaTags, 17);
+    for (int i = 1; i < wideDeltaValues.length; i++) {
+      wideDeltaValues[i] = wideDeltaValues[i - 1] + ((i & 1) == 0 ? 1L << 55 : 0L);
+    }
+
+    NumberRegion.setDeltaWriteEnabled(false);
+    NumberRegion.setCompactWriteEnabled(false);
+    try {
+      assertReusableEqualsCompatibilityApi(encoder, wideValues, distinctTags, NumberRegion.TAG_KIND_PATH_NODE);
+      assertReusableEqualsCompatibilityApi(encoder, packedValues, packedTags, NumberRegion.TAG_KIND_NAME);
+      assertArrayEquals(GOLDEN_PLAIN, NumberRegion.encode(new long[] {0L, Long.MAX_VALUE, -1L, 42L},
+          new int[] {3, 3, 3, 3}, 4, NumberRegion.TAG_KIND_NAME));
+      assertArrayEquals(GOLDEN_PACKED,
+          NumberRegion.encode(packedValues, packedTags, packedValues.length, NumberRegion.TAG_KIND_NAME));
+
+      NumberRegion.setCompactWriteEnabled(true);
+      assertReusableEqualsCompatibilityApi(encoder, packedValues, packedTags, NumberRegion.TAG_KIND_NAME);
+      assertArrayEquals(GOLDEN_COMPACT,
+          NumberRegion.encode(packedValues, packedTags, packedValues.length, NumberRegion.TAG_KIND_NAME));
+
+      NumberRegion.setCompactWriteEnabled(false);
+      NumberRegion.setDeltaWriteEnabled(true);
+      assertReusableEqualsCompatibilityApi(encoder, temporalValues, temporalTags, NumberRegion.TAG_KIND_PATH_NODE);
+      final long[] smallTemporal = new long[32];
+      final int[] smallTemporalTags = new int[32];
+      Arrays.fill(smallTemporalTags, 9);
+      for (int i = 0; i < smallTemporal.length; i++) {
+        smallTemporal[i] = 1_000_000L + 10L * i;
+      }
+      assertArrayEquals(GOLDEN_DELTA,
+          NumberRegion.encode(smallTemporal, smallTemporalTags, smallTemporal.length, NumberRegion.TAG_KIND_PATH_NODE));
+      Arrays.fill(encoder.output(), (byte) 0xA5);
+      final int wideDeltaLength =
+          encoder.encodeInto(wideDeltaValues, wideDeltaTags, wideDeltaValues.length, NumberRegion.TAG_KIND_NAME);
+      final byte[] wideDeltaWire = Arrays.copyOf(encoder.output(), wideDeltaLength);
+      final NumberRegion.Encoder freshEncoder = new NumberRegion.Encoder(wideDeltaValues.length);
+      final int freshLength = freshEncoder.encodeInto(
+          wideDeltaValues, wideDeltaTags, wideDeltaValues.length, NumberRegion.TAG_KIND_NAME);
+      assertEquals(freshLength, wideDeltaLength);
+      assertArrayEquals(Arrays.copyOf(freshEncoder.output(), freshLength), wideDeltaWire);
+      final NumberRegion.Header wideDeltaHeader =
+          new NumberRegion.Header().parseInto(PaxTestSegments.of(wideDeltaWire));
+      assertEquals(NumberRegion.ENC_DELTA_ZM, wideDeltaHeader.encodingKind);
+      assertEquals(57, wideDeltaHeader.valueBitWidth);
+      for (int i = 0; i < wideDeltaValues.length; i++) {
+        assertEquals(wideDeltaValues[i],
+            NumberRegion.decodeValueAt(PaxTestSegments.of(wideDeltaWire), wideDeltaHeader, i));
+      }
+    } finally {
+      NumberRegion.clearCompactWriteOverride();
+      NumberRegion.clearDeltaWriteOverride();
+    }
+  }
+
+  @Test
+  @DisplayName("reusable encoder rejects invalid input and clears a failed result length")
+  void reusableEncoderValidatesInput() {
+    final NumberRegion.Encoder encoder = new NumberRegion.Encoder(1);
+    assertTrue(encoder.encodeInto(new long[] {1L}, new int[] {1}, 1, NumberRegion.TAG_KIND_NAME) > 0);
+    assertThrows(NullPointerException.class,
+        () -> encoder.encodeInto(null, new int[0], 0, NumberRegion.TAG_KIND_NAME));
+    assertEquals(0, encoder.encodedLength());
+    assertThrows(NullPointerException.class,
+        () -> encoder.encodeInto(new long[0], null, 0, NumberRegion.TAG_KIND_NAME));
+    assertThrows(IllegalArgumentException.class,
+        () -> encoder.encodeInto(new long[1], new int[1], -1, NumberRegion.TAG_KIND_NAME));
+    assertThrows(IllegalArgumentException.class,
+        () -> encoder.encodeInto(new long[1], new int[1], 2, NumberRegion.TAG_KIND_NAME));
+    assertThrows(IllegalArgumentException.class,
+        () -> encoder.encodeInto(new long[1], new int[1], 1, (byte) 2));
+    assertThrows(IllegalArgumentException.class, () -> new NumberRegion.Encoder(-1));
+    assertEquals(0, encoder.encodedLength());
+  }
+
+  private static void assertReusableEqualsCompatibilityApi(final NumberRegion.Encoder encoder,
+      final long[] values, final int[] tags, final byte tagKind) {
+    final byte[] expected = NumberRegion.encode(values, tags, values.length, tagKind);
+    Arrays.fill(encoder.output(), (byte) 0xA5);
+    final int encodedLength = encoder.encodeInto(values, tags, values.length, tagKind);
+    assertEquals(encodedLength, encoder.encodedLength());
+    assertArrayEquals(expected, Arrays.copyOf(encoder.output(), encodedLength));
   }
 
 

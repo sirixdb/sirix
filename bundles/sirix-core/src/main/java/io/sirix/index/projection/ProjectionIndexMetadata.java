@@ -149,8 +149,9 @@ public final class ProjectionIndexMetadata {
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
     }
-    if (rowGroupCount < 0) {
-      throw new IllegalArgumentException("rowGroupCount must be >= 0, got " + rowGroupCount);
+    if (rowGroupCount < 0 || rowGroupCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException("rowGroupCount out of range [0, "
+          + ProjectionIndexHOTStorage.MAX_ROW_GROUPS + "]: " + rowGroupCount);
     }
     if (buildRevision < 0) {
       throw new IllegalArgumentException("buildRevision must be >= 0, got " + buildRevision);
@@ -409,7 +410,7 @@ public final class ProjectionIndexMetadata {
       final byte flags = payload[pos[0]++];
       final int rowGroupCount = getIntLE(payload, pos[0]);
       pos[0] += 4;
-      if (rowGroupCount < 0) {
+      if (rowGroupCount < 0 || rowGroupCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
         throw new IllegalStateException("Implausible projection leaf count " + rowGroupCount);
       }
       final int buildRevision = getIntLE(payload, pos[0]);

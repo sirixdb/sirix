@@ -584,44 +584,66 @@ public final class StringRegion {
     /** Per-tag dict-ids in record-insertion order. */
     private final IntArrayList[] tagDictIds0 = new IntArrayList[4];
     private IntArrayList[] tagDictIds = tagDictIds0;
-    /** Per-tag dict — parallel arrays: hash[i] → local dict id, plus byte[] for each id. */
+    /** Per-tag dictionary hashes, indexed by local dictionary id. */
     private long[][] tagHashes = new long[4][];
-    private byte[][][] tagBytes = new byte[4][][];
+    /** Store holding each dictionary entry's bytes. Usually {@link #ownedValueStore}. */
+    private ValueStore[][] tagStores = new ValueStore[4][];
+    /** Start offset of each dictionary entry within its {@link #tagStores} value store. */
+    private int[][] tagOffsets = new int[4][];
+    /** Exact stored-byte length of each dictionary entry. */
+    private int[][] tagLengths = new int[4][];
     /**
-     * Parallel to {@code tagBytes}: whether each dict entry's bytes are FSST-encoded rather than raw
-     * UTF-8. Rides the dedup: two adds only fold into one entry when bytes AND flag agree, because raw
-     * bytes that happen to equal some other value's encoded form are still a different value.
+     * Parallel to {@link #tagStores}: whether each dict entry's bytes are FSST-encoded rather than
+     * raw UTF-8. Rides the dedup: two adds only fold into one entry when bytes AND flag agree, because
+     * raw bytes that happen to equal some other value's encoded form are still a different value.
      */
     private boolean[][] tagCompressed = new boolean[4][];
     private int[] tagDictSize = new int[4];
+    /**
+     * Owner-confined, grow-only backing store for dictionary misses. Its capacity survives reset;
+     * only the logical length returns to zero. Entries in the alternative name/path encoder may
+     * temporarily borrow an exact range from this store.
+     */
+    private final ValueStore ownedValueStore = new ValueStore();
+    /** Owner-confined reusable wire scratch. Only {@code [0, encodedLength)} is current. */
+    private byte[] output = new byte[256];
+    /** Exact logical length of the most recent successful {@link #encodeInto} call. */
+    private int encodedLength;
 
     public Encoder() {
       tagIndex.defaultReturnValue(-1);
     }
 
     /**
-     * Reset for reuse across pages. All internal arrays are retained at their current capacity; only
-     * per-tag counts and dict byte references are cleared so previously-captured value byte arrays
-     * become GC-eligible and the next page's adds start from an empty dictionary per tag. Zero
-     * allocations.
+     * Reset for reuse across pages. All internal arrays and the owned value-store capacity are
+     * retained; live foreign-store references and per-tag counts are cleared, then the owned store's
+     * logical length is reset as soon as no alternative encoder still references one of its ranges.
+     * Zero allocations.
      */
     public void reset() {
+      encodedLength = 0;
       final int prevTags = tagOrder.size();
       for (int t = 0; t < prevTags; t++) {
         final IntArrayList ids = tagDictIds[t];
         if (ids != null)
           ids.clear();
-        final byte[][] bytes = tagBytes[t];
-        if (bytes != null) {
+        final ValueStore[] stores = tagStores[t];
+        if (stores != null) {
           final int sz = tagDictSize[t];
-          for (int i = 0; i < sz; i++)
-            bytes[i] = null;
+          for (int i = 0; i < sz; i++) {
+            final ValueStore store = stores[i];
+            if (store != null && store != ownedValueStore) {
+              store.release();
+            }
+            stores[i] = null;
+          }
         }
         tagDictSize[t] = 0;
       }
       tagIndex.clear();
       tagIndex.defaultReturnValue(-1);
       tagOrder.clear();
+      ownedValueStore.requestReset();
     }
 
     public void addValue(final int parentNameKey, final byte[] value) {
@@ -636,50 +658,203 @@ public final class StringRegion {
      * the slot, raw otherwise — so that value elision remains a pure byte copy in both directions and
      * no decode ever happens at page-deserialize time (where no reader, and therefore no symbol table,
      * is in scope). The flag travels as the sign of the entry's length on the wire.
+     *
+     * <p>On a dictionary miss the encoder copies the bytes into its reusable grow-only store. The
+     * caller may therefore reuse or mutate {@code value} as soon as this method returns.
      */
     public void addValue(final int parentNameKey, final byte[] value, final boolean compressed) {
-      int tag = tagIndex.get(parentNameKey);
-      if (tag < 0) {
-        tag = tagOrder.size();
-        tagIndex.put(parentNameKey, tag);
-        tagOrder.add(parentNameKey);
-        ensureTagSlot(tag);
-        if (tagDictIds[tag] == null) {
-          tagDictIds[tag] = new IntArrayList(16);
-          tagHashes[tag] = new long[8];
-          tagBytes[tag] = new byte[8][];
-          tagCompressed[tag] = new boolean[8];
-        }
-        tagDictSize[tag] = 0;
+      if (value == null) {
+        throw new NullPointerException("value");
       }
+      addValueInternal(parentNameKey,
+          value,
+          0,
+          value.length,
+          compressed,
+          VALUE_HASH.hashBytes(value, 0, value.length));
+    }
+
+    /**
+     * Add a slice from reusable caller scratch without retaining that scratch.
+     *
+     * <p>Hashing and collision confirmation operate directly on
+     * {@code value[valueOffset..valueOffset + valueLength)}. A dictionary hit therefore performs no
+     * allocation. On a miss, the encoder appends to one owner-confined grow-only store; later
+     * changes to the caller's array cannot alter dictionary identity or encoded wire bytes.
+     *
+     * @param parentNameKey semantic tag value (name key or path node key, as selected at finish)
+     * @param value caller-owned source array
+     * @param valueOffset first byte of the value
+     * @param valueLength number of bytes in the value
+     * @param compressed whether the slice is FSST-encoded rather than raw UTF-8
+     */
+    public void addValue(final int parentNameKey, final byte[] value, final int valueOffset,
+        final int valueLength, final boolean compressed) {
+      addValueCopiedAndShareWith(
+          parentNameKey, value, valueOffset, valueLength, compressed, null, 0);
+    }
+
+    /**
+     * Add a reusable-scratch slice and optionally share its private canonical representation with a
+     * second tag encoder.
+     *
+     * <p>This encoder appends to its owner-confined store on a dictionary miss (or reuses its
+     * existing entry on a hit). When {@code alternate} is non-null, its dictionary references the
+     * exact same private store range through the no-copy internal path. This is how the page writer
+     * builds name- and path-tagged candidates without either retaining caller scratch or copying each
+     * distinct value twice. No mutable canonical reference escapes either encoder.
+     *
+     * @param parentNameKey this encoder's semantic tag
+     * @param value caller-owned scratch
+     * @param valueOffset first byte of the stored representation
+     * @param valueLength number of stored bytes
+     * @param compressed whether the stored representation is FSST-encoded
+     * @param alternate optional alternative-tag encoder sharing this encoder's canonical bytes
+     * @param alternateParentNameKey semantic tag to use in {@code alternate}; ignored when null
+     */
+    public void addValueCopiedAndShareWith(final int parentNameKey, final byte[] value, final int valueOffset,
+        final int valueLength, final boolean compressed, final @Nullable Encoder alternate,
+        final int alternateParentNameKey) {
+      if (value == null) {
+        throw new NullPointerException("value");
+      }
+      if (valueOffset < 0 || valueLength < 0 || valueOffset > value.length - valueLength) {
+        throw new IndexOutOfBoundsException(
+            "valueOffset=" + valueOffset + ", valueLength=" + valueLength + ", capacity=" + value.length);
+      }
+      final long hash = VALUE_HASH.hashBytes(value, valueOffset, valueLength);
+      final int id = addValueInternal(parentNameKey, value, valueOffset, valueLength, compressed, hash);
+      if (alternate != null) {
+        final int tag = tagIndex.get(parentNameKey);
+        alternate.addStoredValueInternal(alternateParentNameKey,
+            tagStores[tag][id],
+            tagOffsets[tag][id],
+            tagLengths[tag][id],
+            compressed,
+            hash);
+      }
+    }
+
+    private int addValueInternal(final int parentNameKey, final byte[] value, final int valueOffset,
+        final int valueLength, final boolean compressed, final long hash) {
+      final int tag = getOrCreateTag(parentNameKey);
       // Dedup by 64-bit hash; equality is confirmed byte-by-byte below, so the hash only decides
       // which candidates get compared and never which values dedup. Nothing here is persisted —
       // dictionary ids are assigned in first-seen order and the table is reset per page.
-      final long hash = VALUE_HASH.hashBytes(value);
       final long[] hashes = tagHashes[tag];
-      final byte[][] bytes = tagBytes[tag];
+      final ValueStore[] stores = tagStores[tag];
+      final int[] offsets = tagOffsets[tag];
+      final int[] lengths = tagLengths[tag];
       final boolean[] flags = tagCompressed[tag];
       final int n = tagDictSize[tag];
       int id = -1;
       for (int i = 0; i < n; i++) {
-        if (hashes[i] == hash && flags[i] == compressed && Arrays.equals(bytes[i], value)) {
+        if (hashes[i] == hash && flags[i] == compressed && lengths[i] == valueLength
+            && stores[i].equalsRange(offsets[i], value, valueOffset, valueLength)) {
           id = i;
           break;
         }
       }
       if (id < 0) {
-        if (n == hashes.length) {
-          tagHashes[tag] = Arrays.copyOf(hashes, n * 2);
-          tagBytes[tag] = Arrays.copyOf(bytes, n * 2);
-          tagCompressed[tag] = Arrays.copyOf(flags, n * 2);
-        }
+        ensureDictionarySlot(tag, n);
+        final int offset = ownedValueStore.append(value, valueOffset, valueLength);
         id = n;
         tagHashes[tag][n] = hash;
-        tagBytes[tag][n] = value;
+        tagStores[tag][n] = ownedValueStore;
+        tagOffsets[tag][n] = offset;
+        tagLengths[tag][n] = valueLength;
         tagCompressed[tag][n] = compressed;
         tagDictSize[tag] = n + 1;
       }
       tagDictIds[tag].add(id);
+      return id;
+    }
+
+    /** Add a dictionary occurrence from an internal immutable-for-the-page store range. */
+    private int addStoredValueInternal(final int parentNameKey, final ValueStore sourceStore,
+        final int sourceOffset, final int valueLength, final boolean compressed, final long hash) {
+      final int tag = getOrCreateTag(parentNameKey);
+      final long[] hashes = tagHashes[tag];
+      final ValueStore[] stores = tagStores[tag];
+      final int[] offsets = tagOffsets[tag];
+      final int[] lengths = tagLengths[tag];
+      final boolean[] flags = tagCompressed[tag];
+      final int n = tagDictSize[tag];
+      int id = -1;
+      for (int i = 0; i < n; i++) {
+        if (hashes[i] == hash && flags[i] == compressed && lengths[i] == valueLength
+            && stores[i].equalsRange(offsets[i], sourceStore, sourceOffset, valueLength)) {
+          id = i;
+          break;
+        }
+      }
+      if (id < 0) {
+        ensureDictionarySlot(tag, n);
+        id = n;
+        tagHashes[tag][n] = hash;
+        tagStores[tag][n] = sourceStore;
+        tagOffsets[tag][n] = sourceOffset;
+        tagLengths[tag][n] = valueLength;
+        tagCompressed[tag][n] = compressed;
+        tagDictSize[tag] = n + 1;
+        if (sourceStore != ownedValueStore) {
+          sourceStore.retain();
+        }
+      }
+      tagDictIds[tag].add(id);
+      return id;
+    }
+
+    private int getOrCreateTag(final int parentNameKey) {
+      int tag = tagIndex.get(parentNameKey);
+      if (tag >= 0) {
+        return tag;
+      }
+      tag = tagOrder.size();
+      tagIndex.put(parentNameKey, tag);
+      tagOrder.add(parentNameKey);
+      ensureTagSlot(tag);
+      if (tagDictIds[tag] == null) {
+        tagDictIds[tag] = new IntArrayList(16);
+        tagHashes[tag] = new long[8];
+        tagStores[tag] = new ValueStore[8];
+        tagOffsets[tag] = new int[8];
+        tagLengths[tag] = new int[8];
+        tagCompressed[tag] = new boolean[8];
+      }
+      tagDictSize[tag] = 0;
+      return tag;
+    }
+
+    private void ensureDictionarySlot(final int tag, final int dictionarySize) {
+      if (dictionarySize < tagHashes[tag].length) {
+        return;
+      }
+      final int grown = Math.max(8, dictionarySize << 1);
+      tagHashes[tag] = Arrays.copyOf(tagHashes[tag], grown);
+      tagStores[tag] = Arrays.copyOf(tagStores[tag], grown);
+      tagOffsets[tag] = Arrays.copyOf(tagOffsets[tag], grown);
+      tagLengths[tag] = Arrays.copyOf(tagLengths[tag], grown);
+      tagCompressed[tag] = Arrays.copyOf(tagCompressed[tag], grown);
+    }
+
+    /** Package-private white-box check for the one-canonical-store-range sharing invariant. */
+    boolean sharesCanonicalValueWith(final int parentNameKey, final int dictId, final Encoder alternate,
+        final int alternateParentNameKey, final int alternateDictId) {
+      if (alternate == null) {
+        return false;
+      }
+      final int tag = tagIndex.get(parentNameKey);
+      final int alternateTag = alternate.tagIndex.get(alternateParentNameKey);
+      return tag >= 0
+          && alternateTag >= 0
+          && dictId >= 0
+          && dictId < tagDictSize[tag]
+          && alternateDictId >= 0
+          && alternateDictId < alternate.tagDictSize[alternateTag]
+          && tagStores[tag][dictId] == alternate.tagStores[alternateTag][alternateDictId]
+          && tagOffsets[tag][dictId] == alternate.tagOffsets[alternateTag][alternateDictId]
+          && tagLengths[tag][dictId] == alternate.tagLengths[alternateTag][alternateDictId];
     }
 
     private void ensureTagSlot(final int tag) {
@@ -688,12 +863,18 @@ public final class StringRegion {
       final int grown = Math.max(tag + 1, tagDictIds.length * 2);
       tagDictIds = Arrays.copyOf(tagDictIds, grown);
       tagHashes = Arrays.copyOf(tagHashes, grown);
-      tagBytes = Arrays.copyOf(tagBytes, grown);
+      tagStores = Arrays.copyOf(tagStores, grown);
+      tagOffsets = Arrays.copyOf(tagOffsets, grown);
+      tagLengths = Arrays.copyOf(tagLengths, grown);
       tagCompressed = Arrays.copyOf(tagCompressed, grown);
       tagDictSize = Arrays.copyOf(tagDictSize, grown);
     }
 
-    /** Serialize to wire format, defaulting tagKind to {@link #TAG_KIND_NAME}. */
+    /**
+     * Serialize to a detached exact-size array, defaulting tagKind to {@link #TAG_KIND_NAME}.
+     *
+     * <p>The returned array is caller-owned and is never reused by this encoder.
+     */
     public byte[] finish() {
       return finish(TAG_KIND_NAME);
     }
@@ -715,9 +896,30 @@ public final class StringRegion {
      *        spilled elements" rather than "nobody looked"
      */
     public byte[] finish(final byte tagKind, final boolean elementsStaged) {
+      final int length = encodeInto(tagKind, elementsStaged);
+      return Arrays.copyOf(output, length);
+    }
+
+    /**
+     * Serialize into this encoder's owner-confined reusable output buffer.
+     *
+     * <p>Only {@code [0, returnedLength)} of {@link #output()} is valid. The next call may overwrite
+     * that prefix or replace the backing array. A caller that retains the result must synchronously
+     * copy the exact prefix first; {@link RegionTable#set(byte, byte[], int)} is such an ownership
+     * boundary.
+     *
+     * @param tagKind semantic interpretation of the tag dictionary
+     * @param elementsStaged whether array-element staging ran for this page
+     * @return exact logical length of the encoded payload, or zero when no values were added
+     */
+    public int encodeInto(final byte tagKind, final boolean elementsStaged) {
+      encodedLength = 0;
+      if (tagKind != TAG_KIND_NAME && tagKind != TAG_KIND_PATH_NODE) {
+        throw new IllegalArgumentException("tagKind=" + tagKind);
+      }
       final int ps = tagOrder.size();
       if (ps == 0) {
-        return new byte[0];
+        return 0;
       }
       int count = 0;
       int maxLocalDict = 0;
@@ -728,72 +930,200 @@ public final class StringRegion {
       }
       final int bitWidth = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLocalDict - 1)));
       // +1 byte for tagKind prefix.
-      int headerSize = 1 + 1 + 4 + 1 + 4 + ps * 4 * 4;
-      int dictBytesSize = 0;
+      final long headerSize = 1L + 1L + Integer.BYTES + 1L + Integer.BYTES
+          + (long) ps * Integer.BYTES * 4L;
+      long dictBytesSize = 0L;
       for (int t = 0; t < ps; t++) {
         final int sz = tagDictSize[t];
-        dictBytesSize += sz * 4;
+        dictBytesSize += (long) sz * Integer.BYTES;
         for (int i = 0; i < sz; i++)
-          dictBytesSize += tagBytes[t][i].length;
+          dictBytesSize += tagLengths[t][i];
       }
-      final int valueDictIdBytes = (count * bitWidth + 7) / 8;
-      final byte[] out = new byte[headerSize + dictBytesSize + valueDictIdBytes];
+      final long valueDictIdBytes = ((long) count * bitWidth + 7L) >>> 3;
+      final int totalLength = checkedEncodedLength(headerSize + dictBytesSize + valueDictIdBytes);
+      ensureOutputCapacity(totalLength);
       int pos = 0;
-      out[pos++] = elementsStaged
+      output[pos++] = elementsStaged
           ? ENC_DICT_BITPACKED_ZM_ELEMENTS
           : ENC_DICT_BITPACKED_ZM;
-      out[pos++] = tagKind;
-      putInt(out, pos, count);
+      output[pos++] = tagKind;
+      putInt(output, pos, count);
       pos += 4;
-      out[pos++] = (byte) bitWidth;
-      putInt(out, pos, ps);
+      output[pos++] = (byte) bitWidth;
+      putInt(output, pos, ps);
       pos += 4;
       for (int t = 0; t < ps; t++) {
-        putInt(out, pos, tagOrder.getInt(t));
+        putInt(output, pos, tagOrder.getInt(t));
         pos += 4;
       }
       int running = 0;
       for (int t = 0; t < ps; t++) {
-        putInt(out, pos, running);
+        putInt(output, pos, running);
         pos += 4;
         running += tagDictIds[t].size();
       }
       for (int t = 0; t < ps; t++) {
-        putInt(out, pos, tagDictIds[t].size());
+        putInt(output, pos, tagDictIds[t].size());
         pos += 4;
       }
       for (int t = 0; t < ps; t++) {
-        putInt(out, pos, tagDictSize[t]);
+        putInt(output, pos, tagDictSize[t]);
         pos += 4;
       }
       for (int t = 0; t < ps; t++) {
         final int sz = tagDictSize[t];
         for (int i = 0; i < sz; i++) {
           // Sign bit carries the per-entry FSST flag; consumers read Math.abs for the length.
-          final int len = tagBytes[t][i].length;
-          putInt(out, pos, tagCompressed[t][i]
+          final int len = tagLengths[t][i];
+          putInt(output, pos, tagCompressed[t][i]
               ? -len
               : len);
           pos += 4;
         }
         for (int i = 0; i < sz; i++) {
-          final byte[] s = tagBytes[t][i];
-          System.arraycopy(s, 0, out, pos, s.length);
-          pos += s.length;
+          final int len = tagLengths[t][i];
+          tagStores[t][i].copyTo(tagOffsets[t][i], output, pos, len);
+          pos += len;
         }
       }
       int bitPos = 0;
       final int valueDictIdsBase = pos;
+      // bitPackAppend ORs lanes into the destination. A reusable buffer can retain high bits from
+      // the preceding page, so restore the zero-initialized-array invariant over the exact body.
+      Arrays.fill(output, valueDictIdsBase, totalLength, (byte) 0);
       for (int t = 0; t < ps; t++) {
         final IntArrayList ids = tagDictIds[t];
         final int sz = ids.size();
         final int[] idsArr = ids.elements();
         for (int i = 0; i < sz; i++) {
-          bitPackAppend(out, valueDictIdsBase, bitPos, idsArr[i], bitWidth);
+          bitPackAppend(output, valueDictIdsBase, bitPos, idsArr[i], bitWidth);
           bitPos += bitWidth;
         }
       }
-      return out;
+      if (pos + (int) valueDictIdBytes != totalLength) {
+        throw new IllegalStateException(
+            "string region size mismatch: expected=" + totalLength + " written=" + (pos + valueDictIdBytes));
+      }
+      encodedLength = totalLength;
+      return totalLength;
+    }
+
+    /** Mutable scratch buffer. The next call to {@link #encodeInto} may overwrite or replace it. */
+    public byte[] output() {
+      return output;
+    }
+
+    /** Exact length returned by the most recent successful encode, or zero after an empty/failed attempt. */
+    public int encodedLength() {
+      return encodedLength;
+    }
+
+    /** Package-private high-water check used by reset/reuse tests. */
+    int valueStoreCapacity() {
+      return ownedValueStore.capacity();
+    }
+
+    /** Package-private live-byte check used by reset/reuse tests. */
+    int valueStoreLength() {
+      return ownedValueStore.length();
+    }
+
+    private void ensureOutputCapacity(final int required) {
+      if (required <= output.length) {
+        return;
+      }
+      final long doubled = Math.min((long) Integer.MAX_VALUE, (long) output.length << 1);
+      output = new byte[checkedEncodedLength(Math.max((long) required, doubled))];
+    }
+
+    /**
+     * One encoder-owned append-only byte area. Alternative tag encoders retain ranges rather than
+     * arrays; a reset is therefore deferred until the last foreign dictionary entry releases it.
+     * The class is deliberately unsynchronised: encoders and their shared candidate are confined to
+     * one page-writer thread.
+     */
+    private static final class ValueStore {
+      private byte[] bytes = new byte[1024];
+      private int length;
+      private int foreignReferences;
+      private boolean resetPending;
+
+      private int append(final byte[] source, final int sourceOffset, final int sourceLength) {
+        // A writer that starts the next page before an alternative encoder releases the preceding
+        // page cannot reuse the borrowed prefix. Keep it intact and append after it; the next clean
+        // reset returns the logical length to zero. PageKind normally releases both candidates first.
+        resetPending = false;
+        final int offset = length;
+        final int required = checkedEncodedLength((long) offset + sourceLength);
+        ensureCapacity(required);
+        System.arraycopy(source, sourceOffset, bytes, offset, sourceLength);
+        length = required;
+        return offset;
+      }
+
+      private boolean equalsRange(final int offset, final byte[] other, final int otherOffset,
+          final int rangeLength) {
+        return Arrays.equals(bytes, offset, offset + rangeLength, other, otherOffset, otherOffset + rangeLength);
+      }
+
+      private boolean equalsRange(final int offset, final ValueStore other, final int otherOffset,
+          final int rangeLength) {
+        return (this == other && offset == otherOffset)
+            || Arrays.equals(bytes,
+                offset,
+                offset + rangeLength,
+                other.bytes,
+                otherOffset,
+                otherOffset + rangeLength);
+      }
+
+      private void copyTo(final int offset, final byte[] destination, final int destinationOffset,
+          final int rangeLength) {
+        System.arraycopy(bytes, offset, destination, destinationOffset, rangeLength);
+      }
+
+      private void retain() {
+        if (foreignReferences == Integer.MAX_VALUE) {
+          throw new IllegalStateException("too many shared StringRegion store ranges");
+        }
+        foreignReferences++;
+      }
+
+      private void release() {
+        if (foreignReferences <= 0) {
+          throw new IllegalStateException("unbalanced StringRegion store-range release");
+        }
+        foreignReferences--;
+        if (foreignReferences == 0 && resetPending) {
+          length = 0;
+          resetPending = false;
+        }
+      }
+
+      private void requestReset() {
+        if (foreignReferences == 0) {
+          length = 0;
+          resetPending = false;
+        } else {
+          resetPending = true;
+        }
+      }
+
+      private void ensureCapacity(final int required) {
+        if (required <= bytes.length) {
+          return;
+        }
+        final long doubled = Math.min((long) Integer.MAX_VALUE, (long) bytes.length << 1);
+        bytes = Arrays.copyOf(bytes, checkedEncodedLength(Math.max((long) required, doubled)));
+      }
+
+      private int capacity() {
+        return bytes.length;
+      }
+
+      private int length() {
+        return length;
+      }
     }
 
     /**
@@ -833,6 +1163,13 @@ public final class StringRegion {
 
   private static void putInt(final byte[] buf, final int off, final int v) {
     INT_LE.set(buf, off, v);
+  }
+
+  private static int checkedEncodedLength(final long length) {
+    if (length < 0L || length > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("encoded string region is too large: " + length + " bytes");
+    }
+    return (int) length;
   }
 
   /**

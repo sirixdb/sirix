@@ -19,6 +19,7 @@ import io.sirix.node.NodeKind;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 
 import org.jspecify.annotations.Nullable;
 import java.util.HashMap;
@@ -28,15 +29,17 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 
 /**
  * Walks a JSON resource's current revision and materialises one row per record (= node whose
  * pathNodeKey matches the projection's root path) into {@link ProjectionIndexRowGroupPage}s.
- * Serialised leaf byte[]s are delivered to the caller-supplied {@code leafSink} in append order so
- * the caller can stream them into the HOT backing tree without holding more than one leaf in
- * memory.
+ * Completed leaves are delivered to the internal synchronous sink in append order so the caller can
+ * stream them into the HOT backing tree without holding more than one leaf in memory. The public
+ * {@code Consumer<byte[]>} surface is preserved by a serialising adapter; internal persistence paths
+ * borrow the live page and encode detached column segments directly.
  *
  * <h2>Traversal shape</h2> The builder is driven directly rather than via the node-visitor pattern
  * CAS/PATH/NAME indexes use — projection extraction needs to look at each matching record's
@@ -53,7 +56,22 @@ import java.util.function.Consumer;
  */
 public final class ProjectionIndexBuilder {
 
-  private final Consumer<byte[]> leafSink;
+  /**
+   * Synchronous hand-off of a builder-owned row-group page.
+   *
+   * <p>The callback borrows the page only for the duration of {@link #accept}. It must neither
+   * mutate the page nor retain the page or any array reachable through its accessors. Data that
+   * outlives the callback must be copied into independently owned output before the callback
+   * returns. In particular, {@link ProjectionIndexColumnSegmentCodec#encodeReferencedOnly(
+   * ProjectionIndexRowGroupPage, ProjectionIndexColumnSegmentCodec.EncodeWorkspace)} satisfies
+   * this contract: all of its published outputs are detached.
+   */
+  @FunctionalInterface
+  interface BorrowedLeafSink {
+    void accept(ProjectionIndexRowGroupPage leaf);
+  }
+
+  private final BorrowedLeafSink leafSink;
 
   /** Shared per-record extraction engine (also used by incremental maintenance). */
   private final ProjectionIndexRowExtractor extractor;
@@ -69,6 +87,13 @@ public final class ProjectionIndexBuilder {
   private final LongSet rootAncestorPathNodeKeys;
 
   private ProjectionIndexRowGroupPage currentLeaf;
+
+  /**
+   * One emitted page whose synchronous borrower returned successfully. A builder needs only one
+   * spare: the next full leaf consumes it before another leaf can be emitted.
+   */
+  private ProjectionIndexRowGroupPage reusableLeaf;
+
   private long rowsEmitted;
   private long leavesEmitted;
 
@@ -123,6 +148,27 @@ public final class ProjectionIndexBuilder {
    * than identities (ordering by the key, substring and stringify transforms, composite keys) onto
    * the generic pipeline. Those decline; they do not answer differently.
    */
+  /**
+   * Ceiling on ONE column's resource-wide dictionary, {@code -Dsirix.projection.globalDict.budgetBytes}.
+   *
+   * <p>
+   * Default {@code min(heap/8, 2 GiB)}. The heap fraction is what keeps it sane on a small JVM; the
+   * absolute cap is what keeps several elected columns from summing to the whole heap, since the
+   * budget is PER COLUMN and ClickBench elects three fat-string ones at once.
+   * </p>
+   */
+  private static long globalDictionaryBudgetBytes() {
+    final String configured = System.getProperty("sirix.projection.globalDict.budgetBytes");
+    if (configured != null) {
+      final long parsed = Long.parseLong(configured.trim());
+      if (parsed <= 0) {
+        throw new IllegalArgumentException("sirix.projection.globalDict.budgetBytes must be positive: " + parsed);
+      }
+      return parsed;
+    }
+    return Math.min(Runtime.getRuntime().maxMemory() / 8, 2L << 30);
+  }
+
   private static GlobalDictionaryMode globalDictionaryMode() {
     // Read per BUILD rather than cached in a static: a differential test has to build the same
     // corpus both ways inside one JVM to show the two encodings answer identically, and a mode
@@ -156,13 +202,108 @@ public final class ProjectionIndexBuilder {
   /** Per-column resource-wide dictionaries; null slots are columns that stayed per-leaf. */
   private GlobalValueDictionaryWriter[] globalDictionaries;
 
+  /** {@code -Dsirix.projDiag}: explain election declines, which are otherwise silent by design. */
+  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /**
+   * Heap cost of ONE dictionary entry beyond its value bytes.
+   *
+   * <p>
+   * Derived, not guessed: {@code offsets} 4 B + {@code lengths} 4 B + {@code hashes} 8 B = 16 B of
+   * index per id, plus the open-addressed table's {@code tableHashes} 8 B + {@code tableIds} 4 B
+   * per SLOT, and the table rehashes at half load so it holds two slots per entry — 24 B. Steady
+   * state is therefore 40 B; the doubling of every one of those arrays can transiently exceed it,
+   * which is what the writer's own runtime cap is for.
+   * </p>
+   */
+  private static final long PER_ENTRY_OVERHEAD_BYTES = 40L;
+
+  /**
+   * Expected rows in the corpus, or {@code -1} when nobody could say.
+   *
+   * <p>
+   * The election needs it and cannot derive it: a streaming one-pass build sees the row count only
+   * when the stream ends. With it, a column whose dictionary cannot fit is declined before any leaf
+   * is written as global. Without it, the writer's runtime cap is the only protection and a corpus
+   * large enough will abandon its projection mid-build — correct, non-fatal, and measured as the
+   * row path.
+   * </p>
+   */
+  private long expectedRows = -1L;
+
+  /**
+   * Tell the build how many records to expect, so the global-dictionary election can decline a
+   * column that would not fit. Values {@code <= 0} mean "unknown" and disable the election-time
+   * check; the runtime cap still applies.
+   *
+   * @param rows the expected record count
+   */
+  public void setExpectedRows(final long rows) {
+    this.expectedRows = rows;
+  }
+
+  /** Total bytes of the sample's per-leaf dictionary ENTRIES for one column. */
+  private long sampledValueBytes(final int column) {
+    long bytes = 0;
+    for (final ProjectionIndexRowGroupPage leaf : sample) {
+      final int size = leaf.stringDictionarySize(column);
+      for (int id = 0; id < size; id++) {
+        bytes += leaf.stringDictionaryEntryLength(column, id);
+      }
+    }
+    return bytes;
+  }
+
+  /**
+   * Whether rows are FED to this builder ({@link #appendRecord}) instead of walked by it. A streaming
+   * builder never resolves the record-set root, because at the time an incremental build is armed the
+   * root path class does not exist yet — the resource is empty.
+   */
+  private final boolean streaming;
+
+  /**
+   * Record-fed builder for the INCREMENTAL (load-time) build: the caller supplies each completed
+   * record as it is shredded, and the leaf/sample/global-dictionary machinery is identical to the
+   * walking build's, so the two produce the same leaves for the same record sequence.
+   *
+   * <p>
+   * Deliberately skips the root-path resolution the walking constructor insists on: an incremental
+   * build is armed on an EMPTY resource, where the root path has no path class yet and every declared
+   * field path has none either. Record identity comes from the caller (which resolves it from the
+   * change notifications), not from a path match, so nothing here needs the summary except the
+   * extractor's field paths — and those are re-resolved per batch through {@link #refreshFieldPaths}.
+   */
+  public static ProjectionIndexBuilder streaming(final IndexDef indexDef, final PathSummaryReader pathSummary,
+      final Consumer<byte[]> leafSink) {
+    return new ProjectionIndexBuilder(indexDef, pathSummary, serializingLeafSink(leafSink), true);
+  }
+
+  /** Internal zero-copy row-group hand-off used by the synchronous bulk-load writer. */
+  static ProjectionIndexBuilder streamingBorrowed(final IndexDef indexDef, final PathSummaryReader pathSummary,
+      final BorrowedLeafSink leafSink) {
+    return new ProjectionIndexBuilder(indexDef, pathSummary, leafSink, true);
+  }
+
   public ProjectionIndexBuilder(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final Consumer<byte[]> leafSink) {
+    this(indexDef, pathSummary, serializingLeafSink(leafSink), false);
+  }
+
+  private ProjectionIndexBuilder(final IndexDef indexDef, final PathSummaryReader pathSummary,
+      final BorrowedLeafSink leafSink, final boolean streaming) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionIndexBuilder requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
-    this.leafSink = leafSink;
+    this.leafSink = Objects.requireNonNull(leafSink, "leafSink must not be null");
+    this.streaming = streaming;
+    if (streaming) {
+      this.rootPathNodeKeys = LongSets.EMPTY_SET;
+      this.rootAncestorPathNodeKeys = LongSets.EMPTY_SET;
+      this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+      return;
+    }
     final Path<QNm> rootPath = indexDef.getProjectionRootPath();
     final Set<Path<QNm>> rootSet = new HashSet<>();
     rootSet.add(rootPath);
@@ -178,12 +319,12 @@ public final class ProjectionIndexBuilder {
     for (final Long pcr : rootPcrs) {
       rootPathNodeKeys.add(pcr.longValue());
     }
-    // Fail fast on NESTED root PCRs (one record set living inside another
-    // matched record's subtree, e.g. //records/[] over self-nested
-    // "records" arrays): the pruned descent stops at the outer match, and
-    // the per-record field DFS would let the inner record's fields
-    // overwrite the outer row's columns — silently wrong results. Sibling
-    // multi-PCR roots (the supported case) have no ancestor relation.
+    // Compare only PCRs matched by the declared ROOT path. Fail fast when one such root is nested
+    // below another (for example, //records/[] over self-nested "records" arrays): the pruned
+    // descent stops at the outer match, and the per-record field DFS could otherwise let the inner
+    // record's fields overwrite the outer row's columns. Declared COLUMN paths are deliberately not
+    // part of this comparison; columns may descend to arbitrary and differing depths below a root.
+    // Sibling multi-PCR roots remain supported because they have no ancestor relation.
     assertNoNestedRootPcrs(pathSummary, rootPathNodeKeys, rootPath);
     // Pre-compute the set of pathNodeKeys along every path from docRoot
     // to each root PCR — used to PRUNE the walk to only descend into
@@ -195,6 +336,12 @@ public final class ProjectionIndexBuilder {
 
     this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+  }
+
+  /** Preserve the public raw-payload API at the borrowed-page ownership boundary. */
+  static BorrowedLeafSink serializingLeafSink(final Consumer<byte[]> leafSink) {
+    final Consumer<byte[]> checkedSink = Objects.requireNonNull(leafSink, "leafSink must not be null");
+    return leaf -> checkedSink.accept(leaf.serialize());
   }
 
   private static void assertNoNestedRootPcrs(final PathSummaryReader pathSummary, final LongSet rootPathNodeKeys,
@@ -211,9 +358,11 @@ public final class ProjectionIndexBuilder {
           if (pk <= 0)
             break;
           if (rootPathNodeKeys.contains(pk)) {
-            throw new IllegalStateException("Projection root path '" + rootPath + "' resolves to NESTED record sets "
-                + "(pathNodeKey " + root + " lies inside record set " + pk + ") — "
-                + "self-nested roots are not supported; declare a more specific root path");
+            throw new IllegalStateException("Projection ROOT path '" + rootPath
+                + "' resolves to overlapping nested root matches (matched pathNodeKey " + root
+                + " lies below matched root pathNodeKey " + pk + "). Only matches of the declared ROOT path are "
+                + "compared here; projection COLUMN paths may descend to arbitrary and differing depths below each "
+                + "root. Self-nested root matches are not supported; declare a more specific root path");
           }
         }
       }
@@ -311,7 +460,8 @@ public final class ProjectionIndexBuilder {
   public static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final JsonNodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
-    final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
+    final ProjectionIndexHOTStorage storage =
+        ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
     // Null when slot 0 was a LEGACY chunked payload (priorMetadata reset the sub-tree), but also
     // when the blob is simply unreadable AS METADATA and the sub-tree was left intact: no PIXM
     // magic, or a version byte that is not the one supported version — both of which
@@ -352,24 +502,25 @@ public final class ProjectionIndexBuilder {
     final Map<Integer, List<byte[]>> bloomPerColumn = new HashMap<>();
     final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
     final boolean hasSetColumn = hasStringSetColumn(indexDef);
-    final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, raw -> {
-      final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(raw);
-      if (range == null) {
-        throw new IllegalStateException("Serialised projection leaf " + firstKeys.size() + " carries no header");
+    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
+        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+    final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, leaf -> {
+      if (leaf.getRowCount() == 0) {
+        throw new IllegalStateException("Projection leaf " + firstKeys.size() + " is empty");
       }
-      firstKeys.add(range[0]);
-      lastKeys.add(range[1]);
+      firstKeys.add(leaf.firstRecordKey());
+      lastKeys.add(leaf.lastRecordKey());
       // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
       // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
       // already count rows rather than occurrences.
       if (hasSetColumn) {
-        accumulateSetValueRowCounts(raw, setValueRowCounts);
+        accumulateSetValueRowCounts(leaf, setValueRowCounts);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
-          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
+          ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
       accumulateBloomSegments(encoded, firstKeys.size(), bloomPerColumn);
       storage.putRowGroupAsColumnSegmentSlots(firstKeys.size(), encoded);
-    });
+    }, false);
     builder.build(rtx);
     // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
     // so nothing can be persisted about a dictionary until every id it will ever mint is known.
@@ -389,7 +540,7 @@ public final class ProjectionIndexBuilder {
    * @return per-column header node keys, {@code 0} where the column has no dictionary, or
    *         {@code null} when the build produced none at all
    */
-  private static long @Nullable [] flushValueDictionaries(
+  static long @Nullable [] flushValueDictionaries(
       final GlobalValueDictionaryWriter @Nullable [] dictionaries,
       final StorageEngineWriter storageEngineWriter) {
     if (dictionaries == null) {
@@ -417,7 +568,7 @@ public final class ProjectionIndexBuilder {
    * Leaves without one (rowless, non-string columns) stay {@code null} in the list — the block
    * encoder writes them as empty slices, which probe as "no evidence, keep".
    */
-  private static void accumulateBloomSegments(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
+  static void accumulateBloomSegments(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
       final int rowGroupId, final Map<Integer, List<byte[]>> bloomPerColumn) {
     final int[] ids = encoded.columnSegmentIds();
     for (int i = 0; i < ids.length; i++) {
@@ -499,7 +650,7 @@ public final class ProjectionIndexBuilder {
   }
 
   /** Whether the definition declares at least one {@code COLUMN_KIND_STRING_SET} column. */
-  private static boolean hasStringSetColumn(final IndexDef indexDef) {
+  static boolean hasStringSetColumn(final IndexDef indexDef) {
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     for (int i = 0; i < fieldTypes.size(); i++) {
@@ -515,12 +666,16 @@ public final class ProjectionIndexBuilder {
    * Fold one leaf's per-value ROW counts into the index-wide totals.
    *
    * <p>
-   * Reads the leaf back from its raw payload rather than threading state out of the encoder: the
-   * payload is already in hand at this point, and deriving the counts from the bytes that will
-   * actually be stored keeps the summary and the data from disagreeing if the encoder changes.
+   * The raw compatibility form retains its original semantics and delegates to the live-page
+   * implementation after deserialisation.
    */
-  private static void accumulateSetValueRowCounts(final byte[] raw, final Map<Integer, Map<String, Long>> into) {
-    final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(raw);
+  static void accumulateSetValueRowCounts(final byte[] raw, final Map<Integer, Map<String, Long>> into) {
+    accumulateSetValueRowCounts(ProjectionIndexRowGroupPage.deserialize(raw), into);
+  }
+
+  /** Fold a borrowed live leaf's per-value row counts without a whole-row-group round trip. */
+  static void accumulateSetValueRowCounts(final ProjectionIndexRowGroupPage leaf,
+      final Map<Integer, Map<String, Long>> into) {
     final int rowCount = leaf.getRowCount();
     if (rowCount == 0) {
       return;
@@ -529,16 +684,17 @@ public final class ProjectionIndexBuilder {
       if (leaf.columnKind(c) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
         continue;
       }
-      final byte[][] dict = leaf.stringDictionary(c);
-      final long[] counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dict, leaf.stringSetCountColumn(c),
+      final int dictSize = leaf.stringDictionarySize(c);
+      final long[] counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(dictSize, leaf.stringSetCountColumn(c),
           leaf.stringSetIdColumn(c), rowCount);
       if (counts == null) {
         continue;
       }
       final Map<String, Long> forColumn = into.computeIfAbsent(c, k -> new LinkedHashMap<>());
-      for (int i = 0; i < counts.length && dict[i] != null; i++) {
+      for (int i = 0; i < counts.length; i++) {
         if (counts[i] > 0) {
-          forColumn.merge(new String(dict[i], StandardCharsets.UTF_8), counts[i], Long::sum);
+          forColumn.merge(new String(leaf.stringDictionaryEntryBacking(c, i), leaf.stringDictionaryEntryOffset(c, i),
+              leaf.stringDictionaryEntryLength(c, i), StandardCharsets.UTF_8), counts[i], Long::sum);
         }
       }
     }
@@ -550,7 +706,7 @@ public final class ProjectionIndexBuilder {
    * metadata blob (shape, build revision) at slot 0, then persist the per-leaf record-key fences as
    * carry-forward chunks ({@link ProjectionIndexFences}).
    */
-  private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
+  static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
       final int buildRevision, final byte[] columnKinds, final Map<Integer, Map<String, Long>> setValueRowCounts,
       final @Nullable Map<Integer, List<byte[]>> bloomPerColumn, final long @Nullable [] valueDictionaryHeaderKeys) {
@@ -596,6 +752,10 @@ public final class ProjectionIndexBuilder {
    * pathNodeKey is a projection-root PCR. Flushes any partially-filled trailing leaf on completion.
    */
   public void build(final JsonNodeReadOnlyTrx rtx) {
+    if (streaming) {
+      throw new IllegalStateException("A streaming projection builder is fed records through appendRecord(); "
+          + "it never resolved a record-set root to walk");
+    }
     final long restoreNodeKey = rtx.getNodeKey();
     try {
       // Optional: -Dsirix.projection.builder=generic forces the original
@@ -712,6 +872,54 @@ public final class ProjectionIndexBuilder {
     }
   }
 
+  /**
+   * Re-resolve the extractor's declared field paths against the CURRENT path summary — see
+   * {@link ProjectionIndexRowExtractor#refresh}. Called once per extraction batch by the incremental
+   * build, whose summary is still growing while it extracts.
+   */
+  public void refreshFieldPaths(final PathSummaryReader pathSummary) {
+    extractor.refresh(pathSummary);
+  }
+
+  /**
+   * Append one completed record as the next row, in the caller's order. The caller owns record
+   * identity and ordering; this method only extracts and packs.
+   *
+   * @return {@code false} when the record no longer exists (extraction found nothing to read), in
+   *         which case no row was appended
+   */
+  public boolean appendRecord(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    if (!streaming) {
+      throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
+    }
+    if (!extractor.extractInto(rtx, recordKey)) {
+      return false;
+    }
+    if (!extractor.appendTo(currentLeaf, recordKey)) {
+      flushCurrentRowGroup();
+      currentLeaf = newLeaf();
+      extractor.appendTo(currentLeaf, recordKey);
+    }
+    rowsEmitted++;
+    return true;
+  }
+
+  /**
+   * Drain a streaming build: flush the partially-filled trailing leaf and, when the build never grew
+   * past the dictionary sample, make the per-column dictionary decision and release the held-back
+   * leaves. Mirrors the tail of {@link #build} exactly, which is what makes the incremental and
+   * walking builds produce the same leaf sequence for the same records.
+   */
+  public void finishStreaming() {
+    if (!streaming) {
+      throw new IllegalStateException("finishStreaming() is the streaming builder's entry point; this builder walks");
+    }
+    flushCurrentRowGroup();
+    if (sample != null) {
+      decideDictionaryKindsAndDrainSample();
+    }
+  }
+
   /** @return total rows appended across all emitted leaves. */
   public long rowsEmitted() {
     return rowsEmitted;
@@ -773,6 +981,12 @@ public final class ProjectionIndexBuilder {
   }
 
   private ProjectionIndexRowGroupPage newLeaf() {
+    final ProjectionIndexRowGroupPage reusable = reusableLeaf;
+    if (reusable != null) {
+      reusableLeaf = null;
+      reusable.setGlobalDictionaries(globalDictionaries);
+      return reusable;
+    }
     final ProjectionIndexRowGroupPage leaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
     leaf.setGlobalDictionaries(globalDictionaries);
     return leaf;
@@ -788,8 +1002,23 @@ public final class ProjectionIndexBuilder {
       }
       return;
     }
-    leafSink.accept(currentLeaf.serialize());
+    reusableLeaf = emitBorrowedLeafForReuse(currentLeaf, globalDictionaries, leafSink);
     leavesEmitted++;
+  }
+
+  /**
+   * Borrow one live page synchronously, then reset it only after the callback has returned.
+   *
+   * <p>The ordering is the ownership proof: if the callback throws, execution never reaches the
+   * reset and the failing borrower sees an unchanged page. Package visibility supports focused
+   * failure-path coverage without exposing reuse through the public API.
+   */
+  static ProjectionIndexRowGroupPage emitBorrowedLeafForReuse(final ProjectionIndexRowGroupPage leaf,
+      final GlobalValueDictionaryWriter[] dictionaries, final BorrowedLeafSink leafSink) {
+    leaf.setGlobalDictionaries(dictionaries);
+    leafSink.accept(leaf);
+    leaf.resetForBuilderReuse(dictionaries);
+    return leaf;
   }
 
   /**
@@ -819,7 +1048,16 @@ public final class ProjectionIndexBuilder {
     final byte[] kinds = extractor.columnKindsRef();
     final GlobalValueDictionaryWriter[] dictionaries = new GlobalValueDictionaryWriter[kinds.length];
     final GlobalDictionaryMode mode = globalDictionaryMode();
-    if (mode != GlobalDictionaryMode.NEVER) {
+    final long budgetBytes = globalDictionaryBudgetBytes();
+    // A budget below what an EMPTY dictionary retains cannot promote anything: the writer would
+    // refuse its own first value. Treat it as "no global dictionaries" rather than constructing
+    // writers that fail on contact — a bound set too low is a decline, like every other bound here.
+    final boolean budgetAdmitsAnyDictionary = budgetBytes >= GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES;
+    if (!budgetAdmitsAnyDictionary && PROJ_DIAG) {
+      System.err.println("[proj] global dictionaries DISABLED: budget " + budgetBytes + " B is below the "
+          + GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES + " B an empty dictionary already retains");
+    }
+    if (mode != GlobalDictionaryMode.NEVER && budgetAdmitsAnyDictionary) {
       long sampledRows = 0;
       for (final ProjectionIndexRowGroupPage leaf : sample) {
         sampledRows += leaf.getRowCount();
@@ -832,10 +1070,39 @@ public final class ProjectionIndexBuilder {
         for (final ProjectionIndexRowGroupPage leaf : sample) {
           perLeafDictTotal += leaf.stringDictionarySize(c);
         }
-        if (mode == GlobalDictionaryMode.ALWAYS
-            || isGlobalDictionaryWorthwhile(sampledRows, perLeafDictTotal)) {
-          dictionaries[c] = new GlobalValueDictionaryWriter();
+        if (mode != GlobalDictionaryMode.ALWAYS && !isGlobalDictionaryWorthwhile(sampledRows, perLeafDictTotal)) {
+          continue;
         }
+        // ELECTION-TIME DECLINE. The dedup factor above says a resource-wide dictionary is the
+        // better SHAPE; it says nothing about whether the thing will fit. Those are different
+        // questions, and at 100M rows the second one is the one that kills the load — so ask it
+        // here, before a single leaf is written as global, because that is the only point at which
+        // declining one column is cheap. Afterwards its ids are in every leaf already and the only
+        // retreat is abandoning the whole projection.
+        //
+        // Answerable only with a row-count hint: projected bytes need a distinct count, a distinct
+        // count needs the corpus size, and a streaming build learns that when the stream ends,
+        // thousands of leaves too late. Without a hint the runtime cap in the writer is the only
+        // protection and the outcome is a late abandon — the documented contract, not a surprise.
+        if (mode != GlobalDictionaryMode.ALWAYS && expectedRows > 0) {
+          final long avgValueBytes = perLeafDictTotal == 0
+              ? 0
+              : sampledValueBytes(c) / perLeafDictTotal;
+          final long projected = expectedRows * (avgValueBytes + PER_ENTRY_OVERHEAD_BYTES);
+          // Half the budget, because the estimate is the weak link: avg length comes from leading
+          // rows, and distinct==rows is an upper bound rather than a measurement (see task #51 —
+          // within-leaf uniqueness does not imply global uniqueness). Erring toward the per-leaf
+          // dictionary costs some query speed; erring the other way costs the load.
+          if (projected > budgetBytes / 2) {
+            if (PROJ_DIAG) {
+              System.err.println("[proj] global dictionary DECLINED for column " + c + ": projected " + projected
+                  + " B (" + expectedRows + " rows x " + (avgValueBytes + PER_ENTRY_OVERHEAD_BYTES)
+                  + " B/entry) exceeds half of the " + budgetBytes + " B budget — column stays per-leaf DICT");
+            }
+            continue;
+          }
+        }
+        dictionaries[c] = new GlobalValueDictionaryWriter(c, budgetBytes);
       }
     }
 
@@ -860,15 +1127,48 @@ public final class ProjectionIndexBuilder {
     }
     GLOBAL_DICTIONARY_COLUMNS.set(globalColumns);
     globalDictionaries = dictionaries;
-    for (final ProjectionIndexRowGroupPage leaf : sample) {
-      leaf.setGlobalDictionaries(dictionaries);
-      leafSink.accept(leaf.serialize());
-      leavesEmitted++;
-    }
+    reusableLeaf = emitBorrowedSampleForReuse(sample, dictionaries, leafSink);
+    leavesEmitted += sample.size();
     // currentLeaf is the last buffered leaf (flushCurrentRowGroup buffered it before calling
     // here), so it has already been converted and drained; extractRow replaces it with one built
     // under the new kinds.
     sample = null;
+  }
+
+  /**
+   * Publish the dictionary-decided leading sample in order through the borrowed-page boundary.
+   * Package visibility exists solely for focused ownership/parity coverage of the 64-page drain.
+   */
+  static void emitBorrowedSample(final List<ProjectionIndexRowGroupPage> sample,
+      final GlobalValueDictionaryWriter[] dictionaries, final BorrowedLeafSink leafSink) {
+    for (final ProjectionIndexRowGroupPage leaf : sample) {
+      leaf.setGlobalDictionaries(dictionaries);
+      leafSink.accept(leaf);
+    }
+  }
+
+  /**
+   * Drain the dictionary-election sample without reusing a page while any sample data is still
+   * needed. All 64 leading leaves survive measurement, optional local-to-global conversion and
+   * their borrowed callbacks intact; only the final leaf is reset, and only after its callback
+   * returns successfully, to seed steady-state reuse.
+   *
+   * @return the reset final sample leaf, or {@code null} for an empty sample
+   */
+  static @Nullable ProjectionIndexRowGroupPage emitBorrowedSampleForReuse(
+      final List<ProjectionIndexRowGroupPage> sample, final GlobalValueDictionaryWriter[] dictionaries,
+      final BorrowedLeafSink leafSink) {
+    final int last = sample.size() - 1;
+    for (int i = 0; i <= last; i++) {
+      final ProjectionIndexRowGroupPage leaf = sample.get(i);
+      leaf.setGlobalDictionaries(dictionaries);
+      leafSink.accept(leaf);
+      if (i == last) {
+        leaf.resetForBuilderReuse(dictionaries);
+        return leaf;
+      }
+    }
+    return null;
   }
 
   /**

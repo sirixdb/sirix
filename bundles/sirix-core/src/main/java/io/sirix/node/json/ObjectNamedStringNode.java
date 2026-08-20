@@ -31,6 +31,7 @@ import io.sirix.node.AbstractFlyweightNode;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
@@ -280,6 +281,146 @@ public final class ObjectNamedStringNode extends AbstractFlyweightNode
     this.value = new byte[length];
     bytesIn.read(this.value);
     this.valueParsed = true;
+  }
+
+  /**
+   * Copy this fused value's decoded semantic UTF-8 bytes into caller-owned storage.
+   *
+   * <p>The bound-page branch deliberately parses and decodes in place: neither a
+   * {@link MemorySegmentBytesIn} wrapper nor an encoded/decoded value array is created, and no page
+   * range escapes the call. The ordinary public value methods retain their existing materializing
+   * and caching behavior.</p>
+   *
+   * @see FusedStringCursor#readFusedStringUtf8(byte[])
+   */
+  public int readFusedStringUtf8(final byte[] valueOut) {
+    Objects.requireNonNull(valueOut, "valueOut must not be null");
+    if (page != null) {
+      return readBoundSemanticUtf8(valueOut);
+    }
+    if (!valueParsed || value == null) {
+      return FusedStringCursor.UNAVAILABLE;
+    }
+    return copySemanticUtf8(value, 0, value.length, isCompressed, valueOut);
+  }
+
+  private int readBoundSemanticUtf8(final byte[] valueOut) {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+        recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final long payloadStart = dataRegionStart + payloadFieldOff;
+    final boolean compressed = page.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    final long lengthOffset = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lengthOffset);
+    if (length < 0) {
+      throw new IllegalStateException("Corrupted fused string payload: negative byte length " + length);
+    }
+    final int lengthWidth = DeltaVarIntCodec.readSignedVarintWidth(page, lengthOffset);
+    final long valueStart = lengthOffset + lengthWidth;
+    if (valueStart < 0 || valueStart > page.byteSize() || length > page.byteSize() - valueStart) {
+      throw new IllegalStateException("Corrupted fused string payload: " + length
+          + " bytes at offset " + valueStart + " exceed page size " + page.byteSize());
+    }
+    if (!compressed) {
+      if (valueOut.length < length) {
+        return FusedStringCursor.insufficientCapacity(length);
+      }
+      if (length > 0) {
+        MemorySegment.copy(page, ValueLayout.JAVA_BYTE, valueStart, valueOut, 0, length);
+      }
+      return length;
+    }
+    return decodeBoundFsst(valueStart, length, valueOut);
+  }
+
+  private int decodeBoundFsst(final long valueStart, final int encodedLength, final byte[] valueOut) {
+    if (encodedLength == 0) {
+      return 0;
+    }
+    final byte[][] symbols = FSSTCompressor.parsedFor(fsstSymbolTable);
+    if (symbols.length == 0) {
+      if (valueOut.length < encodedLength) {
+        return FusedStringCursor.insufficientCapacity(encodedLength);
+      }
+      MemorySegment.copy(page, ValueLayout.JAVA_BYTE, valueStart, valueOut, 0, encodedLength);
+      return encodedLength;
+    }
+
+    final int required = maximumDecodedCapacity(encodedLength);
+    if (valueOut.length < required) {
+      return FusedStringCursor.insufficientCapacity(required);
+    }
+    final byte header = page.get(ValueLayout.JAVA_BYTE, valueStart);
+    if (header != FSSTCompressor.HEADER_COMPRESSED) {
+      final int skip = header == FSSTCompressor.HEADER_RAW ? 1 : 0;
+      final int decodedLength = encodedLength - skip;
+      if (decodedLength > 0) {
+        MemorySegment.copy(page, ValueLayout.JAVA_BYTE, valueStart + skip, valueOut, 0, decodedLength);
+      }
+      return decodedLength;
+    }
+
+    final long end = valueStart + encodedLength;
+    long pos = valueStart + 1;
+    int outPos = 0;
+    while (pos < end) {
+      final int code = page.get(ValueLayout.JAVA_BYTE, pos++) & 0xFF;
+      if (code == (FSSTCompressor.ESCAPE_BYTE & 0xFF)) {
+        if (pos >= end) {
+          throw new IllegalStateException("Corrupted FSST data: escape at end");
+        }
+        valueOut[outPos++] = page.get(ValueLayout.JAVA_BYTE, pos++);
+      } else if (code < symbols.length) {
+        final byte[] symbol = symbols[code];
+        if (symbol.length > FSSTCompressor.MAX_SYMBOL_LENGTH) {
+          throw new IllegalStateException("Corrupted FSST symbol table: symbol " + code + " is "
+              + symbol.length + " bytes, over the " + FSSTCompressor.MAX_SYMBOL_LENGTH + "-byte maximum");
+        }
+        if (symbol.length == 1) {
+          valueOut[outPos] = symbol[0];
+        } else {
+          System.arraycopy(symbol, 0, valueOut, outPos, symbol.length);
+        }
+        outPos += symbol.length;
+      } else {
+        throw new IllegalStateException("Corrupted FSST data: unexpected byte code " + code);
+      }
+    }
+    return outPos;
+  }
+
+  private int copySemanticUtf8(final byte[] source, final int offset, final int length,
+      final boolean compressed, final byte[] valueOut) {
+    if (!compressed) {
+      if (valueOut.length < length) {
+        return FusedStringCursor.insufficientCapacity(length);
+      }
+      System.arraycopy(source, offset, valueOut, 0, length);
+      return length;
+    }
+    if (length == 0) {
+      return 0;
+    }
+    final byte[][] symbols = FSSTCompressor.parsedFor(fsstSymbolTable);
+    if (symbols.length == 0) {
+      if (valueOut.length < length) {
+        return FusedStringCursor.insufficientCapacity(length);
+      }
+      System.arraycopy(source, offset, valueOut, 0, length);
+      return length;
+    }
+    final int required = maximumDecodedCapacity(length);
+    if (valueOut.length < required) {
+      return FusedStringCursor.insufficientCapacity(required);
+    }
+    return FSSTCompressor.decodeInto(source, offset, length, symbols, valueOut, 0);
+  }
+
+  private static int maximumDecodedCapacity(final int encodedLength) {
+    if (encodedLength > Integer.MAX_VALUE / FSSTCompressor.MAX_SYMBOL_LENGTH) {
+      throw new IllegalStateException("Corrupted fused string payload: encoded length " + encodedLength
+          + " cannot have an int-indexed decoded representation");
+    }
+    return FSSTCompressor.maxDecodedLength(encodedLength);
   }
 
   // ==================== OWNER PAGE ====================

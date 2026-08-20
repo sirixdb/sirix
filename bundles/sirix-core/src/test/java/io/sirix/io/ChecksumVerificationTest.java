@@ -124,6 +124,21 @@ class ChecksumVerificationTest {
     }
 
     @Test
+    @DisplayName("Heap-backed MemorySegment slices hash only their exact range")
+    void heapSegmentSliceWorks() {
+      byte[] data = "PREFIX:page payload:SUFFIX".getBytes();
+      int offset = "PREFIX:".length();
+      int length = "page payload".length();
+      long expectedFromArray = ALGO.computeHashLong(data, offset, length);
+
+      MemorySegment slice = MemorySegment.ofArray(data).asSlice(offset, length);
+
+      assertEquals(offset, slice.address(), "Heap slice address must be its byte-array offset");
+      assertEquals(expectedFromArray, ALGO.computeHashLong(slice),
+          "Heap segment slice hash should match byte-array range hash");
+    }
+
+    @Test
     @DisplayName("verifyLong with native MemorySegment is zero-copy")
     void verifyLongNativeSegmentZeroCopy() {
       byte[] data = "Test data for verification".getBytes();

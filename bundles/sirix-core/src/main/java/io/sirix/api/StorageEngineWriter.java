@@ -250,6 +250,23 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   void commit(PageReference reference);
 
+  /**
+   * Stage a fresh immutable {@link io.sirix.page.OverflowPage} for the writer's bounded background
+   * append batch.
+   *
+   * <p>This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
+   * reachable from any committed root, must never be mutated, and its owner must tolerate the
+   * append becoming an unreachable orphan until transaction rollback reclaims the uncommitted
+   * tail. Implementations return {@code false} when their backend cannot reclaim such a tail; the
+   * page then stays resident and ordinary recursive commit writes it safely.</p>
+   *
+   * @param reference fresh unresolved reference whose page is an immutable OverflowPage
+   * @return {@code true} if ownership moved into a bounded pending-write batch
+   */
+  default boolean stageUncommittedOverflowPage(final PageReference reference) {
+    return false;
+  }
+
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**

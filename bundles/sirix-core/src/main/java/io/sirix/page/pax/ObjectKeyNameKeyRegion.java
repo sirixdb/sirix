@@ -14,6 +14,7 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * Dict-encoded PAX region for OBJECT_KEY nameKey values. Stores the nameKey ONLY here — the
@@ -35,6 +36,12 @@ import java.nio.ByteOrder;
  * bytes). LZ4 compresses the dictIds column (5 repeating values) to near zero.
  */
 public final class ObjectKeyNameKeyRegion {
+
+  /** A page has exactly this many addressable slots. */
+  private static final int MAX_SLOTS = 1024;
+
+  /** Returned by {@link #encodeInto} when the dictionary cannot represent the input. */
+  public static final int ENCODE_FAILED = -1;
 
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_PREFERRED;
   private static final int LANES = BYTE_SPECIES.length();
@@ -76,9 +83,37 @@ public final class ObjectKeyNameKeyRegion {
    * Encode from parallel arrays (bitmap order).
    */
   public static byte[] encode(final int[] nameKeys, final int[] slots, final int count) {
+    final EncodeScratch scratch = ENCODE_SCRATCH.get();
+    final int encodedLength = encodeInto(nameKeys, slots, count, scratch.output);
+    return encodedLength == ENCODE_FAILED
+        ? null
+        : Arrays.copyOf(scratch.output, encodedLength);
+  }
+
+  /**
+   * Encode into caller-owned reusable storage.
+   *
+   * <p>The returned prefix is valid only until the caller reuses {@code out}. A caller retaining the
+   * payload must copy it before then; {@link RegionTable#set(byte, byte[], int)} does exactly that.
+   * The method allocates only on the first call made by a thread, when its dictionary/bitmap scratch
+   * is initialized.
+   *
+   * @return bytes written, or {@link #ENCODE_FAILED} when more than 255 distinct name keys are present
+   */
+  public static int encodeInto(final int[] nameKeys, final int[] slots, final int count, final byte[] out) {
+    if (nameKeys == null || slots == null || out == null) {
+      throw new NullPointerException("nameKeys, slots, and out must be non-null");
+    }
+    if (count < 0 || count > MAX_SLOTS || count > nameKeys.length || count > slots.length) {
+      throw new IllegalArgumentException(
+          "count=" + count + " nameKeys.length=" + nameKeys.length + " slots.length=" + slots.length);
+    }
+
+    final EncodeScratch scratch = ENCODE_SCRATCH.get();
+    final int[] dict = scratch.dict;
+    final byte[] dictIds = scratch.dictIds;
+
     // Build dict.
-    final int[] dict = new int[256];
-    final byte[] dictIds = new byte[count];
     int numUnique = 0;
     for (int i = 0; i < count; i++) {
       final int nk = nameKeys[i];
@@ -90,8 +125,9 @@ public final class ObjectKeyNameKeyRegion {
         }
       }
       if (id < 0) {
-        if (numUnique >= 255)
-          return null;
+        if (numUnique >= 255) {
+          return ENCODE_FAILED;
+        }
         id = numUnique;
         dict[numUnique++] = nk;
       }
@@ -99,31 +135,54 @@ public final class ObjectKeyNameKeyRegion {
     }
 
     // Build OBJECT_KEY bitmap.
-    final long[] bitmap = new long[16];
+    final long[] bitmap = scratch.bitmap;
+    Arrays.fill(bitmap, 0L);
     for (int i = 0; i < count; i++) {
       final int slot = slots[i];
+      if (slot < 0 || slot >= MAX_SLOTS) {
+        throw new IllegalArgumentException("slot " + slot + " at index " + i + " is outside [0, 1024)");
+      }
       bitmap[slot >>> 6] |= 1L << (slot & 63);
     }
 
     // Wire.
     final int size = dictIdsOffset(numUnique) + count;
-    final byte[] out = new byte[size];
-    final MemorySegment seg = MemorySegment.ofArray(out);
-    seg.set(ValueLayout.JAVA_BYTE, 0L, (byte) numUnique);
-    long off = 1;
+    if (out.length < size) {
+      throw new IllegalArgumentException("output too small: " + out.length + " bytes for " + size);
+    }
+    out[0] = (byte) numUnique;
+    int off = 1;
     for (int i = 0; i < numUnique; i++) {
-      seg.set(LE.INT, off, dict[i]);
+      INT_LE.set(out, off, dict[i]);
       off += 4;
     }
-    seg.set(LE.SHORT, off, (short) count);
+    SHORT_LE.set(out, off, (short) count);
     off += 2;
     for (int i = 0; i < 16; i++) {
-      seg.set(LE.LONG, off, bitmap[i]);
+      LONG_LE.set(out, off, bitmap[i]);
       off += 8;
     }
-    MemorySegment.copy(dictIds, 0, seg, ValueLayout.JAVA_BYTE, off, count);
-    return out;
+    System.arraycopy(dictIds, 0, out, off, count);
+    return size;
   }
+
+  /** Maximum output bytes for a valid page prefix containing {@code count} slots. */
+  public static int maxEncodedSize(final int count) {
+    if (count < 0 || count > MAX_SLOTS) {
+      throw new IllegalArgumentException("count=" + count);
+    }
+    return dictIdsOffset(Math.min(count, 255)) + count;
+  }
+
+  /** Per-thread mutable state; no reference to it escapes an encode call. */
+  private static final class EncodeScratch {
+    private final int[] dict = new int[256];
+    private final byte[] dictIds = new byte[MAX_SLOTS];
+    private final long[] bitmap = new long[16];
+    private final byte[] output = new byte[maxEncodedSize(MAX_SLOTS)];
+  }
+
+  private static final ThreadLocal<EncodeScratch> ENCODE_SCRATCH = ThreadLocal.withInitial(EncodeScratch::new);
 
   // ── wire layout ─────────────────────────────────────────────────────────────
   // byte numUnique

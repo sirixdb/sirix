@@ -1,10 +1,15 @@
 package io.sirix.query.bench.clickbench;
 
+import com.fasterxml.jackson.core.JsonParser;
+import io.sirix.service.json.shredder.JacksonJsonShredder;
+
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
 import java.io.FilterReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.PushbackInputStream;
 import java.io.PushbackReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
@@ -38,28 +43,62 @@ public final class ClickBenchSource {
     throw new AssertionError("no instances");
   }
 
+  /** Jackson parser plus the framing mode required by the public transaction ingest API. */
+  public record JacksonSource(JsonParser parser, boolean ldjson) implements AutoCloseable {
+
+    public JacksonSource {
+      if (parser == null) {
+        throw new IllegalArgumentException("parser must not be null");
+      }
+    }
+
+    @Override
+    public void close() throws IOException {
+      parser.close();
+    }
+  }
+
+  /**
+   * Open the source in Jackson's lowest-copy form. File sources stay as bytes so the UTF-8 parser
+   * reads the gzip stream directly; generated sources remain readers. JSON-lines files are left
+   * unwrapped and use the transaction's native LDJSON mode instead of injecting brackets/commas
+   * through a character adapter.
+   */
+  public static JacksonSource openJackson(final String spec) throws IOException {
+    validateSpec(spec);
+    if (spec.startsWith("generate:")) {
+      return new JacksonSource(JacksonJsonShredder.createReaderParser(openGenerated(spec)), false);
+    }
+
+    final Path path = Path.of(spec);
+    if (!Files.isReadable(path)) {
+      throw new IOException("hits source is not readable: " + path.toAbsolutePath());
+    }
+
+    final InputStream file = Files.newInputStream(path);
+    try {
+      final InputStream decoded = spec.toLowerCase(Locale.ROOT).endsWith(".gz")
+          ? new GZIPInputStream(file, BUFFER_BYTES)
+          : file;
+      final PushbackInputStream input = new PushbackInputStream(new BufferedInputStream(decoded, BUFFER_BYTES),
+          PEEK_BYTES);
+      final boolean ldjson = !isJsonArray(input);
+      return new JacksonSource(JacksonJsonShredder.createInputStreamParser(input), ldjson);
+    } catch (final IOException | RuntimeException exception) {
+      file.close();
+      throw exception;
+    }
+  }
+
   /**
    * @param spec one of the three source spellings documented on this class
    * @return a reader over a JSON array of hit objects; the caller closes it
    * @throws IOException if the source cannot be opened
    */
   public static Reader open(final String spec) throws IOException {
-    if (spec == null || spec.isBlank()) {
-      throw new IllegalArgumentException("source spec must not be blank");
-    }
+    validateSpec(spec);
     if (spec.startsWith("generate:")) {
-      final String[] parts = spec.split(":");
-      if (parts.length < 2 || parts.length > 3) {
-        throw new IllegalArgumentException("expected generate:<rows>[:seed], got: " + spec);
-      }
-      final long rows = Long.parseLong(parts[1]);
-      if (rows <= 0) {
-        throw new IllegalArgumentException("row count must be positive: " + rows);
-      }
-      final long seed = parts.length == 3
-          ? Long.parseLong(parts[2])
-          : 42L;
-      return new ClickBenchHitsGenerator(0L, rows, seed);
+      return openGenerated(spec);
     }
     final Path path = Path.of(spec);
     if (!Files.isReadable(path)) {
@@ -78,6 +117,61 @@ public final class ClickBenchSource {
 
   /** How far {@link #isJsonArray} may look ahead for the first non-whitespace character. */
   private static final int PEEK_CHARS = 16;
+
+  private static final int PEEK_BYTES = 64;
+
+  private static void validateSpec(final String spec) {
+    if (spec == null || spec.isBlank()) {
+      throw new IllegalArgumentException("source spec must not be blank");
+    }
+  }
+
+  private static Reader openGenerated(final String spec) {
+    final String[] parts = spec.split(":");
+    if (parts.length < 2 || parts.length > 3) {
+      throw new IllegalArgumentException("expected generate:<rows>[:seed], got: " + spec);
+    }
+    final long rows = Long.parseLong(parts[1]);
+    if (rows <= 0) {
+      throw new IllegalArgumentException("row count must be positive: " + rows);
+    }
+    final long seed = parts.length == 3
+        ? Long.parseLong(parts[2])
+        : 42L;
+    return new ClickBenchHitsGenerator(0L, rows, seed);
+  }
+
+  /** Byte-stream equivalent of {@link #isJsonArray(PushbackReader)}; preserves every peeked byte. */
+  private static boolean isJsonArray(final PushbackInputStream pushback) throws IOException {
+    final byte[] seen = new byte[PEEK_BYTES];
+    int consumed = 0;
+    int value = -1;
+    while (consumed < seen.length && (value = pushback.read()) != -1) {
+      seen[consumed++] = (byte) value;
+      if (consumed == 1 && value == 0xEF) {
+        final int second = pushback.read();
+        final int third = pushback.read();
+        if (second != -1) {
+          seen[consumed++] = (byte) second;
+        }
+        if (third != -1) {
+          seen[consumed++] = (byte) third;
+        }
+        if (second == 0xBB && third == 0xBF) {
+          // UTF-8 BOM: Jackson consumes it, and framing detection must look past it.
+          continue;
+        }
+        break;
+      }
+      if (value != ' ' && value != '\t' && value != '\r' && value != '\n') {
+        break;
+      }
+    }
+    if (consumed > 0) {
+      pushback.unread(seen, 0, consumed);
+    }
+    return value == '[';
+  }
 
   /**
    * Peeks past leading whitespace for the {@code '['} that distinguishes a JSON array file from a
