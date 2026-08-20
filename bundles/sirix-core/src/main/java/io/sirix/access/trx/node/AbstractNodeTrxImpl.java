@@ -64,9 +64,25 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
   /**
+   * Maximum size of the first {@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} epoch.
+   *
+   * <p>The first snapshot append pays one-time serializer, codec, and worker warm-up. Starting that
+   * work when the 1,048,576-modification threshold is crossed gives it a full configured epoch to
+   * finish before the foreground needs the sole append permit again. Smaller configured epochs are
+   * left exactly as requested.</p>
+   */
+  static final int MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT = 1 << 20;
+
+  /**
    * Maximum number of node modifications before auto commit.
    */
   private final int maxNodeCount;
+
+  /**
+   * Active count threshold. Only the first async-flush epoch can differ from
+   * {@link #maxNodeCount}; a successful first rotation restores the configured value permanently.
+   */
+  private int autoCommitNodeCountThreshold;
 
   /**
    * {@code true} if transaction is auto-committing (by count or by delay), {@code false} otherwise.
@@ -142,6 +158,31 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private long modificationCount;
 
   /**
+   * Monotonic mutation-attempt sequence used to validate transaction-local cursor fast paths.
+   * Unlike {@link #modificationCount}, this value is never reset at an intermediate flush.
+   */
+  private long mutationSequence;
+
+  /**
+   * One-shot marker for a cursor that was just rebound to a newly inserted document node.
+   *
+   * <p>Streaming shredders commonly call {@code moveTo(insertedNodeKey)} immediately after an
+   * insert even though the insert contract already leaves the cursor on that node. A write cursor
+   * normally must resolve every move through the transaction-intent log: an async flush can replace
+   * the active modified page while the frozen predecessor remains open. The marker makes only the
+   * provably safe immediate self-move skippable. A subsequent mutation changes
+   * {@link #mutationSequence}; a commit/revert replaces {@link #storageEngineWriter}; and the
+   * type-specific transaction additionally verifies that the physical cursor still has this key.
+   * The first explicit {@code moveTo} consumes the marker regardless of whether it qualifies.
+   * Consuming the marker only approves reuse of the physical binding; the caller must still invoke
+   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before reporting success.</p>
+   */
+  private long freshlyInsertedCursorNodeKey = Long.MIN_VALUE;
+  private long freshlyInsertedCursorMutationSequence;
+  @Nullable
+  private StorageEngineWriter freshlyInsertedCursorWriter;
+
+  /**
    * The storage engine writer.
    */
   protected StorageEngineWriter storageEngineWriter;
@@ -214,6 +255,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
+    this.autoCommitNodeCountThreshold = initialAutoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
     this.isAutoCommitting = maxNodeCount > 0 || !afterCommitDelay.isZero();
     this.modificationCount = 0L;
 
@@ -223,6 +265,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       commitScheduler.scheduleWithFixedDelay(() -> commit("autoCommit", null), afterCommitDelay.toMillis(),
           afterCommitDelay.toMillis(), TimeUnit.MILLISECONDS);
     }
+  }
+
+  /** Resolve the one-time async-flush priming threshold without changing any other commit mode. */
+  static int initialAutoCommitNodeCountThreshold(final int maxNodeCount,
+      final AfterCommitState afterCommitState) {
+    checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
+    requireNonNull(afterCommitState);
+    return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+        ? Math.min(maxNodeCount, MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT)
+        : maxNodeCount;
   }
 
   protected abstract W self();
@@ -507,8 +559,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         }
 
         // Apply commit-time index maintenance (incremental projection
-        // updates) while index writes can still ride this commit.
-        indexController.applyPendingIndexMaintenance();
+        // updates) while index writes can still ride this commit. A final
+        // commit additionally closes any load-time index build: it is the
+        // only signal the transaction gives that no more records follow.
+        indexController.applyPendingIndexMaintenance(!isIntermediateCommit);
 
         // Await any pending async background flush before sync commit
         storageEngineWriter.awaitPendingAsyncFlush();
@@ -609,6 +663,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected void checkAccessAndCommit() {
     nodeReadOnlyTrx.assertNotClosed();
     assertRunning();
+    mutationSequence++;
     modificationCount++;
     intermediateCommitIfRequired();
   }
@@ -618,22 +673,85 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * keeps mod count + auto-commit logic. Uses intermediate commit to skip redundant I/O.
    */
   protected final void checkAccessAndCommitBulk() {
+    mutationSequence++;
     modificationCount++;
-    if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
+    if (maxNodeCount > 0 && modificationCount > autoCommitNodeCountThreshold && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
-        storageEngineWriter.asyncFlush();
-        modificationCount = 0;
-        // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false.
-        // Without this, rollingAdd() walks the full ancestor chain on every insert,
-        // consuming ~42% of CPU. With bulkInsert=true and autoCommit=false, hashing
-        // is skipped during intermediate epochs (same as sync path).
-        nodeHashing.setAutoCommit(false);
+        flushIntermediateAsyncEpoch();
       } else {
         commitInternal("autoCommit", null, true);
       }
     }
+  }
+
+  /**
+   * Shared insertion preflight. A subtree shredder already established that the transaction is
+   * open and running before enabling bulk mode, so its per-node inserts retain count-based
+   * rotation while avoiding two redundant state checks. Standalone JSON/XML insertions keep the
+   * full public-mutator validation path.
+   */
+  protected final void checkAccessAndCommitForInsert() {
+    if (nodeHashing.isBulkInsert()) {
+      checkAccessAndCommitBulk();
+    } else {
+      checkAccessAndCommit();
+    }
+  }
+
+  /**
+   * Position the cursor on the document node created by the current insertion.
+   *
+   * <p>The node factory's allocation is still the writer's most recent document allocation at
+   * this point: insertion preflight ran before creation, while linkage and hash maintenance do not
+   * allocate another document node. The internal cursor can therefore bind its own singleton from
+   * that exact page slot and avoid a redundant TIL page resolution. Any violated guard takes the
+   * ordinary TIL-aware move path.</p>
+   */
+  protected final void moveToJustInsertedNode(final long nodeKey) {
+    if (!nodeReadOnlyTrx.tryMoveToLastAllocatedDocumentNode(storageEngineWriter, nodeKey)) {
+      nodeReadOnlyTrx.moveTo(nodeKey);
+    }
+  }
+
+  /**
+   * Mark that a successful insert has left the physical cursor on {@code nodeKey}.
+   *
+   * <p>The marker is deliberately transaction-local and allocation-free. It does not relax the
+   * general rule that write-cursor moves must consult the transaction-intent log.</p>
+   */
+  protected final void markFreshlyInsertedCursor(final long nodeKey) {
+    assert nodeKey >= 0 : "inserted document node keys must be non-negative";
+    assert nodeReadOnlyTrx.getNodeKey() == nodeKey : "insert must leave the cursor on the new node";
+    freshlyInsertedCursorNodeKey = nodeKey;
+    freshlyInsertedCursorMutationSequence = mutationSequence;
+    freshlyInsertedCursorWriter = storageEngineWriter;
+  }
+
+  /**
+   * Consume and validate the one-shot freshly-inserted cursor marker.
+   *
+   * <p>A {@code true} result approves skipping only the physical node rebind. The caller remains
+   * responsible for applying the normal logical cursor-move side effects through
+   * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before returning to its caller.</p>
+   *
+   * @return {@code true} only when {@code nodeKey} is an immediate self-move in the same mutation
+   *         epoch and on the same storage writer
+   */
+  protected final boolean consumeFreshlyInsertedSelfMove(final long nodeKey) {
+    final long markedNodeKey = freshlyInsertedCursorNodeKey;
+    final long markedMutationSequence = freshlyInsertedCursorMutationSequence;
+    final StorageEngineWriter markedWriter = freshlyInsertedCursorWriter;
+
+    // Every explicit move consumes the marker. A later move must take the normal TIL-aware path.
+    freshlyInsertedCursorNodeKey = Long.MIN_VALUE;
+    freshlyInsertedCursorWriter = null;
+
+    return nodeKey == markedNodeKey
+        && mutationSequence == markedMutationSequence
+        && storageEngineWriter == markedWriter
+        && nodeReadOnlyTrx.getNodeKey() == nodeKey;
   }
 
   protected final void persistUpdatedRecord(final DataRecord record) {
@@ -655,19 +773,40 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
-    if (maxNodeCount > 0 && modificationCount > maxNodeCount && compoundOperationDepth == 0) {
+    if (maxNodeCount > 0 && modificationCount > autoCommitNodeCountThreshold && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
-        storageEngineWriter.asyncFlush();
-        modificationCount = 0;
-        nodeHashing.setAutoCommit(false);
+        flushIntermediateAsyncEpoch();
       } else {
         LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
         commitInternal("autoCommit", null, true);
         LOGGER.debug("AUTO-COMMIT completed");
       }
     }
+  }
+
+  /**
+   * Rotate one intermediate async-flush epoch and permanently retire the first-epoch threshold only
+   * after the rotation succeeds.
+   */
+  private void flushIntermediateAsyncEpoch() {
+    // Index maintenance that has to READ the records it is maintaining must run while those records
+    // are still reachable through this transaction. The flush writes their pages out and lets go of
+    // them, and the revision they belong to is not committed yet, so nothing can read them back
+    // afterwards.
+    indexController.notifyBeforePageFlush();
+    storageEngineWriter.asyncFlush();
+
+    // Keep failure semantics unchanged: neither the dirty counter nor the priming threshold is reset
+    // if index maintenance or the async rotation throws.
+    modificationCount = 0;
+    autoCommitNodeCountThreshold = maxNodeCount;
+
+    // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false. Without this,
+    // rollingAdd() walks the full ancestor chain on every insert; bulk insertion skips hashing during
+    // intermediate epochs in the same way as the synchronous path.
+    nodeHashing.setAutoCommit(false);
   }
 
   protected abstract void serializeUpdateDiffs(int revisionNumber);

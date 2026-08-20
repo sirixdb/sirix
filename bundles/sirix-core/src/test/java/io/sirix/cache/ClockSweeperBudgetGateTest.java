@@ -158,13 +158,37 @@ class ClockSweeperBudgetGateTest {
     assertEquals(before, shard.map.size(), "no page may be dropped from an unbounded cache");
   }
 
+  @Test
+  @DisplayName("a guard arriving after the sweep check owns deferred close, not the cache mapping")
+  void lateGuardDoesNotLeaveOrphanedMappingCharged() {
+    final ShardedPageCache<FakePage> cache = new ShardedPageCache<>(PAGE_BYTES);
+    final PageReference key = keyFor(999);
+    final FakePage page = new FakePage(999);
+    cache.put(key, page);
+    page.clearHot();
+    page.acquireGuardAfterNextZeroObservation();
+
+    globalSweeperFor(cache, key).sweep();
+
+    assertEquals(0L, cache.size(), "the sweeper must detach the mapping despite the late guard");
+    assertEquals(0L, cache.getCurrentWeightBytes(), "a holder-owned orphan consumes no cache budget");
+    assertTrue(page.isOrphanedForTest());
+    assertFalse(page.isClosed(), "physical close must wait for the late guard holder");
+    assertEquals(0, page.versionForTest(), "the sweeper must not drift the version under a live holder");
+
+    page.releaseGuard();
+    assertTrue(page.isClosed(), "the final guard release must complete the deferred close");
+  }
+
   /** Minimal {@link CacheablePage} test double — fixed 1 KiB weight, software HOT bit + guards. */
   private static final class FakePage implements CacheablePage {
     private final long pageKey;
     private volatile boolean hot;
     private volatile boolean closed;
     private volatile boolean orphaned;
+    private volatile boolean injectGuardOnNextCount;
     private final AtomicInteger guards = new AtomicInteger();
+    private final AtomicInteger version = new AtomicInteger();
 
     FakePage(final long pageKey) {
       this.pageKey = pageKey;
@@ -206,11 +230,22 @@ class ClockSweeperBudgetGateTest {
 
     @Override
     public void releaseGuard() {
-      guards.decrementAndGet();
+      final int remaining = guards.decrementAndGet();
+      if (remaining < 0) {
+        throw new IllegalStateException("guard underflow");
+      }
+      if (remaining == 0 && orphaned) {
+        close();
+      }
     }
 
     @Override
     public int getGuardCount() {
+      if (injectGuardOnNextCount) {
+        injectGuardOnNextCount = false;
+        guards.incrementAndGet();
+        return 0;
+      }
       return guards.get();
     }
 
@@ -228,7 +263,7 @@ class ClockSweeperBudgetGateTest {
 
     @Override
     public void incrementVersion() {
-      // test double: version drift is irrelevant to these tests
+      version.incrementAndGet();
     }
 
     @Override
@@ -244,6 +279,18 @@ class ClockSweeperBudgetGateTest {
     @Override
     public IndexType getIndexType() {
       return IndexType.DOCUMENT;
+    }
+
+    void acquireGuardAfterNextZeroObservation() {
+      injectGuardOnNextCount = true;
+    }
+
+    boolean isOrphanedForTest() {
+      return orphaned;
+    }
+
+    int versionForTest() {
+      return version.get();
     }
   }
 }

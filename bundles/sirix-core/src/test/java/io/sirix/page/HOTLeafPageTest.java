@@ -28,6 +28,7 @@
 
 package io.sirix.page;
 
+import io.sirix.cache.FrameReusedException;
 import io.sirix.index.IndexType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,11 +39,15 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -223,6 +228,101 @@ class HOTLeafPageTest {
   }
 
   @Test
+  void sideReferenceRetirementDefersCleanupToTheLastInFlightLookup() throws InterruptedException {
+    final PageReference reference = new PageReference().setKey(42L);
+    hotLeafPage.setPageReference(7L, reference);
+    hotLeafPage.beginSideReferenceRead();
+
+    final AtomicReference<Throwable> closeFailure = new AtomicReference<>();
+    final Thread closeThread = new Thread(() -> {
+      try {
+        hotLeafPage.close();
+      } catch (final Throwable failure) {
+        closeFailure.set(failure);
+      }
+    }, "hot-leaf-side-reference-retirement");
+    closeThread.setDaemon(true);
+    closeThread.start();
+    try {
+      final long deadline = System.nanoTime() + 5_000_000_000L;
+      while (!hotLeafPage.sideReferencesRetired() && System.nanoTime() < deadline) {
+        Thread.onSpinWait();
+      }
+
+      assertTrue(hotLeafPage.sideReferencesRetired(), "close must retire new side-reference lookups");
+      closeThread.join(5_000L);
+      assertFalse(closeThread.isAlive(), "retirement must not block eviction behind a preempted reader");
+      assertNull(closeFailure.get(), "close must not fail while deferring side-map reclamation");
+      assertFalse(hotLeafPage.sideReferencesReleased(), "the in-flight reader must keep the map storage alive");
+      assertThrows(FrameReusedException.class, () -> hotLeafPage.getPageReference(7L));
+    } finally {
+      hotLeafPage.endSideReferenceRead();
+    }
+
+    assertTrue(hotLeafPage.sideReferencesReleased(), "the last reader must perform deferred reclamation");
+    assertThrows(FrameReusedException.class, hotLeafPage::segmentRefCount);
+  }
+
+  @Test
+  void frameReleaserRunsBeforeSideReferencesAreRetired() {
+    final AtomicReference<PageReference> releaserObservation = new AtomicReference<>();
+    final HOTLeafPage[] pageHolder = new HOTLeafPage[1];
+    final HOTLeafPage orderedPage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE),
+        () -> releaserObservation.set(pageHolder[0].getPageReference(7L)), new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    pageHolder[0] = orderedPage;
+    final PageReference reference = new PageReference().setKey(42L);
+    orderedPage.setPageReference(7L, reference);
+
+    orderedPage.close();
+
+    assertSame(reference, releaserObservation.get());
+    assertThrows(FrameReusedException.class, () -> orderedPage.getPageReference(7L));
+  }
+
+  @Test
+  void retainedHeapEstimateIncludesVariableArraysAndSideReferences() {
+    assertEquals(4L * 1024L, hotLeafPage.estimatedRetainedHeapBytes());
+
+    hotLeafPage.setAncestorOwnedBits(new int[] {1, 9}, new byte[] {0, 1});
+    hotLeafPage.setPageReference(7L, new PageReference().setKey(42L));
+
+    // int[2] = 24 + 8, byte[2] = 24 + 2, and one side-map entry = 144 bytes.
+    assertEquals(4L * 1024L + 32L + 26L + 144L, hotLeafPage.estimatedRetainedHeapBytes());
+
+    hotLeafPage.close();
+    assertTrue(hotLeafPage.sideReferencesReleased());
+    assertEquals(0L, hotLeafPage.estimatedRetainedHeapBytes());
+    assertThrows(FrameReusedException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+  }
+
+  @Test
+  void canonicalCacheAdmissionRejectsRetainedReferenceGraphs() {
+    final PageReference reference = new PageReference().setKey(42L);
+    hotLeafPage.setPageReference(7L, reference);
+    assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
+
+    final HOTLeafPage completePage = new HOTLeafPage(2L, 1, IndexType.PATH, arena.allocate(PAGE_SIZE), null,
+        new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+    hotLeafPage.setCompletePageRef(completePage);
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    hotLeafPage.setCompletePageRef(null);
+
+    reference.setPage(new OverflowPage(new byte[] {1}));
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    reference.setPage(null);
+
+    reference.addPageFragment(new PageFragmentKeyImpl(1, 41L, 0L, 0L));
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+    reference.setPageFragments(List.of());
+    assertEquals(hotLeafPage.estimatedRetainedHeapBytes(), hotLeafPage.estimatedCanonicalCacheRetainedHeapBytes());
+
+    hotLeafPage.setPageReference(7L, new PageReference());
+    assertThrows(IllegalStateException.class, hotLeafPage::estimatedCanonicalCacheRetainedHeapBytes);
+
+    completePage.close();
+  }
+
+  @Test
   void testClose() {
     assertFalse(hotLeafPage.isClosed());
     hotLeafPage.close();
@@ -389,4 +489,3 @@ class HOTLeafPageTest {
     assertTrue(hotLeafPage.findEntry(key17) >= 0);
   }
 }
-

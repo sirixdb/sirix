@@ -91,6 +91,15 @@ public final class SharedArenas {
   }
 
   /**
+   * Whether an arena from {@link #newSharedArena()} can be reclaimed synchronously by its owner.
+   * Large reusable transaction reservoirs must require this property: AUTO delegates reclamation
+   * to a Cleaner, while GLOBAL never reclaims at all.
+   */
+  public static boolean supportsDeterministicClose() {
+    return STRATEGY == Strategy.SHARED;
+  }
+
+  /**
    * Create an arena whose memory is accessible from any thread. Pair with {@link #close(Arena)} —
    * never call {@code arena.close()} directly on the result.
    */

@@ -514,6 +514,56 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long parentNodeKey = pathSummaryReader.getNodeKey();
 
+    return getPathNodeKey(name, pathKind, parentNodeKey, level);
+  }
+
+  /**
+   * Insert or resolve a path node below an explicitly known path-summary parent.
+   *
+   * <p>This is the cursor-independent twin of {@link #getPathNodeKey(QNm, NodeKind)}. Insert callers
+   * that already know the structural parent's path node key must not move the document cursor to the
+   * parent merely so this writer can discover the same key again. The path-summary cursor is still
+   * positioned on the explicit parent before a miss is inserted, preserving the ordinary method's
+   * lookup, reference-count, and insertion semantics.</p>
+   *
+   * @param parentPathNodeKey path node key of the new entry's parent; {@code 0} is the document root
+   * @param name the name of the path node to search for
+   * @param pathKind the kind of the path node to search for
+   * @return the existing or newly inserted child path node key
+   */
+  public long getPathNodeKey(final long parentPathNodeKey, final QNm name, final NodeKind pathKind) {
+    requireNonNull(name);
+    requireNonNull(pathKind);
+    if (parentPathNodeKey < Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
+    }
+    if (!pathSummaryReader.moveTo(parentPathNodeKey)) {
+      throw new IllegalStateException("Path-summary parent does not exist: " + parentPathNodeKey);
+    }
+    final int parentLevel = parentPathNodeKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
+        ? 0
+        : pathSummaryReader.getLevel();
+    return getPathNodeKey(name, pathKind, parentPathNodeKey, parentLevel);
+  }
+
+  /**
+   * Resolve a path node's parent without moving the path-summary cursor.
+   *
+   * @param pathNodeKey child path node key
+   * @return its parent path node key, or {@code -1} when the child is absent or is the document root
+   */
+  public long getParentPathNodeKey(final long pathNodeKey) {
+    final PathNode pathNode = pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey);
+    return pathNode == null
+        ? Fixed.NULL_NODE_KEY.getStandardProperty()
+        : pathNode.getParentKey();
+  }
+
+  private long getPathNodeKey(final QNm name, final NodeKind pathKind, final long parentNodeKey,
+      final int parentLevel) {
+    requireNonNull(name);
+    requireNonNull(pathKind);
+
     // Use O(1) cache lookup instead of O(n) ChildAxis iteration
     // The child name for lookup - handle namespace prefix case
     final QNm lookupName = pathKind == NodeKind.NAMESPACE
@@ -533,7 +583,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     } else {
       // Child not found - insert new path node
       assert parentNodeKey == pathSummaryReader.getNodeKey();
-      insertPathAsFirstChild(name, pathKind, level + 1);
+      insertPathAsFirstChild(name, pathKind, parentLevel + 1);
       retVal = pathSummaryReader.getNodeKey();
     }
     return retVal;

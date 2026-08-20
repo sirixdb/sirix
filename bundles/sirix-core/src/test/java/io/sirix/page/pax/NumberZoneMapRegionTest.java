@@ -9,11 +9,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Random;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import jdk.incubator.vector.VectorOperators;
 
@@ -166,6 +169,83 @@ final class NumberZoneMapRegionTest {
     assertNull(NumberZoneMapRegion.encode(legacy),
                "without per-tag bounds there is nothing to summarise");
     assertNull(NumberZoneMapRegion.encode(null));
+  }
+
+  @Test
+  @DisplayName("encodeInto is wire-identical across maximum/small scratch reuse")
+  void encodeIntoIsWireIdenticalAcrossScratchReuse() {
+    final byte[] reusable = new byte[NumberZoneMapRegion.encodedSize(1024)];
+    for (final int dictSize : new int[] {1024, 1, 73, 1024}) {
+      final long[] values = new long[1024];
+      for (int i = 0; i < values.length; i++) {
+        values[i] = 50_000L + i * 17L;
+      }
+      final NumberRegion.Header source = numberHeader(values, dictSize);
+      final byte[] expected = NumberZoneMapRegion.encode(source);
+      Arrays.fill(reusable, (byte) 0x5A);
+
+      final int length = NumberZoneMapRegion.encodeInto(source, reusable);
+
+      assertEquals(expected.length, length);
+      assertArrayEquals(expected, Arrays.copyOf(reusable, length),
+          "dictSize=" + dictSize + " after scratch reuse");
+      final NumberZoneMapRegion.Header decoded =
+          new NumberZoneMapRegion.Header().parseInto(PaxTestSegments.of(Arrays.copyOf(reusable, length)));
+      assertNotNull(decoded);
+      assertEquals(dictSize, decoded.dictSize);
+    }
+  }
+
+  @Test
+  @DisplayName("encodeInto retains the exact V1 little-endian wire layout")
+  void encodeIntoMatchesFixedWireFixture() {
+    final NumberRegion.Header source = new NumberRegion.Header();
+    source.tagKind = NumberRegion.TAG_KIND_PATH_NODE;
+    source.valueMin = 0x0102030405060708L;
+    source.valueMax = -2L;
+    source.dictSize = 1;
+    source.dict = new int[] {0x11223344};
+    source.tagCount = new int[] {0x01020304};
+    source.tagMin = new long[] {Long.MIN_VALUE};
+    source.tagMax = new long[] {0x0A0B0C0D0E0F1011L};
+    final byte[] expected = {
+        1, 1,
+        0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01,
+        (byte) 0xFE, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+        (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+        0x01, 0x00, 0x00, 0x00,
+        0x44, 0x33, 0x22, 0x11,
+        0x04, 0x03, 0x02, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, (byte) 0x80,
+        0x11, 0x10, 0x0F, 0x0E, 0x0D, 0x0C, 0x0B, 0x0A
+    };
+    final byte[] reusable = new byte[expected.length];
+
+    final int length = NumberZoneMapRegion.encodeInto(source, reusable);
+
+    assertEquals(expected.length, length);
+    assertArrayEquals(expected, reusable);
+  }
+
+  @Test
+  @DisplayName("encodeInto preserves absence and validates caller-owned capacity")
+  void encodeIntoRefusalAndCapacityValidation() {
+    final NumberRegion.Header legacy = new NumberRegion.Header();
+    legacy.dictSize = 1;
+    assertEquals(NumberZoneMapRegion.ENCODE_FAILED,
+        NumberZoneMapRegion.encodeInto(legacy, new byte[NumberZoneMapRegion.encodedSize(1)]));
+    assertEquals(NumberZoneMapRegion.ENCODE_FAILED,
+        NumberZoneMapRegion.encodeInto(null, new byte[NumberZoneMapRegion.encodedSize(1)]));
+    final NumberRegion.Header empty = new NumberRegion.Header();
+    empty.dictSize = 0;
+    empty.tagMin = new long[0];
+    empty.tagMax = new long[0];
+    assertNull(NumberZoneMapRegion.encode(empty), "the legacy encoder refuses an empty dictionary");
+
+    final NumberRegion.Header source = numberHeader(new long[] {1, 2, 3, 4}, 2);
+    assertThrows(IllegalArgumentException.class,
+        () -> NumberZoneMapRegion.encodeInto(source,
+            new byte[NumberZoneMapRegion.encodedSize(source.dictSize) - 1]));
   }
 
   // ───────────────────────────────────────────────── region table integration

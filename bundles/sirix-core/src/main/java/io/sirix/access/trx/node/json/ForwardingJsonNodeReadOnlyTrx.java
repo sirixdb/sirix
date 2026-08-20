@@ -3,6 +3,7 @@ package io.sirix.access.trx.node.json;
 import com.google.gson.JsonObject;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
+import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -22,9 +23,27 @@ import java.util.Optional;
  *
  * @author Joao Sousa
  */
-public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
+public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx, PrimitiveNumberCursor, FusedStringCursor {
 
   JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate();
+
+  @Override
+  default byte readFusedPrimitiveNumber(final long[] valueOut, final int index) {
+    final JsonNodeReadOnlyTrx delegate = nodeReadOnlyTrxDelegate();
+    if (delegate instanceof PrimitiveNumberCursor primitiveNumberCursor) {
+      return primitiveNumberCursor.readFusedPrimitiveNumber(valueOut, index);
+    }
+    return PrimitiveNumberValue.NONE;
+  }
+
+  @Override
+  default int readFusedStringUtf8(final byte[] valueOut) {
+    final JsonNodeReadOnlyTrx delegate = nodeReadOnlyTrxDelegate();
+    if (delegate instanceof FusedStringCursor fusedStringCursor) {
+      return fusedStringCursor.readFusedStringUtf8(valueOut);
+    }
+    return FusedStringCursor.UNAVAILABLE;
+  }
 
   @Override
   default boolean isFusedSyntheticChild() {

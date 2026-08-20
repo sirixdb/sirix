@@ -66,16 +66,17 @@ public abstract class AbstractReader implements Reader {
       return; // Verification disabled or no config
     }
 
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
+    if (!reference.hasHash()) {
       return; // No hash to verify
     }
 
     // All page types use hash computed on compressed data
-    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
+    final long expectedHash = reference.getHashAsLong();
+    final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verifyLong(compressedData, expectedHash, hashAlgorithm)) {
+      final long actualHash = PageHasher.computeLong(compressedData, hashAlgorithm);
+      throw new SirixCorruptionException(reference.getKey(), "compressed",
+          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -97,16 +98,17 @@ public abstract class AbstractReader implements Reader {
       return;
     }
 
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
+    if (!reference.hasHash()) {
       return;
     }
 
     // All page types use hash computed on compressed data (zero-copy for native segments)
-    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verify(compressedSegment, expectedHash, hashAlgorithm)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedSegment, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
+    final long expectedHash = reference.getHashAsLong();
+    final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verifyLong(compressedSegment, expectedHash, hashAlgorithm)) {
+      final long actualHash = PageHasher.computeLong(compressedSegment, hashAlgorithm);
+      throw new SirixCorruptionException(reference.getKey(), "compressed",
+          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -117,10 +119,8 @@ public abstract class AbstractReader implements Reader {
   /**
    * Build the synthetic {@link PageReference} used to integrity-check a RevisionRootPage body on the
    * {@code readRevisionRootPage} path (which has no real parent reference). The stored page hash is a
-   * {@code long} read from the revisions record; it is converted to the SAME canonical 8-byte form
-   * the writer produced ({@link HashAlgorithm#longToBytes(long)} — big-endian, exactly what
-   * {@code PageHasher.compute} emits) so {@link #verifyChecksumIfNeeded} compares like for like,
-   * independent of the little-endian way the record stores it.
+   * {@code long} read from the revisions record; it is stored directly in the synthetic reference
+   * so {@link #verifyChecksumIfNeeded} can compare primitives without allocating a byte array.
    *
    * <p>
    * This is the single place both readers (FileChannel + MemoryMapped) build the reference, so the
@@ -130,14 +130,13 @@ public abstract class AbstractReader implements Reader {
    *
    * @param dataFileOffset the RevisionRootPage offset (becomes the reference key, for error msgs)
    * @param storedPageHash the record's hash field ({@code 0} = no hash / legacy)
-   * @return a reference carrying the canonical hash bytes, or no hash when
-   *         {@code storedPageHash == 0}
+   * @return a reference carrying the primitive hash, or no hash when {@code storedPageHash == 0}
    */
   protected static PageReference revisionRootReference(final long dataFileOffset, final long storedPageHash) {
     final PageReference reference = new PageReference();
     reference.setKey(dataFileOffset);
     if (storedPageHash != 0L) {
-      reference.setHash(HashAlgorithm.longToBytes(storedPageHash));
+      reference.setHash(storedPageHash);
     }
     return reference;
   }
@@ -452,11 +451,11 @@ public abstract class AbstractReader implements Reader {
     }
     final byte[] payload = new byte[len];
     slot.get(payload);
-    final byte[] storedHash = new byte[Long.BYTES];
-    slot.get(storedHash);
-    // Same canonical byte form the writer emits (PageHasher) — no byte-order ambiguity.
-    final byte[] actualHash = PageHasher.compute(payload);
-    if (!java.util.Arrays.equals(storedHash, actualHash)) {
+    // The slot remains little-endian for its framing fields, while the checksum trailer preserves
+    // the established canonical big-endian bytes. Reverse once at the primitive boundary.
+    final long storedHash = Long.reverseBytes(slot.getLong());
+    final long actualHash = PageHasher.computeLong(payload);
+    if (storedHash != actualHash) {
       throw new SirixIOException(
           "Beacon checksum mismatch at offset " + offset + " — torn or corrupted uber-page copy");
     }

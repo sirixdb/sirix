@@ -164,6 +164,13 @@ public final class FileChannelStorage implements IOStorage {
 
   private FileChannel sharedWriterBeaconChannel;
 
+  /**
+   * Allocation-metadata handoff for every writer and every channel-pool generation owned by this
+   * storage. It deliberately survives a failed writer force and a linger-close/reopen cycle.
+   */
+  private final FileChannelWriter.DataAllocationDurability sharedWriterDataAllocationDurability =
+      new FileChannelWriter.DataAllocationDurability();
+
   /** Pending linger close of the writer pool. Guarded by {@link #writerChannelLock}. */
   private ScheduledFuture<?> writerLingerTask;
 
@@ -470,7 +477,7 @@ public final class FileChannelStorage implements IOStorage {
       return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, beaconDurableChannel,
           serializationType, pagePersister, cache, revisionIndexHolder, reader, preallocatedCommit,
           lazyRevisionRecords, revisionsOffsetFilePath, resourceUuidMsb, resourceUuidLsb,
-          this::releaseWriterChannels);
+          sharedWriterDataAllocationDurability, this::releaseWriterChannels);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -553,12 +560,20 @@ public final class FileChannelStorage implements IOStorage {
     sharedWriterDataChannel = null;
     sharedWriterRevisionsChannel = null;
     sharedWriterBeaconChannel = null;
-    for (final FileChannel channel : channels) {
+    for (int index = 0; index < channels.length; index++) {
+      final FileChannel channel = channels[index];
       if (channel == null || !channel.isOpen()) {
         continue;
       }
       try {
-        channel.force(false);
+        if (index == 0) {
+          // A failed writer-close force leaves the storage-scoped marker armed. Upgrade this pool
+          // shutdown to force(true); clear only after success so a later pool generation inherits
+          // the requirement when this force also fails.
+          sharedWriterDataAllocationDurability.force(channel, false);
+        } else {
+          channel.force(false);
+        }
       } catch (final IOException e) {
         LOGGER.warn("Could not force a pooled writer channel before closing it", e);
       }

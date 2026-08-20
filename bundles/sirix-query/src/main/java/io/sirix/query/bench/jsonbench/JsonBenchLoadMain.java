@@ -98,6 +98,11 @@ public final class JsonBenchLoadMain {
     final boolean projection = Boolean.parseBoolean(System.getProperty("jsonbench.projection", "true"));
     final boolean projectionRequired =
         Boolean.parseBoolean(System.getProperty("jsonbench.projection.required", "false"));
+    // One-pass by default: the projection is declared before the shred and maintained by it. The
+    // second-pass route stays available (-Djsonbench.projection.incremental=false) — it is what every
+    // published number so far was measured with, and the only route for an already-loaded corpus.
+    final boolean incrementalProjection =
+        Boolean.parseBoolean(System.getProperty("jsonbench.projection.incremental", "true"));
     // Not independent options: a corpus loaded without a summary can never have a projection added,
     // and discovering that only when jn:create-projection-index throws costs a whole re-ingest.
     final boolean pathSummary =
@@ -125,7 +130,11 @@ public final class JsonBenchLoadMain {
                                      .hashType(hashType)
                                      .build()) {
       try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
-        store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader);
+        if (projection && incrementalProjection) {
+          store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader, JsonBenchProjection.spec());
+        } else {
+          store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader);
+        }
       }
     }
     double loadSeconds = (System.nanoTime() - start) / 1e9;
@@ -134,14 +143,18 @@ public final class JsonBenchLoadMain {
     // The projection index is part of LOADING, the same way ClickHouse builds its typed subcolumns
     // while ingesting: a run without it measures the row path and can say nothing about any column
     // or group-by kernel.
-    if (projection) {
+    if (projection && incrementalProjection) {
+      // Built by the shred itself — its cost is already inside the load time reported above.
+      System.out.printf("# projection: columns=%d globalDictColumns=%d built DURING the shred (one pass)%n",
+          JsonBenchProjection.COLUMN_PATHS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt());
+    } else if (projection) {
       try {
         final double projectionSeconds = JsonBenchProjection.create(dbDir);
         // Which string columns the build gave a resource-wide dictionary. Worth printing because it
         // is a property of the DATA, decided from a sample at build time: the same query is a
         // dictionary-id group-by on one corpus and a per-leaf-dict one on another, and nothing else
         // in the output says which run this was.
-        System.out.printf("# projection: columns=%d globalDictColumns=%d built in %.3f s%n",
+        System.out.printf("# projection: columns=%d globalDictColumns=%d built in %.3f s by a second pass%n",
             JsonBenchProjection.COLUMN_PATHS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
             projectionSeconds);
         loadSeconds += projectionSeconds;

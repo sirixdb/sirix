@@ -1,0 +1,176 @@
+/*
+ * Copyright (c) 2026, SirixDB. All rights reserved.
+ */
+package io.sirix.index.projection;
+
+import io.brackit.query.jdm.Type;
+import io.brackit.query.util.path.PathParser;
+import io.sirix.JsonTestHelper;
+import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexDefs;
+import io.sirix.service.InsertPosition;
+import io.sirix.service.json.shredder.JsonShredder;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static io.brackit.query.util.path.Path.parse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** Fail-closed lifecycle coverage for an intermediate load-time row-group publication fault. */
+final class ProjectionBulkLoadFailureTest {
+
+  private static final byte[] NUMERIC_KIND = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+  private static final int INDEX_NUMBER = 0;
+
+  @BeforeEach
+  void setUp() {
+    JsonTestHelper.deleteEverything();
+    ProjectionBulkLoad.clearActive();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1},{\"value\":2}]"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+  }
+
+  @AfterEach
+  void tearDown() {
+    ProjectionBulkLoad.clearActive();
+    JsonTestHelper.deleteEverything();
+  }
+
+  @Test
+  void failedDuplicateArmDoesNotAbortThePreexistingOwner() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
+      // The fixture has /[] records, so use a genuinely empty root that satisfies the load-time
+      // precondition while still exercising the real controller/listener binding path.
+      final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/missing/[]", PathParser.Type.JSON),
+          List.of(parse("/missing/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
+          IndexDef.DbType.JSON);
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final JsonIndexController controller =
+          (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      final ProjectionBulkLoad first =
+          controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L);
+
+      try {
+        assertThrows(IllegalStateException.class,
+            () -> controller.createProjectionIndexAtLoadStart(indexDef, wtx, -1L));
+        assertSame(first, ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER),
+            "a failed putIfAbsent must not resolve and abort the winning ACTIVE owner");
+        assertFalse(first.isFinished(), "the preexisting load was poisoned by somebody else's failed arm");
+      } finally {
+        first.abort();
+      }
+      assertNull(ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER));
+    }
+  }
+
+  @Test
+  void intermediateStorageFaultPoisonsLoadAndLeavesPartialLeafBehindStaleTombstone() throws Exception {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
+      final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
+          IndexDef.DbType.JSON);
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final RuntimeException injected = new RuntimeException("injected row-group publication failure");
+      final AtomicInteger publicationAttempts = new AtomicInteger();
+      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx.getPathSummary(),
+          wtx.getStorageEngineWriter(), -1L, (storage, rowGroupId, encoded) -> {
+            publicationAttempts.incrementAndGet();
+            // Leave a genuinely written row group behind, then fail before bloom/fence metadata can
+            // be published. Slot 0 must keep this physical partial state unreachable to readers.
+            storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+            throw injected;
+          });
+
+      // Prime the exact reachable state immediately before the 64-leaf dictionary sample drains:
+      // 63 full pages are held in the sample and the current 64th page is full. The next real record
+      // closes that page during an ordinary intermediate drain and enters the borrowed callback.
+      primeBeforeSampleDrain(load);
+      wtx.moveToDocumentRoot();
+      assertTrue(wtx.moveToFirstChild(), "document must contain the top-level array");
+      assertTrue(wtx.moveToFirstChild(), "array must contain the first record");
+      final long firstRecordKey = wtx.getNodeKey();
+      assertTrue(wtx.moveToRightSibling(), "array must contain the second record");
+      final long secondRecordKey = wtx.getNodeKey();
+      load.observeRecord(firstRecordKey);
+      load.observeRecord(secondRecordKey);
+
+      final RuntimeException thrown = assertThrows(RuntimeException.class,
+          () -> load.drain(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx));
+      assertSame(injected, thrown, "cleanup must preserve the original storage failure");
+      assertTrue(load.isFinished(), "a partially published builder must be irreversibly poisoned");
+      assertNull(ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER), "poisoned load leaked in ACTIVE");
+      assertEquals(1, publicationAttempts.get(), "the failing page was published more than once");
+
+      final ProjectionIndexHOTStorage storage =
+          ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      assertNotNull(storage.getRowGroupFromColumnSegmentSlots(1),
+          "fixture must leave a real partial row group, not fail before storage");
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
+      assertNotNull(metadata);
+      assertTrue(metadata.isStale(), "partial row group became reachable through live metadata");
+
+      // Neither an explicit retry nor repeated caller cleanup may resume or duplicate publication.
+      load.drain(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx);
+      load.abort();
+      load.abort();
+      assertEquals(1, publicationAttempts.get());
+      assertThrows(IllegalStateException.class, () -> load.observeRecord(secondRecordKey + 1));
+    }
+  }
+
+  private static void primeBeforeSampleDrain(final ProjectionBulkLoad load) throws ReflectiveOperationException {
+    final Field builderField = ProjectionBulkLoad.class.getDeclaredField("builder");
+    builderField.setAccessible(true);
+    final ProjectionIndexBuilder builder = (ProjectionIndexBuilder) builderField.get(load);
+
+    final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(63);
+    for (int pageIndex = 0; pageIndex < 63; pageIndex++) {
+      sample.add(fullNumericPage((long) pageIndex * ProjectionIndexRowGroupPage.MAX_ROWS));
+    }
+    final Field sampleField = ProjectionIndexBuilder.class.getDeclaredField("sample");
+    sampleField.setAccessible(true);
+    sampleField.set(builder, sample);
+
+    final Field currentLeafField = ProjectionIndexBuilder.class.getDeclaredField("currentLeaf");
+    currentLeafField.setAccessible(true);
+    currentLeafField.set(builder,
+        fullNumericPage(63L * ProjectionIndexRowGroupPage.MAX_ROWS));
+
+    final Field rowsEmittedField = ProjectionIndexBuilder.class.getDeclaredField("rowsEmitted");
+    rowsEmittedField.setAccessible(true);
+    rowsEmittedField.setLong(builder, 64L * ProjectionIndexRowGroupPage.MAX_ROWS);
+  }
+
+  private static ProjectionIndexRowGroupPage fullNumericPage(final long keyBase) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(NUMERIC_KIND);
+    final long[] values = new long[1];
+    final boolean[] bools = new boolean[1];
+    final String[] strings = new String[1];
+    for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS; row++) {
+      values[0] = row;
+      assertTrue(page.appendRow(keyBase + row + 1, values, bools, strings));
+    }
+    return page;
+  }
+}

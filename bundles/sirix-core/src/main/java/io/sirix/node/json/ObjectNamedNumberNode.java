@@ -34,6 +34,7 @@ import java.math.BigInteger;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
@@ -133,6 +134,12 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
   /** Thread-local scratch buffer for serializing number payloads. */
   private static final ThreadLocal<MemorySegmentBytesOut> TL_NUMBER_BUFFER =
       ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(64));
+
+  private static final byte BOXED_PAYLOAD = 0;
+  private static final byte INT_PAYLOAD = 1;
+  private static final byte LONG_PAYLOAD = 2;
+  private static final byte INTEGER_WIRE_TAG = 2;
+  private static final byte LONG_WIRE_TAG = 3;
 
   public ObjectNamedNumberNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
@@ -266,6 +273,74 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     this.valueParsed = true;
   }
 
+  /**
+   * Copies an integral payload into caller-owned primitive storage without materializing an
+   * {@link Integer} or {@link Long}.
+   *
+   * <p>The method reads the stable number wire tag directly while this flyweight is page-bound. A
+   * lazy serialized source is decoded through an independent cursor, and an already materialized
+   * heap node simply unboxes its existing value. The output slot is changed only on success, and no
+   * page-backed state escapes this call.</p>
+   *
+   * @param valueOut caller-owned output storage
+   * @param index output index in {@code valueOut}
+   * @return {@link PrimitiveNumberValue#INT}, {@link PrimitiveNumberValue#LONG}, or
+   *         {@link PrimitiveNumberValue#NONE}
+   */
+  public byte readPrimitiveNumber(final long[] valueOut, final int index) {
+    Objects.checkIndex(index, valueOut.length);
+
+    if (page != null) {
+      final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
+      final long payloadStart = dataRegionStart + payloadFieldOff;
+      final byte wireTag = page.get(ValueLayout.JAVA_BYTE, payloadStart);
+      if (wireTag == INTEGER_WIRE_TAG) {
+        valueOut[index] = DeltaVarIntCodec.decodeSignedFromSegment(page, payloadStart + 1L);
+        return PrimitiveNumberValue.INT;
+      }
+      if (wireTag == LONG_WIRE_TAG) {
+        valueOut[index] = DeltaVarIntCodec.decodeSignedLongFromSegment(page, payloadStart + 1L);
+        return PrimitiveNumberValue.LONG;
+      }
+      return PrimitiveNumberValue.NONE;
+    }
+
+    if (valueParsed) {
+      return copyMaterializedPrimitive(valueOut, index);
+    }
+    if (!metadataParsed) {
+      parseMetadataFields();
+    }
+    if (lazySource == null) {
+      return PrimitiveNumberValue.NONE;
+    }
+
+    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+    final byte wireTag = bytesIn.readByte();
+    if (wireTag == INTEGER_WIRE_TAG) {
+      valueOut[index] = DeltaVarIntCodec.decodeSigned(bytesIn);
+      return PrimitiveNumberValue.INT;
+    }
+    if (wireTag == LONG_WIRE_TAG) {
+      valueOut[index] = DeltaVarIntCodec.decodeSignedLong(bytesIn);
+      return PrimitiveNumberValue.LONG;
+    }
+    return PrimitiveNumberValue.NONE;
+  }
+
+  private byte copyMaterializedPrimitive(final long[] valueOut, final int index) {
+    if (value instanceof Integer integerValue) {
+      valueOut[index] = integerValue.intValue();
+      return PrimitiveNumberValue.INT;
+    }
+    if (value instanceof Long longValue) {
+      valueOut[index] = longValue.longValue();
+      return PrimitiveNumberValue.LONG;
+    }
+    return PrimitiveNumberValue.NONE;
+  }
+
   // ==================== OWNER PAGE ====================
 
   @Override
@@ -285,6 +360,40 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
       final long parentKey, final long rightSibKey, final long leftSibKey,
       final int nameKey, final long pathNodeKey,
       final int prevRev, final int lastModRev, final long hash, final Number value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
+        nameKey, pathNodeKey, prevRev, lastModRev, hash, value, BOXED_PAYLOAD, 0L);
+  }
+
+  /**
+   * Writes the same record format as {@link #writeNewRecord}, keeping an {@code int} unboxed.
+   */
+  public static int writeNewIntRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int nameKey, final long pathNodeKey,
+      final int prevRev, final int lastModRev, final long hash, final int value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
+        nameKey, pathNodeKey, prevRev, lastModRev, hash, null, INT_PAYLOAD, value);
+  }
+
+  /**
+   * Writes the same record format as {@link #writeNewRecord}, keeping a {@code long} unboxed.
+   */
+  public static int writeNewLongRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int nameKey, final long pathNodeKey,
+      final int prevRev, final int lastModRev, final long hash, final long value) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
+        nameKey, pathNodeKey, prevRev, lastModRev, hash, null, LONG_PAYLOAD, value);
+  }
+
+  private static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int nameKey, final long pathNodeKey,
+      final int prevRev, final int lastModRev, final long hash, final Number fallbackValue,
+      final byte primitiveType, final long primitiveValue) {
     long pos = offset;
 
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_NAMED_NUMBER.getId());
@@ -321,13 +430,28 @@ public final class ObjectNamedNumberNode extends AbstractFlyweightNode
     pos += Long.BYTES;
 
     heapOffsets[NodeFieldLayout.OBJNAMEDNUM_PAYLOAD] = (int) (pos - dataStart);
-    final MemorySegmentBytesOut numBuf = TL_NUMBER_BUFFER.get();
-    numBuf.clear();
-    NodeKind.serializeNumber(value, numBuf);
-    final int numBytes = (int) numBuf.position();
-    final MemorySegment numSegment = numBuf.getDestination();
-    MemorySegment.copy(numSegment, 0, target, pos, numBytes);
-    pos += numBytes;
+    switch (primitiveType) {
+      case BOXED_PAYLOAD -> {
+        final MemorySegmentBytesOut numBuf = TL_NUMBER_BUFFER.get();
+        numBuf.clear();
+        NodeKind.serializeNumber(fallbackValue, numBuf);
+        final int numBytes = (int) numBuf.position();
+        final MemorySegment numSegment = numBuf.getDestination();
+        MemorySegment.copy(numSegment, 0, target, pos, numBytes);
+        pos += numBytes;
+      }
+      case INT_PAYLOAD -> {
+        // NodeKind.serializeNumber's stable wire tag for Integer.
+        target.set(ValueLayout.JAVA_BYTE, pos++, INTEGER_WIRE_TAG);
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, (int) primitiveValue);
+      }
+      case LONG_PAYLOAD -> {
+        // NodeKind.serializeNumber's stable wire tag for Long.
+        target.set(ValueLayout.JAVA_BYTE, pos++, LONG_WIRE_TAG);
+        pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, primitiveValue);
+      }
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    }
 
     for (int i = 0; i < FIELD_COUNT; i++) {
       target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);

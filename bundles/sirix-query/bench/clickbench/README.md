@@ -13,6 +13,8 @@ real dataset. The SirixDB side lives in
 | `compare-results.py`  | diffs SirixDB's result dump against DuckDB's, telling a legitimate ORDER BY tie from a wrong answer |
 | `run-differential.sh` | the correctness gate: drives all of the above (SirixDB fast path vs SirixDB interpreter vs DuckDB) |
 | `cold-rounds.sh`      | the **performance** gate: evicted, cool-gated, interleaved cold rounds — the protocol that produced the published cold figures (see "Measuring" below) |
+| `hft_gc_gate.py`      | dependency-free fixed-heap ingest gate: rejects old/full GC and unbounded post-young occupancy |
+| `test_hft_gc_gate.py` | standard-library unit tests for the GC-log parser and per-run/cross-scale verdicts |
 
 Requirements: the `duckdb` CLI (for `prepare-data.sh`) and the `duckdb` Python module (for
 `duckdb_reference.py`). `compare-results.py` uses the standard library only. Verified against
@@ -141,6 +143,198 @@ java -cp "$CP" io.sirix.query.bench.clickbench.ClickBenchRunMain  /var/tmp/sirix
 
 (`ClickBenchLoadMain` also accepts `generate:<rows>[:seed]` directly, but then SirixDB and DuckDB
 would each generate their own copy — write the file once and feed both from it.)
+
+## Fixed-heap HFT GC/safepoint gate
+
+`hft_gc_gate.py` is the fast paired-corpus development gate for ingestion memory stability. Its
+defaults remain the 1 M/4 M pair; `--small-log`, `--large-log`, `--small-rows`, and `--large-rows`
+make the measured sizes explicit for a different pair. The legacy `--one-million` and
+`--four-million` log aliases remain accepted. This is not a throughput benchmark, and it does not
+infer anything from process startup or validation: the parser accepts GC/safepoint records only
+between the loader's exact `# HFT_MEASURE_START` and `# HFT_MEASURE_END` lines. Missing or duplicate
+markers fail the gate. After the 20% startup warmup, every collection through the end marker
+participates in the plateau and slope checks; the gate does not discard a fixed tail that could hide
+late promotion.
+
+Run both sizes in fresh processes, with the same fixed Java heap, off-heap budget, auto-flush window,
+seed, and GC configuration. The output directories below are newly created and are deliberately not
+deleted by the commands:
+
+```bash
+gate_root=$(mktemp -d /tmp/sirix-hft-gate.XXXXXX)
+common_jvm='-XX:+UseG1GC -Xms4g -Xmx4g -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Xlog:gc*,gc+heap=debug,safepoint:stdout:uptime,level,tags'
+
+./gradlew --no-daemon :sirix-query:clickBenchLoad \
+  -Pclickbench.args="$gate_root/db-1m generate:1000000:42" \
+  -Pclickbench.jvmArgs="$common_jvm" \
+  > "$gate_root/1m.log" 2>&1
+
+./gradlew --no-daemon :sirix-query:clickBenchLoad \
+  -Pclickbench.args="$gate_root/db-4m generate:4000000:42" \
+  -Pclickbench.jvmArgs="$common_jvm" \
+  > "$gate_root/4m.log" 2>&1
+
+python3 bundles/sirix-query/bench/clickbench/hft_gc_gate.py \
+  --small-log "$gate_root/1m.log" \
+  --large-log "$gate_root/4m.log" \
+  --small-rows 1000000 \
+  --large-rows 4000000
+```
+
+The extra `-Xms4g -Xmx4g` arguments occur after the ClickBench Gradle task's defaults, so the
+measurement JVM really has a fixed 4 GiB heap. `-XX:+DisableExplicitGC` ensures a forbidden old/full
+event reflects organic pressure rather than a diagnostic `System.gc()` call. Keep
+`-DstorageType=FILE_CHANNEL`: 64-bit Linux otherwise defaults to `MEMORY_MAPPED`, while safe
+side-page prewrite is capability-gated to the preallocated file-channel writer. Omitting the flag
+would measure the fallback and can retain payload that the intended path releases.
+`-XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m` likewise belongs to the measurement contract:
+without the initial metaspace headroom, deterministic class loading can trigger a G1
+`Metadata GC Threshold` concurrent cycle just after the start marker and make every otherwise
+healthy run fail. The forbidden-event rule remains unchanged.
+
+`-XX:MaxNewSize=1g` remains the canonical production/development profile: it gives short-lived
+async serialization graphs enough nursery lifetime to die young without hiding unbounded retained
+occupancy in the 4 GiB old generation. The 4,194,304-node auto-commit window amortizes snapshot
+rotation while the bounded append permit still limits overlap. Both prefixes use
+`-Dsirix.projection.globalDict=never`; otherwise dictionary election changes with the generated row
+count (and the 1 M/4 M arms no longer model the dictionary shape of the 100 M target).
+
+After an allocation reduction, the canonical profile can produce too few organic young collections
+for the unchanged 5/20-sample post-young-occupancy floors. That is an evidence-density failure, not
+permission to lower the floors or any other threshold. Changing the nursery is a different,
+fail-closed measurement contract; it needs its own passing ordinary-GC pair before it can be
+recommended.
+
+The measured 256 MiB-nursery investigation is therefore negative evidence, not an alternative
+acceptance profile. In fresh 4 M and 12 M runs, the 4 M arm passed by itself, but the 12 M arm never
+formed the required post-young occupancy plateau, so the strict paired verdict was **FAIL**. The
+generalized invocation used for those logs is:
+
+```bash
+evidence_root=/path/to/existing-256m-logs
+python3 bundles/sirix-query/bench/clickbench/hft_gc_gate.py \
+  --small-log "$evidence_root/4m.log" \
+  --large-log "$evidence_root/12m.log" \
+  --small-rows 4000000 \
+  --large-rows 12000000 \
+  --expected-max-new-mib 256
+```
+
+The explicit `--expected-max-new-mib 256` only binds the parser to what those runs measured; it does
+not turn the failed profile into a recommendation. Omitting the flag for 256 MiB logs, or using it
+with 1 GiB logs, fails because `maxNewSizeBytes` must match exactly. Separate active-load 4 M/12 M
+forced-full-GC runs and their post-collection class histograms are useful retention diagnostics, but
+they can never count as gate acceptance: the forced full collection is itself a forbidden event.
+Only unmodified ordinary-GC logs can establish a passing verdict.
+
+At low retained occupancies, ordinary G1 survivor-target movement is quantized in heap regions and
+can exceed three percent without representing old-generation growth. The gate therefore parses the
+actual G1 region size from `gc+heap=debug` and requires it to be present and constant. A candidate
+plateau may span `max(3% of its median, 3 G1 regions)`, but its positive local projected OLS growth
+must still remain within three percent of its median. The region allowance covers bounded survivor
+jitter; it cannot make a monotonic ramp into a plateau. All samples after the candidate still pass
+through the unchanged late/early median, last-decile, final-half slope, and cross-scale checks.
+
+The deterministic native side-page path requires `-Dsirix.arena.strategy=shared`. `auto` delegates
+reclamation to a Cleaner and `global` never reclaims, so both deliberately fall back to the ordinary
+resident final-commit path. The loader resolves the effective HotSpot `MaxNewSize` and arena strategy
+before measurement, then emits exactly one `# HFT_CONFIG` record inside the boundary. The parser
+requires the canonical dictionary, auto-commit, arena, storage, projection-mode, and row-count values;
+it also requires the resolved pinned-trie limits `pinnedTrieScanBudget=1024` and
+`pinnedTrieBatchCapacity=64`. Changing or omitting one fails closed instead of silently measuring a
+different workload or an unbounded spill scan.
+
+The gate exits non-zero if either log contains a full collection, concurrent old-generation cycle,
+remark/cleanup, prepare-mixed/mixed collection, to-space exhaustion, evacuation/allocation failure,
+allocation stall, preventive/humongous-allocation collection, or OOM. It also requires:
+
+* parseable post-young occupancy, safepoint-total samples, and one consistent G1 region size from
+  `gc+heap=debug` inside the marked region;
+* exactly one async-append telemetry record proving that projection side pages really used the
+  bounded path, that two fixed 64 MiB native reservoirs (128 MiB total) were initialized, that active
+  payload stayed within one reservoir, that every async KVL identity encoding was copied from its
+  scoped serializer directly into the disposable native page frame with zero heap/capacity fallback,
+  and that every epoch completed. The KVL proof is fail-closed: `kvlAttemptedPages` must equal
+  `kvlPages + kvlPromotedPages`, `kvlPromotedPages` must be zero, and the frame/fallback split must
+  account for every appended `kvlPages` page. Thus an over-capacity or unresolved page promoted back
+  into the live TIL cannot disappear from the profiler verdict. Rotation and explicit-drain permit
+  counts/totals/maxima are separate required fields, and their sums/max must reproduce the aggregate
+  counters exactly. The same record must prove the foreground structural path was exercised
+  (`pinnedTrieSpillPages > 0`) and stayed inside its fixed 64-page capture buffer. Spill epoch/page
+  counts and batch maximum are hard evidence; `pinnedTrieLiveMax` and append-only
+  `pinnedTrieHighWater` are reported for measurement without imposing an unmeasured
+  retained-occupancy limit;
+* no foreground epoch-rotation permit wait above 250 ms (change only with
+  `--max-permit-wait-ms`; `--expected-side-batch-mib` changes the payload contract);
+* a real post-young occupancy plateau after discarding only the first 20% of young collections;
+  every remaining sample through `# HFT_MEASURE_END` is ingestion evidence, including a growing
+  final tail;
+* at least 5 post-warmup and post-plateau samples for the smaller cross-scale baseline, and 20 for the
+  larger proof run (`--min-small-samples` / `--min-large-samples` can raise these floors);
+* the expected fixed 4 GiB capacity (`--expected-heap-gib` changes the contract explicitly) and
+  effective `MaxNewSize` (`--expected-max-new-mib`, default 1024, changes it fail-closed);
+* post-plateau late/early median ratio no greater than 1.05;
+* projected OLS growth over the final half no greater than 3% of heap capacity;
+* bounded last-decile growth; and
+* larger-run steady occupancy no more than `max(256 MiB, 10% of heap)` above the smaller run.
+
+It prints maximum young-GC, total-safepoint, foreground epoch-rotation wait, and final/drain wait for
+each arm. GC/safepoint values are evidence rather than a latency acceptance threshold; that acceptance
+belongs in the separate fixed-heap ZGC/async-profiler run. The 250 ms limit applies only to rotation:
+that is ingestion backpressure, where a second-long foreground park is incompatible with the HFT goal.
+An explicit final drain has no next ingestion epoch to delay and may legitimately wait for the last
+healthy worker; it remains visible in the report and in total load time, but does not borrow the
+rotation threshold. Run sampled profiling separately so it does not perturb this hard GC verdict.
+
+For the spill scan itself, run a separate lowest-interval allocation profile. This is an acceptance
+run, not a throughput number: `interval=1` disables additional async-profiler downsampling, but the
+HotSpot allocation hooks still report TLAB refills and allocations outside TLABs rather than every
+`new` executed inside an existing TLAB. A non-zero matching stack therefore proves a real allocation;
+zero matching samples are regression evidence, not a standalone proof of zero allocation. Pair them
+with the focused ownership/wire tests and source-level bounded-scratch audit below. The 100k stream is
+large enough to drain the projection builder's 64-row-group sample and exercise later foreground
+trie-spill epochs:
+
+```bash
+test -n "$ASYNC_PROFILER"
+profile_root=$(mktemp -d /tmp/sirix-trie-spill-profile.XXXXXX)
+profile_agent="-agentpath:$ASYNC_PROFILER/lib/libasyncProfiler.so=start,event=alloc,interval=1,file=$profile_root/trie-spill-alloc.html"
+
+./gradlew --no-daemon :sirix-query:clickBenchLoad \
+  -Pclickbench.args="$profile_root/db generate:100000:42" \
+  -Pclickbench.jvmArgs="$common_jvm $profile_agent" \
+  > "$profile_root/load.log" 2>&1
+```
+
+Acceptance requires the log to show the exact 1024/64 `# HFT_CONFIG` limits,
+`pinnedTrieSpillPages > 0`, and `pinnedTrieSpillBatchMax <= 64`. The full operation is the unit of
+profile evidence: after first-use scratch growth, there must be no recurring allocation sample whose
+stack contains `NodeStorageEngineWriter.spillEligiblePinnedTriePages`. This sampling result does not
+replace the focused tests that prove fixed-capacity ownership and reuse. Inspect all of the following
+rather than stopping when the candidate scan itself is clean:
+
+* `TransactionIntentLog.capturePinnedSpillCandidates`;
+* `NodeStorageEngineWriter.isPinnedTrieSpillPageEligible`;
+* `IndirectPage.allChildReferencesDurableAndUnclaimed`; or
+* `HOTLeafPage.allSideReferencesDurableAndUnclaimed`.
+
+The same rejection applies to descendants that pack HOT slots, sort side-reference keys, clone
+HOT-indirect fields, copy an empty compression pipeline, construct `bytesForRead`/segment slices,
+or convert checksums to heap arrays. A scan-only result is not HFT acceptance. Compare a warmed
+100k profile with a larger profile that publishes more trie pages: allocation below the spill root
+must stay flat rather than scale with the number of published pages.
+
+The one-time `PinnedSpillBatch` construction is expected; per-epoch list/iterator/candidate-array
+allocation is not. Keep this alloc profile separate from the fixed-heap GC logs, whose uninstrumented
+young/old-generation verdict remains authoritative.
+
+Run the parser tests with no third-party test runner:
+
+```bash
+python3 -m unittest discover \
+  -s bundles/sirix-query/bench/clickbench \
+  -p 'test_hft_gc_gate.py'
+```
 
 ---
 

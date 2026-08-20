@@ -219,10 +219,15 @@ public final class ProjectionColumnStore {
    * Per-column fingerprint BLOCKS (the contiguous acceleration; {@code null} per column when absent).
    * Attached once by the catalog right after construction, before the handle escapes.
    */
-  private byte @Nullable [] @Nullable [] bloomBlocks;
+  private ProjectionBloomChunks.ColumnEvidence @Nullable [] bloomBlocks;
 
   /** See {@link ProjectionIndexColumnSegmentCodec#encodeBloomBlock}. Catalog-attach, set once. */
   public void attachBloomBlocks(final byte @Nullable [] @Nullable [] blocks) {
+    this.bloomBlocks = ProjectionBloomChunks.fromLegacyBlocks(blocks, directories.size());
+  }
+
+  /** Attach manifest-backed chunks (or validated legacy blocks) loaded by the catalog. */
+  public void attachBloomBlocks(final ProjectionBloomChunks.ColumnEvidence @Nullable [] blocks) {
     this.bloomBlocks = blocks;
   }
 
@@ -237,21 +242,21 @@ public final class ProjectionColumnStore {
       final ColumnSegmentFetcher fetcher) {
     final int n = directories.size();
     int dropped = 0;
-    final byte[][] blocks = bloomBlocks;
-    final byte[] block = blocks != null
+    final ProjectionBloomChunks.ColumnEvidence[] blocks = bloomBlocks;
+    final ProjectionBloomChunks.ColumnEvidence block = blocks != null
         ? blocks[col]
         : null;
     if (block != null) {
-      for (int i = 0; i < n; i++) {
-        if ((keep[i >>> 6] & 1L << (i & 63)) == 0) {
-          continue;
-        }
-        if (!ProjectionIndexColumnSegmentCodec.bloomBlockMayContainHash(block, i, literalHash)) {
-          keep[i >>> 6] &= ~(1L << (i & 63));
-          dropped++;
-        }
+      final int blockDropped = block.prune(literalHash, keep, n, fetcher);
+      if (blockDropped >= 0) {
+        return blockDropped;
       }
-      return dropped;
+      // A referenced legacy root is typed only when its deferred payload is fetched. If it is not
+      // an exact PBLM block, fall through to the per-leaf chain just like an inline malformed root.
+      // Manifest-backed chunks never return this sentinel: a bad chunk keeps only its own span.
+      if (blockDropped != ProjectionBloomChunks.EVIDENCE_UNUSABLE) {
+        throw new IllegalStateException("Unknown Bloom evidence result " + blockDropped);
+      }
     }
     final byte[][] chain = stringBloomSegments(col, fetcher);
     if (chain == null) {

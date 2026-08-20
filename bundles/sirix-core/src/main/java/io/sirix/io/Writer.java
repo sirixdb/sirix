@@ -111,6 +111,20 @@ public interface Writer extends Reader {
   default void flushBufferedWrites(final BytesOut<?> bufferedBytes) {}
 
   /**
+   * Whether bytes written before the owning revision is published can be safely reused after a
+   * rollback.
+   *
+   * <p>The immutable side-page staging path writes payloads ahead of the final root. It is only
+   * enabled when the backend derives each new writer's logical append frontier from the last
+   * durable revision, so an aborted transaction's tail is overwritten rather than becoming an
+   * unbounded physical leak. Backends with append-at-physical-size semantics and in-memory maps
+   * must retain the default {@code false} and write such pages during the final commit instead.</p>
+   */
+  default boolean supportsReclaimableUncommittedWrites() {
+    return false;
+  }
+
+  /**
    * Force all pending writes to durable storage. This is a single fsync barrier that ensures all
    * written data is persisted. Should be called once at the end of a commit after all pages and
    * uberpage beacons are written.

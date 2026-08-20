@@ -195,6 +195,13 @@ class PageLayoutFuzzTest {
             "dataLength mismatch at slot " + slot + " [seed=" + seed + "]");
         assertEquals(nodeKindIds[i], PageLayout.getDirNodeKindId(page, slot),
             "nodeKindId mismatch at slot " + slot + " [seed=" + seed + "]");
+        final long entry = PageLayout.getDirEntry(page, slot);
+        assertEquals(heapOffsets[i], PageLayout.dirEntryHeapOffset(entry),
+            "packed heapOffset mismatch at slot " + slot + " [seed=" + seed + "]");
+        assertEquals(dataLengths[i], PageLayout.dirEntryDataLength(entry),
+            "packed dataLength mismatch at slot " + slot + " [seed=" + seed + "]");
+        assertEquals(nodeKindIds[i], PageLayout.dirEntryNodeKindId(entry),
+            "packed nodeKindId mismatch at slot " + slot + " [seed=" + seed + "]");
       }
     }
   }
@@ -218,6 +225,8 @@ class PageLayoutFuzzTest {
           "dataLength not zeroed [seed=" + seed + "]");
       assertEquals(0, PageLayout.getDirNodeKindId(page, slot),
           "nodeKindId not zeroed [seed=" + seed + "]");
+      assertEquals(0, PageLayout.dirEntryDataLength(PageLayout.getDirEntry(page, slot)),
+          "packed dataLength not zeroed [seed=" + seed + "]");
     }
   }
 

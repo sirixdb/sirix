@@ -38,10 +38,14 @@ import io.sirix.utils.XmlDocumentCreator;
 
 import java.io.ByteArrayOutputStream;
 import java.io.OutputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Test the {@link PathSummaryReader}.
@@ -97,6 +101,87 @@ public final class PathSummaryTest {
     pathSummary = holder.getResourceSession().openPathSummary();
     testInsertHelper(pathSummary);
     pathSummary.close();
+  }
+
+  @Test
+  public void elementSiblingPathResolutionWorksWithoutParentCursorMoves() {
+    assertTrue(wtx.moveTo(1));
+    wtx.insertElementAsFirstChild(new QNm("directLeft"));
+    wtx.insertElementAsRightSibling(new QNm("directRight"));
+    wtx.insertElementAsLeftSibling(new QNm("directMiddle"));
+    wtx.commit();
+    wtx.close();
+
+    try (final PathSummaryReader summary = holder.getResourceSession().openPathSummary()) {
+      final Map<String, Integer> levels = new HashMap<>();
+      final Axis axis = new DescendantAxis(summary);
+      while (axis.hasNext()) {
+        axis.nextLong();
+        final QNm name = summary.getName();
+        if (name != null) {
+          levels.put(name.getLocalName(), summary.getLevel());
+        }
+      }
+
+      assertEquals(2, levels.get("directLeft"));
+      assertEquals(2, levels.get("directMiddle"));
+      assertEquals(2, levels.get("directRight"));
+    }
+  }
+
+  @Test
+  public void elementSiblingsOfProcessingInstructionUseStructuralParentPathAfterReopen() {
+    assertTrue(wtx.moveTo(1));
+    wtx.insertPIAsFirstChild("anchorPi", "payload");
+    final long piNodeKey = wtx.getNodeKey();
+    wtx.insertElementAsRightSibling(new QNm("afterPi"));
+    assertTrue(wtx.moveTo(piNodeKey));
+    wtx.insertElementAsLeftSibling(new QNm("beforePi"));
+    wtx.commit();
+    wtx.close();
+
+    try (final PathSummaryReader summary = holder.getResourceSession().openPathSummary()) {
+      long enclosingElementPathNodeKey = -1;
+      long processingInstructionPathNodeKey = -1;
+      long processingInstructionParentKey = -1;
+      long beforeParentKey = -1;
+      long afterParentKey = -1;
+      int beforeLevel = -1;
+      int afterLevel = -1;
+      final Axis axis = new DescendantAxis(summary);
+      while (axis.hasNext()) {
+        axis.nextLong();
+        final QNm name = summary.getName();
+        if (name == null) {
+          continue;
+        }
+        switch (name.getLocalName()) {
+          case "a" -> enclosingElementPathNodeKey = summary.getNodeKey();
+          case "anchorPi" -> {
+            processingInstructionPathNodeKey = summary.getNodeKey();
+            processingInstructionParentKey = summary.getParentKey();
+          }
+          case "beforePi" -> {
+            beforeParentKey = summary.getParentKey();
+            beforeLevel = summary.getLevel();
+          }
+          case "afterPi" -> {
+            afterParentKey = summary.getParentKey();
+            afterLevel = summary.getLevel();
+          }
+          default -> {
+          }
+        }
+      }
+
+      assertEquals(2, beforeLevel);
+      assertEquals(2, afterLevel);
+      assertEquals(enclosingElementPathNodeKey, processingInstructionParentKey);
+      assertEquals(enclosingElementPathNodeKey, beforeParentKey);
+      assertEquals(enclosingElementPathNodeKey, afterParentKey);
+      assertNotEquals(processingInstructionPathNodeKey, beforeParentKey);
+      assertNotEquals(processingInstructionPathNodeKey, afterParentKey);
+    }
   }
 
   private void testInsertHelper(final PathSummaryReader summaryReader) {

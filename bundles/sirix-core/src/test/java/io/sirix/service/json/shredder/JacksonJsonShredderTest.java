@@ -22,12 +22,14 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
+import io.sirix.node.NodeKind;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
@@ -49,6 +51,7 @@ import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for {@link JacksonJsonShredder}.
@@ -126,6 +129,41 @@ public final class JacksonJsonShredderTest {
   @Test
   public void testArray() throws Exception {
     test("array.json");
+  }
+
+  @Test
+  public void freshlyInsertedSelfMoveKeepsCursorAndNavigationSemantics() {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var trx = manager.beginNodeTrx()) {
+      final long objectKey = trx.insertObjectAsFirstChild().getNodeKey();
+
+      // The exact redundant move emitted by the streaming shredder: the insert contract already
+      // left the cursor on objectKey, and the optimized path must retain that public contract.
+      assertTrue(trx.moveTo(objectKey));
+      assertEquals(NodeKind.OBJECT, trx.getKind());
+
+      final long firstFieldKey = trx.insertObjectRecordAsFirstChild("first", new NumberValue(1)).getNodeKey();
+      assertTrue(trx.moveTo(firstFieldKey));
+      assertEquals(NodeKind.OBJECT_NAMED_NUMBER, trx.getKind());
+
+      // Navigation invalidates the shortcut: moving away and then back must perform a real move.
+      assertTrue(trx.moveToParent());
+      assertEquals(objectKey, trx.getNodeKey());
+      assertTrue(trx.moveTo(firstFieldKey));
+      assertEquals(NodeKind.OBJECT_NAMED_NUMBER, trx.getKind());
+
+      assertTrue(trx.moveToParent());
+      final long secondFieldKey =
+          trx.insertObjectRecordAsLastChild("second", new NumberValue(2)).getNodeKey();
+
+      // Fused primitives use the Option-B leaf model: the value is inline, and the insertion
+      // still leaves the public cursor on the fused record for the next shredder self-move.
+      assertTrue(trx.moveTo(secondFieldKey));
+      assertEquals(NodeKind.OBJECT_NAMED_NUMBER, trx.getKind());
+      assertEquals(2, trx.getNumberValue().intValue());
+      trx.commit();
+    }
   }
 
   @Test
@@ -744,4 +782,3 @@ public final class JacksonJsonShredderTest {
     }
   }
 }
-

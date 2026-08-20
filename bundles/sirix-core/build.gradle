@@ -31,6 +31,11 @@ dependencies {
     testImplementation 'com.fasterxml.jackson.core:jackson-databind:2.22.1'
     // Property-based testing (generative round-trip / revision-immutability / oracle properties).
     testImplementation testLibraries.jqwik
+    // Already on the test RUNTIME classpath above; promoted to compile scope so a test can attach a
+    // ListAppender and assert that a failure was actually LOGGED. AsyncFlushFailurePathTest needs
+    // that: a background flush whose throwable is stored but never printed is the defect it guards.
+    testImplementation implLibraries.logbackClassic
+    testImplementation implLibraries.logbackCore
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

@@ -30,15 +30,15 @@ import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.Allocators;
 import io.sirix.cache.IndexLogKey;
-import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.io.SerializationBufferPool;
+import io.sirix.io.SharedArenas;
+import io.sirix.io.filechannel.FileChannelWriter;
 import io.sirix.node.PooledBytesOut;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
@@ -55,6 +55,7 @@ import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageLayout;
@@ -81,7 +82,10 @@ import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.channels.FileChannel;
@@ -90,19 +94,24 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
 import static io.sirix.utils.Preconditions.checkArgument;
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
 import static java.nio.file.StandardOpenOption.CREATE;
@@ -151,6 +160,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * {@link NodeStorageEngineReader} instance.
    */
   private final NodeStorageEngineReader storageEngineReader;
+
+  /**
+   * The {@link NamePage} owned by {@link #newRevisionRootPage}, resolved once per active TIL epoch.
+   *
+   * <p>Name creation used to walk the revision-root reference and re-publish the same page on every
+   * named node. A writer's top-level structural pages are transaction-private and survive a full
+   * async epoch as pinned pages, but the cache is still cleared at every full rotation so it never
+   * relies on that implementation detail. Pages reached through any other revision-root object are
+   * deliberately never cached here.</p>
+   */
+  private @Nullable NamePage currentNamePage;
 
   /**
    * Determines if transaction is closed.
@@ -294,6 +314,48 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private WriteSingletonBinder writeSingletonBinder;
 
+  /**
+   * Exact recent document-record locations used only by structural insert linkage.
+   *
+   * <p>Entries retain primitive TIL identities rather than pages. The log remains the authority and
+   * resolves an identity to its newest modified page, including same-generation replacement and
+   * dynamically pinned overflow pages.</p>
+   */
+  private final DocumentRecordLocationCache documentRecordLocationCache = new DocumentRecordLocationCache();
+
+  /** Fixed, allocation-free direct map. Package-private for deterministic collision tests. */
+  static final class DocumentRecordLocationCache {
+    static final int CAPACITY = 256;
+    private static final int MASK = CAPACITY - 1;
+    private static final long EMPTY_KEY = Long.MIN_VALUE;
+
+    private final long[] nodeKeys = new long[CAPACITY];
+    private final long[] transactionLogIdentities = new long[CAPACITY];
+
+    DocumentRecordLocationCache() {
+      Arrays.fill(nodeKeys, EMPTY_KEY);
+    }
+
+    long get(final long nodeKey) {
+      final int index = ((int) nodeKey) & MASK;
+      return nodeKeys[index] == nodeKey
+          ? transactionLogIdentities[index]
+          : PageContainer.NULL_TRANSACTION_LOG_IDENTITY;
+    }
+
+    void put(final long nodeKey, final long transactionLogIdentity) {
+      assert nodeKey >= 0;
+      assert transactionLogIdentity != PageContainer.NULL_TRANSACTION_LOG_IDENTITY;
+      final int index = ((int) nodeKey) & MASK;
+      nodeKeys[index] = nodeKey;
+      transactionLogIdentities[index] = transactionLogIdentity;
+    }
+
+    void clear() {
+      Arrays.fill(nodeKeys, EMPTY_KEY);
+    }
+  }
+
   // ==================== ASYNC AUTO-COMMIT STATE ====================
 
   /** Backpressure: at most one background snapshot flush in-flight. */
@@ -302,11 +364,436 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /** True while a background snapshot flush is running. */
   private volatile boolean asyncFlushInFlight;
 
-  /** Error from background thread — checked and cleared by insert thread. */
+  /** True only while a submitted worker may still read frozen arrays or use the shared Writer. */
+  private volatile boolean asyncFlushWorkerRunning;
+
+  /** Last positive progress made by the sole append coordinator, for stall-aware fencing. */
+  private volatile long asyncFlushProgressNanos;
+
+  /** Once a worker stalls past the deadline, all later teardown fences fail immediately. */
+  private volatile boolean asyncFlushTimedOut;
+
+  private static final int ASYNC_TASK_IDLE = 0;
+  private static final int ASYNC_TASK_ENQUEUED = 1;
+  private static final int ASYNC_TASK_RUNNING = 2;
+  private static final int ASYNC_TASK_COMPLETED = 3;
+  private static final int ASYNC_TASK_CANCELLED = 4;
+
+  /** CAS-owned lifecycle of the writer's one persistent append task. */
+  private volatile int asyncSnapshotWriteTaskState = ASYNC_TASK_IDLE;
+
+  private static final VarHandle ASYNC_SNAPSHOT_WRITE_TASK_STATE;
+
+  static {
+    try {
+      ASYNC_SNAPSHOT_WRITE_TASK_STATE = MethodHandles.lookup()
+          .findVarHandle(NodeStorageEngineWriter.class, "asyncSnapshotWriteTaskState", int.class);
+    } catch (final ReflectiveOperationException e) {
+      throw new ExceptionInInitializerError(e);
+    }
+  }
+
+  /** One task identity per writer; the bounded append executor never needs an epoch task wrapper. */
+  private final Runnable asyncSnapshotWriteTask = this::runAsyncSnapshotWriteTask;
+
+  /**
+   * The throwable that killed a background snapshot flush, or the one that stopped a flush from
+   * being started. RETAINED, never consumed: it is the poison record, so every later request on
+   * this writer can name the ORIGINAL fault instead of the latch that outlived it.
+   */
   private volatile Throwable asyncFlushError;
 
   /** Terminal failure latch — once true, NEVER reset. Transaction is permanently failed. */
   private volatile boolean asyncTerminalFailure;
+
+  /**
+   * Native-payload budget for one immutable side-page batch. At most one frozen batch and one active
+   * batch exist, each backed by one fixed reusable reservoir. A caller still owns the next encoded
+   * heap array while backpressure fences the frozen batch, but staging copies it immediately and
+   * replaces the pending page with a native view. The property is deliberately byte-based: a count
+   * cap cannot bound projection segments, whose legal sizes span three orders of magnitude.
+   */
+  private static final long MAX_STAGED_SIDE_PAGE_BYTES = positiveLongProperty(
+      "sirix.asyncFlush.sidePageBytes", 64L * 1024 * 1024);
+
+  /** Independent object-count bound for the smallest legal out-of-line projection segments. */
+  private static final int MAX_STAGED_SIDE_PAGE_COUNT = positiveIntProperty(
+      "sirix.asyncFlush.sidePageCount", 128 * 1024);
+
+  /** Expected page count for a 64 MiB batch of ClickBench projection segments. */
+  private static final int INITIAL_SIDE_PAGE_BATCH_CAPACITY = 16 * 1024;
+
+  /** Maximum live pinned slots examined by one foreground trie-spill epoch. */
+  private static final int PINNED_TRIE_SPILL_SCAN_BUDGET = positiveIntProperty(
+      "sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
+
+  /** Fixed number of exact trie-page tuples retained and serialized by one foreground epoch. */
+  private static final int PINNED_TRIE_SPILL_BATCH_CAPACITY = positiveIntProperty(
+      "sirix.asyncFlush.pinnedTrieSpillBatchCapacity", 64);
+
+  /** Reused bounded capture/results buffer; its object arrays never grow with the transaction. */
+  private final TransactionIntentLog.PinnedSpillBatch pinnedTrieSpillBatch =
+      new TransactionIntentLog.PinnedSpillBatch(PINNED_TRIE_SPILL_BATCH_CAPACITY);
+
+  /** Scratch reference receives direct-write offsets without mutating a live tree reference. */
+  private final PageReference pinnedTrieSpillShadowReference = new PageReference();
+
+  /**
+   * Whether this writer has attempted an uncommitted direct trie write since the last durable
+   * beacon. Set before the first write so even a partial/throwing append forces resource-cache
+   * invalidation on abort before the backend reuses that logical tail.
+   */
+  private boolean hasUncommittedPinnedTriePrewrites;
+
+  /** Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed. */
+  private @Nullable Arena sidePagePayloadArena;
+
+  /** Foreground-owned side pages being collected for the next async rotation. Lazily allocated. */
+  private @Nullable SidePageBatch activeSidePages;
+
+  /** Frozen side pages owned by the current background append. */
+  private @Nullable SidePageBatch snapshotSidePages;
+
+  /** Whether the in-flight worker also owns a TransactionIntentLog snapshot. */
+  private boolean asyncSnapshotIncludesLog;
+
+  /**
+   * Positive completion proof for the frozen epoch. Cleared before submission and set by the sole
+   * append worker only after the shared buffer is flushed (and any KVL snapshot is marked complete).
+   * Cleanup never infers success merely from an absent exception: an OOME in diagnostics must not
+   * turn a partial append into published offsets.
+   */
+  private volatile boolean asyncSnapshotWriteComplete;
+
+  /**
+   * Allocation-free epoch telemetry, opt-in for ingestion profiling. The disabled branch is a static
+   * final and disappears after compilation; enabled mode mutates primitive fields only on the
+   * already-owning foreground/worker threads and emits one summary after the final fence.
+   */
+  private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+
+  private long hftStagedSidePages;
+  private long hftStagedSideBytes;
+  private long hftPeakActiveSideBytes;
+  private long hftCombinedEpochs;
+  private long hftSideOnlyEpochs;
+  private long hftSnapshotKvlPages;
+  private long hftSnapshotKvlAttemptedPages;
+  private long hftSnapshotKvlPromotedPages;
+  private long hftPermitAcquires;
+  private long hftPermitWaitNanos;
+  private long hftMaxPermitWaitNanos;
+  private long hftRotationPermitAcquires;
+  private long hftRotationPermitWaitNanos;
+  private long hftMaxRotationPermitWaitNanos;
+  private long hftDrainPermitAcquires;
+  private long hftDrainPermitWaitNanos;
+  private long hftMaxDrainPermitWaitNanos;
+  private long hftWorkerRuns;
+  private long hftWorkerNanos;
+  private long hftMaxWorkerNanos;
+
+  /** Monotonic writer-local identity for non-empty async epochs. */
+  private long hftEpochSequence;
+
+  /** Foreground-published identity and submission instant of the sole active epoch. */
+  private long hftActiveEpochId;
+  private long hftActiveEpochSubmittedNanos;
+
+  /**
+   * Last worker result. Plain fields are safe: the worker writes them before releasing
+   * {@link #flushPermit}, and the foreground reads them only after acquiring that permit. Phase
+   * values are deliberately not additive: serializer workers overlap side-page and KVL append;
+   * {@code SerializeJoinWait} measures only time the append coordinator actually stalled at joins.
+   */
+  private long hftCompletedEpochId;
+  private long hftCompletedEpochQueueWaitNanos;
+  private long hftCompletedEpochWorkerNanos;
+  private long hftCompletedEpochSideNanos;
+  private long hftCompletedEpochSerializeJoinWaitNanos;
+  private long hftCompletedEpochKvlAppendNanos;
+  private long hftCompletedEpochFinalFlushNanos;
+  private long hftCompletedEpochDataGrowCount;
+  private long hftCompletedEpochDataGrowBytes;
+  private long hftCompletedEpochDataGrowNanos;
+  private boolean hftCompletedEpochDataGrowExact;
+
+  /** Phase breakdown retained for the slowest worker. */
+  private long hftMaxWorkerEpochId;
+  private long hftMaxWorkerEpochQueueWaitNanos;
+  private long hftMaxWorkerEpochSideNanos;
+  private long hftMaxWorkerEpochSerializeJoinWaitNanos;
+  private long hftMaxWorkerEpochKvlAppendNanos;
+  private long hftMaxWorkerEpochFinalFlushNanos;
+  private long hftMaxWorkerEpochDataGrowCount;
+  private long hftMaxWorkerEpochDataGrowBytes;
+  private long hftMaxWorkerEpochDataGrowNanos;
+  private boolean hftMaxWorkerEpochDataGrowExact;
+
+  /** Phase breakdown retained for the epoch behind the largest foreground rotation wait. */
+  private long hftMaxBlockedEpochId;
+  private long hftMaxBlockedEpochForegroundWaitNanos;
+  private long hftMaxBlockedEpochWorkerNanos;
+  private long hftMaxBlockedEpochQueueWaitNanos;
+  private long hftMaxBlockedEpochSideNanos;
+  private long hftMaxBlockedEpochSerializeJoinWaitNanos;
+  private long hftMaxBlockedEpochKvlAppendNanos;
+  private long hftMaxBlockedEpochFinalFlushNanos;
+  private long hftMaxBlockedEpochDataGrowCount;
+  private long hftMaxBlockedEpochDataGrowBytes;
+  private long hftMaxBlockedEpochDataGrowNanos;
+  private boolean hftMaxBlockedEpochDataGrowExact;
+  private boolean hftMaxBlockedEpochRotation;
+  private int hftNativeReservoirCount;
+  private long hftNativeReservoirBytes;
+  private long hftKvlFrameCachePages;
+  private long hftKvlFrameCacheBytes;
+  private long hftKvlCacheFallbackPages;
+  private long hftKvlCacheFallbackBytes;
+  private long hftPinnedTrieSpillEpochs;
+  private long hftPinnedTrieSpillPages;
+  private int hftPinnedTrieSpillBatchMax;
+  private int hftPinnedTrieLiveMax;
+  private int hftPinnedTrieHighWater;
+  private boolean hftTelemetryPrinted;
+
+  /** Validate a positive long system property once at class initialization. */
+  private static long positiveLongProperty(final String name, final long defaultValue) {
+    final long value = Long.getLong(name, defaultValue);
+    if (value <= 0L) {
+      throw new IllegalArgumentException("-D" + name + " must be > 0, got " + value);
+    }
+    return value;
+  }
+
+  /** Validate a positive int system property once at class initialization. */
+  private static int positiveIntProperty(final String name, final int defaultValue) {
+    final int value = Integer.getInteger(name, defaultValue);
+    if (value <= 0) {
+      throw new IllegalArgumentException("-D" + name + " must be > 0, got " + value);
+    }
+    return value;
+  }
+
+  /**
+   * Reusable primitive side-channel for immutable OverflowPage writes. The background thread never
+   * mutates a real PageReference; it writes offsets/hashes here, then the foreground publishes them
+   * only after the shared append buffer has been flushed.
+   */
+  private static final class SidePageBatch {
+    private PageReference[] references;
+    private long[] diskOffsets;
+    private final MemorySegment payloadStorage;
+    private final MemorySegment readOnlyPayloadStorage;
+    private int size;
+    private long payloadBytes;
+
+    private SidePageBatch(final int initialCapacity, final MemorySegment payloadStorage) {
+      references = new PageReference[initialCapacity];
+      diskOffsets = new long[initialCapacity];
+      this.payloadStorage = payloadStorage;
+      readOnlyPayloadStorage = payloadStorage.asReadOnly();
+    }
+
+    /**
+     * Copy a producer page into the fixed native reservoir without advancing visible batch state.
+     * Any copy/view failure therefore leaves the live reference heap-backed and unstaged.
+     */
+    private OverflowPage copyToNative(final OverflowPage page) {
+      final int payloadLength = page.dataLength();
+      final long payloadOffset = payloadBytes;
+      page.copyDataTo(payloadStorage, payloadOffset);
+      return new OverflowPage(readOnlyPayloadStorage, payloadOffset, payloadLength);
+    }
+
+    private void addReserved(final PageReference reference, final int payloadLength) {
+      if (size >= references.length) {
+        throw new IllegalStateException("Immutable side-page batch slot was not reserved before publication");
+      }
+      references[size] = reference;
+      diskOffsets[size] = Constants.NULL_ID_LONG;
+      size++;
+      payloadBytes += payloadLength;
+    }
+
+    private void ensureCapacity(final int required) {
+      if (required <= references.length) {
+        return;
+      }
+      final int doubled = references.length << 1;
+      if (doubled <= 0) {
+        throw new IllegalStateException("Too many immutable side pages in one async-flush batch");
+      }
+      final int newCapacity = Math.min(MAX_STAGED_SIDE_PAGE_COUNT, Math.max(required, doubled));
+      references = Arrays.copyOf(references, newCapacity);
+      diskOffsets = Arrays.copyOf(diskOffsets, newCapacity);
+    }
+
+    /** Validate every result before publishing any of them, avoiding a half-published batch. */
+    private void publishCompletedWrites() {
+      for (int i = 0; i < size; i++) {
+        if (diskOffsets[i] == Constants.NULL_ID_LONG) {
+          throw new SirixIOException("Immutable side-page batch entry " + i
+              + " has no disk offset — background write incomplete or failed");
+        }
+        if (references[i] == null || !references[i].hasPendingPageWrite()) {
+          throw new SirixIOException("Immutable side-page batch entry " + i
+              + " lost its pending-write identity before publication");
+        }
+      }
+      for (int i = 0; i < size; i++) {
+        // HOT side-map wire records persist only the offset. Payload integrity is the owning
+        // descriptor's XXH3, so retaining another checksum on every pinned reference would
+        // recreate transaction-long metadata for no read-side benefit.
+        references[i].completePendingPageWrite(diskOffsets[i]);
+      }
+      clear(false);
+    }
+
+    /** Drop all batch ownership; on abort, also release unresolved payload handles. */
+    private void clear(final boolean cancelPendingWrites) {
+      for (int i = 0; i < size; i++) {
+        final PageReference reference = references[i];
+        if (cancelPendingWrites && reference != null) {
+          reference.cancelPendingPageWrite();
+        }
+        references[i] = null;
+        diskOffsets[i] = Constants.NULL_ID_LONG;
+      }
+      size = 0;
+      payloadBytes = 0L;
+    }
+  }
+
+  /** Maximum interval with no append-coordinator progress before the writer is poisoned. */
+  private static final long ASYNC_FLUSH_STALL_TIMEOUT_NANOS = TimeUnit.MILLISECONDS.toNanos(
+      positiveLongProperty("sirix.asyncFlush.stallTimeoutMillis", 120_000L));
+
+  /** Poll interval only while a foreground thread is already applying epoch backpressure. */
+  private static final long ASYNC_FLUSH_PROGRESS_POLL_NANOS = TimeUnit.MILLISECONDS.toNanos(250L);
+
+  /**
+   * Test-only fault injection for asynchronous flush and its rollback teardown, {@code null} in
+   * production. Invoked with the name of the site it guards, so a test can raise the I/O, allocator,
+   * and page-close faults that are otherwise difficult to reach. Package-private on purpose: the
+   * failure modes it exercises — a leaked permit, a lost cause, retained payloads, or a rollback that
+   * never returns — are not reachable through the public API by any other means.
+   */
+  static volatile BiConsumer<NodeStorageEngineWriter, String> asyncFlushFaultHook;
+
+  /** Raise the injected fault for {@code site}, if a test armed one. */
+  private void injectAsyncFlushFault(final String site) {
+    final BiConsumer<NodeStorageEngineWriter, String> hook = asyncFlushFaultHook;
+    if (hook != null) {
+      hook.accept(this, site);
+    }
+  }
+
+  /**
+   * Permits currently available on the flush semaphore, for tests that assert the acquire/release
+   * balance. One means idle-and-balanced; zero means either a flush is genuinely in flight or a
+   * permit has been leaked, which is the failure this writer must never reach.
+   */
+  int availableFlushPermits() {
+    return flushPermit.availablePermits();
+  }
+
+  /** Number of side-page references still owned by the active or frozen batch, for failure-path tests. */
+  int stagedSidePageCount() {
+    final int activeCount = activeSidePages == null
+        ? 0
+        : activeSidePages.size;
+    final int snapshotCount = snapshotSidePages == null
+        ? 0
+        : snapshotSidePages.size;
+    return activeCount + snapshotCount;
+  }
+
+  /** Native payload bytes occupied in the active or frozen side-page batch, for failure-path tests. */
+  long stagedSidePagePayloadBytes() {
+    final long activeBytes = activeSidePages == null
+        ? 0L
+        : activeSidePages.payloadBytes;
+    final long snapshotBytes = snapshotSidePages == null
+        ? 0L
+        : snapshotSidePages.payloadBytes;
+    return activeBytes + snapshotBytes;
+  }
+
+  /**
+   * Whether the exact batch visible to a trie-spill fault hook contains a HOT leaf.
+   *
+   * <p>Package-private test observability only. The batch is valid during the before/after publish
+   * hook and cleared immediately when the foreground epoch leaves the spill method.</p>
+   */
+  boolean currentPinnedTrieSpillBatchContainsHotLeaf() {
+    for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
+      if (pinnedTrieSpillBatch.pageAt(i).getClass() == HOTLeafPage.class) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Emit diagnostic counters only after all worker-owned state has been fenced. */
+  private void printHftTelemetry() {
+    if (!HFT_TELEMETRY_ENABLED || hftTelemetryPrinted
+        || (hftStagedSidePages == 0L && hftCombinedEpochs == 0L && hftSideOnlyEpochs == 0L
+            && hftPinnedTrieSpillEpochs == 0L)) {
+      return;
+    }
+    hftTelemetryPrinted = true;
+    System.out.printf("# HFT_ASYNC_FLUSH combinedEpochs=%d sideOnlyEpochs=%d kvlPages=%d "
+            + "kvlAttemptedPages=%d kvlPromotedPages=%d "
+            + "sidePages=%d sideBytes=%d peakActiveSideBytes=%d permitAcquires=%d "
+            + "permitWaitTotalNs=%d permitWaitMaxNs=%d rotationPermitAcquires=%d "
+            + "rotationPermitWaitTotalNs=%d rotationPermitWaitMaxNs=%d drainPermitAcquires=%d "
+            + "drainPermitWaitTotalNs=%d drainPermitWaitMaxNs=%d workerRuns=%d workerTotalNs=%d workerMaxNs=%d "
+            + "nativeReservoirCount=%d nativeReservoirBytes=%d kvlFrameCachePages=%d "
+            + "kvlFrameCacheBytes=%d kvlCacheFallbackPages=%d kvlCacheFallbackBytes=%d "
+            + "pinnedTrieSpillEpochs=%d pinnedTrieSpillPages=%d pinnedTrieSpillBatchMax=%d "
+            + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d%n",
+        hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
+        hftSnapshotKvlPromotedPages, hftStagedSidePages, hftStagedSideBytes, hftPeakActiveSideBytes,
+        hftPermitAcquires, hftPermitWaitNanos,
+        hftMaxPermitWaitNanos, hftRotationPermitAcquires, hftRotationPermitWaitNanos,
+        hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
+        hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
+        hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages,
+        hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
+        hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax,
+        hftPinnedTrieLiveMax, hftPinnedTrieHighWater);
+    if (hftMaxWorkerEpochId != 0L) {
+      System.out.printf("# HFT_ASYNC_MAX_WORKER epoch=%d queueWaitNs=%d workerNs=%d sideNs=%d "
+              + "serializeJoinWaitNs=%d kvlAppendNs=%d finalFlushNs=%d dataGrowCount=%d "
+              + "dataGrowBytes=%d dataGrowNs=%d dataGrowExact=%b%n",
+          hftMaxWorkerEpochId, hftMaxWorkerEpochQueueWaitNanos, hftMaxWorkerNanos,
+          hftMaxWorkerEpochSideNanos, hftMaxWorkerEpochSerializeJoinWaitNanos,
+          hftMaxWorkerEpochKvlAppendNanos, hftMaxWorkerEpochFinalFlushNanos,
+          hftMaxWorkerEpochDataGrowCount, hftMaxWorkerEpochDataGrowBytes,
+          hftMaxWorkerEpochDataGrowNanos, hftMaxWorkerEpochDataGrowExact);
+    }
+    if (hftMaxBlockedEpochId != 0L) {
+      System.out.printf("# HFT_ASYNC_MAX_BLOCKED epoch=%d waitKind=%s foregroundWaitNs=%d queueWaitNs=%d "
+              + "workerNs=%d sideNs=%d serializeJoinWaitNs=%d kvlAppendNs=%d finalFlushNs=%d "
+              + "dataGrowCount=%d dataGrowBytes=%d dataGrowNs=%d dataGrowExact=%b%n",
+          hftMaxBlockedEpochId, hftMaxBlockedEpochRotation ? "rotation" : "drain",
+          hftMaxBlockedEpochForegroundWaitNanos, hftMaxBlockedEpochQueueWaitNanos,
+          hftMaxBlockedEpochWorkerNanos, hftMaxBlockedEpochSideNanos,
+          hftMaxBlockedEpochSerializeJoinWaitNanos, hftMaxBlockedEpochKvlAppendNanos,
+          hftMaxBlockedEpochFinalFlushNanos, hftMaxBlockedEpochDataGrowCount,
+          hftMaxBlockedEpochDataGrowBytes, hftMaxBlockedEpochDataGrowNanos,
+          hftMaxBlockedEpochDataGrowExact);
+    }
+  }
+
+  /** Capture allocation-free pinned-region evidence at a full TIL epoch boundary. */
+  private void recordPinnedTrieFullEpochState() {
+    final int live = log.pinnedSize();
+    final int highWater = log.pinnedHighWater();
+    hftPinnedTrieLiveMax = Math.max(hftPinnedTrieLiveMax, live);
+    hftPinnedTrieHighWater = Math.max(hftPinnedTrieHighWater, highWater);
+  }
 
   /**
    * Constructor.
@@ -332,6 +819,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     checkArgument(representRevision >= 0, "The represented revision must be >= 0.");
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
+    pinnedTrieSpillShadowReference.setDatabaseId(storageEngineReader.getDatabaseId())
+                                  .setResourceId(storageEngineReader.getResourceId());
     // Immutable per-resource configuration, resolved once — the insert hot path only branches
     // on a final field.
     this.insertFsstEnabled =
@@ -493,14 +982,36 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public DataRecord prepareRecordForModificationDocument(final long recordKey) {
     final long recordPageKey = storageEngineReader.pageKeyDocument(recordKey);
+    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
+
+    final long transactionLogIdentity = documentRecordLocationCache.get(recordKey);
+    if (transactionLogIdentity != PageContainer.NULL_TRANSACTION_LOG_IDENTITY) {
+      final KeyValueLeafPage page = log.getAuthoritativeDocumentPage(transactionLogIdentity);
+      if (page != null && page.getPageKey() == recordPageKey) {
+        // Honour any fresher materialized object before binding a reusable singleton.
+        final DataRecord cached = page.getRecord(recordOffset);
+        if (cached != null && cached.getNodeKey() == recordKey) {
+          return cached;
+        }
+
+        // The binder owns the populated-slot check. Calling it directly avoids repeating the
+        // bitmap probe which prepareRecordForModificationDocument historically performed first.
+        if (writeSingletonBinder != null) {
+          final DataRecord record = writeSingletonBinder.bind(page, recordOffset, recordKey);
+          if (record != null && record.getNodeKey() == recordKey) {
+            return record;
+          }
+        }
+      }
+    }
+
     final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
     final var modifiedPage = cont.getModifiedAsKeyValuePage();
-
-    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
 
     // Honour any fresher in-memory object in records[] (mixed-path safety).
     final DataRecord cached = modifiedPage.getRecord(recordOffset);
     if (cached != null) {
+      rememberDocumentRecordLocation(recordKey, cont);
       return cached;
     }
 
@@ -509,12 +1020,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         && kvl.hasSlottedPageSlot(recordKey)) {
       final DataRecord record = writeSingletonBinder.bind(kvl, recordOffset, recordKey);
       if (record != null) {
+        rememberDocumentRecordLocation(recordKey, cont);
         return record;
       }
     }
 
     // Fallback to full method for edge cases (non-slotted page, bind failure).
-    return prepareRecordForModification(recordKey, IndexType.DOCUMENT, -1);
+    final DataRecord record = prepareRecordForModification(recordKey, IndexType.DOCUMENT, -1);
+    rememberDocumentRecordLocation(recordKey, cont);
+    return record;
+  }
+
+  private void rememberDocumentRecordLocation(final long recordKey, final PageContainer container) {
+    final long transactionLogIdentity = container.getTransactionLogIdentity();
+    if (transactionLogIdentity != PageContainer.NULL_TRANSACTION_LOG_IDENTITY) {
+      documentRecordLocationCache.put(recordKey, transactionLogIdentity);
+    }
   }
 
   // ==================== DIRECT-TO-HEAP CREATION ====================
@@ -532,6 +1053,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.allocKvl = (KeyValueLeafPage) cont.getModifiedAsKeyValuePage();
     this.allocSlotOffset = StorageEngineReader.recordPageOffset(nodeKey);
     this.allocNodeKey = nodeKey;
+    rememberDocumentRecordLocation(nodeKey, cont);
   }
 
   @Override
@@ -590,7 +1112,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         yield pathPage.incrementAndGetMaxNodeKey(index);
       }
       case NAME -> {
-        final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
+        final NamePage namePage = currentNamePage();
         yield namePage.incrementAndGetMaxNodeKey(index);
       }
       case VECTOR -> {
@@ -711,6 +1233,37 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         : currentNamePage.getName(nameKey, nodeKind, storageEngineReader);
   }
 
+  /**
+   * Resolve the current writer revision's NamePage without repeating the PageReference/TIL walk.
+   * The caller must have already established that the requested root is
+   * {@link #newRevisionRootPage} by identity.
+   */
+  private NamePage currentNamePage() {
+    NamePage page = currentNamePage;
+    if (page == null) {
+      page = storageEngineReader.getNamePage(newRevisionRootPage);
+      if (page == null) {
+        throw new IllegalStateException("The current revision has no NamePage");
+      }
+      currentNamePage = page;
+    }
+    return page;
+  }
+
+  /** Package-private lifecycle observation for focused cache tests. */
+  @Nullable NamePage cachedCurrentNamePageForTesting() {
+    return currentNamePage;
+  }
+
+  @Override
+  public NamePage getNamePage(final RevisionRootPage revisionRoot) {
+    storageEngineReader.assertNotClosed();
+    requireNonNull(revisionRoot);
+    return revisionRoot == newRevisionRootPage
+        ? currentNamePage()
+        : storageEngineReader.getNamePage(revisionRoot);
+  }
+
   @Override
   public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
     // Mirror of getName above: the uncommitted CoW NamePage answers first. Without this override,
@@ -751,83 +1304,666 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return namePage.keyForName(string, nodeKind, this);
   }
 
+  @Override
+  public boolean stageUncommittedOverflowPage(final PageReference reference) {
+    if (isClosed) {
+      throw new IllegalStateException("The storage engine writer is already closed");
+    }
+    storageEngineReader.assertNotClosed();
+    if (asyncTerminalFailure) {
+      throw asyncFlushFailure("Transaction in terminal failure state from a prior async commit error");
+    }
+    requireNonNull(reference);
+    final Page page = reference.getPage();
+    if (!(page instanceof OverflowPage overflowPage)) {
+      throw new IllegalArgumentException("Only an immutable OverflowPage can enter the side-page append batch");
+    }
+    if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
+        || reference.hasPendingPageWrite()) {
+      throw new IllegalArgumentException("The staged OverflowPage reference must be fresh and unresolved");
+    }
+
+    // RAM and legacy append-at-physical-size backends cannot reclaim bytes written before the root
+    // is published. Leave the page resident there; recursive final commit is slower but space-safe.
+    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
+      return false;
+    }
+
+    // A 128 MiB per-writer reservoir must have deterministic ownership. AUTO would defer release
+    // to GC/Cleaner activity (the opposite of the no-major-GC contract), while GLOBAL would leak it
+    // forever. Those configurations keep the ordinary resident-page commit path until they have a
+    // process-level native reservoir pool with explicit lifecycle semantics.
+    if (!SharedArenas.supportsDeterministicClose()) {
+      return false;
+    }
+
+    final int payloadLength = overflowPage.dataLength();
+    // OverflowPage is generic and can exceed projection's 16 MiB domain cap. One item larger than
+    // the entire staging budget cannot satisfy this API's bounded-retention contract; leave it on
+    // the ordinary final-commit path rather than quietly invalidating the bound.
+    if (payloadLength > MAX_STAGED_SIDE_PAGE_BYTES) {
+      return false;
+    }
+
+    if (activeSidePages == null) {
+      initializeSidePageBatches();
+    }
+
+    // Preflight BEFORE marking the new ref pending. The caller already owns this incoming byte[];
+    // if it would overflow the active budget, rotate the existing capped batch first. This bounds
+    // writer-owned state to two capped buffers plus the one incoming payload being backpressured.
+    if (activeSidePages.size > 0
+        && (payloadLength > MAX_STAGED_SIDE_PAGE_BYTES - activeSidePages.payloadBytes
+            || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT)) {
+      flushStagedSidePagesOnly();
+    }
+
+    // Reserve before marking the reference pending. Array growth is the only allocating/failing
+    // operation in add(); if it failed after the marker was installed, the HOT leaf would contain a
+    // pending page owned by no batch and final commit would (correctly) refuse to serialize it.
+    activeSidePages.ensureCapacity(activeSidePages.size + 1);
+    final OverflowPage nativePage = activeSidePages.copyToNative(overflowPage);
+    reference.replaceAndBindPendingPageWrite(overflowPage, nativePage);
+    activeSidePages.addReserved(reference, payloadLength);
+    if (HFT_TELEMETRY_ENABLED) {
+      hftStagedSidePages++;
+      hftStagedSideBytes += payloadLength;
+      hftPeakActiveSideBytes = Math.max(hftPeakActiveSideBytes, activeSidePages.payloadBytes);
+    }
+
+    // This is an overflow-only epoch. Projection maintenance may still be reading KVL records in
+    // the same drain, so crossing the side-page budget must never rotate or clean the live TIL.
+    if (activeSidePages.payloadBytes >= MAX_STAGED_SIDE_PAGE_BYTES
+        || activeSidePages.size >= MAX_STAGED_SIDE_PAGE_COUNT) {
+      flushStagedSidePagesOnly();
+    }
+    return true;
+  }
+
+  /** Allocate both fixed native reservoirs as one all-or-nothing lazy initialization. */
+  private void initializeSidePageBatches() {
+    if (activeSidePages != null || snapshotSidePages != null || sidePagePayloadArena != null) {
+      throw new IllegalStateException("Immutable side-page reservoirs are only initialized as an empty pair");
+    }
+    final int initialCapacity = Math.min(INITIAL_SIDE_PAGE_BATCH_CAPACITY, MAX_STAGED_SIDE_PAGE_COUNT);
+    final Arena arena = SharedArenas.newSharedArena();
+    try {
+      final MemorySegment activePayload = arena.allocate(MAX_STAGED_SIDE_PAGE_BYTES, Long.BYTES);
+      final MemorySegment snapshotPayload = arena.allocate(MAX_STAGED_SIDE_PAGE_BYTES, Long.BYTES);
+      final SidePageBatch active = new SidePageBatch(initialCapacity, activePayload);
+      final SidePageBatch snapshot = new SidePageBatch(initialCapacity, snapshotPayload);
+      sidePagePayloadArena = arena;
+      activeSidePages = active;
+      snapshotSidePages = snapshot;
+      if (HFT_TELEMETRY_ENABLED) {
+        hftNativeReservoirCount = 2;
+        hftNativeReservoirBytes = activePayload.byteSize();
+      }
+    } catch (final Throwable failure) {
+      try {
+        SharedArenas.close(arena);
+      } catch (final Throwable closeFailure) {
+        retainFirstFailure(failure, closeFailure);
+      }
+      throw asRuntimeFailure(failure);
+    }
+  }
+
+  private boolean hasActiveSidePages() {
+    return activeSidePages != null && activeSidePages.size > 0;
+  }
+
+  /** Swap the foreground and background side-page buffers after the prior snapshot was cleaned. */
+  private int rotateSidePageBatch() {
+    if (!hasActiveSidePages()) {
+      return 0;
+    }
+    if (snapshotSidePages == null || snapshotSidePages.size != 0) {
+      throw new IllegalStateException("Prior immutable side-page batch was not cleaned before reuse");
+    }
+    final SidePageBatch frozen = activeSidePages;
+    activeSidePages = snapshotSidePages;
+    snapshotSidePages = frozen;
+    return frozen.size;
+  }
+
+  /** Release every pending payload, both reusable arrays, and their fixed native arena. */
+  private void discardSidePageBatches() {
+    if (asyncFlushWorkerRunning) {
+      throw new SirixIOException("Cannot discard immutable side-page buffers while their append worker may still "
+          + "read them; the writer remains poisoned and must not be reused or closed concurrently");
+    }
+    Throwable failure = null;
+    final SidePageBatch active = activeSidePages;
+    activeSidePages = null;
+    if (active != null) {
+      try {
+        active.clear(true);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    final SidePageBatch snapshot = snapshotSidePages;
+    snapshotSidePages = null;
+    if (snapshot != null) {
+      try {
+        snapshot.clear(true);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    final Arena arena = sidePagePayloadArena;
+    sidePagePayloadArena = null;
+    if (arena != null) {
+      try {
+        SharedArenas.close(arena);
+      } catch (final Throwable t) {
+        failure = retainFirstFailure(failure, t);
+      }
+    }
+    asyncSnapshotIncludesLog = false;
+    asyncSnapshotWriteComplete = false;
+    asyncFlushInFlight = false;
+    if (failure != null) {
+      throw asRuntimeFailure(failure);
+    }
+  }
+
   // ==================== ASYNC AUTO-COMMIT ====================
 
   @Override
   public void asyncFlush() {
+    startAsyncFlush(true);
+  }
+
+  /**
+   * Flush only immutable side pages, leaving the live TIL untouched.
+   *
+   * <p>Projection bulk-load drains read records from the current TIL while they build row groups.
+   * Rotating that log at a side-page budget crossing would make the remaining records unreadable.
+   * This path applies backpressure through the SAME permit and uses the SAME append owner as a full
+   * epoch, but it neither snapshots nor cleans record pages.</p>
+   */
+  private void flushStagedSidePagesOnly() {
+    startAsyncFlush(false);
+  }
+
+  /** Start either a combined KVL+side-page epoch or a side-page-only epoch. */
+  private void startAsyncFlush(final boolean includeTransactionLog) {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
-      throw new SirixIOException("Transaction in terminal failure state from prior async commit error");
+      throw asyncFlushFailure("Transaction in terminal failure state from a prior async commit error");
     }
 
-    // Backpressure: block if previous background flush still running
-    flushPermit.acquireUninterruptibly();
-
-    // CRITICAL double-check: error may have been set by background thread
-    // between our latch check above and the acquire completing.
-    final Throwable priorError = asyncFlushError;
-    if (priorError != null) {
-      asyncFlushError = null;
-      asyncTerminalFailure = true;
-      flushPermit.release();
-      throw new SirixIOException("Prior async commit failed", priorError);
+    // Backpressure is bounded. A dead executor/worker must poison this writer rather than park the
+    // ingestion thread forever and hide the original failure behind rollback/close.
+    if (!acquireFlushPermitUntilProgressStalls(true)) {
+      final SirixIOException timeout = asyncFlushFailure(
+          "Background snapshot flush made no progress for "
+              + TimeUnit.NANOSECONDS.toMillis(ASYNC_FLUSH_STALL_TIMEOUT_NANOS)
+              + " ms while starting the next epoch");
+      asyncFlushTimedOut = true;
+      recordAsyncFlushFailure(timeout);
+      cancelQueuedAsyncSnapshotWriteAfterTimeout();
+      throw timeout;
     }
 
-    // If previous snapshot completed, clean it up first
-    if (log.getSnapshotSize() > 0 && log.isSnapshotFlushComplete()) {
-      log.cleanupSnapshot();
-    }
-
-    // O(1) snapshot — array swap + generation increment
-    final int snapshotSize = log.snapshot();
-    if (snapshotSize == 0) {
-      flushPermit.release();
-      return;
-    }
-
-    // CRITICAL: Invalidate all local container caches. Cached containers point
-    // to frozen-zone pages. Without invalidation, cache fast paths return frozen containers.
-    clearLocalContainerCaches();
-
-    // Re-add structural pages to fresh TIL for continued operation
-    reAddStructuralPagesToTil();
-
-    asyncFlushInFlight = true;
-
-    // Background thread: write KVL pages to disk.
-    // CRITICAL: If submission throws (RejectedExecutionException), release permit
-    // and latch terminal failure — snapshot state is dangling, no bg thread to process it.
+    // Every exit between here and a SUCCESSFUL submission must hand the permit back: on those
+    // paths no background worker is ever started, so nothing else can release it, and a permit
+    // left behind parks the next awaitPendingAsyncFlush() forever — turning the rollback that a
+    // failure here triggers into a hang that buries the very exception that caused it.
+    boolean permitTransferred = false;
     try {
-      CompletableFuture.runAsync(this::executeSnapshotWrite);
+      // CRITICAL double-check: error may have been set by background thread
+      // between our latch check above and the acquire completing.
+      if (asyncFlushError != null) {
+        asyncTerminalFailure = true;
+        throw asyncFlushFailure("Prior async commit failed");
+      }
+
+      // Acquiring the permit is the happens-before edge from the prior worker. Publish its complete
+      // results before reusing either side-channel buffer; on failure above, publish nothing.
+      cleanupCompletedAsyncSnapshot();
+
+      // Bottom-up structural retirement is foreground-only and runs only for a full TIL epoch.
+      // At this point the prior KVL snapshot and its immutable side-page batch have both been
+      // published, and this thread still owns the sole append permit. A side-only rotation may run
+      // while projection maintenance is reading/mutating its current HOT leaf, so it must never
+      // inspect or serialize pinned trie pages.
+      if (includeTransactionLog) {
+        if (HFT_TELEMETRY_ENABLED) {
+          recordPinnedTrieFullEpochState();
+        }
+        spillEligiblePinnedTriePages();
+      }
+
+      injectAsyncFlushFault("prepare");
+
+      // O(1) snapshots — array swaps only. A side-only epoch MUST NOT rotate the TIL: it can run
+      // in the middle of projection maintenance while that maintenance is still reading records.
+      final int snapshotSize = includeTransactionLog
+          ? log.snapshot()
+          : 0;
+      final int sidePageCount = rotateSidePageBatch();
+      if (snapshotSize == 0 && sidePageCount == 0) {
+        if (includeTransactionLog) {
+          // snapshot() still installed empty frozen arrays. Retire them now rather than carrying a
+          // fake pending epoch into the next real flush.
+          log.cleanupSnapshot();
+        }
+        return;
+      }
+
+      if (HFT_TELEMETRY_ENABLED) {
+        if (includeTransactionLog) {
+          hftCombinedEpochs++;
+        } else {
+          hftSideOnlyEpochs++;
+        }
+        hftActiveEpochId = ++hftEpochSequence;
+      }
+
+      if (includeTransactionLog) {
+        // CRITICAL: Invalidate all local container caches. Cached containers point
+        // to frozen-zone pages. Without invalidation, cache fast paths return frozen containers.
+        clearLocalContainerCaches();
+
+        // Re-add structural pages to fresh TIL for continued operation
+        reAddStructuralPagesToTil();
+        if (HFT_TELEMETRY_ENABLED) {
+          recordPinnedTrieFullEpochState();
+        }
+      }
+
+      armAsyncSnapshotWriteTask();
+      asyncSnapshotIncludesLog = includeTransactionLog;
+      asyncSnapshotWriteComplete = false;
+      asyncFlushInFlight = true;
+      asyncFlushWorkerRunning = true;
+      asyncFlushProgressNanos = System.nanoTime();
+
+      // Background thread: append the frozen immutable pages, plus KVL pages for a combined epoch.
+      // CRITICAL: If submission throws (RejectedExecutionException), the snapshot state is
+      // dangling with no bg thread to process it — the outer failure handler latches the cause and
+      // the finally hands the permit back.
+      try {
+        // Ownership transfers the instant execute returns. No completion wrapper is registered:
+        // executeSnapshotWrite catches every Throwable and always releases the permit, while the
+        // persistent Runnable and array-backed queue keep the submission path allocation-free.
+        if (HFT_TELEMETRY_ENABLED) {
+          hftActiveEpochSubmittedNanos = System.nanoTime();
+        }
+        SNAPSHOT_APPEND_EXECUTOR.execute(asyncSnapshotWriteTask);
+        permitTransferred = true;
+      } catch (final Throwable t) {
+        // ThreadPoolExecutor.execute may exceptionally fail while ensuring a replacement worker
+        // AFTER it has queued the command. The task-state CAS, not execute()'s return, decides who
+        // owns the permit: cancellation wins only while the command is still ENQUEUED; once run()
+        // has claimed it, that worker alone releases in its finally block.
+        if (cancelEnqueuedAsyncSnapshotWrite()) {
+          asyncFlushInFlight = false;
+          asyncSnapshotIncludesLog = false;
+          asyncSnapshotWriteComplete = false;
+        } else {
+          permitTransferred = true;
+        }
+        throw new SirixIOException("Failed to submit async commit", t);
+      }
     } catch (final Throwable t) {
-      asyncFlushInFlight = false;
-      asyncTerminalFailure = true;
-      flushPermit.release();
-      throw new SirixIOException("Failed to submit async commit", t);
+      // The log has been rotated, or half-rotated, with no worker to finish the job: the
+      // transaction cannot continue. Record the cause so a later close() or rollback() reports
+      // THIS instead of a bare terminal-failure latch, and say so immediately — the thread that
+      // eventually observes the latch may be minutes and gigabytes of insert away.
+      recordAsyncFlushFailure(t);
+      try {
+        LOGGER.error("Async snapshot flush could not be started — transaction is now in terminal failure state", t);
+      } catch (final Throwable ignored) {
+        // Poisoning is the correctness action. Diagnostics must never prevent it under OOME.
+      }
+      throw t;
+    } finally {
+      if (!permitTransferred) {
+        flushPermit.release();
+      }
     }
   }
 
   @Override
   public void awaitPendingAsyncFlush() {
+    awaitInFlightAsyncFlushOnly();
+
+    // Final projection maintenance can stage pages AFTER the last periodic async epoch. Drain that
+    // active tail through the single append owner before recursive root serialization; a pending
+    // side reference is never allowed to fall back to the racing synchronous append path.
+    if (hasActiveSidePages()) {
+      flushStagedSidePagesOnly();
+      awaitCurrentAsyncFlush();
+    }
+
+    throwIfAsyncFlushFailed();
+  }
+
+  /** Fence only a submitted worker; rollback/close use this without writing the uncommitted active tail. */
+  private void awaitInFlightAsyncFlushOnly() {
+    if (asyncFlushTimedOut) {
+      throwIfAsyncFlushFailed();
+    }
+    if (asyncFlushInFlight) {
+      awaitCurrentAsyncFlush();
+    }
+    throwIfAsyncFlushFailed();
+  }
+
+  /** Report a poisoned writer even when no worker remains in flight. */
+  private void throwIfAsyncFlushFailed() {
+    // Nothing is pending, but a flush that already failed must not let the transaction look
+    // healthy: the writer is poisoned and every entry point has to say so.
+    if (asyncFlushError != null) {
+      asyncTerminalFailure = true;
+      throw asyncFlushFailure("Async commit failed");
+    }
+  }
+
+  /** Fence one in-flight worker, then publish its complete results on this foreground thread. */
+  private void awaitCurrentAsyncFlush() {
+    // Drain the in-flight flush BEFORE reporting any failure: the worker owns pages the caller is
+    // about to clear or close, and the permit hand-back is the only proof it is done with them.
+    if (!acquireFlushPermitUntilProgressStalls(false)) {
+      // The worker is gone or wedged. Proceeding without its pages is a risk, but parking here is
+      // a certainty: it is the failure this very method was hanging on in the 100M load.
+      final SirixIOException timeout = asyncFlushFailure("Background snapshot flush made no progress for "
+          + TimeUnit.NANOSECONDS.toMillis(ASYNC_FLUSH_STALL_TIMEOUT_NANOS)
+          + " ms — its worker is gone, blocked, or wedged");
+      asyncFlushTimedOut = true;
+      recordAsyncFlushFailure(timeout);
+      cancelQueuedAsyncSnapshotWriteAfterTimeout();
+      throw timeout;
+    }
+
+    try {
+      // Check for background thread errors BEFORE publication: a failed batch may have assigned
+      // some shadow offsets, but none of them are valid until the entire shared buffer was flushed.
+      if (asyncFlushError != null) {
+        asyncTerminalFailure = true;
+        throw asyncFlushFailure("Async commit failed");
+      }
+      cleanupCompletedAsyncSnapshot();
+    } finally {
+      flushPermit.release();
+    }
+  }
+
+  /** Publish and clear the snapshot whose worker has handed the permit back. */
+  private void cleanupCompletedAsyncSnapshot() {
     if (!asyncFlushInFlight) {
       return;
     }
-
-    // Block until background thread releases permit
-    flushPermit.acquireUninterruptibly();
-    flushPermit.release();
+    if (!asyncSnapshotWriteComplete
+        || (asyncSnapshotIncludesLog && !log.isSnapshotFlushComplete())) {
+      final SirixIOException incomplete = new SirixIOException(
+          "Background snapshot worker released ownership without positively completing the whole flushed epoch");
+      recordAsyncFlushFailure(incomplete);
+      throw incomplete;
+    }
+    final SidePageBatch sidePages = snapshotSidePages;
+    if (sidePages != null && sidePages.size > 0) {
+      sidePages.publishCompletedWrites();
+    }
+    if (asyncSnapshotIncludesLog) {
+      log.cleanupSnapshot();
+    }
+    asyncSnapshotIncludesLog = false;
+    asyncSnapshotWriteComplete = false;
     asyncFlushInFlight = false;
+    ASYNC_SNAPSHOT_WRITE_TASK_STATE.setRelease(this, ASYNC_TASK_IDLE);
+  }
 
-    // Check for background thread errors — latch terminal failure
-    final Throwable error = asyncFlushError;
-    if (error != null) {
-      asyncFlushError = null;
-      asyncTerminalFailure = true;
-      throw new SirixIOException("Async commit failed", error);
+  /**
+   * Serialize a fixed, bottom-up batch of cold pinned trie pages through shadow references.
+   *
+   * <p>This method is called only by the foreground thread while it owns {@link #flushPermit},
+   * after publication of the prior KVL/side-page epoch. It deliberately calls the storage writer
+   * directly: invoking {@link Page#commit(StorageEngineWriter)} would recurse into children and
+   * mutate/close the live page before the batch tail was known to be flushed. Parents whose child
+   * is still claimed by any TIL generation are rejected now and become eligible in a later epoch
+   * after that child has been published.</p>
+   */
+  private void spillEligiblePinnedTriePages() {
+    if (!storagePageReaderWriter.supportsReclaimableUncommittedWrites() || log.pinnedSize() == 0) {
+      return;
     }
 
-    // Clean up: close KVL pages (written to disk), promote IndirectPages
-    log.cleanupSnapshot();
+    log.capturePinnedSpillCandidates(PINNED_TRIE_SPILL_SCAN_BUDGET, pinnedTrieSpillBatch);
+    int index = 0;
+    while (index < pinnedTrieSpillBatch.size()) {
+      if (isPinnedTrieSpillPageEligible(pinnedTrieSpillBatch.pageAt(index))) {
+        index++;
+      } else {
+        pinnedTrieSpillBatch.removeAtSwap(index);
+      }
+    }
+    if (pinnedTrieSpillBatch.size() == 0) {
+      return;
+    }
+
+    try {
+      // Conservative by design: Writer.write may flush internally when the shared buffer crosses
+      // FLUSH_SIZE, and an I/O exception can therefore leave an aborted offset range even if this
+      // method never reaches its explicit final flush.
+      hasUncommittedPinnedTriePrewrites = true;
+      injectAsyncFlushFault("trie-spill-before-write");
+      final ResourceConfiguration resourceConfiguration = getResourceSession().getResourceConfig();
+      for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
+        pinnedTrieSpillShadowReference.clearHash();
+        pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
+        pinnedTrieSpillShadowReference.setPage(null);
+        storagePageReaderWriter.write(resourceConfiguration, pinnedTrieSpillShadowReference,
+            pinnedTrieSpillBatch.pageAt(i), bufferBytes);
+        pinnedTrieSpillBatch.setWriteResult(i, pinnedTrieSpillShadowReference.getKey(),
+            pinnedTrieSpillShadowReference.getHashAsLong(), pinnedTrieSpillShadowReference.hasHash());
+      }
+      injectAsyncFlushFault("trie-spill-after-write");
+
+      // No live handle is exposed until every byte in the foreground buffer has been drained.
+      injectAsyncFlushFault("trie-spill-before-flush");
+      storagePageReaderWriter.flushBufferedWrites(bufferBytes);
+      injectAsyncFlushFault("trie-spill-after-flush");
+
+      // Validate the WHOLE batch before publishing the first result. A CoW/superseding mutation
+      // detected here poisons the writer without leaving a prefix of identity-valid pages exposed.
+      injectAsyncFlushFault("trie-spill-before-validation");
+      for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
+        log.validatePinnedSpillCandidate(pinnedTrieSpillBatch, i);
+      }
+
+      injectAsyncFlushFault("trie-spill-before-publish");
+      for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
+        log.publishPinnedSpillCandidate(pinnedTrieSpillBatch, i);
+      }
+      if (HFT_TELEMETRY_ENABLED) {
+        final int publishedPages = pinnedTrieSpillBatch.size();
+        hftPinnedTrieSpillEpochs++;
+        hftPinnedTrieSpillPages += publishedPages;
+        hftPinnedTrieSpillBatchMax = Math.max(hftPinnedTrieSpillBatchMax, publishedPages);
+        recordPinnedTrieFullEpochState();
+      }
+      injectAsyncFlushFault("trie-spill-after-publish");
+    } finally {
+      // Never retain page/container/handle graphs beyond this bounded foreground epoch.
+      pinnedTrieSpillBatch.clear();
+      pinnedTrieSpillShadowReference.clearHash();
+      pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
+      pinnedTrieSpillShadowReference.setPage(null);
+    }
+  }
+
+  /** Exact allow-list eligibility; capture already guarantees that {@code page} is the modified page. */
+  static boolean isPinnedTrieSpillPageEligible(final Page page) {
+    final Class<?> pageClass = page.getClass();
+    if (pageClass == HOTLeafPage.class) {
+      return ((HOTLeafPage) page).allSideReferencesDurableAndUnclaimed();
+    }
+
+    if (pageClass == HOTIndirectPage.class) {
+      final HOTIndirectPage indirectPage = (HOTIndirectPage) page;
+      for (int i = 0; i < indirectPage.getNumChildren(); i++) {
+        final PageReference childReference = indirectPage.getChildReference(i);
+        if (childReference == null || !childReference.refreshesToUnclaimedDurableReference()) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    if (pageClass == IndirectPage.class) {
+      return ((IndirectPage) page).allChildReferencesDurableAndUnclaimed();
+    }
+
+    return false;
+  }
+
+  /**
+   * Interrupt-deferred, progress-aware acquire of the flush permit. A large but healthy epoch can
+   * run longer than the stall window as long as its coordinator advances; a lost/dead worker cannot
+   * turn the next epoch, rollback, and close into three repeated multi-minute parks.
+   *
+   * @param rotationAcquire {@code true} while starting the next epoch (ingestion backpressure),
+   *        {@code false} while explicitly draining an in-flight worker
+   * @return whether the permit was acquired; on {@code true} the caller owns it and must release it
+   */
+  private boolean acquireFlushPermitUntilProgressStalls(final boolean rotationAcquire) {
+    final long waitStart = HFT_TELEMETRY_ENABLED
+        ? System.nanoTime()
+        : 0L;
+    boolean interrupted = false;
+    try {
+      for (;;) {
+        try {
+          if (flushPermit.tryAcquire(ASYNC_FLUSH_PROGRESS_POLL_NANOS, TimeUnit.NANOSECONDS)) {
+            recordSuccessfulFlushPermitAcquire(waitStart, rotationAcquire);
+            return true;
+          }
+        } catch (final InterruptedException e) {
+          interrupted = true;
+        }
+        final long lastProgress = asyncFlushProgressNanos;
+        if (lastProgress == 0L || System.nanoTime() - lastProgress >= ASYNC_FLUSH_STALL_TIMEOUT_NANOS) {
+          // The worker may have released between the timed acquire and the deadline check. This
+          // allocation-free final probe avoids poisoning a flush that completed on that boundary.
+          if (flushPermit.tryAcquire()) {
+            recordSuccessfulFlushPermitAcquire(waitStart, rotationAcquire);
+            return true;
+          }
+          // Likewise, do not time out on a stale progress sample taken as the worker advanced.
+          if (asyncFlushProgressNanos != lastProgress) {
+            continue;
+          }
+          // COMPLETED is published immediately before the worker's permit release. If the final
+          // probe landed in that tiny interval, retry instead of poisoning a fully written epoch.
+          if ((int) ASYNC_SNAPSHOT_WRITE_TASK_STATE.getAcquire(this) == ASYNC_TASK_COMPLETED) {
+            Thread.onSpinWait();
+            continue;
+          }
+          return false;
+        }
+      }
+    } finally {
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+
+  /** Record every successful foreground permit acquisition exactly once. */
+  private void recordSuccessfulFlushPermitAcquire(final long waitStart, final boolean rotationAcquire) {
+    if (HFT_TELEMETRY_ENABLED) {
+      final long waitNanos = System.nanoTime() - waitStart;
+      hftPermitAcquires++;
+      hftPermitWaitNanos += waitNanos;
+      hftMaxPermitWaitNanos = Math.max(hftMaxPermitWaitNanos, waitNanos);
+      if (rotationAcquire) {
+        hftRotationPermitAcquires++;
+        hftRotationPermitWaitNanos += waitNanos;
+        hftMaxRotationPermitWaitNanos = Math.max(hftMaxRotationPermitWaitNanos, waitNanos);
+      } else {
+        hftDrainPermitAcquires++;
+        hftDrainPermitWaitNanos += waitNanos;
+        hftMaxDrainPermitWaitNanos = Math.max(hftMaxDrainPermitWaitNanos, waitNanos);
+      }
+      final long completedEpochId = hftCompletedEpochId;
+      if (completedEpochId != 0L) {
+        if (waitNanos > hftMaxBlockedEpochForegroundWaitNanos) {
+          hftMaxBlockedEpochId = completedEpochId;
+          hftMaxBlockedEpochForegroundWaitNanos = waitNanos;
+          hftMaxBlockedEpochWorkerNanos = hftCompletedEpochWorkerNanos;
+          hftMaxBlockedEpochQueueWaitNanos = hftCompletedEpochQueueWaitNanos;
+          hftMaxBlockedEpochSideNanos = hftCompletedEpochSideNanos;
+          hftMaxBlockedEpochSerializeJoinWaitNanos = hftCompletedEpochSerializeJoinWaitNanos;
+          hftMaxBlockedEpochKvlAppendNanos = hftCompletedEpochKvlAppendNanos;
+          hftMaxBlockedEpochFinalFlushNanos = hftCompletedEpochFinalFlushNanos;
+          hftMaxBlockedEpochDataGrowCount = hftCompletedEpochDataGrowCount;
+          hftMaxBlockedEpochDataGrowBytes = hftCompletedEpochDataGrowBytes;
+          hftMaxBlockedEpochDataGrowNanos = hftCompletedEpochDataGrowNanos;
+          hftMaxBlockedEpochDataGrowExact = hftCompletedEpochDataGrowExact;
+          hftMaxBlockedEpochRotation = rotationAcquire;
+        }
+        // A semaphore release can be acquired only once. Consume its completion identity at that
+        // same handoff even when publication/cleanup later fails, so rollback or close cannot
+        // attribute a second, already-free acquire to this epoch.
+        hftCompletedEpochId = 0L;
+      }
+    }
+  }
+
+  /** Arm the one persistent task after the previous completed epoch has been cleaned. */
+  private void armAsyncSnapshotWriteTask() {
+    if (!ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(this, ASYNC_TASK_IDLE, ASYNC_TASK_ENQUEUED)) {
+      throw new IllegalStateException("Async snapshot task was not idle before submission");
+    }
+  }
+
+  /**
+   * Cancel only an unclaimed task. A successful CAS transfers permit ownership to this foreground
+   * thread; a failed CAS means a running/completed worker remains the sole releaser.
+   */
+  private boolean cancelEnqueuedAsyncSnapshotWrite() {
+    if (!ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(this, ASYNC_TASK_ENQUEUED, ASYNC_TASK_CANCELLED)) {
+      return false;
+    }
+    // Removal is for prompt queue-retention cleanup. Correctness comes from the state CAS: if a
+    // worker dequeued immediately before it, run() observes CANCELLED and exits without releasing.
+    SNAPSHOT_APPEND_EXECUTOR.remove(asyncSnapshotWriteTask);
+    asyncFlushWorkerRunning = false;
+    return true;
+  }
+
+  /** Release the permit only when timeout cancellation won before the worker claimed the task. */
+  private void cancelQueuedAsyncSnapshotWriteAfterTimeout() {
+    if (cancelEnqueuedAsyncSnapshotWrite()) {
+      flushPermit.release();
+    }
+  }
+
+  /**
+   * Poison the writer with {@code cause}. The FIRST cause wins — a later failure is almost always a
+   * consequence of the first, and the first is the one worth reporting.
+   */
+  private synchronized void recordAsyncFlushFailure(final Throwable cause) {
+    if (asyncFlushError == null) {
+      asyncFlushError = cause;
+    }
+    asyncTerminalFailure = true;
+  }
+
+  /**
+   * The exception reporting an async-flush failure, carrying the captured background throwable as
+   * its cause so the caller sees the real fault rather than the latch.
+   */
+  private SirixIOException asyncFlushFailure(final String message) {
+    final Throwable cause = asyncFlushError;
+    return cause == null
+        ? new SirixIOException(message)
+        : new SirixIOException(message, cause);
   }
 
   /**
@@ -843,8 +1979,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private static final int SNAPSHOT_FLUSH_WINDOW = 128;
 
   /**
-   * Background thread: write all KVL pages from the frozen snapshot to disk. Uses thread-local buffer
-   * and shadow PageReference — NEVER writes to real refs.
+   * Background thread: append the frozen immutable side pages and, for a combined epoch, all KVL
+   * pages. Uses one private buffer and one shadow PageReference — NEVER writes to real refs.
    * <p>
    * CRITICAL: Each KVL page is deep-copied before serialization. The serialization path mutates the
    * page (addReferences → processEntries, FSST compression, string compression). Without the copy,
@@ -859,79 +1995,348 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * flush), which turned the {@code flushPermit} backpressure into a near-synchronous stall; parallel
    * pre-serialization restores the intended overlap.
    */
+  private void runAsyncSnapshotWriteTask() {
+    // Cancellation owns and has already released the permit when it wins ENQUEUED -> CANCELLED.
+    // A dequeued-but-not-yet-started command therefore exits without touching writer-owned state
+    // and, critically, without a second release.
+    if (!ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(this, ASYNC_TASK_ENQUEUED, ASYNC_TASK_RUNNING)) {
+      return;
+    }
+    executeSnapshotWrite();
+  }
+
   private void executeSnapshotWrite() {
+    final long workerStart = HFT_TELEMETRY_ENABLED
+        ? System.nanoTime()
+        : 0L;
+    final long epochId = HFT_TELEMETRY_ENABLED
+        ? hftActiveEpochId
+        : 0L;
+    final long queueWaitNanos = HFT_TELEMETRY_ENABLED && hftActiveEpochSubmittedNanos != 0L
+        ? Math.max(0L, workerStart - hftActiveEpochSubmittedNanos)
+        : 0L;
+    final FileChannelWriter telemetryFileWriter = HFT_TELEMETRY_ENABLED
+        && storagePageReaderWriter instanceof FileChannelWriter fileChannelWriter
+            ? fileChannelWriter
+            : null;
+    final long dataGrowCountAtStart = telemetryFileWriter == null
+        ? 0L
+        : telemetryFileWriter.hftDataAllocationGrowCount();
+    final long dataGrowBytesAtStart = telemetryFileWriter == null
+        ? 0L
+        : telemetryFileWriter.hftDataAllocationGrowBytes();
+    final long dataGrowNanosAtStart = telemetryFileWriter == null
+        ? 0L
+        : telemetryFileWriter.hftDataAllocationGrowNanos();
+    long sideNanos = 0L;
+    long serializeJoinWaitNanos = 0L;
+    long kvlAppendNanos = 0L;
+    long finalFlushNanos = 0L;
+    asyncFlushProgressNanos = HFT_TELEMETRY_ENABLED
+        ? workerStart
+        : System.nanoTime();
     try {
+      // A timeout can publish poison just after this task wins ENQUEUED -> RUNNING. The worker now
+      // owns the permit, but it need not start an append that can never be published; its finally
+      // block still performs the sole release.
+      if (asyncFlushTimedOut) {
+        return;
+      }
+      injectAsyncFlushFault("write");
       final BytesOut<?> bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
       final PageReference shadowRef = new PageReference();
       try {
         final ResourceConfiguration config = getResourceSession().getResourceConfig();
         shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
         shadowRef.setResourceId(storageEngineReader.getResourceId());
-        final int size = log.getSnapshotSize();
+        final int size = asyncSnapshotIncludesLog
+            ? log.getSnapshotSize()
+            : 0;
         // Double-buffered sliding windows: while this thread sequentially appends the
         // current window's cached bytes, the NEXT window is already deep-copying and
         // pre-serializing on SNAPSHOT_FLUSH_POOL — the append pass never leaves the
         // workers idle, so the flush keeps pace with the insert thread's rotation cadence.
-        KeyValueLeafPage[] currentWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
-        KeyValueLeafPage[] nextWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+        KeyValueLeafPage[] currentWindow = null;
+        KeyValueLeafPage[] nextWindow = null;
         CompletableFuture<Void> serializeTask = null;
         try {
-          serializeTask = serializeSnapshotWindowAsync(config, 0, size, currentWindow);
+          if (size > 0) {
+            currentWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+            nextWindow = new KeyValueLeafPage[SNAPSHOT_FLUSH_WINDOW];
+            serializeTask = serializeSnapshotWindowAsync(config, 0, size, currentWindow);
+          }
+
+          // The KVL workers can pre-serialize their first window while this sole append owner emits
+          // immutable side pages. Both use this one bgBuffer, so offset assignment remains strictly
+          // serialized and cannot overlap the foreground writer's buffer/frontier.
+          final long sideStart = HFT_TELEMETRY_ENABLED
+              ? System.nanoTime()
+              : 0L;
+          try {
+            writeSnapshotSidePages(config, shadowRef, bgBuffer);
+          } finally {
+            if (HFT_TELEMETRY_ENABLED) {
+              sideNanos += System.nanoTime() - sideStart;
+            }
+          }
+
           for (int base = 0; base < size; base += SNAPSHOT_FLUSH_WINDOW) {
-            serializeTask.join();
+            final long joinStart = HFT_TELEMETRY_ENABLED
+                ? System.nanoTime()
+                : 0L;
+            try {
+              serializeTask.join();
+            } finally {
+              if (HFT_TELEMETRY_ENABLED) {
+                serializeJoinWaitNanos += System.nanoTime() - joinStart;
+              }
+            }
             serializeTask = null;
+            asyncFlushProgressNanos = System.nanoTime();
             final int nextBase = base + SNAPSHOT_FLUSH_WINDOW;
             if (nextBase < size) {
               serializeTask = serializeSnapshotWindowAsync(config, nextBase, size, nextWindow);
             }
             // Sequential pass: append cached bytes in snapshot order, record offsets, close.
             final int end = Math.min(nextBase, size);
-            for (int i = base; i < end; i++) {
-              final KeyValueLeafPage serializationCopy = currentWindow[i - base];
-              if (serializationCopy == null) {
-                continue;
+            final long kvlAppendStart = HFT_TELEMETRY_ENABLED
+                ? System.nanoTime()
+                : 0L;
+            try {
+              int attemptedKvlPages = 0;
+              int promotedKvlPages = 0;
+              for (int i = base; i < end; i++) {
+                final KeyValueLeafPage serializationCopy = currentWindow[i - base];
+                if (HFT_TELEMETRY_ENABLED) {
+                  final PageContainer snapshotContainer = log.getSnapshotEntry(i);
+                  if (snapshotContainer != null && snapshotContainer.getModified() instanceof KeyValueLeafPage) {
+                    attemptedKvlPages++;
+                    if (serializationCopy == null
+                        && log.getSnapshotDiskOffset(i) == TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL) {
+                      promotedKvlPages++;
+                    }
+                  }
+                }
+                if (serializationCopy == null) {
+                  continue;
+                }
+                shadowRef.setKey(Constants.NULL_ID_LONG);
+                shadowRef.clearHash();
+                try {
+                  final boolean frameCache;
+                  final long encodedBytes;
+                  if (HFT_TELEMETRY_ENABLED) {
+                    final MemorySegment encoded = serializationCopy.getCompressedSegment();
+                    encodedBytes = encoded == null
+                        ? 0L
+                        : encoded.byteSize();
+                    frameCache = compressedSegmentUsesDisposableFrame(serializationCopy);
+                  } else {
+                    encodedBytes = 0L;
+                    frameCache = false;
+                  }
+                  storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
+                  if (HFT_TELEMETRY_ENABLED) {
+                    // Count only KVL pages whose synchronous writer call consumed the encoded cache.
+                    // This is the exact denominator for the two mutually-exclusive cache outcomes;
+                    // snapshotSize also includes structural TIL entries and must never be used here.
+                    hftSnapshotKvlPages++;
+                    if (frameCache) {
+                      hftKvlFrameCachePages++;
+                      hftKvlFrameCacheBytes += encodedBytes;
+                    } else {
+                      hftKvlCacheFallbackPages++;
+                      hftKvlCacheFallbackBytes += encodedBytes;
+                    }
+                  }
+                } finally {
+                  // Null the slot only once the copy is closed — a write failure must leave
+                  // nothing open, and a slot nulled before the write would hide the copy from
+                  // closeWindowLeftovers.
+                  currentWindow[i - base] = null;
+                  serializationCopy.close();
+                }
+                log.setSnapshotDiskOffset(i, shadowRef.getKey());
+                log.setSnapshotHash(i, shadowRef.getHashAsLong(), shadowRef.hasHash());
               }
-              shadowRef.setKey(Constants.NULL_ID_LONG);
-              try {
-                storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
-              } finally {
-                // Null the slot only once the copy is closed — a write failure must leave
-                // nothing open, and a slot nulled before the write would hide the copy from
-                // closeWindowLeftovers.
-                currentWindow[i - base] = null;
-                serializationCopy.close();
+              if (HFT_TELEMETRY_ENABLED) {
+                // The joined window is the publication fence for every disjoint status-array write.
+                // Aggregate once on the sole append owner: no atomic increment sits on serializer
+                // workers' hot path, and promotions cannot disappear from cache-coverage telemetry.
+                hftSnapshotKvlAttemptedPages += attemptedKvlPages;
+                hftSnapshotKvlPromotedPages += promotedKvlPages;
               }
-              log.setSnapshotDiskOffset(i, shadowRef.getKey());
-              log.setSnapshotHash(i, shadowRef.getHash());
+            } finally {
+              if (HFT_TELEMETRY_ENABLED) {
+                kvlAppendNanos += System.nanoTime() - kvlAppendStart;
+              }
             }
             final KeyValueLeafPage[] swap = currentWindow;
             currentWindow = nextWindow;
             nextWindow = swap;
+            asyncFlushProgressNanos = System.nanoTime();
           }
         } finally {
           // On failure mid-flight, wait out the in-flight serialization (its copies must
           // not leak or race the cleanup below), then release everything still open.
           if (serializeTask != null) {
+            final long cleanupJoinStart = HFT_TELEMETRY_ENABLED
+                ? System.nanoTime()
+                : 0L;
             try {
               serializeTask.join();
             } catch (final Throwable ignored) {
               // The primary failure is already propagating; the join only fences the workers.
+            } finally {
+              if (HFT_TELEMETRY_ENABLED) {
+                serializeJoinWaitNanos += System.nanoTime() - cleanupJoinStart;
+              }
             }
           }
-          closeWindowLeftovers(currentWindow);
-          closeWindowLeftovers(nextWindow);
+          if (currentWindow != null) {
+            closeWindowLeftovers(currentWindow);
+          }
+          if (nextWindow != null) {
+            closeWindowLeftovers(nextWindow);
+          }
         }
-        storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+        injectAsyncFlushFault("before-flush");
+        final long finalFlushStart = HFT_TELEMETRY_ENABLED
+            ? System.nanoTime()
+            : 0L;
+        try {
+          storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+        } finally {
+          if (HFT_TELEMETRY_ENABLED) {
+            finalFlushNanos += System.nanoTime() - finalFlushStart;
+          }
+        }
+        asyncFlushProgressNanos = System.nanoTime();
+        injectAsyncFlushFault("after-flush");
       } finally {
         bgBuffer.close();
       }
-      log.markSnapshotFlushComplete();
+      if (asyncSnapshotIncludesLog) {
+        log.markSnapshotFlushComplete();
+      }
+      // Positive publication last. The semaphore release in finally is the happens-before edge to
+      // the foreground, which refuses to publish a single real reference without this marker.
+      asyncSnapshotWriteComplete = true;
     } catch (final Throwable t) {
-      asyncFlushError = t;
-      asyncTerminalFailure = true;
+      // Say it NOW. Nothing else observes this until some thread awaits, and under a bulk import
+      // that thread is minutes and gigabytes of insert away — the whole point of the async flush.
+      // A silently stored throwable is how a dead flush became an unexplained stall at 100M rows.
+      recordAsyncFlushFailure(t);
+      try {
+        LOGGER.error("Background snapshot flush FAILED — transaction is now in terminal failure state", t);
+      } catch (final Throwable ignored) {
+        // The retained poison still carries the original append/serialization failure.
+      }
     } finally {
+      if (HFT_TELEMETRY_ENABLED) {
+        final long workerNanos = System.nanoTime() - workerStart;
+        final long dataGrowCount = telemetryFileWriter == null
+            ? 0L
+            : telemetryFileWriter.hftDataAllocationGrowCount() - dataGrowCountAtStart;
+        final long dataGrowBytes = telemetryFileWriter == null
+            ? 0L
+            : telemetryFileWriter.hftDataAllocationGrowBytes() - dataGrowBytesAtStart;
+        final long dataGrowNanos = telemetryFileWriter == null
+            ? 0L
+            : telemetryFileWriter.hftDataAllocationGrowNanos() - dataGrowNanosAtStart;
+
+        // Publish the complete primitive phase tuple before the semaphore release below. The
+        // foreground's acquire is the sole happens-before edge and can therefore attribute its wait
+        // to this exact epoch without volatile fields or a per-epoch result object.
+        hftCompletedEpochId = epochId;
+        hftCompletedEpochQueueWaitNanos = queueWaitNanos;
+        hftCompletedEpochWorkerNanos = workerNanos;
+        hftCompletedEpochSideNanos = sideNanos;
+        hftCompletedEpochSerializeJoinWaitNanos = serializeJoinWaitNanos;
+        hftCompletedEpochKvlAppendNanos = kvlAppendNanos;
+        hftCompletedEpochFinalFlushNanos = finalFlushNanos;
+        hftCompletedEpochDataGrowCount = dataGrowCount;
+        hftCompletedEpochDataGrowBytes = dataGrowBytes;
+        hftCompletedEpochDataGrowNanos = dataGrowNanos;
+        hftCompletedEpochDataGrowExact = telemetryFileWriter != null;
+
+        hftWorkerRuns++;
+        hftWorkerNanos += workerNanos;
+        if (workerNanos > hftMaxWorkerNanos) {
+          hftMaxWorkerNanos = workerNanos;
+          hftMaxWorkerEpochId = epochId;
+          hftMaxWorkerEpochQueueWaitNanos = queueWaitNanos;
+          hftMaxWorkerEpochSideNanos = sideNanos;
+          hftMaxWorkerEpochSerializeJoinWaitNanos = serializeJoinWaitNanos;
+          hftMaxWorkerEpochKvlAppendNanos = kvlAppendNanos;
+          hftMaxWorkerEpochFinalFlushNanos = finalFlushNanos;
+          hftMaxWorkerEpochDataGrowCount = dataGrowCount;
+          hftMaxWorkerEpochDataGrowBytes = dataGrowBytes;
+          hftMaxWorkerEpochDataGrowNanos = dataGrowNanos;
+          hftMaxWorkerEpochDataGrowExact = telemetryFileWriter != null;
+        }
+      }
+      ASYNC_SNAPSHOT_WRITE_TASK_STATE.setRelease(this, ASYNC_TASK_COMPLETED);
+      asyncFlushWorkerRunning = false;
       flushPermit.release();
     }
+  }
+
+  /** Append every frozen immutable side page and store only its offset in the foreground side-channel. */
+  private void writeSnapshotSidePages(final ResourceConfiguration config, final PageReference shadowRef,
+      final BytesOut<?> bgBuffer) {
+    final SidePageBatch sidePages = snapshotSidePages;
+    if (sidePages == null) {
+      return;
+    }
+    for (int i = 0; i < sidePages.size; i++) {
+      final PageReference liveReference = sidePages.references[i];
+      if (liveReference == null || !liveReference.hasPendingPageWrite()
+          || !(liveReference.getPage() instanceof OverflowPage overflowPage)) {
+        throw new SirixIOException("Immutable side-page batch entry " + i
+            + " lost its resident OverflowPage before background serialization");
+      }
+      shadowRef.setKey(Constants.NULL_ID_LONG);
+      shadowRef.clearHash();
+      storagePageReaderWriter.write(config, shadowRef, overflowPage, bgBuffer);
+      sidePages.diskOffsets[i] = shadowRef.getKey();
+      if ((i & 63) == 63) {
+        asyncFlushProgressNanos = System.nanoTime();
+      }
+      injectAsyncFlushFault("side-write");
+    }
+  }
+
+  /** Monotonic name source for the prestarted append coordinators. */
+  private static final AtomicInteger SNAPSHOT_APPEND_THREAD_ID = new AtomicInteger();
+
+  /**
+   * Dedicated, prestarted append coordinators. The old common-pool submission allocated a
+   * CompletableFuture/task graph per epoch and offered no queue bound or scheduling isolation. This
+   * executor has fixed daemon workers, an array-backed bounded queue, and receives the writer's
+   * persistent Runnable identity directly. The coordinator must remain separate from
+   * {@link #SNAPSHOT_FLUSH_POOL}: it waits for serializer jobs and would otherwise consume one of
+   * their workers (deadlocking the parallelism-one configuration).
+   */
+  private static final ThreadPoolExecutor SNAPSHOT_APPEND_EXECUTOR = createSnapshotAppendExecutor();
+
+  private static ThreadPoolExecutor createSnapshotAppendExecutor() {
+    final int processors = Runtime.getRuntime().availableProcessors();
+    final int parallelism = positiveIntProperty("sirix.asyncFlush.appendParallelism",
+        Math.min(2, Math.max(1, processors / 4)));
+    // One queued epoch is enough burst absorption for the default two append lanes. Every extra
+    // slot can retain a writer's frozen TIL plus up to 64 MiB of side payload while a slow device
+    // occupies the workers, so a deep task-count queue is not an acceptable memory bound here.
+    final int queueCapacity = positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1);
+    final ThreadPoolExecutor executor = new ThreadPoolExecutor(parallelism, parallelism, 0L,
+        TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueCapacity), runnable -> {
+          final Thread thread = new Thread(runnable,
+              "sirix-snapshot-append-" + SNAPSHOT_APPEND_THREAD_ID.incrementAndGet());
+          thread.setDaemon(true);
+          return thread;
+        }, new ThreadPoolExecutor.AbortPolicy());
+    executor.prestartAllCoreThreads();
+    return executor;
   }
 
   /**
@@ -955,6 +2360,102 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * flush pool. Each produced copy carries its encoded bytes in the page-local compressed cache, so
    * the subsequent sequential append emits without re-encoding.
    */
+  /**
+   * Move an async snapshot copy's encoded cache into the native frame the copy already owns.
+   *
+   * <p>This helper is package-private only for a wire-equivalence regression test. Its caller must
+   * own a disposable deep copy after serialization and after ruling out unresolved overflow
+   * references: the copy's logical slotted bytes are overwritten, so applying it to a transaction
+   * page would destroy rollback state. The append path uses only the exact encoded cache from this
+   * point onward and closes the copy immediately after the synchronous write consumes it.
+   */
+  static boolean relocateSnapshotCacheToDisposableFrame(final KeyValueLeafPage page) {
+    requireNonNull(page);
+    final MemorySegment encoded = page.getCompressedSegment();
+    final MemorySegment frame = page.getSlottedPage();
+    if (encoded == null || frame == null || !frame.isNative() || frame.isReadOnly()
+        || encoded.byteSize() > frame.byteSize()) {
+      return false;
+    }
+    if (!(encoded.isNative() && encoded.address() == frame.address())) {
+      MemorySegment.copy(encoded, 0, frame, 0, encoded.byteSize());
+    }
+    // FileChannelWriter derives the persisted length from byteSize(), so publishing a
+    // capacity-sized frame would append stale tail bytes. The cache's volatile store also publishes
+    // the completed copy before the window slot is joined by the append owner.
+    page.setCompressedSegment(frame.asSlice(0, encoded.byteSize()).asReadOnly());
+    return true;
+  }
+
+  /** Whether the encoded cache is the exact read-only view of this disposable native frame. */
+  private static boolean compressedSegmentUsesDisposableFrame(final KeyValueLeafPage page) {
+    final MemorySegment encoded = page.getCompressedSegment();
+    final MemorySegment frame = page.getSlottedPage();
+    return encoded != null && frame != null && encoded.isNative() && frame.isNative()
+        && encoded.address() == frame.address() && encoded.isReadOnly();
+  }
+
+  /**
+   * Serialize one disposable snapshot copy and retain its identity bytes in the native frame it
+   * already owns.
+   *
+   * <p>The empty pipeline is the canonical ingestion path. Its pooled sink is borrowed, so the copy
+   * into the page frame must complete before {@link SerializationBufferPool#release} resets or closes
+   * that sink. {@link PageKind} deliberately leaves the cache unpublished for this policy and first
+   * finishes {@link KeyValueLeafPage#clearRecordsForGC()}, whose flyweight unbinds still read the
+   * logical frame. Only then is it safe to overwrite the disposable copy's frame.</p>
+   *
+   * <p>Non-empty pipelines keep their existing owned-cache behavior. A cache that fits is relocated
+   * while the pooled serializer is still scoped here; a non-fitting owned cache remains valid exactly
+   * as before.</p>
+   *
+   * @param resourceConfig resource serialization configuration
+   * @param page caller-owned disposable deep copy
+   * @return {@code true} when the copy is ready to append; {@code false} when the original page must
+   *         be promoted into the live TIL because its encoded identity bytes cannot safely use the
+   *         frame or because overflow references remain unresolved
+   */
+  static boolean serializeDisposableSnapshotKeyValuePage(final ResourceConfiguration resourceConfig,
+      final KeyValueLeafPage page) {
+    requireNonNull(resourceConfig);
+    requireNonNull(page);
+    final boolean directIdentity = resourceConfig.byteHandlePipeline.isEmpty();
+    final var pooledSegment = SerializationBufferPool.INSTANCE.acquire();
+    try {
+      final PooledBytesOut.IdentityCachePolicy identityCachePolicy = directIdentity
+          ? PooledBytesOut.IdentityCachePolicy.CALLER_COPIES_BEFORE_RELEASE
+          : PooledBytesOut.IdentityCachePolicy.RETAIN_OWNED_COPY;
+      final var bytes = new PooledBytesOut(pooledSegment, identityCachePolicy);
+      PageKind.KEYVALUELEAFPAGE.serializeDisposablePage(resourceConfig, bytes, page, SerializationType.DATA);
+
+      if (hasUnresolvedOverflowReferences(page)) {
+        return false;
+      }
+      if (!directIdentity) {
+        // Preserve the configured handler's owned result and fallback semantics. Relocation is only
+        // an opportunistic native-cache compaction for this non-canonical configuration.
+        relocateSnapshotCacheToDisposableFrame(page);
+        return true;
+      }
+
+      final long encodedLength = pooledSegment.position();
+      final MemorySegment frame = page.getSlottedPage();
+      if (encodedLength <= 0L || frame == null || !frame.isNative() || frame.isReadOnly()
+          || encodedLength > frame.byteSize()) {
+        return false;
+      }
+
+      // Use the (segment, offset, length) triple directly: asking for a source slice would create an
+      // avoidable wrapper per page. The volatile cache store release-publishes the completed native
+      // copy; the append owner additionally joins the window's CompletableFuture before reading it.
+      MemorySegment.copy(pooledSegment.getCurrentSegment(), 0L, frame, 0L, encodedLength);
+      page.setCompressedSegment(frame.asSlice(0L, encodedLength).asReadOnly());
+      return true;
+    } finally {
+      SerializationBufferPool.INSTANCE.release(pooledSegment);
+    }
+  }
+
   private CompletableFuture<Void> serializeSnapshotWindowAsync(final ResourceConfiguration config, final int base,
       final int size, final KeyValueLeafPage[] window) {
     final int end = Math.min(base + SNAPSHOT_FLUSH_WINDOW, size);
@@ -983,15 +2484,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           }
           final KeyValueLeafPage serializationCopy = kvl.deepCopy();
           try {
-            serializeKeyValuePage(config, serializationCopy);
-            if (hasUnresolvedOverflowReferences(serializationCopy)) {
-              // Overlong records: serialization spilled values into OverflowPages whose
-              // disk keys only exist once the recursive final commit writes them — the
-              // encoded bytes here carry NULL overflow keys and the overflow payload
-              // lives only on this copy (#1076). Flushing would freeze the broken bytes
-              // as the page's durable image and silently lose the records. Skip the
-              // flush and mark the slot so cleanupSnapshot() promotes the ORIGINAL page
-              // into the live TIL, where the final commit resolves overflow correctly.
+            if (!serializeDisposableSnapshotKeyValuePage(config, serializationCopy)) {
+              // Overlong records still carrying NULL disk keys and identity encodings larger than
+              // the disposable native frame cannot enter this window. Mark the slot so
+              // cleanupSnapshot() promotes the ORIGINAL page into the live TIL, where recursive
+              // final commit either resolves the overflow or serializes with an ordinary owned
+              // cache. No borrowed pooled alias is ever published on this path.
               serializationCopy.close();
               log.setSnapshotDiskOffset(i, TransactionIntentLog.SNAPSHOT_PROMOTE_TO_TIL);
               return;
@@ -1050,7 +2548,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * containers after snapshot.
    */
   private void clearLocalContainerCaches() {
+    currentNamePage = null;
     pageContainerCache.clear();
+    documentRecordLocationCache.clear();
     mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
@@ -1151,6 +2651,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // falls through to the no-op return below by design.
       final var sideMapPage = reference.getPage();
       if (sideMapPage instanceof OverflowPage && reference.getKey() == Constants.NULL_ID_LONG) {
+        if (reference.hasPendingPageWrite()) {
+          throw new SirixIOException("Recursive commit reached an immutable side page whose background write is "
+              + "still pending — awaitPendingAsyncFlush must drain every active side-page batch before root "
+              + "serialization");
+        }
         storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
         reference.setPage(null);
         return;
@@ -1180,11 +2685,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (page.isClosed()) {
       final int logKey = reference.getLogKey();
       if (logKey >= 0) {
-        final PageReference originalRef = log.getOriginalRef(logKey);
+        final PageReference originalRef = log.getOriginalRef(reference);
         if (originalRef != null && originalRef != reference) {
           if (originalRef.getKey() >= 0) {
             reference.setKey(originalRef.getKey());
-            reference.setHash(originalRef.getHash());
+            reference.copyHashFrom(originalRef);
           }
         }
       }
@@ -1193,19 +2698,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
+    final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+    PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
+        reference.hasHash());
 
     // Propagate disk offset to TIL back-reference so other PageReference copies
     // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
     // when they hit the isClosed() guard in a subsequent commit(ref) call.
     final int refLogKey = reference.getLogKey();
     if (refLogKey >= 0) {
-      final PageReference backRef = log.getOriginalRef(refLogKey);
+      final PageReference backRef = log.getOriginalRef(reference);
       if (backRef != null && backRef != reference && backRef.getKey() < 0) {
         backRef.setKey(reference.getKey());
-        backRef.setHash(reference.getHash());
+        backRef.copyHashFrom(reference);
       }
     }
+    reference.refreshTransactionLogReference();
 
     container.getComplete().close();
     page.close();
@@ -1234,6 +2743,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     storageEngineReader.assertNotClosed();
+
+    // Keep the page-graph invariant local to the storage writer: no public commit path may reach
+    // recursive HOT serialization while a side reference still carries the pending marker. The
+    // node transaction already calls this barrier, but direct StorageEngineWriter clients and
+    // future orchestrators must be safe too.
+    awaitPendingAsyncFlush();
 
     {
       final boolean timing = LOGGER.isDebugEnabled();
@@ -1326,6 +2841,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // duplicated kernel/journal work whose accumulated pressure degraded long commit-heavy runs.
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
+      // The beacon now makes every foreground prewrite part of a durable reachable revision; an
+      // eventual close must not invalidate those committed offsets.
+      hasUncommittedPinnedTriePrewrites = false;
 
       final long t4 = timing
           ? System.nanoTime()
@@ -1333,6 +2851,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
+      currentNamePage = null;
       storageEngineReader.closeCurrentPageGuard();
 
       // Clear TransactionIntentLog - closes all modified pages
@@ -1340,6 +2859,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
+      documentRecordLocationCache.clear();
 
       // Reset cache references since pages have been returned to pool
       mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
@@ -1738,7 +3258,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       for (final var container : logList) {
         final var modified = container.getModified();
         if (modified instanceof KeyValueLeafPage) {
-          serializeKeyValuePage(resourceConfig, modified);
+          prepareFinalCommitKeyValuePage(resourceConfig, modified);
         }
       }
     } else {
@@ -1746,15 +3266,47 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       logList.parallelStream()
              .map(PageContainer::getModified)
              .filter(p -> p instanceof KeyValueLeafPage)
-             .forEach(page -> serializeKeyValuePage(resourceConfig, page));
+             .forEach(page -> prepareFinalCommitKeyValuePage(resourceConfig, page));
     }
   }
 
-  private void serializeKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
-    var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
+  /**
+   * Prepare one live KVL page for final recursive commit.
+   *
+   * <p>Configured handlers retain the parallel pre-serialization path: their encoded cache avoids
+   * running the handler again during the sequential append. An empty pipeline has no transform to
+   * amortize and retaining its identity result creates one page-sized heap object per live tail
+   * page. For that case, this pass performs only the page preparation which benefits from parallel
+   * execution: materialize the frame, compress strings, discover/materialize overflow references,
+   * and release record objects. String compression must precede
+   * {@link KeyValueLeafPage#addReferences(ResourceConfiguration)} so records which FSST can shrink
+   * are not prematurely diverted to overflow storage.</p>
+   *
+   * <p>Recursive commit subsequently calls {@code addReferences} idempotently, recursively appends
+   * every overflow page discovered here, and only then does the writer encode the owning leaf once
+   * into its reusable synchronous scratch. This avoids both a second wire/PAX/body encode and an
+   * owned identity copy. The logical frame is never repurposed, so an I/O failure still leaves
+   * rollback/retry state available.</p>
+   *
+   * @return {@code true} when the page holds an encoded cache after preparation; {@code false}
+   *         otherwise (including a configured handler that declined an unresolved-overflow page)
+   */
+  static boolean prepareFinalCommitKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
+    if (resourceConfig.byteHandlePipeline.isEmpty()) {
+      final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
+      keyValueLeafPage.ensureSlottedPage();
+      keyValueLeafPage.compressStringValues();
+      keyValueLeafPage.addReferences(resourceConfig);
+      keyValueLeafPage.clearRecordsForGC();
+      return false;
+    }
+
+    final var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
     try {
-      var bytes = new PooledBytesOut(pooledSeg);
+      final var bytes = new PooledBytesOut(pooledSeg);
       PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+      final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
+      return keyValueLeafPage.getCompressedSegment() != null || keyValueLeafPage.getBytes() != null;
     } catch (final Exception e) {
       if (e instanceof RuntimeException re) {
         throw re;
@@ -1804,27 +3356,146 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     optionalUser.ifPresent(newRevisionRootPage::setUser);
   }
 
+  /** Retain the first teardown failure and attach later failures without letting diagnostics replace it. */
+  private static Throwable retainFirstFailure(final @Nullable Throwable first, final Throwable next) {
+    if (first == null) {
+      return next;
+    }
+    if (first != next) {
+      try {
+        first.addSuppressed(next);
+      } catch (final Throwable ignored) {
+        // Suppression is diagnostic only. Under OOME the original failure must still win.
+      }
+    }
+    return first;
+  }
+
+  /** Preserve the original unchecked failure type after best-effort teardown has completed. */
+  private static RuntimeException asRuntimeFailure(final Throwable failure) {
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    if (failure instanceof RuntimeException runtimeException) {
+      return runtimeException;
+    }
+    return new SirixIOException(failure);
+  }
+
+  /** Failure logging is best-effort and must never interrupt rollback cleanup under memory pressure. */
+  private static void logRollbackFailure(final Throwable failure) {
+    try {
+      LOGGER.error("Rollback cleanup completed with failure", failure);
+    } catch (final Throwable ignored) {
+      // The retained throwable is the authoritative diagnostic.
+    }
+  }
+
+  /** Close diagnostics are best-effort; resource release and terminal flags always take precedence. */
+  private static void logCloseFailure(final String message, final Throwable failure) {
+    try {
+      LOGGER.error(message, failure);
+    } catch (final Throwable ignored) {
+      // The retained throwable is the authoritative diagnostic.
+    }
+  }
+
+  /**
+   * Drop this resource's global page-cache entries before an aborted backend tail can be reused.
+   *
+   * <p>Foreground trie spill writes offsets ahead of the commit beacon. A reclaimable backend starts
+   * the next writer at the prior durable frontier, so an abort intentionally overwrites those
+   * offsets. Any cache entry populated from the prewritten bytes must be gone before that reuse or a
+   * reader can observe the aborted page under the successor page's numeric key.</p>
+   */
+  private void invalidateCachesForAbortedPinnedTriePrewrites() {
+    if (!hasUncommittedPinnedTriePrewrites) {
+      return;
+    }
+    // Use the retained immutable session/config directly: close() invokes this after the reader has
+    // been closed, where the forwarding accessor correctly refuses normal read operations.
+    final ResourceConfiguration resourceConfiguration = storageEngineReader.resourceSession.getResourceConfig();
+    Databases.clearCachesForResource(resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+    hasUncommittedPinnedTriePrewrites = false;
+  }
+
   @Override
   public UberPage rollback() {
     storageEngineReader.assertNotClosed();
 
-    // Best-effort: await + cleanup even if async errored.
-    // We still need to drain the snapshot and clear TIL regardless.
+    Throwable asyncFailure = null;
+
+    // Fence the append owner before touching either reusable batch. A failed worker is still fully
+    // fenced once its permit is acquired; retain its error for diagnostics, cancel the payloads, and
+    // complete the abort. A latched write failure does not make a successfully completed rollback
+    // fail — the caller is discarding that write precisely because it failed.
     try {
-      awaitPendingAsyncFlush();
-    } catch (final SirixIOException e) {
-      LOGGER.error("Async commit failed during rollback — cleaning up anyway", e);
+      awaitInFlightAsyncFlushOnly();
+    } catch (final Throwable t) {
+      asyncFailure = t;
+    }
+    if (asyncFlushWorkerRunning) {
+      final Throwable unfencedFailure = asyncFlushFailure(
+          "Rollback cannot tear down pages while the async flush worker is still running");
+      if (asyncFailure != null && asyncFailure != unfencedFailure.getCause()) {
+        retainFirstFailure(unfencedFailure, asyncFailure);
+      }
+      logRollbackFailure(unfencedFailure);
+      throw asRuntimeFailure(unfencedFailure);
+    }
+
+    Throwable teardownFailure = null;
+
+    // Cancel pending references and release their payloads BEFORE guard/TIL cleanup. Those later
+    // operations can invoke cache/page close machinery and throw; no such failure may leave the
+    // transaction's bounded-but-large side batches retained.
+    try {
+      discardSidePageBatches();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
     }
 
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
-    storageEngineReader.closeCurrentPageGuard();
+    try {
+      storageEngineReader.closeCurrentPageGuard();
+      injectAsyncFlushFault("rollback-after-guard-close");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
 
     // Clear TransactionIntentLog - closes all modified pages (including snapshot pages)
-    log.clear();
+    try {
+      log.clear();
+      injectAsyncFlushFault("rollback-after-log-clear");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
 
     // Clear local cache and reset references (pages already handled by log.clear())
-    clearLocalContainerCaches();
+    try {
+      clearLocalContainerCaches();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    try {
+      invalidateCachesForAbortedPinnedTriePrewrites();
+      injectAsyncFlushFault("rollback-after-trie-cache-invalidate");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    if (teardownFailure != null) {
+      if (asyncFailure != null) {
+        retainFirstFailure(teardownFailure, asyncFailure);
+      }
+      logRollbackFailure(teardownFailure);
+      throw asRuntimeFailure(teardownFailure);
+    }
+    if (asyncFailure != null) {
+      logRollbackFailure(asyncFailure);
+    }
 
     return readUberPage();
   }
@@ -1836,78 +3507,176 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void close() {
-    if (!isClosed) {
-      storageEngineReader.assertNotClosed();
+    if (isClosed) {
+      return;
+    }
 
-      // Best-effort: await + cleanup async commit even if errored
+    Throwable asyncFailure = null;
+    try {
+      awaitInFlightAsyncFlushOnly();
+    } catch (final Throwable t) {
+      asyncFailure = t;
+    }
+    if (asyncFlushWorkerRunning) {
+      final Throwable unfencedFailure = asyncFlushFailure(
+          "Close cannot release pages or channels while the async flush worker is still running");
+      if (asyncFailure != null && asyncFailure != unfencedFailure.getCause()) {
+        retainFirstFailure(unfencedFailure, asyncFailure);
+      }
+      logCloseFailure("Close refused to release resources owned by an unfenced async worker", unfencedFailure);
+      throw asRuntimeFailure(unfencedFailure);
+    }
+
+    Throwable teardownFailure = null;
+    int unboundTrxId = Constants.NULL_ID_INT;
+    if (!isBoundToNodeTrx) {
       try {
-        awaitPendingAsyncFlush();
-      } catch (final SirixIOException e) {
-        LOGGER.error("Async commit failed during close — cleaning up anyway", e);
+        // Capture before storageEngineReader.close(): its accessor correctly rejects every later
+        // read, while the session needs this immutable id only after the two tail-safety barriers.
+        unboundTrxId = storageEngineReader.getTrxId();
+      } catch (final Throwable t) {
+        teardownFailure = retainFirstFailure(teardownFailure, t);
       }
+    }
 
-      // (The former pending async acknowledge-fsync is gone: writeUberPageReference is durable
-      // on return — see its Writer contract — so there is nothing to await at close.)
+    // From here on, the append owner is positively fenced. Every cleanup owner is isolated: an OOME,
+    // I/O failure, or broken Page.close implementation must not pin the remaining payloads, channels,
+    // off-heap buffer, or Cleaner state. The first teardown failure wins and later ones are suppressed.
+    try {
+      discardSidePageBatches();
+      injectAsyncFlushFault("close-after-side-batch-discard");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+    try {
+      printHftTelemetry();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
 
-      // Don't clear the cached containers here - they've either been:
-      // 1. Already cleared and returned to pool during commit(), or
-      // 2. Will be cleared and returned to pool by log.close() below
-      // Clearing them here could corrupt pages that have been returned to pool
-      // and reused by other transactions.
-
-      final UberPage lastUberPage = readUberPage();
-
-      storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
-
-      if (!isBoundToNodeTrx) {
-        storageEngineReader.resourceSession.closePageWriteTransaction(storageEngineReader.getTrxId(), this);
+    // (The former pending async acknowledge-fsync is gone: writeUberPageReference is durable
+    // on return — see its Writer contract — so there is nothing to await at close.)
+    UberPage lastUberPage = null;
+    try {
+      lastUberPage = readUberPage();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+    if (lastUberPage != null) {
+      try {
+        storageEngineReader.resourceSession.setLastCommittedUberPage(lastUberPage);
+      } catch (final Throwable t) {
+        teardownFailure = retainFirstFailure(teardownFailure, t);
       }
-
-      // CRITICAL: Close storageEngineReader FIRST to release guards BEFORE TIL tries to close pages
-      // If guards are active when TIL.close() runs, pages won't close (guardCount > 0 check)
+    }
+    // Release reader guards before asking the TIL to close its pages. A reader-close failure is
+    // retained, but must not prevent the log from making its own best-effort release.
+    try {
       storageEngineReader.close();
-
-      // Now TIL can close pages (guards released)
+      injectAsyncFlushFault("close-after-reader-close");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+    try {
       log.close();
+      injectAsyncFlushFault("close-after-log-close");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
 
-      // CRITICAL FIX: Clear cache AFTER log.close() to avoid OOM
-      // log.close() needs the cache entries to properly unpin/close pages
-      // Once closed, we must drop references to allow GC
-
-      // CRITICAL: Close pages in pageContainerCache that are NOT in TIL or cache
-      // This handles pages that were cached but TIL was cleared (e.g., after commit)
-      for (PageContainer container : pageContainerCache.values()) {
-        closeOrphanedPagesInContainer(container);
+    // Close every orphan independently, then sever the cache roots even if an individual page close
+    // failed. log.close() normally handled TIL pages; these are the remaining cache-only containers.
+    try {
+      for (final PageContainer container : pageContainerCache.values()) {
+        try {
+          closeOrphanedPagesInContainer(container);
+        } catch (final Throwable t) {
+          teardownFailure = retainFirstFailure(teardownFailure, t);
+        }
       }
-
+    } catch (final Throwable t) {
+      // Iterator creation/advance itself can fail under memory pressure. Cache severing and every
+      // later resource owner still have to run.
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+    try {
       pageContainerCache.clear();
+      documentRecordLocationCache.clear();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    } finally {
+      currentNamePage = null;
       mostRecentPageContainer = null;
       secondMostRecentPageContainer = null;
       mostRecentPathSummaryPageContainer = null;
       mostRecentByIndexType = null;
-
-      // Close the storage writer and its three file channels (data, SYNC revisions, DSYNC
-      // beacon). NOTHING else does: storageEngineReader.close() deliberately skips its
-      // pageReader for write transactions (trxIntentLog != null — the pageReader IS this
-      // writer), so omitting this leaked three descriptors per write transaction — every
-      // commit with KEEP_OPEN swaps in a fresh writer via createPageTransaction, growing FD
-      // usage without bound until the GC's channel cleaner happened to run.
-      storagePageReaderWriter.close();
-
-      // Hand the flush buffer back. Writers are per-COMMIT, so this segment was allocated and then
-      // abandoned to the arena on every commit. Safe here and not earlier: close() has already
-      // awaited any pending async flush above, and that background path serializes into its OWN
-      // buffer (executeSnapshotWrite's bgBuffer), so nothing else can still be writing into this
-      // one. recycleOrRelease frees rather than pools a segment a large commit grew.
-      Bytes.recycleOrRelease(bufferBytes);
-      bufferBytes = null;
-
-      isClosed = true;
-      // Tell the Cleaner-registered leak detector this writer closed cleanly so the
-      // post-GC callback skips its warn-log.
-      leakDetectorState.closed.set(true);
     }
 
+    try {
+      invalidateCachesForAbortedPinnedTriePrewrites();
+      injectAsyncFlushFault("close-after-trie-cache-invalidate");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    // storageEngineReader.close() deliberately does not own a write transaction's backend. Close it
+    // independently so a reader/log/page failure cannot leak the data, revision, or beacon channel.
+    boolean storageWriterClosed = false;
+    try {
+      storagePageReaderWriter.close();
+      storageWriterClosed = true;
+      injectAsyncFlushFault("close-after-storage-writer-close");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    // An unbound writer owns the resource write permit itself. Keep that permit until BOTH safety
+    // barriers for reclaimable prewrites have completed: resource caches no longer contain an
+    // aborted offset, and the old backend writer can no longer touch the tail. Releasing earlier
+    // lets a successor derive the last durable frontier and overwrite that tail while stale cache
+    // entries are still addressable. If either barrier fails, retain the permit deliberately: a
+    // wedged resource is fail-closed, whereas handing it to a successor can return wrong pages.
+    if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT
+        && !hasUncommittedPinnedTriePrewrites && storageWriterClosed) {
+      try {
+        storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
+      } catch (final Throwable t) {
+        teardownFailure = retainFirstFailure(teardownFailure, t);
+      }
+    }
+
+    // Detach first: even if pool release itself fails, this writer must not retain the off-heap root.
+    final BytesOut<?> closeBuffer = bufferBytes;
+    bufferBytes = null;
+    if (closeBuffer != null) {
+      try {
+        Bytes.recycleOrRelease(closeBuffer);
+        injectAsyncFlushFault("close-after-buffer-release");
+      } catch (final Throwable t) {
+        teardownFailure = retainFirstFailure(teardownFailure, t);
+      }
+    }
+
+    // Terminal publication is unconditional after the worker fence: a caller may see the teardown
+    // exception, but neither retry nor the Cleaner may treat this already-drained writer as live.
+    isClosed = true;
+    try {
+      leakDetectorState.closed.set(true);
+      injectAsyncFlushFault("close-after-terminal-flags");
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
+    if (teardownFailure != null) {
+      if (asyncFailure != null) {
+        retainFirstFailure(teardownFailure, asyncFailure);
+      }
+      logCloseFailure("Writer close completed with teardown failure", teardownFailure);
+      throw asRuntimeFailure(teardownFailure);
+    }
+    if (asyncFailure != null) {
+      logCloseFailure("Async commit failed during close — resources were released anyway", asyncFailure);
+    }
   }
 
   /**
@@ -1957,13 +3726,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   private PageContainer getPageContainer(final long recordPageKey, final int indexNumber, final IndexType indexType) {
-    PageContainer pageContainer =
-        getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
+    final int revision = newRevisionRootPage.getRevision();
+    final PageContainer pageContainer =
+        getMostRecentPageContainer(indexType, recordPageKey, indexNumber, revision);
     if (pageContainer != null) {
       return pageContainer;
     }
+    return resolvePageContainer(recordPageKey, indexNumber, indexType, revision);
+  }
 
-    final int revision = newRevisionRootPage.getRevision();
+  /**
+   * Cache/trie resolution after the tiny most-recent-page fast path misses. Kept out of
+   * {@link #getModifiedPageForRead} so C2 can inline its overwhelmingly common cache hit without
+   * also inlining this cold resolver's mutable-key lookup and keyed-trie traversal.
+   */
+  private PageContainer resolvePageContainer(final long recordPageKey, final int indexNumber,
+      final IndexType indexType, final int revision) {
     lookupKey.setIndexType(indexType)
              .setRecordPageKey(recordPageKey)
              .setIndexNumber(indexNumber)
@@ -2088,26 +3866,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
-        // Direct allocation (no pool)
-        final MemorySegmentAllocator allocator = Allocators.getInstance();
-
-        final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType,
-            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
-            allocator.allocate(SIXTYFOUR_KB), getResourceSession().getResourceConfig().areDeweyIDsStored
-                ? allocator.allocate(SIXTYFOUR_KB)
-                : null,
-            false // Memory from allocator - release on close()
-        );
-
-        final KeyValueLeafPage modifyPage = new KeyValueLeafPage(recordPageKey, indexType,
-            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
-            allocator.allocate(SIXTYFOUR_KB), getResourceSession().getResourceConfig().areDeweyIDsStored
-                ? allocator.allocate(SIXTYFOUR_KB)
-                : null,
-            false // Memory from allocator - release on close()
-        );
-
-        pageContainer = PageContainer.getInstance(completePage, modifyPage);
+        pageContainer = createFreshRecordPage(recordPageKey, indexType,
+            getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber());
         appendLogRecord(reference, pageContainer);
         return pageContainer;
       } else {
@@ -2148,6 +3908,65 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     return currPageContainer;
+  }
+
+  /**
+   * Create both writer-owned halves of a record page that has no persisted predecessor.
+   *
+   * <p>{@link KeyValueLeafPage} owns and eagerly allocates its slotted frame. Its two memory
+   * parameters are compatibility inputs which the writer-owned constructor immediately releases
+   * before allocating that frame; supplying legacy 64 KiB buffers here therefore performed an
+   * allocate/release round trip per input without contributing any page storage. Dewey IDs are
+   * inline in the slotted frame, so the resource flag is preserved by the configuration rather than
+   * by a separate buffer.</p>
+   *
+   * <p>Construction is all-or-nothing: should the second page (or container publication) fail, every
+   * page whose frame was acquired here is closed before the failure escapes.</p>
+   */
+  static PageContainer createFreshRecordPage(final long recordPageKey, final IndexType indexType,
+      final ResourceConfiguration resourceConfig, final int revisionNumber) {
+    requireNonNull(indexType);
+    requireNonNull(resourceConfig);
+
+    KeyValueLeafPage completePage = null;
+    KeyValueLeafPage modifyPage = null;
+    try {
+      completePage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null,
+          false);
+      modifyPage = new KeyValueLeafPage(recordPageKey, indexType, resourceConfig, revisionNumber, null, null,
+          false);
+      return PageContainer.getInstance(completePage, modifyPage);
+    } catch (final RuntimeException | Error failure) {
+      closeFreshPageAfterFailure(modifyPage, failure);
+      closeFreshPageAfterFailure(completePage, failure);
+      throw failure;
+    }
+  }
+
+  /**
+   * Best-effort cleanup which cannot replace a fresh-page construction failure.
+   *
+   * <p>Kept package-private for a focused failure-path regression. Production calls it only after
+   * construction has already failed, so the successful fresh-page path carries no extra dispatch or
+   * allocation.</p>
+   */
+  static void closeFreshPageAfterFailure(final @Nullable AutoCloseable page, final Throwable primaryFailure) {
+    requireNonNull(primaryFailure);
+    if (page == null) {
+      return;
+    }
+    try {
+      page.close();
+    } catch (final Throwable closeFailure) {
+      if (closeFailure == primaryFailure) {
+        return;
+      }
+      try {
+        primaryFailure.addSuppressed(closeFailure);
+      } catch (final Throwable ignored) {
+        // Retaining the original construction failure is more important than diagnostics.
+      }
+    }
   }
 
   /**
@@ -2333,7 +4152,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey, final IndexType indexType, final int index) {
-    final PageContainer pc = getPageContainer(recordPageKey, index, indexType);
+    final int revision = newRevisionRootPage.getRevision();
+    PageContainer pc = getMostRecentPageContainer(indexType, recordPageKey, index, revision);
+    if (pc == null) {
+      pc = resolvePageContainer(recordPageKey, index, indexType, revision);
+    }
     if (pc != null) {
       final var modified = pc.getModified();
       if (modified instanceof KeyValueLeafPage kvl && !kvl.isClosed()) {
@@ -2397,6 +4220,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // that the "run this before opening anything that reads the file" precondition never covered.
     Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
         storageEngineReader.getResourceId());
+    hasUncommittedPinnedTriePrewrites = false;
     // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
     // truncated revision numbers over different content -- the same offset-reuse hazard the page
     // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is

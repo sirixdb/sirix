@@ -4,6 +4,7 @@ import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import net.openhft.hashing.LongHashFunction;
 
 /**
@@ -14,16 +15,51 @@ import net.openhft.hashing.LongHashFunction;
 public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   private final GrowingMemorySegment growingSegment;
 
+  private final boolean retainEmptyPipelineIdentityCache;
+
+  /** Backing-segment identity for {@link #readableByteBuffer()}. */
+  private MemorySegment readableByteBufferSegment;
+
+  /**
+   * Reusable file-I/O view of the capacity-sized backing segment. The logical limit is reset on
+   * every access; this object is replaced only when growth swaps the backing segment.
+   */
+  private ByteBuffer readableByteBuffer;
+
   public MemorySegmentBytesOut(MemorySegment initialSegment) {
     this.growingSegment = new GrowingMemorySegment(initialSegment);
+    this.retainEmptyPipelineIdentityCache = true;
   }
 
   public MemorySegmentBytesOut(int initialCapacity) {
-    this.growingSegment = new GrowingMemorySegment(initialCapacity);
+    this(initialCapacity, true);
   }
 
   public MemorySegmentBytesOut() {
     this.growingSegment = new GrowingMemorySegment();
+    this.retainEmptyPipelineIdentityCache = true;
+  }
+
+  private MemorySegmentBytesOut(final int initialCapacity, final boolean retainEmptyPipelineIdentityCache) {
+    this.growingSegment = new GrowingMemorySegment(initialCapacity);
+    this.retainEmptyPipelineIdentityCache = retainEmptyPipelineIdentityCache;
+  }
+
+  /**
+   * Create reusable scratch whose written prefix is consumed before the next clear or write.
+   *
+   * <p>An empty byte-handler pipeline is an identity operation, so the page serializer must not
+   * allocate and retain a second copy for this sink. The caller owns the strict synchronous-lifetime
+   * contract expressed by this factory.</p>
+   *
+   * @param initialCapacity initial scratch capacity in bytes
+   * @return a synchronous non-retaining scratch writer
+   */
+  public static MemorySegmentBytesOut synchronousScratch(final int initialCapacity) {
+    if (initialCapacity < 0) {
+      throw new IllegalArgumentException("initialCapacity must be non-negative: " + initialCapacity);
+    }
+    return new MemorySegmentBytesOut(initialCapacity, false);
   }
 
   /**
@@ -35,6 +71,7 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
    */
   public MemorySegmentBytesOut(Arena arena, int initialCapacity) {
     this.growingSegment = new GrowingMemorySegment(arena, initialCapacity);
+    this.retainEmptyPipelineIdentityCache = true;
   }
 
   /**
@@ -44,6 +81,7 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
    */
   public MemorySegmentBytesOut(Arena arena) {
     this.growingSegment = new GrowingMemorySegment(arena, 1024);
+    this.retainEmptyPipelineIdentityCache = true;
   }
 
   @Override
@@ -218,6 +256,11 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   }
 
   @Override
+  public boolean retainsEmptyPipelineIdentityCache() {
+    return retainEmptyPipelineIdentityCache;
+  }
+
+  @Override
   public BytesOut<MemorySegment> bytesForWrite() {
     return this;
   }
@@ -225,6 +268,13 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   @Override
   public BytesOut<MemorySegment> clear() {
     growingSegment.reset();
+    // A failed write may grow the backing segment and clear this writer before file I/O asks for a
+    // readable view. Do not let the cached wrapper retain that replaced backing array until some
+    // later flush; ordinary clears on the same base keep the reusable wrapper.
+    if (readableByteBufferSegment != null && readableByteBufferSegment != growingSegment.getSegment()) {
+      readableByteBuffer = null;
+      readableByteBufferSegment = null;
+    }
     return this;
   }
 
@@ -241,8 +291,9 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   /**
    * Zero-allocation accessor returning the {@code base} segment backing this writer plus the
    * {@linkplain #position() current write position}. Together they describe exactly the same
-   * byte range as {@link #getDestination()} but without the per-call
-   * {@code MemorySegment.asSlice(0, position)} wrapper that {@code getDestination()} returns.
+   * byte range as {@link #getDestination()} but without requesting an exact bounded view.
+   * {@code getDestination()} caches recurring small views, but a previously unseen length still
+   * needs one {@code MemorySegment.asSlice(0, position)} wrapper.
    *
    * <p>Use when the caller is going to copy out / hand off / persist the written bytes via an
    * API that takes a {@code (segment, offset, length)} triple — e.g.
@@ -257,6 +308,39 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
    */
   public MemorySegment baseSegment() {
     return growingSegment.getSegment();
+  }
+
+  /**
+   * Return an ephemeral {@link ByteBuffer} view over exactly the written prefix without allocating
+   * an exact {@link MemorySegment} slice on each call.
+   *
+   * <p>The returned object is owned by this writer and reused. Each call resets its position to
+   * zero and its limit to {@link #writePosition()}; callers must consume it synchronously and must
+   * not retain it, mutate the bytes, or use it concurrently with this writer. A backing-segment
+   * growth invalidates the cached view and creates one replacement on the next call. Distinct
+   * {@code MemorySegmentBytesOut} instances therefore retain independent views for foreground and
+   * background append buffers.</p>
+   *
+   * @return reusable buffer positioned at zero with an exact logical limit
+   * @throws IndexOutOfBoundsException if the logical write position is outside the backing segment
+   */
+  public ByteBuffer readableByteBuffer() {
+    final MemorySegment baseSegment = growingSegment.getSegment();
+    final long writtenLength = growingSegment.position();
+    if (writtenLength < 0L || writtenLength > baseSegment.byteSize()) {
+      throw new IndexOutOfBoundsException(
+          "Write position " + writtenLength + " is outside segment capacity " + baseSegment.byteSize());
+    }
+
+    if (readableByteBufferSegment != baseSegment) {
+      readableByteBufferSegment = baseSegment;
+      readableByteBuffer = baseSegment.asByteBuffer();
+    }
+
+    final ByteBuffer buffer = readableByteBuffer;
+    buffer.clear();
+    buffer.limit(Math.toIntExact(writtenLength));
+    return buffer;
   }
 
   @Override
@@ -280,6 +364,8 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
    */
   @Override
   public void close() {
+    readableByteBuffer = null;
+    readableByteBufferSegment = null;
     growingSegment.close();
   }
 

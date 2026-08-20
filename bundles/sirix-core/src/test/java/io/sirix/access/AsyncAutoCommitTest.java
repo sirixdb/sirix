@@ -11,17 +11,25 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
+import io.sirix.service.xml.serialize.XmlSerializer;
+import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.skyscreamer.jsonassert.JSONAssert;
 
+import java.io.ByteArrayOutputStream;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,6 +49,9 @@ final class AsyncAutoCommitTest {
 
   private static final String RESOURCE = "async-auto-commit-resource";
 
+  @TempDir
+  Path temporaryDirectory;
+
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
@@ -55,6 +66,69 @@ final class AsyncAutoCommitTest {
   @DisplayName("KEEP_OPEN_ASYNC_FLUSH + FILE_CHANNEL + count-based auto-commit: data round-trips through one revision")
   void asyncAutoCommit_underDocumentedConstraints_works() {
     assertAsyncAutoCommitRoundTrips(StorageType.FILE_CHANNEL);
+  }
+
+  @Test
+  @DisplayName("tiny-threshold FILE_CHANNEL async flush preserves arbitrary topology after a cold reopen")
+  void tinyThresholdFileChannelAsyncFlushPreservesArbitraryTopologyAfterColdReopen() throws Exception {
+    final String document = arbitraryShapeDocument();
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.ROLLING)
+          .buildPathSummary(true)
+          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(8, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(document), JsonNodeTrx.Commit.NO);
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE)) {
+      final String coldSerialized = serialize(session);
+      JSONAssert.assertEquals(document, coldSerialized, true);
+      assertEquals(1, session.getMostRecentRevisionNumber(),
+          "intermediate async flushes must not mint revisions");
+    }
+  }
+
+  @Test
+  @DisplayName("tiny-threshold XML FILE_CHANNEL async flush preserves arbitrary topology after a cold reopen")
+  void tinyThresholdXmlFileChannelAsyncFlushPreservesArbitraryTopologyAfterColdReopen() throws Exception {
+    final String document = "<root a=\"1\"><row><name>alpha</name><values><v>1</v><v>2</v></values></row>"
+        + "<empty/><row b=\"2\">tail</row></root>";
+    final Path databasePath = temporaryDirectory.resolve("xml-async-fresh-bind");
+    Databases.createXmlDatabase(new DatabaseConfiguration(databasePath));
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath)) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(true)
+          .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+      try (final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+           final XmlNodeTrx wtx = session.beginNodeTrx(4, AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(document), XmlNodeTrx.Commit.No);
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<XmlResourceSession> database = Databases.openXmlDatabase(databasePath);
+         final XmlResourceSession session = database.beginResourceSession(RESOURCE);
+         final ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+      XmlSerializer.newBuilder(session, output).build().call();
+      assertEquals(document, output.toString(StandardCharsets.UTF_8));
+      assertEquals(1, session.getMostRecentRevisionNumber(),
+          "intermediate XML async flushes must not mint revisions");
+    }
   }
 
   @Test
@@ -157,8 +231,10 @@ final class AsyncAutoCommitTest {
     try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile());
          final JsonResourceSession syncSession = db.beginResourceSession("sync-resource");
          final JsonResourceSession asyncSession = db.beginResourceSession("async-resource")) {
-      assertEquals(serialize(syncSession), serialize(asyncSession),
+      final String reopenedAsyncSerialized = serialize(asyncSession);
+      assertEquals(serialize(syncSession), reopenedAsyncSerialized,
           "reopened async-flush resource must match the synchronous one");
+      JSONAssert.assertEquals(document, reopenedAsyncSerialized, true);
       // Async intermediate flushes mint NO revisions — only the final commit does.
       assertEquals(1, asyncSession.getMostRecentRevisionNumber(),
           "async-flush import must produce exactly one revision");
@@ -189,6 +265,32 @@ final class AsyncAutoCommitTest {
     final StringWriter out = new StringWriter();
     new JsonSerializer.Builder(session, out).build().call();
     return out.toString();
+  }
+
+  private static String arbitraryShapeDocument() {
+    final StringBuilder document = new StringBuilder(16 * 1024).append('[');
+    for (int i = 0; i < 48; i++) {
+      if (i > 0) {
+        document.append(',');
+      }
+      switch (i & 7) {
+        case 0 -> document.append("{\"id\":").append(i)
+            .append(",\"nested\":{\"flag\":").append((i & 1) == 0)
+            .append(",\"values\":[").append(i).append(',').append(i + 1).append(",null]}}");
+        case 1 -> document.append('[').append(i)
+            .append(",{\"name\":\"row-").append(i).append("\"},[true,false]]");
+        case 2 -> document.append('"').append("text-").append(i).append('"');
+        case 3 -> document.append(i);
+        case 4 -> document.append((i & 1) == 0);
+        case 5 -> document.append("null");
+        case 6 -> document.append("{\"emptyObject\":{},\"emptyArray\":[],\"value\":").append(i)
+            .append('}');
+        case 7 -> document.append("[{\"deep\":{\"leaf\":\"").append(i)
+            .append("\"}},[],[\"tail\",null]]");
+        default -> throw new AssertionError("unreachable shape selector");
+      }
+    }
+    return document.append(']').toString();
   }
 
   @Test

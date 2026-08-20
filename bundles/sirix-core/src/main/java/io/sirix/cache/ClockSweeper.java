@@ -251,27 +251,13 @@ public final class ClockSweeper implements Runnable {
             return page; // Keep in cache
           }
 
-          // Evict page atomically within compute() while holding per-key lock.
-          // close() first (no-op if guards held), bump version + null out
-          // ref AFTER confirming the page is dead. Previously the version
-          // bump happened pre-close, which made a narrow race between guard
-          // acquisition and eviction check visible as FrameReusedException
-          // even when the page was still live.
+          // Evict atomically within compute(). A guard can arrive after the count check above;
+          // retiring transfers the deferred physical close to that holder, but cache ownership and
+          // accounting end now. The cache bumps the page version only if close already completed.
           try {
-            page.close();
-            if (!page.isClosed()) {
-              pagesSkippedByGuard.incrementAndGet();
-              return page; // Guard acquired after our check — page still live.
-            }
-
-            page.incrementVersion();
-            ref.setPage(null);
-
-            // Uncharge by REF: the cache subtracts exactly the weight recorded at insertion
-            // (weightOf on a just-closed page is 0 — the old drift).
-            cache.onEvicted(ref);
+            cache.onEvicted(ref, page);
             pagesEvicted.incrementAndGet();
-            return null; // Successfully evicted
+            return null;
           } catch (Exception e) {
             LOGGER.error("Failed to evict page {}: {}", page.getPageKey(), e.getMessage());
             return page; // Keep in cache on error
@@ -300,4 +286,3 @@ public final class ClockSweeper implements Runnable {
         pagesSkippedByGuard.get(), pagesSkippedByOwnership.get());
   }
 }
-

@@ -4,7 +4,8 @@
 package io.sirix.page.pax;
 
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Arrays;
 
@@ -83,6 +84,9 @@ import java.util.Arrays;
  */
 public final class RecordOrdinalRegion {
 
+  /** Returned by {@link #encodeInto} when this page shape cannot carry sound linkage. */
+  public static final int ENCODE_FAILED = -1;
+
   /** Current wire format version. */
   public static final byte VERSION_V1 = 1;
 
@@ -91,6 +95,9 @@ public final class RecordOrdinalRegion {
 
   /** Slots per page, and therefore the ceiling on both {@code okCount} and {@code recordCount}. */
   private static final int MAX_SLOTS = 1024;
+
+  private static final VarHandle SHORT_LE =
+      MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
 
   private RecordOrdinalRegion() {
     throw new AssertionError("no instances");
@@ -352,9 +359,29 @@ public final class RecordOrdinalRegion {
    *         off-page parent inside it, a parentless slot, or a parent past the page)
    */
   public static byte[] encode(final long[] parentKeys, final long pageKeyBase, final int okCount) {
+    final byte[] scratch = ENCODE_SCRATCH.get();
+    final int encodedLength = encodeInto(parentKeys, pageKeyBase, okCount, scratch);
+    return encodedLength == ENCODE_FAILED
+        ? null
+        : Arrays.copyOf(scratch, encodedLength);
+  }
+
+  /**
+   * Encode into caller-owned reusable storage.
+   *
+   * <p>The returned prefix is valid only until {@code out} is reused. A retaining caller must copy
+   * it first; {@link RegionTable#set(byte, byte[], int)} performs that copy synchronously.
+   *
+   * @return bytes written, or {@link #ENCODE_FAILED} for the same page shapes {@link #encode} refuses
+   */
+  public static int encodeInto(final long[] parentKeys, final long pageKeyBase, final int okCount,
+      final byte[] out) {
+    if (out == null) {
+      throw new NullPointerException("out must be non-null");
+    }
     if (parentKeys == null || okCount <= 0 || okCount > MAX_SLOTS
         || parentKeys.length < okCount) {
-      return null;
+      return ENCODE_FAILED;
     }
     // A leading run of off-page parents is the tail of the record spanning in from the previous
     // page — slot order is node-key order, so its field nodes sit at the head of the page and
@@ -363,10 +390,10 @@ public final class RecordOrdinalRegion {
     // parent inside it, or a parent above the page is a shape this format does not describe.
     final int skipCount = leadingSpanningRun(parentKeys, pageKeyBase, okCount);
     if (skipCount < 0) {
-      return null;
+      return ENCODE_FAILED;
     }
     if (skipCount == okCount) {
-      return null;  // nothing but the spanning tail — no record on this page to link
+      return ENCODE_FAILED;  // nothing but the spanning tail — no record on this page to link
     }
     final int[] ordinalOfSlot = ORDINAL_OF_SLOT_SCRATCH.get();
     Arrays.fill(ordinalOfSlot, -1);
@@ -374,23 +401,28 @@ public final class RecordOrdinalRegion {
     final int recordCount =
         assignOrdinals(parentKeys, pageKeyBase, skipCount, okCount, ordinalOfSlot, ordinals);
     if (recordCount < 0) {
-      return null;
+      return ENCODE_FAILED;
     }
 
     final int packedCount = okCount - skipCount;
     final int bitWidth = bitWidthFor(recordCount);
     final int packed = packedBytes(packedCount, bitWidth);
-    final byte[] out = new byte[FIXED_BYTES + packed];
-    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(VERSION_V1);
-    bb.putShort((short) okCount);
-    bb.putShort((short) skipCount);
-    bb.putShort((short) recordCount);
-    bb.put((byte) bitWidth);
+    final int encodedLength = FIXED_BYTES + packed;
+    if (out.length < encodedLength) {
+      throw new IllegalArgumentException("output too small: " + out.length + " bytes for " + encodedLength);
+    }
+    // packOrdinals ORs fields into their destination bytes. A reused buffer can therefore carry no
+    // stale bits from a wider previous page, including in the last partially occupied byte.
+    Arrays.fill(out, 0, encodedLength, (byte) 0);
+    out[0] = VERSION_V1;
+    SHORT_LE.set(out, 1, (short) okCount);
+    SHORT_LE.set(out, 3, (short) skipCount);
+    SHORT_LE.set(out, 5, (short) recordCount);
+    out[7] = (byte) bitWidth;
     if (bitWidth > 0) {
       packOrdinals(out, ordinals, packedCount, bitWidth);
     }
-    return out;
+    return encodedLength;
   }
 
   /**
@@ -501,6 +533,11 @@ public final class RecordOrdinalRegion {
     return FIXED_BYTES + packedBytes(okCount - skipCount, bitWidthFor(recordCount));
   }
 
+  /** Maximum encoded bytes any one leaf page can require. */
+  public static int maxEncodedSize() {
+    return encodedSize(MAX_SLOTS, 0, MAX_SLOTS);
+  }
+
   /**
    * Slot-to-ordinal map, one entry per page slot. Per-thread and refilled per page: a page's worth
    * of ints is cheaper to clear than to allocate, and the writer runs this once per page during an
@@ -512,4 +549,7 @@ public final class RecordOrdinalRegion {
   /** Assigned ordinals in bitmap order, staged before packing. */
   private static final ThreadLocal<int[]> ORDINALS_SCRATCH =
       ThreadLocal.withInitial(() -> new int[MAX_SLOTS]);
+
+  private static final ThreadLocal<byte[]> ENCODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[maxEncodedSize()]);
 }

@@ -53,6 +53,10 @@ public final class SharedArenasTest {
     final String override = System.getProperty(SharedArenas.STRATEGY_PROPERTY);
     if (override == null) {
       assertEquals(SharedArenas.Strategy.SHARED, SharedArenas.strategy());
+      assertTrue(SharedArenas.supportsDeterministicClose());
+    } else {
+      assertEquals(SharedArenas.strategy() == SharedArenas.Strategy.SHARED,
+          SharedArenas.supportsDeterministicClose());
     }
   }
 

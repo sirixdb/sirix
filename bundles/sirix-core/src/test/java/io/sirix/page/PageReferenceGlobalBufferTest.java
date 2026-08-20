@@ -3,8 +3,16 @@ package io.sirix.page;
 import io.sirix.settings.Constants;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -151,6 +159,38 @@ public class PageReferenceGlobalBufferTest {
 
     assertNotEquals(originalHash, newHash, "Hash code should change when database ID is changed");
   }
-}
 
+  @Test
+  public void staleIdentityCleanupCannotEraseConcurrentReplacement() throws Exception {
+    final PageReference reference = new PageReference();
+    final UberPage observedPage = new UberPage();
+    final UberPage replacement = new UberPage();
+    reference.setPage(observedPage);
+
+    final CountDownLatch observationComplete = new CountDownLatch(1);
+    final CountDownLatch allowStaleCleanup = new CountDownLatch(1);
+    final ExecutorService executor = Executors.newSingleThreadExecutor();
+    try {
+      final Future<Boolean> staleCleanup = executor.submit(() -> {
+        final var observed = reference.getPage();
+        observationComplete.countDown();
+        if (!allowStaleCleanup.await(5, TimeUnit.SECONDS)) {
+          throw new AssertionError("timed out waiting to perform stale swizzle cleanup");
+        }
+        return reference.clearPageIfSame(observed);
+      });
+
+      assertTrue(observationComplete.await(5, TimeUnit.SECONDS));
+      reference.setPage(replacement);
+      allowStaleCleanup.countDown();
+
+      assertFalse(staleCleanup.get(5, TimeUnit.SECONDS),
+          "a stale exact-identity cleanup must lose to the replacement publication");
+      assertSame(replacement, reference.getPage(), "the concurrent replacement must remain swizzled");
+    } finally {
+      allowStaleCleanup.countDown();
+      executor.shutdownNow();
+    }
+  }
+}
 

@@ -100,7 +100,26 @@ public final class StringDictSketch {
    */
   public static byte[] encodeFromStringRegion(final byte[] stringPayload,
       final StringRegion.Header header) {
-    if (stringPayload == null || stringPayload.length == 0) {
+    return encodeFromStringRegion(stringPayload, stringPayload == null ? 0 : stringPayload.length, header);
+  }
+
+  /**
+   * Build a sketch over an exact logical prefix of reusable encoder storage.
+   *
+   * @param stringPayload encoder storage
+   * @param stringPayloadLength number of valid leading bytes; capacity beyond it is ignored
+   * @param header a header parsed from that same logical prefix
+   * @return the sketch payload, or {@code null} when the prefix is empty or malformed
+   */
+  public static byte[] encodeFromStringRegion(final byte[] stringPayload, final int stringPayloadLength,
+      final StringRegion.Header header) {
+    if (stringPayloadLength < 0 || (stringPayload == null
+        ? stringPayloadLength != 0
+        : stringPayloadLength > stringPayload.length)) {
+      throw new IllegalArgumentException("stringPayloadLength=" + stringPayloadLength + " for payload length "
+          + (stringPayload == null ? "null" : stringPayload.length));
+    }
+    if (stringPayload == null || stringPayloadLength == 0) {
       return null;
     }
     int totalEntries = 0;
@@ -121,12 +140,20 @@ public final class StringDictSketch {
     for (int tag = 0; tag < header.parentDictSize; tag++) {
       final int dictStart = header.tagStringDictOffset[tag];
       final int n = header.tagStringDictSize[tag];
-      int off = dictStart + n * 4;
+      final long bytesStart = (long) dictStart + (long) n * Integer.BYTES;
+      if (dictStart < 0 || n < 0 || bytesStart > stringPayloadLength) {
+        return null;
+      }
+      int off = (int) bytesStart;
       for (int i = 0; i < n; i++) {
         // The sign carries the FSST flag; the magnitude is the STORED length either way, and the
         // stored bytes are exactly what a probe reproduces (see the class contract).
-        final int storedLen = Math.abs(getIntFromArray(stringPayload, dictStart + i * 4));
-        if (off + storedLen > stringPayload.length) {
+        final int lengthField = getIntFromArray(stringPayload, dictStart + i * Integer.BYTES);
+        if (lengthField == Integer.MIN_VALUE) {
+          return null;
+        }
+        final int storedLen = Math.abs(lengthField);
+        if (storedLen > stringPayloadLength - off) {
           return null;  // payload does not parse the way the header claims — emit no sketch
         }
         setBits(out, bits, VALUE_HASH.hashBytes(stringPayload, off, storedLen));

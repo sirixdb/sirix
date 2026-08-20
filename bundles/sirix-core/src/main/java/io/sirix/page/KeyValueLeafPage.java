@@ -539,9 +539,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
       final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
+    this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory,
+        externallyAllocatedMemory, null, null);
+  }
+
+  /**
+   * Constructor-stage injection seam for verifying ownership when eager frame initialization fails.
+   * Both additional arguments are {@code null} on every production path.
+   */
+  KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
+      final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
+      final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory,
+      final @Nullable MemorySegmentAllocator allocatorForTesting,
+      final @Nullable Runnable afterFrameAcquireForTesting) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
+
+    if (allocatorForTesting != null) {
+      segmentAllocator = allocatorForTesting;
+    }
 
     this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
@@ -565,23 +582,79 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       }
     }
 
-    // Eagerly allocate slotted page — all pages use slotted page format
-    ensureSlottedPage();
-
-    // Capture creation stack trace for leak tracing (only when diagnostics enabled)
-    if (DEBUG_MEMORY_LEAKS) {
-      this.creationStackTrace = Thread.currentThread().getStackTrace();
-      PAGES_CREATED.incrementAndGet();
-      PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      ALL_LIVE_PAGES.add(this);
-      if (recordPageKey == 0) {
-        ALL_PAGE_0_INSTANCES.add(this);
+    StackTraceElement[] constructedCreationStackTrace = null;
+    LeakDetectorState constructedLeakDetectorState = null;
+    java.util.concurrent.atomic.AtomicLong pagesByTypeCounter = null;
+    boolean pageCreatedCounted = false;
+    boolean pageTypeCounted = false;
+    boolean livePageRegistered = false;
+    boolean pageZeroRegistered = false;
+    try {
+      // Eagerly allocate slotted page — all pages use slotted page format.
+      ensureSlottedPage();
+      if (afterFrameAcquireForTesting != null) {
+        afterFrameAcquireForTesting.run();
       }
-      this.leakDetectorState = new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
-      LEAK_CLEANER.register(this, leakDetectorState);
-    } else {
-      this.creationStackTrace = null;
-      this.leakDetectorState = null;
+
+      // Capture creation stack trace for leak tracing (only when diagnostics enabled).
+      if (DEBUG_MEMORY_LEAKS) {
+        constructedCreationStackTrace = Thread.currentThread().getStackTrace();
+        PAGES_CREATED.incrementAndGet();
+        pageCreatedCounted = true;
+        pagesByTypeCounter =
+            PAGES_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0));
+        pagesByTypeCounter.incrementAndGet();
+        pageTypeCounted = true;
+        livePageRegistered = true;
+        ALL_LIVE_PAGES.add(this);
+        if (recordPageKey == 0) {
+          pageZeroRegistered = true;
+          ALL_PAGE_0_INSTANCES.add(this);
+        }
+        constructedLeakDetectorState =
+            new LeakDetectorState(recordPageKey, indexType, revision, constructedCreationStackTrace);
+        LEAK_CLEANER.register(this, constructedLeakDetectorState);
+      }
+      this.creationStackTrace = constructedCreationStackTrace;
+      this.leakDetectorState = constructedLeakDetectorState;
+    } catch (final RuntimeException | Error failure) {
+      if (constructedLeakDetectorState != null) {
+        try {
+          constructedLeakDetectorState.closed.set(true);
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+      }
+      if (pageZeroRegistered) {
+        try {
+          ALL_PAGE_0_INSTANCES.remove(this);
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+      }
+      if (livePageRegistered) {
+        try {
+          ALL_LIVE_PAGES.remove(this);
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+      }
+      if (pageTypeCounted && pagesByTypeCounter != null) {
+        try {
+          pagesByTypeCounter.decrementAndGet();
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+      }
+      if (pageCreatedCounted) {
+        try {
+          PAGES_CREATED.decrementAndGet();
+        } catch (final Throwable cleanupFailure) {
+          addSuppressedBestEffort(failure, cleanupFailure);
+        }
+      }
+      releaseConstructorFrameAfterFailure(failure);
+      throw failure;
     }
   }
 
@@ -1202,15 +1275,78 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       return;
     }
     final MemorySegment allocated = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
-    slottedPageCapacity = (int) allocated.byteSize();
-    PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
-    // Bound the view to the REAL capacity: reinterpret(Long.MAX_VALUE) disabled every FFM
-    // bounds check on the hottest read/write surface, turning any directory/heap-offset bug
-    // into silent cross-segment corruption inside the shared region instead of an exception.
-    publishSlottedPage(allocated.reinterpret(slottedPageCapacity));
-    cachedHeapEnd = 0;
-    cachedHeapUsed = 0;
-    cachedPopulatedCount = 0;
+    try {
+      final int allocatedCapacity = (int) allocated.byteSize();
+      PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
+      // Bound the view to the REAL capacity: reinterpret(Long.MAX_VALUE) disabled every FFM
+      // bounds check on the hottest read/write surface, turning any directory/heap-offset bug
+      // into silent cross-segment corruption inside the shared region instead of an exception.
+      publishSlottedPage(allocated.reinterpret(allocatedCapacity));
+      slottedPageCapacity = allocatedCapacity;
+      cachedHeapEnd = 0;
+      cachedHeapUsed = 0;
+      cachedPopulatedCount = 0;
+    } catch (final RuntimeException | Error failure) {
+      // A constructor which throws is never observable, so close() cannot recover this frame.
+      // Release it here, including the unlikely case where publication itself failed after storing
+      // the segment. Cleanup diagnostics must never replace the original initialization failure.
+      try {
+        final MemorySegment published = slottedPage;
+        if (published != null && published.address() == allocated.address()) {
+          stampBaseSegment = null;
+          slottedPage = null;
+          stampCoordinates = STAMP_COORDINATES_UNBOUND;
+          final long generation = stampBindingGeneration;
+          stampBindingGeneration = (generation & 1L) == 0L
+              ? generation + 2L
+              : generation + 1L;
+        }
+        slottedPageCapacity = 0;
+      } catch (final Throwable rollbackFailure) {
+        addSuppressedBestEffort(failure, rollbackFailure);
+      }
+      try {
+        segmentAllocator.release(allocated);
+      } catch (final Throwable releaseFailure) {
+        addSuppressedBestEffort(failure, releaseFailure);
+      }
+      throw failure;
+    }
+  }
+
+  /** Release a fully published eager frame when later constructor work fails. */
+  private void releaseConstructorFrameAfterFailure(final Throwable primaryFailure) {
+    final MemorySegment frame = slottedPage;
+    if (frame == null) {
+      return;
+    }
+
+    // This instance was never published, but leave its internal binding coherent before returning
+    // the frame so a diagnostic/cleanup reference cannot retain a dangling segment.
+    stampBaseSegment = null;
+    slottedPage = null;
+    stampCoordinates = STAMP_COORDINATES_UNBOUND;
+    final long generation = stampBindingGeneration;
+    stampBindingGeneration = (generation & 1L) == 0L
+        ? generation + 2L
+        : generation + 1L;
+    slottedPageCapacity = 0;
+    try {
+      segmentAllocator.release(frame);
+    } catch (final Throwable releaseFailure) {
+      addSuppressedBestEffort(primaryFailure, releaseFailure);
+    }
+  }
+
+  private static void addSuppressedBestEffort(final Throwable primaryFailure, final Throwable cleanupFailure) {
+    if (cleanupFailure == primaryFailure) {
+      return;
+    }
+    try {
+      primaryFailure.addSuppressed(cleanupFailure);
+    } catch (final Throwable ignored) {
+      // Retaining the original frame-initialization failure is more important than diagnostics.
+    }
   }
 
   /**
@@ -1486,8 +1622,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
    * Release node object references to allow GC to reclaim them.
    * <p>
    * MUST only be called after {@code addReferences()} has serialized all records into
-   * {@code slotMemory} and the compressed form is cached via {@code setCompressedSegment()} or
-   * {@code setBytes()}. After this call, individual records can still be reconstructed on demand from
+   * {@code slotMemory}. Normally the compressed form is already cached via
+   * {@code setCompressedSegment()} or {@code setBytes()}; the async disposable-copy path instead
+   * keeps the serialized sink alive until it copies that exact prefix into the page's frame after
+   * this method returns. After this call, individual records can still be reconstructed on demand from
    * {@code slotMemory} via {@code getSlot(offset)} in
    * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
    */
@@ -2019,6 +2157,53 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     final byte[] out = new byte[length];
     MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, out, 0, length);
     return out;
+  }
+
+  /**
+   * Copy a fused {@code OBJECT_NAMED_STRING} slot's stored payload into caller-owned scratch.
+   *
+   * <p>The stored representation is copied verbatim: raw UTF-8 stays raw and FSST bytes stay
+   * encoded. A non-negative return value is always the exact payload length. If it exceeds
+   * {@code destination.length}, the destination is left untouched so a grow-only caller can resize
+   * and retry without preserving a partial value. Zero is the valid empty-string length; {@code -1}
+   * means that the slot has no payload. No view of the page's native memory escapes this method.
+   *
+   * <p>The caller must already have established that {@code slotNumber} contains a fused
+   * {@code OBJECT_NAMED_STRING}; this is the allocation-free companion to
+   * {@link #readFusedObjectNamedStringStoredBytes(int)} for the page-seal path.
+   *
+   * @param slotNumber slot to read
+   * @param destination caller-owned destination starting at offset zero
+   * @return exact required/copied length, or {@code -1} when the slot has no payload
+   */
+  int copyFusedObjectNamedStringStoredBytes(final int slotNumber, final byte[] destination) {
+    if (destination == null) {
+      throw new NullPointerException("destination");
+    }
+    if (slotNumber < 0 || slotNumber >= PageLayout.SLOT_COUNT) {
+      throw new IndexOutOfBoundsException("slotNumber=" + slotNumber);
+    }
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return -1;
+    }
+    final int heapOffset = heapOffsetOf(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDSTR_PAYLOAD) & 0xFF;
+    final long payloadStart = recordBase + 1 + NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT + fieldOff;
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length < 0) {
+      return -1;
+    }
+    if (length > destination.length) {
+      return length;
+    }
+    if (length > 0) {
+      final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+      MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, destination, 0, length);
+    }
+    return length;
   }
 
   /**
@@ -5836,4 +6021,3 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
   }
 
 }
-

@@ -212,7 +212,18 @@ public final class GoldenFormatTest {
           // FSST_SYMBOL_TABLE=36 added when symbol tables moved out of pages and into the name
           // dictionary's trie. A new id, appended to the free range — no existing id moved, so no
           // database written before it can contain one and every one of them still reads.
-          + "REVISION_REFERENCES_NODE=35,FSST_SYMBOL_TABLE=36,PROJECTION_INDEX_LEAF=44,"
+          //
+          // VALUE_DICTIONARY_ENTRY=37 / _DIRECTORY=38 / _HEADER=39 are the resource-wide value
+          // dictionary's record family (the reverse entry addressed by its id, the sorted
+          // (hash, id) directory blocks, and the header that counts both). Same case as 36 and
+          // deliberately so: three ids taken from the free range 37-39, NO existing id moved, and
+          // the kinds only ever appear inside a projection index built by a version that knows
+          // them. A database written before they existed cannot contain one, so every such
+          // database still reads unchanged — which is why this needs no BinaryEncodingVersion or
+          // superblock bump, and why docs/DISK_FORMAT.md (which documents pages and files, not the
+          // node-kind roster) is unaffected. Renumbering any of them later WOULD be a format break.
+          + "REVISION_REFERENCES_NODE=35,FSST_SYMBOL_TABLE=36,VALUE_DICTIONARY_ENTRY=37,"
+          + "VALUE_DICTIONARY_DIRECTORY=38,VALUE_DICTIONARY_HEADER=39,PROJECTION_INDEX_LEAF=44,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test

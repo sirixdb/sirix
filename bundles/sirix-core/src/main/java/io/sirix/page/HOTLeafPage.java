@@ -29,6 +29,7 @@
 package io.sirix.page;
 
 import io.sirix.cache.CacheablePage;
+import io.sirix.cache.FrameReusedException;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.LE;
 import io.sirix.api.StorageEngineReader;
@@ -44,6 +45,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.DiagnosticSettings;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.ShortVector;
@@ -163,6 +165,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   /** Maximum entries for PEXT fast-path (SparsePartialKeys / SIMD equality limit). */
   private static final int PEXT_MAX_ENTRIES = 32;
 
+  /** Conservative fixed on-heap footprint charged by the bounded HOT page cache. */
+  private static final long ESTIMATED_FIXED_HEAP_BYTES = 4L * 1024L;
+
+  /**
+   * Conservative retained heap charge for one side-map key/reference pair. Covers an
+   * uncompressed-oop {@link PageReference} plus this fastutil map's key/value-table capacity
+   * immediately after a resize; cache accounting must not depend on CompressedOops being enabled.
+   */
+  private static final long ESTIMATED_SIDE_REFERENCE_HEAP_BYTES = 144L;
+
+  /** Upper bound for a non-empty array header plus its final alignment padding. */
+  private static final long ESTIMATED_ARRAY_OVERHEAD_BYTES = 24L;
+
   /** Maximum length for keys and values — must fit in an unsigned short (2 bytes). */
   private static final int MAX_KEY_VALUE_LENGTH = 0xFFFF;
 
@@ -275,7 +290,114 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   private volatile boolean hot = false;
 
   // ===== Page references for overflow entries =====
-  private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<PageReference> pageReferences;
+  private final SideReferenceMap pageReferences;
+
+  private static final int SIDE_REFERENCES_ACTIVE = 0;
+  private static final int SIDE_REFERENCES_RETIRED = 1;
+  private static final int SIDE_REFERENCES_RELEASING = 2;
+  private static final int SIDE_REFERENCES_RELEASED = 3;
+
+  /** Readers already inside the side map when eviction retires it. */
+  private final AtomicInteger sideReferenceReaders = new AtomicInteger();
+
+  /** ACTIVE -> RETIRED -> RELEASING -> RELEASED; retirement prevents any new map access. */
+  private final AtomicInteger sideReferenceLifecycle = new AtomicInteger(SIDE_REFERENCES_ACTIVE);
+
+  /** Fastutil table scan with no values-view, iterator, list, or lambda allocation per epoch. */
+  private static final class SideReferenceMap extends Long2ObjectOpenHashMap<PageReference> {
+    boolean allDurableAndUnclaimed() {
+      // fastutil's generic backing table is allocated as Object[]. Keep that runtime type and
+      // cast occupied elements individually; reading it as PageReference[] causes a CCE.
+      final Object[] values = value;
+      if (containsNullKey) {
+        final PageReference zeroKeyReference = (PageReference) values[n];
+        if (zeroKeyReference == null || !zeroKeyReference.refreshesToUnclaimedDurableReference()) {
+          return false;
+        }
+      }
+      for (int position = n; position-- != 0;) {
+        if (key[position] != 0L) {
+          final PageReference reference = (PageReference) values[position];
+          if (reference == null || !reference.refreshesToUnclaimedDurableReference()) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+
+    /**
+     * Whether every entry has the shallow, key-only shape admitted to the bounded HOT leaf cache.
+     * This is deliberately a raw, non-mutating check: a completed transaction-log handle must have
+     * been materialized and dropped before cache admission.
+     */
+    boolean allCanonicalCacheReferences() {
+      // fastutil's generic backing table is allocated as Object[]. Keep that runtime type and
+      // cast occupied elements individually; reading it as PageReference[] causes a CCE.
+      final Object[] values = value;
+      if (containsNullKey && !isCanonicalCacheReference((PageReference) values[n])) {
+        return false;
+      }
+      for (int position = n; position-- != 0;) {
+        if (key[position] != 0L && !isCanonicalCacheReference((PageReference) values[position])) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    private static boolean isCanonicalCacheReference(final @Nullable PageReference reference) {
+      return reference != null && reference.isRawCanonicalHOTCacheReference();
+    }
+
+    /** Copy every occupied primitive key into caller-owned scratch without creating a key-set view. */
+    int copyKeysInto(final long[] destination) {
+      Objects.requireNonNull(destination);
+      final int expected = size();
+      if (destination.length < expected) {
+        throw new IllegalArgumentException(
+            "destination length " + destination.length + " is smaller than side-reference count " + expected);
+      }
+
+      int output = 0;
+      if (containsNullKey) {
+        destination[output++] = 0L;
+      }
+      for (int position = n; position-- != 0;) {
+        final long candidate = key[position];
+        if (candidate != 0L) {
+          destination[output++] = candidate;
+        }
+      }
+      return output;
+    }
+
+    /** Sever retained page references and release the expanded hash-table arrays after teardown. */
+    void releaseRetainedReferences() {
+      clear();
+      trim();
+    }
+
+    /** Allocation-free commit descent over fastutil's backing table. */
+    void commitReferences(final StorageEngineWriter pageWriteTrx) {
+      final Object[] values = value;
+      if (containsNullKey) {
+        commitReference(pageWriteTrx, (PageReference) values[n]);
+      }
+      for (int position = n; position-- != 0;) {
+        if (key[position] != 0L) {
+          commitReference(pageWriteTrx, (PageReference) values[position]);
+        }
+      }
+    }
+
+    private static void commitReference(final StorageEngineWriter pageWriteTrx, final PageReference reference) {
+      if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
+          && reference.getLogKey() == Constants.NULL_ID_INT)) {
+        pageWriteTrx.commit(reference);
+      }
+    }
+  }
 
   // ===== Slot-granular CoW state (mirrors KeyValueLeafPage.preservationBitmap) =====
   // Each bit at position i in dirtyBitmap tracks whether entry index i has been mutated since
@@ -343,7 +465,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     this.usedSlotMemorySize = 0;
     this.commonPrefix = EMPTY_PREFIX;
     this.commonPrefixLen = 0;
-    this.pageReferences = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+    this.pageReferences = new SideReferenceMap();
   }
 
   /**
@@ -378,7 +500,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         ? commonPrefix
         : EMPTY_PREFIX;
     this.commonPrefixLen = commonPrefixLen;
-    this.pageReferences = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+    this.pageReferences = new SideReferenceMap();
     // Eagerly build PEXT index so read-only lookups after deserialization
     // use PEXT-accelerated search immediately (no first-search latency spike).
     buildPextIndex();
@@ -2464,41 +2586,69 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // Allocate new off-heap memory
     final MemorySegmentAllocator allocator = Allocators.getInstance();
     final MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
-    final Runnable newReleaser = () -> allocator.release(newSlotMemory);
+    HOTLeafPage copy = null;
+    try {
+      final Runnable newReleaser = () -> allocator.release(newSlotMemory);
 
-    // Bulk copy off-heap data — mutations happen in-place at sub-byte granularity, so the
-    // shadow leaf needs an independent slot heap. The dirty bitmap (cleared below) tracks
-    // which entry indices the writer subsequently mutates; serialize-time logic (Phase 4)
-    // can emit only those entries plus rely on completePageRef for the rest.
-    MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
+      // Bulk copy off-heap data — mutations happen in-place at sub-byte granularity, so the
+      // shadow leaf needs an independent slot heap. The dirty bitmap (cleared below) tracks
+      // which entry indices the writer subsequently mutates; serialize-time logic (Phase 4)
+      // can emit only those entries plus rely on completePageRef for the rest.
+      MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
 
-    // Deep copy on-heap arrays
-    final int[] newSlotOffsets = Arrays.copyOf(slotOffsets, slotOffsets.length);
+      // Deep copy on-heap arrays
+      final int[] newSlotOffsets = Arrays.copyOf(slotOffsets, slotOffsets.length);
 
-    // Deep copy prefix
-    final byte[] newPrefix = commonPrefixLen > 0
-        ? Arrays.copyOf(commonPrefix, commonPrefixLen)
-        : EMPTY_PREFIX;
+      // Deep copy prefix
+      final byte[] newPrefix = commonPrefixLen > 0
+          ? Arrays.copyOf(commonPrefix, commonPrefixLen)
+          : EMPTY_PREFIX;
 
-    // Create new page with copied data
-    final HOTLeafPage copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser,
-        newSlotOffsets, entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
+      // Create new page with copied data. Until this returns, this method still owns the raw frame
+      // and must release it directly if construction fails.
+      copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser,
+          newSlotOffsets, entryCount, usedSlotMemorySize, newPrefix, commonPrefixLen);
 
-    // Deep copy page references (projection segment refs). Copying the PageReference itself —
-    // not sharing the instance — keeps CoW discipline: a commit through one page copy mutates
-    // (setPage(null)/setKey) only that copy's reference, never a historical page's view. A
-    // reference already resolved to a disk key carries the key through the copy constructor, so
-    // unchanged segments stay shared across revisions by reference.
-    for (var entry : pageReferences.long2ObjectEntrySet()) {
-      copy.pageReferences.put(entry.getLongKey(), new PageReference(entry.getValue()));
+      // Deep copy resolved projection segment refs so a commit through one page copy never mutates a
+      // historical page's view. The one exception is a fresh immutable ref currently owned by the
+      // bounded background append batch: all in-transaction CoW copies MUST share that exact identity
+      // until foreground cleanup publishes its key and clears its payload. A committed historical
+      // page can never contain this marker, and map replacement/removal does not mutate the shared ref.
+      beginSideReferenceRead();
+      try {
+        for (var entry : pageReferences.long2ObjectEntrySet()) {
+          final PageReference reference = entry.getValue();
+          if (reference.hasPendingPageWrite()) {
+            if (reference.getKey() != Constants.NULL_ID_LONG || reference.getLogKey() != Constants.NULL_ID_INT
+                || !(reference.getPage() instanceof OverflowPage)) {
+              throw new IllegalStateException("Pending HOT side-page reference has inconsistent state");
+            }
+            copy.setPageReference(entry.getLongKey(), reference);
+          } else {
+            copy.setPageReference(entry.getLongKey(), new PageReference(reference));
+          }
+        }
+      } finally {
+        endSideReferenceRead();
+      }
+
+      // Slot-granular CoW: the copy starts with a clean dirty bitmap (constructor already zeroed
+      // it, but be explicit) and remembers `this` as its source for lazy fill at serialize time.
+      copy.clearDirtyBitmap();
+      copy.completePageRef = this;
+      return copy;
+    } catch (final RuntimeException | Error copyFailure) {
+      try {
+        if (copy == null) {
+          allocator.release(newSlotMemory);
+        } else {
+          copy.close();
+        }
+      } catch (final RuntimeException | Error closeFailure) {
+        addSuppressedSafely(copyFailure, closeFailure);
+      }
+      throw copyFailure;
     }
-
-    // Slot-granular CoW: the copy starts with a clean dirty bitmap (constructor already zeroed
-    // it, but be explicit) and remembers `this` as its source for lazy fill at serialize time.
-    copy.clearDirtyBitmap();
-    copy.completePageRef = this;
-
-    return copy;
   }
 
   /**
@@ -2590,19 +2740,24 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * after entry transfer.
    */
   private void moveOverflowPageRefsAfterSplit(final HOTLeafPage target) {
-    if (pageReferences.isEmpty()) {
-      return;
-    }
-    final byte[] ownerKey = new byte[8];
-    final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
-    while (iterator.hasNext()) {
-      final var entry = iterator.next();
-      final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
-      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
-      if (target.findEntry(ownerKey) >= 0) {
-        target.pageReferences.put(entry.getLongKey(), entry.getValue());
-        iterator.remove();
+    beginSideReferenceRead();
+    try {
+      if (pageReferences.isEmpty()) {
+        return;
       }
+      final byte[] ownerKey = new byte[8];
+      final var iterator = pageReferences.long2ObjectEntrySet().fastIterator();
+      while (iterator.hasNext()) {
+        final var entry = iterator.next();
+        final long ownerSlot = overflowPageRefOwnerSlot(entry.getLongKey());
+        PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+        if (target.findEntry(ownerKey) >= 0) {
+          target.setPageReference(entry.getLongKey(), entry.getValue());
+          iterator.remove();
+        }
+      }
+    } finally {
+      endSideReferenceRead();
     }
   }
 
@@ -3687,7 +3842,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   /**
    * Sequence number identifying the CURRENT binding: EVEN when {@link #stampCoordinates} and
-   * {@link #slotMemory} agree, ODD while {@link #publishSlotMemory} is swapping them.
+   * {@link #slotMemory} agree on a live page, ODD while {@link #publishSlotMemory} is swapping them
+   * or permanently after teardown has invalidated the binding.
    *
    * <p>
    * A slot version is meaningless on its own — it is a sequence private to one slot, and two slots
@@ -3764,8 +3920,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * reader's own frame costs one extra {@code long} on the stack and makes that impossible.
    * </p>
    *
-   * @return the current binding generation; ODD means a rebind is in flight and no read taken now can
-   *         be proved, which {@link #validateStamp(long, long)} rejects
+   * @return the current binding generation; ODD means a rebind is in flight or teardown has begun, so
+   *         no read taken now can be proved, which {@link #validateStamp(long, long)} rejects
    */
   public long readStampBinding() {
     return stampBindingGeneration;
@@ -3835,7 +3991,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
     // reads, and the version check below would compare it against an unrelated counter. This also
     // covers the segment swap itself, so the UNBACKED branch is not a special case — a page that
     // swapped from unbacked to frame-backed, or the reverse, changes generation like any other.
-    // An ODD binding was snapshotted mid-swap and can never be certified, whatever it compares to.
+    // An ODD binding was snapshotted mid-swap or after teardown and can never be certified, whatever
+    // it compares to.
     if (stampBindingGeneration != bindingAtRead || (bindingAtRead & 1L) != 0L) {
       return false;
     }
@@ -4025,13 +4182,143 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
   }
 
   /**
-   * Release off-heap memory. Must only be called once — callers must ensure single-call semantics via
-   * the {@link #closed} atomic flag.
+   * Release off-heap memory and references retained solely by this page. Must only be called once —
+   * callers must first win the {@link #closed} transition after observing zero live guards.
    */
   private void releaseMemory() {
-    if (releaser != null) {
-      releaser.run();
+    // Permanently tombstone this page's stamp binding before invoking an external releaser. The
+    // ordinary frame-slot releaser bumps its slot version, but a releaser that fails before that
+    // bump must still make every outstanding optimistic read retry. Leaving the generation odd is
+    // sufficient and adds no load to the read-side validation path.
+    stampBindingGeneration |= 1L;
+    Throwable failure = null;
+    try {
+      if (releaser != null) {
+        releaser.run();
+      }
+    } catch (final RuntimeException | Error frameReleaseFailure) {
+      failure = frameReleaseFailure;
     }
+    final Throwable sideReferenceReleaseFailure = retireAndReleaseSideReferences();
+    try {
+      if (sideReferenceReleaseFailure != null) {
+        if (failure == null) {
+          failure = sideReferenceReleaseFailure;
+        } else {
+          addSuppressedSafely(failure, sideReferenceReleaseFailure);
+        }
+      }
+    } finally {
+      completePageRef = null;
+    }
+    if (failure instanceof RuntimeException runtimeException) {
+      throw runtimeException;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+  }
+
+  /** Preserve the primary teardown failure even for a reused Throwable or disabled suppression. */
+  static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // Teardown must keep propagating the failure that triggered cleanup.
+    }
+  }
+
+  /**
+   * Enter one allocation-free side-map access. The second lifecycle read closes the race in which
+   * retirement starts after the first check but before this reader is published.
+   */
+  void beginSideReferenceRead() {
+    if (sideReferenceLifecycle.get() != SIDE_REFERENCES_ACTIVE) {
+      throw sideReferencesRetiredException();
+    }
+    sideReferenceReaders.incrementAndGet();
+    if (sideReferenceLifecycle.get() != SIDE_REFERENCES_ACTIVE) {
+      // This decrement can be the transition to zero after the retiring thread already returned.
+      // Route it through the ordinary exit so exactly one thread performs deferred reclamation.
+      endSideReferenceRead();
+      throw sideReferencesRetiredException();
+    }
+  }
+
+  /**
+   * Diagnostic/cache-accounting variant: a retired page retains no cache-owned side-map storage and
+   * should report zero rather than allocate an exception merely to sample its weight.
+   */
+  private boolean tryBeginSideReferenceRead() {
+    if (sideReferenceLifecycle.get() != SIDE_REFERENCES_ACTIVE) {
+      return false;
+    }
+    sideReferenceReaders.incrementAndGet();
+    if (sideReferenceLifecycle.get() != SIDE_REFERENCES_ACTIVE) {
+      endSideReferenceRead();
+      return false;
+    }
+    return true;
+  }
+
+  void endSideReferenceRead() {
+    final int remaining = sideReferenceReaders.decrementAndGet();
+    if (remaining < 0) {
+      throw new IllegalStateException("Side-reference reader count underflow for page " + recordPageKey);
+    }
+    if (remaining == 0) {
+      // Never surface deferred cleanup failure from a reader's finally block: doing so would replace
+      // that reader's successful result or stable corruption exception. clear() already severs the
+      // PageReference graph before trim() can be the (exceptional) failing operation.
+      tryReleaseRetiredSideReferences();
+    }
+  }
+
+  /**
+   * Retire the side map after the frame releaser has invalidated its stamp. Retirement itself never
+   * waits: an already-published reader keeps the table stable and the last exit performs the clear.
+   *
+   * @return a synchronous cleanup failure when this thread won reclamation; deferred reader cleanup
+   *         deliberately consumes its own failure
+   */
+  private @Nullable Throwable retireAndReleaseSideReferences() {
+    if (!sideReferenceLifecycle.compareAndSet(SIDE_REFERENCES_ACTIVE, SIDE_REFERENCES_RETIRED)) {
+      return null;
+    }
+    return tryReleaseRetiredSideReferences();
+  }
+
+  /** Claim and perform exactly-once reclamation when no published side-map reader remains. */
+  private @Nullable Throwable tryReleaseRetiredSideReferences() {
+    if (sideReferenceReaders.get() != 0
+        || !sideReferenceLifecycle.compareAndSet(SIDE_REFERENCES_RETIRED, SIDE_REFERENCES_RELEASING)) {
+      return null;
+    }
+    Throwable failure = null;
+    try {
+      pageReferences.releaseRetainedReferences();
+    } catch (final RuntimeException | Error sideReferenceReleaseFailure) {
+      failure = sideReferenceReleaseFailure;
+    } finally {
+      sideReferenceLifecycle.set(SIDE_REFERENCES_RELEASED);
+    }
+    return failure;
+  }
+
+  private FrameReusedException sideReferencesRetiredException() {
+    return new FrameReusedException("HOT leaf " + recordPageKey + " side references were retired after frame reuse");
+  }
+
+  /** Package-private lifecycle probes used by deterministic retirement-race tests. */
+  boolean sideReferencesRetired() {
+    return sideReferenceLifecycle.get() != SIDE_REFERENCES_ACTIVE;
+  }
+
+  boolean sideReferencesReleased() {
+    return sideReferenceLifecycle.get() == SIDE_REFERENCES_RELEASED;
   }
 
   // ===== KeyValuePage interface implementation =====
@@ -4093,11 +4380,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
       return null;
     }
     final int offset = slotOffsets[slotNumber];
+    return slotMemory.asSlice(offset, getSlotSize(slotNumber));
+  }
+
+  /** Exact encoded size of one slot without materialising a {@link MemorySegment} slice. */
+  int getSlotSize(final int slotNumber) {
+    Objects.checkIndex(slotNumber, entryCount);
+    final int offset = slotOffsets[slotNumber];
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final int valueOffset = offset + 2 + suffixLen;
     final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
-    final int totalLen = 2 + suffixLen + 2 + valueLen;
-    return slotMemory.asSlice(offset, totalLen);
+    return 2 + suffixLen + 2 + valueLen;
   }
 
   @Override
@@ -4178,12 +4471,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   @Override
   public void setPageReference(long key, PageReference reference) {
-    pageReferences.put(key, reference);
+    Objects.requireNonNull(reference);
+    beginSideReferenceRead();
+    try {
+      pageReferences.put(key, reference);
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   @Override
   public PageReference getPageReference(long key) {
-    return pageReferences.get(key);
+    beginSideReferenceRead();
+    try {
+      return pageReferences.get(key);
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   /**
@@ -4191,12 +4495,103 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * or was tombstoned). Returns the removed reference or {@code null} if absent.
    */
   public @Nullable PageReference removePageReference(long key) {
-    return pageReferences.remove(key);
+    beginSideReferenceRead();
+    try {
+      return pageReferences.remove(key);
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   /** Number of side-map references on this page. */
   public int segmentRefCount() {
-    return pageReferences.size();
+    beginSideReferenceRead();
+    try {
+      return pageReferences.size();
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /**
+   * Conservative, allocation-free estimate of the heap retained by this HOT leaf, excluding its
+   * separately charged native slot frame. The fixed charge covers the leaf object, slot-offset and
+   * dirty-bit arrays, atomics, and an empty side map; variable arrays and side references are added
+   * explicitly so a bounded cache remains honest for unusually deep keys and large projection
+   * leaves.
+   *
+   * @return estimated retained heap bytes, or zero once eviction has retired this leaf
+   */
+  public long estimatedRetainedHeapBytes() {
+    if (!tryBeginSideReferenceRead()) {
+      return 0L;
+    }
+    try {
+      return estimatedRetainedHeapBytesUnderSideReferenceRead();
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /**
+   * Validate the canonical committed-cache ownership shape and return its retained-heap estimate in
+   * the same side-map critical section. Canonical cached leaves are fully materialized and their side
+   * references are durable key-only objects: an in-memory side page, fragment chain, pending/log
+   * claim, or {@link #completePageRef} would retain a graph that the bounded cache weight does not
+   * charge.
+   *
+   * <p>The validation and estimate are allocation-free and atomic with respect to side-map
+   * retirement. A retired leaf fails loudly with {@link FrameReusedException}; a live but
+   * noncanonical leaf fails with {@link IllegalStateException} rather than entering the cache under
+   * an incomplete weight.</p>
+   *
+   * @return the conservative on-heap byte estimate for a canonical cache-admission leaf
+   */
+  public long estimatedCanonicalCacheRetainedHeapBytes() {
+    beginSideReferenceRead();
+    try {
+      if (completePageRef != null || !pageReferences.allCanonicalCacheReferences()) {
+        throw new IllegalStateException(
+            "HOT leaf " + recordPageKey + " retains noncanonical ownership state at cache admission");
+      }
+      return estimatedRetainedHeapBytesUnderSideReferenceRead();
+    } finally {
+      endSideReferenceRead();
+    }
+  }
+
+  /** Caller must hold one side-reference read critical section. */
+  private long estimatedRetainedHeapBytesUnderSideReferenceRead() {
+    long bytes = ESTIMATED_FIXED_HEAP_BYTES;
+    bytes += estimatedArrayHeapBytes(commonPrefix.length, Byte.BYTES);
+    bytes += estimatedArrayHeapBytes(ancestorOwnedBits.length, Integer.BYTES);
+    bytes += estimatedArrayHeapBytes(ancestorOwnedValues.length, Byte.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKBytes == null ? 0 : densePKBytes.length, Byte.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKShorts == null ? 0 : densePKShorts.length, Short.BYTES);
+    bytes += estimatedArrayHeapBytes(densePKInts == null ? 0 : densePKInts.length, Integer.BYTES);
+    bytes += (long) pageReferences.size() * ESTIMATED_SIDE_REFERENCE_HEAP_BYTES;
+    return bytes;
+  }
+
+  private static long estimatedArrayHeapBytes(final int length, final int elementBytes) {
+    return length == 0
+        ? 0L
+        : ESTIMATED_ARRAY_OVERHEAD_BYTES + (long) length * elementBytes;
+  }
+
+  /**
+   * Allocation-free proof that every overflow/side-map reference has a durable offset and no live,
+   * frozen, or pending transaction claim.
+   *
+   * @return {@code true} when this leaf can be serialized without recursive side-page writes
+   */
+  public boolean allSideReferencesDurableAndUnclaimed() {
+    beginSideReferenceRead();
+    try {
+      return pageReferences.allDurableAndUnclaimed();
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   /**
@@ -4204,9 +4599,31 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    * identical bytes.
    */
   public long[] overflowPageRefKeysSorted() {
-    final long[] keys = pageReferences.keySet().toLongArray();
+    final long[] keys;
+    beginSideReferenceRead();
+    try {
+      keys = pageReferences.keySet().toLongArray();
+    } finally {
+      endSideReferenceRead();
+    }
     Arrays.sort(keys);
     return keys;
+  }
+
+  /**
+   * Copy the side-map's primitive keys into serializer-owned scratch. The order is deliberately
+   * unspecified; the serializer sorts the populated prefix before emitting it.
+   *
+   * @param destination destination with capacity of at least {@link #segmentRefCount()}
+   * @return number of copied keys
+   */
+  int copyOverflowPageRefKeysInto(final long[] destination) {
+    beginSideReferenceRead();
+    try {
+      return pageReferences.copyKeysInto(destination);
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   /**
@@ -4219,25 +4636,30 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
    */
   @Override
   public void commit(final StorageEngineWriter pageWriteTrx) {
-    if (pageReferences.isEmpty()) {
-      return;
-    }
-    for (final PageReference reference : pageReferences.values()) {
-      if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
-          && reference.getLogKey() == Constants.NULL_ID_INT)) {
-        pageWriteTrx.commit(reference);
-      }
+    beginSideReferenceRead();
+    try {
+      // Commit runs only on writer/TIL-private leaves that have already been removed from the
+      // shared cache. Direct backing-table descent is therefore safe from cache reclamation and
+      // avoids allocating a PageReference[] on this high-frequency path.
+      pageReferences.commitReferences(pageWriteTrx);
+    } finally {
+      endSideReferenceRead();
     }
   }
 
   @Override
   public Set<Map.Entry<Long, PageReference>> referenceEntrySet() {
-    // Convert fastutil entry set to standard Set<Map.Entry>
-    Set<Map.Entry<Long, PageReference>> result = new HashSet<>();
-    for (var entry : pageReferences.long2ObjectEntrySet()) {
-      result.add(Map.entry(entry.getLongKey(), entry.getValue()));
+    beginSideReferenceRead();
+    try {
+      // Convert fastutil entry set to standard Set<Map.Entry>
+      Set<Map.Entry<Long, PageReference>> result = new HashSet<>();
+      for (var entry : pageReferences.long2ObjectEntrySet()) {
+        result.add(Map.entry(entry.getLongKey(), entry.getValue()));
+      }
+      return result;
+    } finally {
+      endSideReferenceRead();
     }
-    return result;
   }
 
   @Override
@@ -4251,9 +4673,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
 
   @Override
   public List<PageReference> getReferences() {
-    // HOTLeafPage doesn't have child page references in the traditional sense
-    // Return the overflow page references
-    return new ArrayList<>(pageReferences.values());
+    beginSideReferenceRead();
+    try {
+      // HOTLeafPage doesn't have child page references in the traditional sense
+      // Return the overflow page references
+      return new ArrayList<>(pageReferences.values());
+    } finally {
+      endSideReferenceRead();
+    }
   }
 
   @Override
@@ -4564,4 +4991,3 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, CacheablePag
         + guardCount.get() + ", closed=" + closed.get() + '}';
   }
 }
-

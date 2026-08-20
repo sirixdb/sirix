@@ -108,4 +108,38 @@ public final class IndirectPage extends AbstractForwardingPage {
 
     return reference;
   }
+
+  /**
+   * Allocation-free bottom-up spill proof for every materialized child reference.
+   *
+   * <p>The full delegate needs a special path: {@link FullReferencesPage#getReferences()} creates an
+   * {@code Arrays.asList} wrapper, and its copy constructor represents unused positions as virgin
+   * {@link PageReference} objects rather than {@code null}. Sparse delegates already expose their
+   * retained list directly. Any non-virgin slot must resolve to a durable, unclaimed offset.</p>
+   *
+   * @return {@code true} if this page can be serialized without recursing into a child
+   */
+  public boolean allChildReferencesDurableAndUnclaimed() {
+    if (delegate instanceof FullReferencesPage fullReferencesPage) {
+      final int referenceCount = fullReferencesPage.getReferencesCount();
+      for (int i = 0; i < referenceCount; i++) {
+        final PageReference reference = fullReferencesPage.referenceAt(i);
+        if (reference != null && !reference.isVirginStructuralPlaceholder()
+            && !reference.refreshesToUnclaimedDurableReference()) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    final var references = delegate.getReferences();
+    for (int i = 0; i < references.size(); i++) {
+      final PageReference reference = references.get(i);
+      if (reference != null && !reference.isVirginStructuralPlaceholder()
+          && !reference.refreshesToUnclaimedDurableReference()) {
+        return false;
+      }
+    }
+    return true;
+  }
 }

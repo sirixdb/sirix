@@ -4,6 +4,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.page.pax.StringRegion;
+import io.sirix.page.pax.StringRegionEncoderTestAccess;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
@@ -13,15 +14,20 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Objects;
 
 import static io.sirix.cache.MemorySegmentAllocator.SIXTYFOUR_KB;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import java.lang.foreign.ValueLayout;
-import java.lang.foreign.MemorySegment;
 
 /**
  * End-to-end test for {@link KeyValueLeafPage}'s lazy StringRegion build path.
@@ -201,5 +207,133 @@ final class StringRegionIntegrationTest {
     assertTrue(KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.STRING_VALUE.getId()));
     assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NAMED_NUMBER.getId()));
     assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NAMED_OBJECT.getId()));
+  }
+
+  @Test
+  @DisplayName("stored fused strings copy atomically into reusable caller scratch")
+  void storedStringScratchCopyContract() {
+    final KeyValueLeafPage page = createPage(0);
+    final byte[] stored = bytes("stored-fsst-form");
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(0,
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(),
+        7,
+        -1L,
+        0,
+        0,
+        0L,
+        stored,
+        HASH_FN,
+        (byte[]) null,
+        true,
+        null);
+    node.setWriteSingleton(true);
+    page.serializeNewRecord(node, 0, 0);
+
+    final byte[] tooSmall = new byte[stored.length - 1];
+    Arrays.fill(tooSmall, (byte) 0x5a);
+    final byte[] untouched = tooSmall.clone();
+    assertEquals(stored.length, page.copyFusedObjectNamedStringStoredBytes(0, tooSmall));
+    assertArrayEquals(untouched, tooSmall, "a failed capacity probe must not copy a prefix");
+
+    final byte[] exact = new byte[stored.length];
+    assertEquals(stored.length, page.copyFusedObjectNamedStringStoredBytes(0, exact));
+    assertArrayEquals(stored, exact);
+    assertTrue(page.isFusedObjectNamedStringValueCompressed(0));
+    assertArrayEquals(stored, page.readFusedObjectNamedStringStoredBytes(0),
+        "the public detached byte[] API remains unchanged");
+
+    assertEquals(-1, page.copyFusedObjectNamedStringStoredBytes(1, exact));
+    assertThrows(IndexOutOfBoundsException.class,
+        () -> page.copyFusedObjectNamedStringStoredBytes(PageLayout.SLOT_COUNT, exact));
+    assertThrows(NullPointerException.class,
+        () -> page.copyFusedObjectNamedStringStoredBytes(0, null));
+  }
+
+  @Test
+  @DisplayName("PageKind releases path candidates across true/false/false/true resource switches")
+  void pathCandidateLifecycleAcrossResourceModes() {
+    // Start from a known state even when another test ran on this worker thread first.
+    assertNull(PageKind.resetStringRegionPathCandidate(false));
+    final StringRegion.Encoder name = new StringRegion.Encoder();
+    final StringRegion.Encoder path = Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
+    final byte[] scratch = new byte[192];
+
+    try {
+      addSharedCandidateValue(name, path, scratch, "same-value", false);
+      addSharedCandidateValue(name, path, scratch, "same-value", true);
+      addSharedCandidateValue(name, path, scratch, "same-value", false);
+      final byte[] nameA = name.finish(StringRegion.TAG_KIND_NAME);
+      final byte[] pathA = path.finish(StringRegion.TAG_KIND_PATH_NODE);
+
+      // true -> false: this is the production acquisition order. reset(name) must defer because the
+      // old path candidate still borrows its ranges; the actual PageKind helper must then release it
+      // even though it returns null for a no-path resource.
+      name.reset();
+      assertTrue(StringRegionEncoderTestAccess.valueStoreLength(name) > 0);
+      assertNull(PageKind.resetStringRegionPathCandidate(false));
+      assertEquals(0, StringRegionEncoderTestAccess.valueStoreLength(name));
+
+      int bLogicalLength = 0;
+      for (int i = 0; i < 48; i++) {
+        final String value = "large-page-value-" + i + "-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        bLogicalLength += bytes(value).length;
+        addNameCandidateValue(name, scratch, value, (i & 1) != 0);
+      }
+      final byte[] nameB = name.finish(StringRegion.TAG_KIND_NAME);
+      final int highWaterCapacity = StringRegionEncoderTestAccess.valueStoreCapacity(name);
+      assertTrue(highWaterCapacity > 1024);
+      assertEquals(bLogicalLength, StringRegionEncoderTestAccess.valueStoreLength(name));
+
+      // false -> false: the next name-only page must start at offset zero, not append after B.
+      name.reset();
+      assertNull(PageKind.resetStringRegionPathCandidate(false));
+      assertEquals(0, StringRegionEncoderTestAccess.valueStoreLength(name));
+      for (int i = 0; i < 48; i++) {
+        final String value = "large-page-value-" + i + "-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        addNameCandidateValue(name, scratch, value, (i & 1) != 0);
+      }
+      assertEquals(bLogicalLength, StringRegionEncoderTestAccess.valueStoreLength(name));
+      assertEquals(highWaterCapacity, StringRegionEncoderTestAccess.valueStoreCapacity(name));
+      assertArrayEquals(nameB, name.finish(StringRegion.TAG_KIND_NAME));
+
+      // false -> true: PageKind reuses the same per-thread path encoder and both wires reproduce A.
+      name.reset();
+      final StringRegion.Encoder enabledAgain =
+          Objects.requireNonNull(PageKind.resetStringRegionPathCandidate(true));
+      assertSame(path, enabledAgain);
+      addSharedCandidateValue(name, enabledAgain, scratch, "same-value", false);
+      addSharedCandidateValue(name, enabledAgain, scratch, "same-value", true);
+      addSharedCandidateValue(name, enabledAgain, scratch, "same-value", false);
+      assertArrayEquals(nameA, name.finish(StringRegion.TAG_KIND_NAME));
+      assertArrayEquals(pathA, enabledAgain.finish(StringRegion.TAG_KIND_PATH_NODE));
+      assertEquals(highWaterCapacity, StringRegionEncoderTestAccess.valueStoreCapacity(name));
+    } finally {
+      name.reset();
+      PageKind.resetStringRegionPathCandidate(false);
+    }
+  }
+
+  private static void addNameCandidateValue(final StringRegion.Encoder name, final byte[] scratch,
+      final String value, final boolean compressed) {
+    final byte[] source = bytes(value);
+    final int offset = 7;
+    System.arraycopy(source, 0, scratch, offset, source.length);
+    name.addValue(23, scratch, offset, source.length, compressed);
+    Arrays.fill(scratch, (byte) 0x5a);
+  }
+
+  private static void addSharedCandidateValue(final StringRegion.Encoder name,
+      final StringRegion.Encoder path, final byte[] scratch, final String value, final boolean compressed) {
+    final byte[] source = bytes(value);
+    final int offset = 7;
+    System.arraycopy(source, 0, scratch, offset, source.length);
+    name.addValueCopiedAndShareWith(23, scratch, offset, source.length, compressed, path, 101);
+    Arrays.fill(scratch, (byte) 0x5a);
+  }
+
+  private static byte[] bytes(final String value) {
+    return value.getBytes(StandardCharsets.UTF_8);
   }
 }

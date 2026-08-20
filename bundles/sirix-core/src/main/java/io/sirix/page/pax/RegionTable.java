@@ -9,6 +9,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.util.Arrays;
 import java.util.concurrent.atomic.LongAdder;
 
 /**
@@ -45,7 +46,7 @@ import java.util.concurrent.atomic.LongAdder;
  * only where each kind's bytes land in the tail — it is a permutation of the ids, checked at class
  * load, not a second id space.
  */
-public final class RegionTable {
+public final class RegionTable implements AutoCloseable {
 
   public static final byte KIND_NUMBER = 0;
   public static final byte KIND_STRING = 1;
@@ -153,14 +154,44 @@ public final class RegionTable {
    * segment from it are unreachable, which makes a stale payload reference impossible by construction
    * rather than by discipline. Per table rather than per payload so a page's regions are reclaimed as
    * one unit.
+   *
+   * <p>The one exception is a table created by {@link #newConfinedWriterTable()}. That table exists
+   * only while one disposable snapshot copy is being serialized, never escapes the serializer
+   * thread, and is closed before the encoded copy is handed to the append thread. Its confined arena
+   * makes that high-volume allocation deterministic without weakening the automatic lifetime of
+   * resident/read-side tables.</p>
    */
   private volatile Arena arena;
+
+  /** Whether this is a serializer-local table whose confined arena must be closed explicitly. */
+  private final boolean confinedWriterTable;
+
+  /** Idempotence guard for the explicitly closeable writer-table variant. */
+  private volatile boolean closed;
 
   /** Live count — number of region slots whose payload is non-empty. */
   private int liveCount;
 
   public RegionTable() {
+    this(false);
+  }
+
+  private RegionTable(final boolean confinedWriterTable) {
+    this.confinedWriterTable = confinedWriterTable;
     // payloads start as null[]; keep null semantics to distinguish "absent" from "empty bytes".
+  }
+
+  /**
+   * Create a serializer-local table backed by a lazily-created {@link Arena#ofConfined()} arena.
+   *
+   * <p>This factory is deliberately separate from the public constructor. Ordinary tables may be
+   * shared by cached pages and must retain their automatic arena lifetime; only a disposable writer
+   * that completes and closes the table on this same thread may use this variant.</p>
+   *
+   * @return an explicitly closeable, thread-confined writer table
+   */
+  public static RegionTable newConfinedWriterTable() {
+    return new RegionTable(true);
   }
 
   /**
@@ -264,7 +295,7 @@ public final class RegionTable {
       synchronized (this) {
         local = arena;
         if (local == null) {
-          local = Arena.ofAuto();
+          local = newPayloadArena();
           arena = local;
         }
       }
@@ -286,12 +317,21 @@ public final class RegionTable {
       synchronized (this) {
         local = arena;
         if (local == null) {
-          local = Arena.ofAuto();
+          local = newPayloadArena();
           arena = local;
         }
       }
     }
     return local.allocate(rawLen + DECODE_TAIL_SLACK, Long.BYTES);
+  }
+
+  private Arena newPayloadArena() {
+    if (closed) {
+      throw new IllegalStateException("confined writer region table is already closed");
+    }
+    return confinedWriterTable
+        ? Arena.ofConfined()
+        : Arena.ofAuto();
   }
 
   /** Copy {@code len} bytes of an array into a fresh native payload. */
@@ -355,9 +395,33 @@ public final class RegionTable {
    * read one loaded from disk.
    */
   public void set(final byte kind, final byte[] payload) {
+    set(kind, payload, payload == null ? 0 : payload.length);
+  }
+
+  /**
+   * Installs a prefix of caller-owned reusable storage, copying it off-heap before returning.
+   *
+   * <p>This is the ownership boundary for allocation-free encoders: they may overwrite
+   * {@code payload} as soon as this method returns because the visible region is backed by a fresh
+   * native segment containing exactly {@code length} bytes. A {@code null} payload with zero length
+   * retains {@link #set(byte, byte[])}'s clear semantics; a non-null zero-length payload remains a
+   * present empty region.
+   *
+   * @param kind region kind
+   * @param payload caller-owned bytes, or {@code null} to clear
+   * @param length number of leading bytes to retain
+   */
+  public void set(final byte kind, final byte[] payload, final int length) {
+    if (kind < 0 || kind >= KIND_COUNT) {
+      throw new IllegalArgumentException("kind=" + kind + " outside [0, " + KIND_COUNT + ')');
+    }
+    if (length < 0 || (payload == null ? length != 0 : length > payload.length)) {
+      throw new IllegalArgumentException(
+          "length=" + length + " for payload length " + (payload == null ? "null" : payload.length));
+    }
     setSegment(kind, payload == null
         ? null
-        : copyIn(payload, 0, payload.length));
+        : copyIn(payload, 0, length));
   }
 
   /**
@@ -448,6 +512,41 @@ public final class RegionTable {
   /** Regions this table holds, materialized or deferred — consistent with {@link #isEmpty()}. */
   public int size() {
     return liveCount + deferredCount;
+  }
+
+  /**
+   * Close a table created by {@link #newConfinedWriterTable()} and reclaim all of its native payloads
+   * immediately.
+   *
+   * <p>Ordinary tables intentionally reject this operation: their automatic arena can be shared by
+   * cached pages, including the single-fragment versioning shortcut, so closing one page must never
+   * invalidate another page's payload view. Confined writer tables, conversely, are serializer-local
+   * and this method must run on the thread that populated them.</p>
+   */
+  @Override
+  public synchronized void close() {
+    if (!confinedWriterTable) {
+      throw new UnsupportedOperationException("automatic region tables cannot be closed explicitly");
+    }
+    if (closed) {
+      return;
+    }
+
+    final Arena local = arena;
+    if (local != null) {
+      // Close first. If the caller violates the same-thread contract, WrongThreadException leaves
+      // the table intact so the owning thread can still close it instead of losing the only handle.
+      local.close();
+    }
+
+    Arrays.fill(payloads, null);
+    arena = null;
+    liveCount = 0;
+    deferredWire = null;
+    deferredRawLen = null;
+    deferredWireLen = null;
+    deferredCount = 0;
+    closed = true;
   }
 
   /** Wire codec ids for region payloads. Matches the heap body's id for LZ77 (3). */

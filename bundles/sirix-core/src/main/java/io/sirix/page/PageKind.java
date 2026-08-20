@@ -1249,6 +1249,22 @@ public enum PageKind {
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
+      serializeKeyValueLeafPage(resourceConfig, sink, page, type, null);
+    }
+
+    @Override
+    public void serializeDisposablePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
+        final Page page, final SerializationType type) {
+      // The table is populated, consumed and closed on this serializer worker. It is deliberately
+      // absent from the page handed to the append thread; only the completed encoded cache crosses
+      // that boundary.
+      try (RegionTable writerTable = RegionTable.newConfinedWriterTable()) {
+        serializeKeyValueLeafPage(resourceConfig, sink, page, type, writerTable);
+      }
+    }
+
+    private void serializeKeyValueLeafPage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink,
+        final Page page, final SerializationType type, final @Nullable RegionTable disposableWriterTable) {
       final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
       // Check for zero-copy compressed segment first
@@ -1316,12 +1332,15 @@ public enum PageKind {
           ? sink.writePosition()
           : 0L;
 
-      // 2. Single-pass bitmap scan: collect per-slot (kindId, heapOffset, dataLength)
+      // 2. Single-pass bitmap scan: collect per-slot (kindId, fieldCount, heapOffset, dataLength)
       // into thread-local scratch. Defers compact-dir + heap emission to the
-      // encoding-branch below so template dedup can rewrite lengths without a re-walk.
+      // encoding-branch below so template dedup can rewrite lengths without a re-walk. The same
+      // compact descriptors also drive region collection and the later encoder passes; neither has
+      // to revisit the bitmap or re-read directory kinds through foreign memory.
       final int populatedCount = keyValueLeafPage.getCachedPopulatedCount();
       final int[] scratch = SERIALIZE_SCRATCH.get();
       final int[] slotKindIds = SLOT_KINDID_SCRATCH.get();
+      final byte[] slotFieldCounts = SLOT_FIELD_COUNT_SCRATCH.get();
       final int[] slotHeapOffs = SLOT_HEAPOFF_SCRATCH.get();
       final int[] slotDataLens = SLOT_DATALEN_SCRATCH.get();
       final short[] slotBits = SLOT_BIT_SCRATCH.get();
@@ -1340,6 +1359,7 @@ public enum PageKind {
           scratch[idx++] = heapOffset;
           scratch[idx++] = dataLength;
           slotKindIds[slotIdx] = nodeKindId;
+          slotFieldCounts[slotIdx] = (byte) NodeFieldLayout.fieldCountForKind(nodeKindId);
           slotHeapOffs[slotIdx] = heapOffset;
           slotDataLens[slotIdx] = dataLength;
           slotBits[slotIdx] = (short) slot;
@@ -1356,7 +1376,8 @@ public enum PageKind {
       // reads the slotted page, so the ordering swap changes no bytes on its own.
       final int[] slotRegionAbsIdx = SLOT_REGION_ABS_IDX_SCRATCH.get();
       Arrays.fill(slotRegionAbsIdx, -1);
-      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage, resourceConfig, slotRegionAbsIdx);
+      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage, resourceConfig, populatedCount,
+          slotKindIds, slotBits, slotRegionAbsIdx, disposableWriterTable);
 
       // Encoding. Always attempts offset-table dedup + compressed heap; falls
       // back to the plain-heap marker (templateCount=0) when dedup aborts
@@ -1370,8 +1391,9 @@ public enum PageKind {
       // | if templateCount == 0: heapBytes (inline, uncompressed)
       final boolean nameKeyRegionPresent =
           regionTable != null && regionTable.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) != null;
-      writeEncodedBody(sink, slottedPage, populatedCount, slotKindIds, slotHeapOffs, slotDataLens, slotBits,
-          slotRegionAbsIdx, chunkedBody, keyValueLeafPage.getFsstSymbolTableId(), nameKeyRegionPresent);
+      writeEncodedBody(sink, slottedPage, populatedCount, slotKindIds, slotFieldCounts, slotHeapOffs, slotDataLens,
+          slotBits, slotRegionAbsIdx, keyValueLeafPage.areDeweyIDsStored(), chunkedBody,
+          keyValueLeafPage.getFsstSymbolTableId(), nameKeyRegionPresent);
 
       final long afterEncodedBody = sectionDiag
           ? sink.writePosition()
@@ -1381,7 +1403,9 @@ public enum PageKind {
       if (regionTable == null) {
         sink.writeInt(0);
       } else {
-        keyValueLeafPage.setRegionTable(regionTable);
+        if (disposableWriterTable == null) {
+          keyValueLeafPage.setRegionTable(regionTable);
+        }
         if (sectionDiag) {
           for (byte kind = 0; kind < RegionTable.KIND_COUNT; kind++) {
             final MemorySegment payload = regionTable.payload(kind);
@@ -1430,12 +1454,19 @@ public enum PageKind {
           break;
         }
       }
-      if (!hasUnresolvedOverflowReferences) {
+      if (!hasUnresolvedOverflowReferences && !skipsEmptyPipelineIdentityCache(resourceConfig, sink)) {
         compressAndCache(resourceConfig, sink, keyValueLeafPage);
       }
 
-      // Release node object references — all data is now in the slotted page + compressed cache
+      // Release node object references while the logical slotted frame is still intact. An async
+      // disposable-copy caller may deliberately own the empty-pipeline identity copy; it copies the
+      // sink into that frame only after this method (and therefore every flyweight unbind) returns.
       keyValueLeafPage.clearRecordsForGC();
+    }
+
+    private static boolean skipsEmptyPipelineIdentityCache(final ResourceConfiguration resourceConfig,
+        final BytesOut<?> sink) {
+      return resourceConfig.byteHandlePipeline.isEmpty() && !sink.retainsEmptyPipelineIdentityCache();
     }
 
     private static void writeOverlongEntries(final BytesOut<?> sink, final Map<Long, PageReference> references) {
@@ -1517,8 +1548,10 @@ public enum PageKind {
      * @param slottedPage the slotted-page memory (in-memory format, full offset tables inline)
      * @param populatedCount number of populated slots
      * @param slotKindIds per-slot nodeKindId (length populatedCount)
+     * @param slotFieldCounts per-slot offset-table field count, parallel to {@code slotKindIds}
      * @param slotHeapOffs per-slot in-memory heap offsets (length populatedCount)
      * @param slotDataLens per-slot in-memory dataLengths (length populatedCount)
+     * @param deweyIdsStored whether record lengths include Dewey-ID bytes and their trailer
      * @param chunkedBody whether the body is chunk-framed ({@link ChunkedBodyConfig}); the staged
      *        sections are identical either way, only the framing around them differs
      * @param fsstDictId the page's FSST dictionary id, hoisted into a chunked body's prefix
@@ -1526,8 +1559,9 @@ public enum PageKind {
      *        name-key elision may only strip what that region can put back
      */
     private static void writeEncodedBody(final BytesOut<?> sink, final MemorySegment slottedPage,
-        final int populatedCount, final int[] slotKindIds, final int[] slotHeapOffs, final int[] slotDataLens,
-        final short[] slotBits, final int[] slotRegionAbsIdx, final boolean chunkedBody, final long fsstDictId,
+        final int populatedCount, final int[] slotKindIds, final byte[] slotFieldCounts, final int[] slotHeapOffs,
+        final int[] slotDataLens, final short[] slotBits, final int[] slotRegionAbsIdx,
+        final boolean deweyIdsStored, final boolean chunkedBody, final long fsstDictId,
         final boolean nameKeyRegionPresent) {
       final boolean finerDiag = PAGE_SECTION_DIAG;
       final long diagS0 = finerDiag
@@ -1555,9 +1589,14 @@ public enum PageKind {
           final long[] slotParentKeys = SLOT_PARENT_KEY_SCRATCH.get();
           final byte[] slotParentKeyWidths = SLOT_PARENT_KEY_WIDTH_SCRATCH.get();
           final short[] slotParentKeyOffs = SLOT_PARENT_KEY_OFF_SCRATCH.get();
-          final long[] slotPnkValues = SLOT_PATH_NODE_KEY_SCRATCH.get();
           final byte[] slotPnkWidths = SLOT_PATH_NODE_KEY_WIDTH_SCRATCH.get();
           final short[] slotPnkOffs = SLOT_PATH_NODE_KEY_OFF_SCRATCH.get();
+          final int[] pnkCompactValues = PATH_NODE_KEY_COLUMN_ENABLED
+              ? SLOT_PATH_NODE_KEY_VALUES_COMPACT_SCRATCH.get()
+              : null;
+          final int[] pnkCompactSlots = PATH_NODE_KEY_COLUMN_ENABLED
+              ? SLOT_PATH_NODE_KEY_SLOTS_COMPACT_SCRATCH.get()
+              : null;
           // Lever 3: value-elision per-slot scratches. Filled for every fused-NUMBER
           // slot during this pre-scan; only consumed when the writer activates
           // value-elision (all fused-NUMBER slots eligible AND net savings > 0).
@@ -1565,31 +1604,38 @@ public enum PageKind {
           final short[] slotValueOffs = SLOT_VALUE_OFF_SCRATCH.get();
           final short[] slotValueWidths = SLOT_VALUE_WIDTH_SCRATCH.get();
           final long[] slotValueLongs = SLOT_VALUE_LONG_SCRATCH.get();
-          // Lever 4: per-slot nameKey-elision scratches. Filled for every fused
-          // OBJECT_NAMED_* slot (kindIds 48-51) during the pre-scan; consumed
-          // when the writer activates nameKey elision (region built AND
-          // net savings > overhead).
-          final byte[] slotNameKeyElided = SLOT_NAME_KEY_ELIDED_SCRATCH.get();
-          final short[] slotNameKeyOffs = SLOT_NAME_KEY_OFF_SCRATCH.get();
-          final byte[] slotNameKeyWidths = SLOT_NAME_KEY_WIDTH_SCRATCH.get();
-          // Lever 4: track distinct nameKey count so we can match the
-          // ObjectKeyNameKeyRegion.encode() upper-bound (255 unique). Beyond
-          // that, the encoder returns null (no region built) and we MUST NOT
-          // elide on the heap. Linear scan over the small dict is cheap given
-          // dict size is bounded by 255.
-          final int[] uniqueNameKeysScratch = NAME_KEY_UNIQUE_DICT_SCRATCH.get();
-          int uniqueNameKeyCount = 0;
+          // Lever 4: the region is the authority for whether name-key elision is safe. It has
+          // already seen every primitive AND structural fused name and refuses the page if its
+          // 255-entry dictionary cannot represent them. Do not rebuild that dictionary from the
+          // primitive slots here: besides being only a proxy for the real decision, the duplicate
+          // varint decode was the hottest line in the retained serializer profile. Pages without
+          // the region (including XML pages) do not touch these thread-local arrays at all.
+          final boolean nameKeyElisionCandidate = NAME_KEY_ELISION_ENABLED && nameKeyRegionPresent;
+          final byte[] slotNameKeyElided = nameKeyElisionCandidate
+              ? SLOT_NAME_KEY_ELIDED_SCRATCH.get()
+              : null;
+          final short[] slotNameKeyOffs = nameKeyElisionCandidate
+              ? SLOT_NAME_KEY_OFF_SCRATCH.get()
+              : null;
+          final byte[] slotNameKeyWidths = nameKeyElisionCandidate
+              ? SLOT_NAME_KEY_WIDTH_SCRATCH.get()
+              : null;
           final int hashBitmapBytes = HASH_ELISION_ENABLED
               ? ((populatedCount + 7) >>> 3)
               : 0;
           int zeroHashCount = 0;
           int parentKeySlotsWithField = 0;
+          int parentKeyTotalStrippedBytes = 0;
           int pnkSlotsWithField = 0;
+          int pnkCompactCount = 0;
+          int pnkTotalStrippedBytes = 0;
           int fusedNumberSlotCount = 0;
           int fusedStringSlotCount = 0;
           int fusedBooleanSlotCount = 0;
           int valueElidableSlotCount = 0;
           int valueElidableTotalBytes = 0;
+          int valueElisionWireBytes = 0;
+          int previousValueElidedSlot = -1;
           // Lever 4: counts ALL fused OBJECT_NAMED_* primitives on the page
           // (kindIds 48-51, NOT just 48-50 like the value-elision triplet).
           // Used by the activation guard to enforce all-or-nothing elision —
@@ -1614,82 +1660,19 @@ public enum PageKind {
             // a separate clear pass.
             Arrays.fill(slotValueElided, 0, populatedCount, (byte) 0);
           }
-          if (NAME_KEY_ELISION_ENABLED) {
+          if (nameKeyElisionCandidate) {
             // Lever 4: clear stale per-slot nameKey-elision flags from previous
             // pages. Same rationale as the value-elision clear above — the
             // offs/widths arrays are overwritten unconditionally below.
             Arrays.fill(slotNameKeyElided, 0, populatedCount, (byte) 0);
           }
-          // ---- Lever 4: cheap-reject pre-pass --------------------------------
-          // The full Lever 4 pre-scan (signed-varint decode + linear dict scan
-          // for the 255-unique cap + per-slot scratch population) costs ~5
-          // cycles/slot on average. For pages whose avg nameKey-varint width
-          // is <2 bytes (typical for narrow schemas with <=5 distinct field
-          // names per page — the scaleBench {id,age,dept,city,active} case
-          // is a clean example) the page-wide activation guard
-          // nameKeyElidableTotalBytes > nameKeyElidableSlotCount + 4
-          // can NEVER hold, regardless of dict size. In that regime we pay
-          // the full pre-scan cost without ever activating Lever 4 — a 20%
-          // shred-time regression on the bench.
-          //
-          // Cheap-reject: walk fused OBJECT_NAMED_* slots, read ONLY the two
-          // offset-table bytes that bound the nameKey field (no varint decode,
-          // no dict scan), and sum widths. If sum can't clear the activation
-          // threshold, set {@code nameKeyElisionCheapReject} and short-circuit
-          // ALL Lever 4 work below: no decode, no dict tracking, no scratch
-          // population, no per-slot flag set, and the activation guard is
-          // forced false.
-          //
-          // HFT contract: zero alloc, primitive-only, final locals, no virtual
-          // dispatch. KindIds 48-51 are the ONLY kinds for which
-          // {@link KeyValueLeafPage#isFusedObjectNamedKindId} returns true, and
-          // ALL four place their nameKey at field index 3 (verified in
-          // NodeFieldLayout — OBJNAMEDBOOL/NUM/STR/NULL_NAME_KEY all = 3) with
-          // field count >= 8 (so {@code nameKeyFieldIdx + 1 < fc} is statically
-          // true). We therefore hardcode {@code nameKeyFieldIdx = 3} and skip
-          // both the {@link NodeFieldLayout#nameKeyFieldIndexForKind} switch
-          // and the {@link NodeFieldLayout#fieldCountForKind} bounds check —
-          // saving two static-switch dispatches per fused-named slot.
-          //
-          // Soundness: a slot with out-of-range width (corrupt offset table)
-          // is silently dropped from the cheap sum. That can only LOWER the
-          // sum vs. the slow path's view (which would also drop it), so it
-          // never causes a false cheap-reject — the slow path would have
-          // failed activation on the same input via the all-or-nothing
-          // {@code nameKeyElidableSlotCount == totalFusedNamedSlotCount}
-          // check.
-          int cheapNamedCount = 0;
-          int cheapWidthSum = 0;
-          if (NAME_KEY_ELISION_ENABLED) {
-            for (int i = 0; i < populatedCount; i++) {
-              final int kindId = slotKindIds[i];
-              if (!KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
-                continue;
-              }
-              final long recordBase = PageLayout.HEAP_START + slotHeapOffs[i];
-              // nameKey field is index 3 for all four fused-named primitives.
-              // Read the two adjacent offset-table bytes ([3] and [4]) — the
-              // delta is the on-heap nameKey-varint width.
-              final int offsetPair = offsetTablePair(slottedPage, recordBase + 1 + 3);
-              final int nameKeyOff = offsetPair & 0xFF;
-              final int nextOff = (offsetPair >>> 8) & 0xFF;
-              final int w = nextOff - nameKeyOff;
-              if (w >= 1 && w <= 5) {
-                cheapWidthSum += w;
-                cheapNamedCount++;
-              }
-            }
-          }
-          // Activation requires {@code sum > count + 4}; a tie or smaller sum
-          // cannot net-pay for the 4-byte length-prefix int + 1-byte/slot
-          // packed-widths section overhead. When {@code cheapNamedCount == 0}
-          // there are no fused-named slots and Lever 4 has nothing to elide.
-          // Either case → cheap-reject and skip ALL Lever 4 work below.
-          final boolean nameKeyElisionCheapReject =
-              !NAME_KEY_ELISION_ENABLED || cheapNamedCount == 0 || cheapWidthSum <= cheapNamedCount + 4;
+          // The directory data length collected by the bitmap pass is already the record-only
+          // length when Dewey IDs are disabled. The page object supplies the page-wide flag, so the
+          // dominant case avoids rereading both the header flag and the directory entry for every
+          // fused primitive.
           for (int i = 0; i < populatedCount; i++) {
             final int kindId = slotKindIds[i];
-            final int fc = NodeFieldLayout.fieldCountForKind(kindId);
+            final int fc = slotFieldCounts[i];
             final long recordBase = PageLayout.HEAP_START + slotHeapOffs[i];
             // The structural-key column needs this slot's node key both to decode the
             // delta-varint it is replacing and as predictor context for the column codec.
@@ -1740,6 +1723,7 @@ public enum PageKind {
                   slotParentKeyWidths[i] = (byte) pkWidth;
                   slotParentKeyOffs[i] = (short) pkOff;
                   parentKeySlotsWithField++;
+                  parentKeyTotalStrippedBytes += pkWidth;
                 }
               }
             }
@@ -1752,7 +1736,6 @@ public enum PageKind {
             if (PATH_NODE_KEY_COLUMN_ENABLED) {
               final int pnkFieldIdx = NodeFieldLayout.pathNodeKeyFieldIndexForKind(kindId);
               if (pnkFieldIdx < 0) {
-                slotPnkValues[i] = Fixed.NULL_NODE_KEY.getStandardProperty();
                 slotPnkWidths[i] = 0;
                 slotPnkOffs[i] = 0;
               } else {
@@ -1768,19 +1751,24 @@ public enum PageKind {
                 }
                 final int pnkWidth = nextOff - pnkOff;
                 if (pnkWidth <= 0 || pnkWidth > 10) {
-                  // Pathological — back out to NULL sentinel which the reader
-                  // will interpret as "no pathNodeKey" for this slot. Column is
-                  // still active for the rest of the page.
-                  slotPnkValues[i] = Fixed.NULL_NODE_KEY.getStandardProperty();
+                  // Pathological — keep the width at zero, which the reader interprets as
+                  // "no pathNodeKey" for this slot. The column may still activate for the rest of
+                  // the page.
                   slotPnkWidths[i] = 0;
                   slotPnkOffs[i] = 0;
                 } else {
                   final long pnk =
                       DeltaVarIntCodec.decodeDeltaFromSegment(slottedPage, recordBase + 1 + fc + pnkOff, slotNodeKey);
-                  slotPnkValues[i] = pnk;
                   slotPnkWidths[i] = (byte) pnkWidth;
                   slotPnkOffs[i] = (short) pnkOff;
                   pnkSlotsWithField++;
+                  pnkTotalStrippedBytes += pnkWidth;
+                  // Preserve the old compact-column order exactly: the main scan is already in
+                  // ascending bitmap order, so appending here produces the same value/slot arrays
+                  // the removed follow-up scan did.
+                  pnkCompactValues[pnkCompactCount] = (int) pnk;
+                  pnkCompactSlots[pnkCompactCount] = slotBits[i] & 0xFFFF;
+                  pnkCompactCount++;
                 }
               }
             }
@@ -1801,7 +1789,9 @@ public enum PageKind {
                 || kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID)) {
               final int valueOff =
                   slottedPage.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNAMEDNUM_PAYLOAD) & 0xFF;
-              final int recordOnlyLen = PageLayout.getRecordOnlyLength(slottedPage, slotBits[i] & 0xFFFF);
+              final int recordOnlyLen = deweyIdsStored
+                  ? PageLayout.getRecordOnlyLength(slottedPage, slotBits[i] & 0xFFFF)
+                  : slotDataLens[i];
               final int dataBytes = recordOnlyLen - 1 - fc;
               final int valueWidth = dataBytes - valueOff;
               if (kindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
@@ -1871,57 +1861,34 @@ public enum PageKind {
                   valueElidableTotalBytes += 1;
                 }
               }
+              if (slotValueElided[i] != 0) {
+                final int slot = slotBits[i] & 0xFFFF;
+                valueElisionWireBytes +=
+                    DeltaVarIntCodec.computeSignedEncodedWidth(slot - previousValueElidedSlot) + 1
+                        + DeltaVarIntCodec.computeSignedEncodedWidth(slotValueWidths[i] & 0xFFFF)
+                        + DeltaVarIntCodec.computeSignedEncodedWidth(slotRegionAbsIdx[slot]);
+                previousValueElidedSlot = slot;
+              }
             }
             // --- Lever 4: NAME-KEY elision pre-scan (fused OBJECT_NAMED_*, kindIds 48-51) ---
-            // For every fused-OBJECT_NAMED_* slot we record its nameKey field's
-            // in-data-region offset and width. The actual elision activation
-            // decision is made page-globally below (region built AND net savings
-            // > overhead). The nameKey is encoded as a signed-varint inline; on
-            // disk we keep only its width (1 byte) per elided slot. We also
-            // count distinct nameKeys: ObjectKeyNameKeyRegion.encode caps unique
-            // values at 255, so beyond that the region returns null and we must
-            // refuse elision (heap copies become the only source of truth).
-            if (KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
+            // The actual region-presence decision was made by buildRegionTable over every fused
+            // object-key role. Once present, only this slot's offset and width are needed. All four
+            // primitive-fused layouts put nameKey at field 3, so one adjacent-pair load replaces
+            // both the old two-byte reads and the duplicate signed-varint decode/dictionary scan.
+            if (nameKeyElisionCandidate && KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
               totalFusedNamedSlotCount++;
-            }
-            if (NAME_KEY_ELISION_ENABLED && !nameKeyElisionCheapReject
-                && KeyValueLeafPage.isFusedObjectNamedKindId(kindId) && uniqueNameKeyCount < 256) {
-              final int nameKeyFieldIdx = NodeFieldLayout.nameKeyFieldIndexForKind(kindId);
-              if (nameKeyFieldIdx >= 0 && nameKeyFieldIdx + 1 < fc) {
-                final int nameKeyOff = slottedPage.get(ValueLayout.JAVA_BYTE, recordBase + 1 + nameKeyFieldIdx) & 0xFF;
-                final int nextOff = slottedPage.get(ValueLayout.JAVA_BYTE, recordBase + 1 + nameKeyFieldIdx + 1) & 0xFF;
-                final int nameKeyWidth = nextOff - nameKeyOff;
-                // signed-varint width is 1..5 for any 32-bit nameKey value.
-                if (nameKeyWidth >= 1 && nameKeyWidth <= 5) {
-                  // Track distinct nameKey count via linear scan over the
-                  // tiny dict (typical record-shaped page has <10 distinct).
-                  // Decode the inline signed-varint directly from the heap —
-                  // avoids a virtual call into KeyValueLeafPage.getFused… and
-                  // saves the per-slot offset-table re-read.
-                  final int nk =
-                      DeltaVarIntCodec.decodeSignedFromSegment(slottedPage, recordBase + 1 + fc + nameKeyOff);
-                  boolean foundInDict = false;
-                  for (int u = 0; u < uniqueNameKeyCount; u++) {
-                    if (uniqueNameKeysScratch[u] == nk) {
-                      foundInDict = true;
-                      break;
-                    }
-                  }
-                  if (!foundInDict && uniqueNameKeyCount < 255) {
-                    uniqueNameKeysScratch[uniqueNameKeyCount++] = nk;
-                  } else if (!foundInDict) {
-                    // Hit the encoder's 255-cap. Mark cap reached so subsequent
-                    // slots also abort, and flip Lever 4 off page-globally.
-                    uniqueNameKeyCount = 256;
-                  }
-                  if (uniqueNameKeyCount < 256) {
-                    slotNameKeyElided[i] = (byte) 1;
-                    slotNameKeyOffs[i] = (short) nameKeyOff;
-                    slotNameKeyWidths[i] = (byte) nameKeyWidth;
-                    nameKeyElidableSlotCount++;
-                    nameKeyElidableTotalBytes += nameKeyWidth;
-                  }
-                }
+              final int offsetPair = offsetTablePair(slottedPage,
+                  recordBase + 1 + NodeFieldLayout.FUSED_PRIMITIVE_NAME_KEY_FIELD);
+              final int nameKeyOff = offsetPair & 0xFF;
+              final int nameKeyWidth = ((offsetPair >>> 8) & 0xFF) - nameKeyOff;
+              // signed-varint width is 1..5 for any 32-bit nameKey value. A malformed width keeps
+              // the page on the inline path via the all-or-nothing count check below.
+              if (nameKeyWidth >= 1 && nameKeyWidth <= 5) {
+                slotNameKeyElided[i] = (byte) 1;
+                slotNameKeyOffs[i] = (short) nameKeyOff;
+                slotNameKeyWidths[i] = (byte) nameKeyWidth;
+                nameKeyElidableSlotCount++;
+                nameKeyElidableTotalBytes += nameKeyWidth;
               }
             }
           }
@@ -1936,11 +1903,7 @@ public enum PageKind {
           // column and keep parentKey inline.
           byte[] parentKeyColumnBytes = null;
           int parentKeyColumnLen = 0;
-          int parentKeyTotalStrippedBytes = 0;
           if (PARENT_KEY_COLUMN_ENABLED && parentKeySlotsWithField > 0) {
-            for (int i = 0; i < populatedCount; i++) {
-              parentKeyTotalStrippedBytes += slotParentKeyWidths[i] & 0xFF;
-            }
             // Encode straight into the scratch and judge from the length it returns. The
             // column encodes N values (including a sentinel for slots without a parentKey), so
             // its length is a function of all values, not just those with the field. It must
@@ -1976,44 +1939,18 @@ public enum PageKind {
           // workloads — perfect for dict encoding.
           byte[] pathNodeKeyColumnBytes = null;
           int pathNodeKeyColumnLen = 0;
-          int pnkTotalStrippedBytes = 0;
           if (PATH_NODE_KEY_COLUMN_ENABLED && pnkSlotsWithField > 0) {
-            // Compact the pnk values/slots into tight arrays for encode input.
-            // Width sum also becomes the "raw varint" cost baseline.
-            final int[] pnkCompactValues = SLOT_PATH_NODE_KEY_VALUES_COMPACT_SCRATCH.get();
-            final int[] pnkCompactSlots = SLOT_PATH_NODE_KEY_SLOTS_COMPACT_SCRATCH.get();
-            int c = 0;
-            for (int i = 0; i < populatedCount; i++) {
-              final int w = slotPnkWidths[i] & 0xFF;
-              if (w == 0)
-                continue;
-              pnkTotalStrippedBytes += w;
-              // Truncate pnk long → int; pathNodeKeys are always non-negative
-              // path-summary node keys and fit in 32 bits for realistic datasets
-              // (> 2 billion distinct paths would be needed to overflow).
-              pnkCompactValues[c] = (int) slotPnkValues[i];
-              pnkCompactSlots[c] = slotBits[i] & 0xFFFF;
-              c++;
-            }
             final int[] dictScratch = PNK_ENCODE_DICT_SCRATCH.get();
-            final int encodedLen = PathNodeKeyRegion.encodedSize(pnkCompactValues, c, dictScratch);
-            if (encodedLen > 0 && encodedLen + 4 < pnkTotalStrippedBytes) {
-              byte[] scratch = PATH_NODE_KEY_COLUMN_SCRATCH.get();
-              if (scratch.length < encodedLen) {
-                scratch = new byte[Math.max(encodedLen, scratch.length * 2)];
-                PATH_NODE_KEY_COLUMN_SCRATCH.set(scratch);
-              }
-              byte[] dictIdsScratch = PNK_ENCODE_DICT_IDS_SCRATCH.get();
-              if (dictIdsScratch.length < c) {
-                dictIdsScratch = new byte[Math.max(c, dictIdsScratch.length * 2)];
-                PNK_ENCODE_DICT_IDS_SCRATCH.set(dictIdsScratch);
-              }
-              final int written = PathNodeKeyRegion.encode(pnkCompactValues, pnkCompactSlots, c, scratch, dictScratch,
-                  dictIdsScratch, COLUMN_ENCODE_BITMAP_SCRATCH.get());
-              if (written > 0) {
-                pathNodeKeyColumnBytes = scratch;
-                pathNodeKeyColumnLen = written;
-              }
+            // Encode once, then judge the exact returned length. encodedSize used to build the
+            // same dictionary immediately before encode rebuilt it; the output and dict-id
+            // scratches are already sized for the largest possible record page.
+            final byte[] scratch = PATH_NODE_KEY_COLUMN_SCRATCH.get();
+            final byte[] dictIdsScratch = PNK_ENCODE_DICT_IDS_SCRATCH.get();
+            final int written = PathNodeKeyRegion.encode(pnkCompactValues, pnkCompactSlots, pnkCompactCount, scratch,
+                dictScratch, dictIdsScratch, COLUMN_ENCODE_BITMAP_SCRATCH.get());
+            if (written > 0 && written + 4 < pnkTotalStrippedBytes) {
+              pathNodeKeyColumnBytes = scratch;
+              pathNodeKeyColumnLen = written;
             }
           }
           final boolean pathNodeKeyColumnActive = pathNodeKeyColumnBytes != null;
@@ -2043,19 +1980,6 @@ public enum PageKind {
           // absolute-index varint) — the explicit slot id and index are what free this from the
           // old all-or-nothing rule, where one ineligible slot (a float, an empty string) killed
           // elision for the whole page and left every fused string stored twice.
-          int valueElisionWireBytes = 0;
-          if (VALUE_ELISION_ENABLED && valueElidableSlotCount > 0) {
-            int prevElidedSlot = -1;
-            for (int i = 0; i < populatedCount; i++) {
-              if (slotValueElided[i] != 0) {
-                final int slot = slotBits[i] & 0xFFFF;
-                valueElisionWireBytes += DeltaVarIntCodec.computeSignedEncodedWidth(slot - prevElidedSlot) + 1
-                    + DeltaVarIntCodec.computeSignedEncodedWidth(slotValueWidths[i] & 0xFFFF)
-                    + DeltaVarIntCodec.computeSignedEncodedWidth(slotRegionAbsIdx[slot]);
-                prevElidedSlot = slot;
-              }
-            }
-          }
           final boolean valueElisionActive = VALUE_ELISION_ENABLED && valueElidableSlotCount > 0
               && valueElidableTotalBytes > valueElisionWireBytes + 4;
 
@@ -2070,20 +1994,12 @@ public enum PageKind {
           // packed-widths array on disk is sized for {@code totalFusedNamedSlotCount}
           // entries in slot-ascending order, so partial elision would shift the
           // reader's cursor and corrupt subsequent slot reads.
-          // {@code !nameKeyElisionCheapReject} short-circuits the predicate
-          // without consulting the (cheap-rejected) zero counters — defensive
-          // guard against future refactors that might pre-populate the
-          // counters above the cheap-reject path.
           // The region is the only place a stripped name key can come back from, so its presence is
-          // the condition — not a proxy for it. The unique-value counter above walks the primitive
-          // fused slots alone, while the region also carries the structural fused ones (OBJECT- and
-          // ARRAY-valued fields), so on a page holding both the counter can stay under the region
-          // encoder's 255-value ceiling while the encoder itself refuses. Eliding then wrote a page
-          // that could never be read back: the reinject pass has nothing to read.
-          final boolean nameKeyElisionActive =
-              NAME_KEY_ELISION_ENABLED && nameKeyRegionPresent && !nameKeyElisionCheapReject
-                  && nameKeyElidableSlotCount > 0 && nameKeyElidableSlotCount == totalFusedNamedSlotCount
-                  && nameKeyElidableTotalBytes > nameKeyElidableSlotCount + 4;
+          // the condition — not a locally rebuilt proxy. The region encoder sees primitive and
+          // structural fused names together and enforces its own 255-value ceiling before this point.
+          final boolean nameKeyElisionActive = nameKeyElisionCandidate && nameKeyElidableSlotCount > 0
+              && nameKeyElidableSlotCount == totalFusedNamedSlotCount
+              && nameKeyElidableTotalBytes > nameKeyElidableSlotCount + 4;
           if (finerDiag) {
             if (valueElisionActive) {
               PageSectionDiag.recordValueElision(valueElidableTotalBytes - valueElisionWireBytes - 4L);
@@ -2108,7 +2024,7 @@ public enum PageKind {
           final int[] slotOnDiskLens = SLOT_ON_DISK_LEN_SCRATCH.get();
           int onDiskHeapSize = 0;
           for (int i = 0; i < populatedCount; i++) {
-            final int fc = NodeFieldLayout.fieldCountForKind(slotKindIds[i]);
+            final int fc = slotFieldCounts[i];
             int onDiskLen = slotDataLens[i] - (fc - 1);
             if (onDiskLen < 2) {
               // A record that's shorter than kindId+templateId means the in-memory layout
@@ -2238,7 +2154,7 @@ public enum PageKind {
           // HFT-grade: no allocation. We inline the five (from, to) pairs into stack
           // locals and do at most ten compares for a 5-element bubble sort.
           for (int i = 0; i < populatedCount; i++) {
-            final int fc = NodeFieldLayout.fieldCountForKind(slotKindIds[i]);
+            final int fc = slotFieldCounts[i];
             final long recordBase = PageLayout.HEAP_START + slotHeapOffs[i];
             staging.set(ValueLayout.JAVA_BYTE, stagePos, slottedPage.get(ValueLayout.JAVA_BYTE, recordBase));
             stagePos++;
@@ -3029,9 +2945,10 @@ public enum PageKind {
     }
 
     /**
-     * Build the PAX {@link RegionTable} for {@code page} by walking the populated-slot bitmap once,
-     * collecting each fused OBJECT_NAMED_NUMBER slot's value (long) and its parent OBJECT_KEY's
-     * nameKey, and encoding them via {@link NumberRegion}.
+     * Build the PAX {@link RegionTable} for {@code page} by walking the compact slot descriptors that
+     * the serializer's single bitmap pass already collected, collecting each fused
+     * OBJECT_NAMED_NUMBER slot's value (long) and its parent OBJECT_KEY's nameKey, and encoding them
+     * via {@link NumberRegion}.
      *
      * <p>
      * Values whose payload type is not int/long (BigDecimal, double, float) are skipped — the slow-path
@@ -3066,7 +2983,8 @@ public enum PageKind {
      * one of them is kept.
      */
     private static RegionTable buildRegionTable(final KeyValueLeafPage page, final MemorySegment slottedPage,
-        final ResourceConfiguration resourceConfig, final int[] slotRegionAbsIdx) {
+        final ResourceConfiguration resourceConfig, final int populatedCount, final int[] slotKindIds,
+        final short[] slotBits, final int[] slotRegionAbsIdx, final @Nullable RegionTable disposableWriterTable) {
       final long[] valBuf = NUMBER_VALUE_SCRATCH.get();
       final int[] parBuf = NUMBER_PARENT_SCRATCH.get();
       final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
@@ -3104,6 +3022,10 @@ public enum PageKind {
       // nameKey only. The final pick is a single-if branch.
       StringRegion.Encoder stringEncName = null;
       StringRegion.Encoder stringEncPath = null;
+      // Acquired lazily on the first fused string so pages without strings never touch the
+      // ThreadLocal. The array is reused for every value on this page and retained across pages;
+      // StringRegion copies only dictionary misses before the next slot overwrites it.
+      byte[] stringValueScratch = null;
       int stringCount = 0;
       // Array-element strings are STAGED, not added as they are met: they are published only if
       // EVERY element on the page resolved its enclosing array, because a tag holding most of a
@@ -3143,13 +3065,12 @@ public enum PageKind {
       int boolCount = 0;
       boolean booleanAllPathNodeKeysValid = withPathSummary;
 
-      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-        long word = PageLayout.getBitmapWord(slottedPage, w);
-        final int baseSlot = w << 6;
-        while (word != 0) {
-          final int bit = Long.numberOfTrailingZeros(word);
-          final int slot = baseSlot + bit;
-          final int kindId = PageLayout.getDirNodeKindId(slottedPage, slot);
+      // slotBits/slotKindIds are in the exact ascending bitmap order used by the former walk. Reusing
+      // them removes one directory-kind foreign-memory read per populated slot plus the 16 bitmap-word
+      // reads, without changing any region order or contributor predicate.
+      for (int i = 0; i < populatedCount; i++) {
+          final int slot = slotBits[i] & 0xFFFF;
+          final int kindId = slotKindIds[i];
           if (KeyValueLeafPage.isFusedObjectNamedKindId(kindId)) {
             // Fused OBJECT_NAMED_* plays the OBJECT_KEY role; add to the nameKey region so the
             // SIMD scan in ObjectKeyNameKeyRegion.findMatchingSlots sees fused slots natively,
@@ -3234,9 +3155,17 @@ public enum PageKind {
               // STORED bytes, verbatim — FSST-encoded when the compress pass rewrote the slot.
               // The dictionary must mirror the heap bit-for-bit so value elision stays a pure
               // copy in both directions; decoding belongs to whoever materialises the value.
-              final byte[] value = page.readFusedObjectNamedStringStoredBytes(slot);
-              final boolean valueCompressed = value != null && page.isFusedObjectNamedStringValueCompressed(slot);
-              if (value != null) {
+              if (stringValueScratch == null) {
+                stringValueScratch = STRING_REGION_VALUE_SCRATCH.get();
+              }
+              int valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
+              while (valueLength > stringValueScratch.length) {
+                stringValueScratch = growStringRegionValueScratch(stringValueScratch, valueLength);
+                valueLength = page.copyFusedObjectNamedStringStoredBytes(slot, stringValueScratch);
+              }
+              final boolean valueCompressed = valueLength >= 0
+                  && page.isFusedObjectNamedStringValueCompressed(slot);
+              if (valueLength >= 0) {
                 final int fusedNameKey = okNameKeys[okCount - 1];
                 int fusedPathNodeKeyInt = -1;
                 if (stringAllPathNodeKeysValid) {
@@ -3251,15 +3180,22 @@ public enum PageKind {
                 if (stringEncName == null) {
                   stringEncName = STRING_REGION_ENCODER.get();
                   stringEncName.reset();
-                  if (withPathSummary) {
-                    stringEncPath = STRING_REGION_ENCODER_PATH.get();
-                    stringEncPath.reset();
-                  }
+                  stringEncPath = resetStringRegionPathCandidate(withPathSummary);
                 }
-                stringEncName.addValue(fusedNameKey, value, valueCompressed);
-                if (stringEncPath != null && stringAllPathNodeKeysValid) {
-                  stringEncPath.addValue(fusedPathNodeKeyInt, value, valueCompressed);
-                }
+                // The name-key dictionary owns the sole store range. The bridge gives the
+                // alternative path-key dictionary that exact private range without exposing it or
+                // copying the same distinct value twice.
+                final StringRegion.Encoder alternateStringEncoder = stringEncPath != null
+                    && stringAllPathNodeKeysValid
+                        ? stringEncPath
+                        : null;
+                stringEncName.addValueCopiedAndShareWith(fusedNameKey,
+                    stringValueScratch,
+                    0,
+                    valueLength,
+                    valueCompressed,
+                    alternateStringEncoder,
+                    fusedPathNodeKeyInt);
                 stringSlots[stringCount] = slot;
                 stringNameTags[stringCount] = fusedNameKey;
                 stringPathTags[stringCount] = fusedPathNodeKeyInt;
@@ -3375,14 +3311,15 @@ public enum PageKind {
             okParentKeys[okCount] = page.getObjectKeyParentKeyFromSlot(slot, pageKeyBase + slot);
             okCount++;
           }
-          word &= word - 1;
-        }
       }
 
       if (count == 0 && okCount == 0 && stringCount == 0 && boolCount == 0) {
         return null;
       }
-      final RegionTable table = new RegionTable();
+      final RegionTable table = disposableWriterTable == null
+          ? new RegionTable()
+          : disposableWriterTable;
+      byte[] regionEncodeScratch = null;
       if (count > 0) {
         final byte numberTagKind = numberAllPathNodeKeysValid
             ? NumberRegion.TAG_KIND_PATH_NODE
@@ -3390,18 +3327,20 @@ public enum PageKind {
         final int[] numberTagBuf = numberAllPathNodeKeysValid
             ? numberPathBuf
             : parBuf;
-        final byte[] payload = NumberRegion.encode(valBuf, numberTagBuf, count, numberTagKind);
-        table.set(RegionTable.KIND_NUMBER, payload);
+        final NumberRegion.Encoder numberEncoder = NUMBER_REGION_ENCODER.get();
+        final int numberPayloadLength = numberEncoder.encodeInto(valBuf, numberTagBuf, count, numberTagKind);
+        table.set(RegionTable.KIND_NUMBER, numberEncoder.output(), numberPayloadLength);
         final NumberRegion.Header header;
-        if (payload != null && payload.length > 0) {
+        if (numberPayloadLength > 0) {
           header = WRITER_NUMBER_HEADER_SCRATCH.get();
           header.parseInto(table.payload(RegionTable.KIND_NUMBER));
           // Lift the per-tag zone maps into their own uncompressed region. Written here rather
           // than derived on read because the point is for a scan to see them WITHOUT touching the
           // number payload they currently live inside — see NumberZoneMapRegion.
-          final byte[] zoneMap = NumberZoneMapRegion.encode(header);
-          if (zoneMap != null) {
-            table.set(RegionTable.KIND_NUMBER_ZONEMAP, zoneMap);
+          regionEncodeScratch = REGION_ENCODE_SCRATCH.get();
+          final int zoneMapLength = NumberZoneMapRegion.encodeInto(header, regionEncodeScratch);
+          if (zoneMapLength != NumberZoneMapRegion.ENCODE_FAILED) {
+            table.set(RegionTable.KIND_NUMBER_ZONEMAP, regionEncodeScratch, zoneMapLength);
           }
         } else {
           header = null;
@@ -3439,15 +3378,20 @@ public enum PageKind {
         }
       }
       if (okCount > 0) {
-        final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
-        if (nameKeyPayload != null) {
-          table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+        if (regionEncodeScratch == null) {
+          regionEncodeScratch = REGION_ENCODE_SCRATCH.get();
+        }
+        final int nameKeyPayloadLength =
+            ObjectKeyNameKeyRegion.encodeInto(okNameKeys, okSlots, okCount, regionEncodeScratch);
+        if (nameKeyPayloadLength != ObjectKeyNameKeyRegion.ENCODE_FAILED) {
+          table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, regionEncodeScratch, nameKeyPayloadLength);
           // Record linkage, in the same bitmap order as the nameKey column just written. Gated on
           // that column existing: the ordinals are indexed by position within it, so they are
           // meaningless — and unreadable — without it.
-          final byte[] ordinals = RecordOrdinalRegion.encode(okParentKeys, pageKeyBase, okCount);
-          if (ordinals != null) {
-            table.set(RegionTable.KIND_RECORD_ORDINAL, ordinals);
+          final int ordinalsLength =
+              RecordOrdinalRegion.encodeInto(okParentKeys, pageKeyBase, okCount, regionEncodeScratch);
+          if (ordinalsLength != RecordOrdinalRegion.ENCODE_FAILED) {
+            table.set(RegionTable.KIND_RECORD_ORDINAL, regionEncodeScratch, ordinalsLength);
           }
         }
       }
@@ -3456,10 +3400,7 @@ public enum PageKind {
         if (stringEncName == null) {
           stringEncName = STRING_REGION_ENCODER.get();
           stringEncName.reset();
-          if (withPathSummary) {
-            stringEncPath = STRING_REGION_ENCODER_PATH.get();
-            stringEncPath.reset();
-          }
+          stringEncPath = resetStringRegionPathCandidate(withPathSummary);
         }
         for (int e = 0; e < elemCount; e++) {
           // The orphan tag is deliberately negative and is NOT an unresolved path: treating it as
@@ -3470,10 +3411,18 @@ public enum PageKind {
           }
         }
         for (int e = 0; e < elemCount; e++) {
-          stringEncName.addValue(elemNameTags[e], elemValues[e], false);
-          if (stringEncPath != null && stringAllPathNodeKeysValid) {
-            stringEncPath.addValue(elemPathTags[e], elemValues[e], false);
-          }
+          final StringRegion.Encoder alternateStringEncoder = stringEncPath != null
+              && stringAllPathNodeKeysValid
+                  ? stringEncPath
+                  : null;
+          final byte[] elementValue = elemValues[e];
+          stringEncName.addValueCopiedAndShareWith(elemNameTags[e],
+              elementValue,
+              0,
+              elementValue.length,
+              false,
+              alternateStringEncoder,
+              elemPathTags[e]);
           stringSlots[stringCount] = elemSlots[e];
           stringNameTags[stringCount] = elemNameTags[e];
           stringPathTags[stringCount] = elemPathTags[e];
@@ -3482,11 +3431,16 @@ public enum PageKind {
       }
       if (stringCount > 0) {
         final boolean pathTagged = stringAllPathNodeKeysValid && stringEncPath != null;
-        final byte[] stringPayload = pathTagged
-            ? stringEncPath.finish(StringRegion.TAG_KIND_PATH_NODE, elemUsable)
-            : stringEncName.finish(StringRegion.TAG_KIND_NAME, elemUsable);
-        if (stringPayload != null && stringPayload.length > 0) {
-          table.set(RegionTable.KIND_STRING, stringPayload);
+        final StringRegion.Encoder stringEncoder = pathTagged
+            ? stringEncPath
+            : stringEncName;
+        final byte stringTagKind = pathTagged
+            ? StringRegion.TAG_KIND_PATH_NODE
+            : StringRegion.TAG_KIND_NAME;
+        final int stringPayloadLength = stringEncoder.encodeInto(stringTagKind, elemUsable);
+        if (stringPayloadLength > 0) {
+          final byte[] stringPayload = stringEncoder.output();
+          table.set(RegionTable.KIND_STRING, stringPayload, stringPayloadLength);
           // Membership sketch over the dictionary. Written next to the column it summarises so a
           // string equality can rule the page out for a few hundred bytes instead of decompressing
           // the dictionary — see StringDictSketch. Entries are hashed as STORED, so FSST-encoded
@@ -3495,7 +3449,8 @@ public enum PageKind {
           {
             final StringRegion.Header sketchHeader = WRITER_STRING_HEADER_SCRATCH.get();
             sketchHeader.parseInto(table.payload(RegionTable.KIND_STRING));
-            final byte[] sketch = StringDictSketch.encodeFromStringRegion(stringPayload, sketchHeader);
+            final byte[] sketch =
+                StringDictSketch.encodeFromStringRegion(stringPayload, stringPayloadLength, sketchHeader);
             if (sketch != null) {
               table.set(RegionTable.KIND_STRING_DICT_SKETCH, sketch);
             }
@@ -4293,10 +4248,12 @@ public enum PageKind {
       sink.writeByte(OVERFLOWPAGE.id);
       writeVersionAndFlags(sink);
 
-      // Write byte array directly
-      byte[] data = overflowPage.getDataBytes();
-      sink.writeInt(data.length);
-      sink.write(data);
+      // A staged projection page is a bounded view into the writer's fixed native reservoir. Write
+      // that view directly: materialising it as byte[] here would recreate the promoted-garbage
+      // slope the native staging path exists to remove. Ordinary overflow records remain heap
+      // backed and take the unchanged byte[] branch inside writeDataTo().
+      sink.writeInt(overflowPage.dataLength());
+      overflowPage.writeDataTo(sink);
     }
   },
 
@@ -4522,14 +4479,7 @@ public enum PageKind {
           return;
         }
 
-        final byte[] packed = new byte[dirtyUsed];
-        final int[] packedOffsets = new int[dirtyCount];
-        final int written = hotLeaf.packDirtyEntries(packed, packedOffsets);
-        assert written == dirtyUsed : "packed size mismatch: " + written + " vs " + dirtyUsed;
-        for (int i = 0; i < dirtyCount; i++) {
-          sink.writeInt(packedOffsets[i]);
-        }
-        sink.write(packed);
+        serializeSparseHOTLeafEntries(sink, hotLeaf, dirtyCount, dirtyUsed);
         if (hasSegmentRefs) {
           serializeSegmentRefs(sink, hotLeaf);
         }
@@ -4548,12 +4498,13 @@ public enum PageKind {
         sink.writeInt(hotLeaf.getSlotOffset(i));
       }
 
-      // Write slot memory (bulk copy)
-      MemorySegment slots = hotLeaf.slots();
-      int usedSize = hotLeaf.getUsedSlotsSize();
-      byte[] slotData = new byte[usedSize];
-      MemorySegment.copy(slots, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotData, 0, usedSize);
-      sink.write(slotData);
+      // Copy the exact live prefix straight into the sink. The warm pinned-spill path writes into a
+      // pooled MemorySegment-backed BytesOut, so materialising this payload as a byte[] would create
+      // one full-page allocation per spill. writeSegment copies synchronously and transfers no
+      // ownership: the HOT leaf remains the sole owner of its slot memory.
+      final MemorySegment slots = hotLeaf.slots();
+      final int usedSize = hotLeaf.getUsedSlotsSize();
+      sink.writeSegment(slots, 0L, usedSize);
       if (hasSegmentRefs) {
         serializeSegmentRefs(sink, hotLeaf);
       }
@@ -4666,9 +4617,8 @@ public enum PageKind {
           case SPAN_NODE ->
             HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children, height);
           case MULTI_NODE -> {
-            // Read and discard legacy childIndex payload to keep binary compatibility.
-            byte[] childIndexArray = new byte[256];
-            source.read(childIndexArray);
+            // Read and discard the legacy childIndex payload without a per-page temporary array.
+            source.skip(256L);
             yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
                 height);
           }
@@ -4699,16 +4649,8 @@ public enum PageKind {
         sink.writeShort(hotIndirect.getMostSignificantBitIndex());
         final int numExtractionBytes = hotIndirect.getNumExtractionBytes();
         sink.writeShort((short) numExtractionBytes);
-        final byte[] extractionPositions = hotIndirect.getExtractionPositions();
-        if (extractionPositions != null) {
-          sink.write(extractionPositions);
-        }
-        final long[] extractionMasks = hotIndirect.getExtractionMasks();
-        if (extractionMasks != null) {
-          for (final long mask : extractionMasks) {
-            sink.writeLong(mask);
-          }
-        }
+        hotIndirect.writeExtractionPositions(sink);
+        hotIndirect.writeExtractionMasks(sink);
       } else {
         // SingleMask: write initialBytePos + bitMask
         sink.writeShort((short) hotIndirect.getInitialBytePos());
@@ -4717,21 +4659,7 @@ public enum PageKind {
       }
 
       // Write partial keys (width determined by total number of discriminative bits)
-      final int[] partialKeysData = hotIndirect.getPartialKeys();
-      final int pkWidth = HOTIndirectPage.determinePartialKeyWidthFromBitCount(hotIndirect.getTotalDiscBits());
-      if (pkWidth <= 1) {
-        for (final int pk : partialKeysData) {
-          sink.writeByte((byte) pk);
-        }
-      } else if (pkWidth <= 2) {
-        for (final int pk : partialKeysData) {
-          sink.writeShort((short) pk);
-        }
-      } else {
-        for (final int pk : partialKeysData) {
-          sink.writeInt(pk);
-        }
-      }
+      hotIndirect.writePartialKeys(sink);
 
       // Write child references — embed pageFragments so the leaf fragment chain
       // (built by VersioningType.bumpHOTPageFragmentChain at CoW time) survives
@@ -4762,13 +4690,7 @@ public enum PageKind {
       // For SingleMask MultiNode, write the 256-byte child index array
       if (hotIndirect.getLayoutType() != HOTIndirectPage.LayoutType.MULTI_MASK
           && hotIndirect.getNodeType() == HOTIndirectPage.NodeType.MULTI_NODE) {
-        final byte[] childIdx = hotIndirect.getChildIndex();
-        if (childIdx != null) {
-          sink.write(childIdx);
-        } else {
-          // Write zeroes as fallback
-          sink.write(new byte[256]);
-        }
+        hotIndirect.writeChildIndex(sink);
       }
 
     }
@@ -4989,11 +4911,9 @@ public enum PageKind {
 
   private static void serializeDelegate(BytesOut<?> sink, Page delegate, SerializationType type) {
     switch (delegate) {
-      case ReferencesPage4 page -> type.serializeReferencesPage4(sink, page.getReferences(), page.getOffsets());
-      case BitmapReferencesPage page ->
-        type.serializeBitmapReferencesPage(sink, page.getReferences(), page.getBitmap());
-      case FullReferencesPage ignored ->
-        type.serializeFullReferencesPage(sink, ((FullReferencesPage) delegate).getReferencesArray());
+      case ReferencesPage4 page -> page.serializeReferences(sink, type);
+      case BitmapReferencesPage page -> page.serializeReferences(sink, type);
+      case FullReferencesPage page -> page.serializeReferences(sink, type);
       default -> throw new IllegalStateException("Unexpected value: " + delegate);
     }
   }
@@ -5077,6 +4997,230 @@ public enum PageKind {
   }
 
   /**
+   * A leaf has at most {@link HOTLeafPage#MAX_ENTRIES} owners and each owner has a 16-bit sub-id
+   * namespace. This is the format-derived hard ceiling for the reusable serializer scratch, not an
+   * arbitrary operational limit.
+   */
+  private static final int MAX_HOT_LEAF_SIDE_REFERENCES =
+      HOTLeafPage.MAX_ENTRIES * (HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID + 1);
+
+  /**
+   * Owner-confined primitive scratch for deterministic side-map emission. It starts at one key per
+   * possible leaf slot and grows geometrically to the format ceiling; an allocation is paid only
+   * when a serializer thread observes a new high-water mark, never on recurring warm spills.
+   */
+  private static final ThreadLocal<long[]> HOT_LEAF_SIDE_REFERENCE_KEYS =
+      ThreadLocal.withInitial(() -> new long[HOTLeafPage.MAX_ENTRIES]);
+
+  /** Tiny introsort partitions are faster as a branch-light in-place insertion pass. */
+  private static final int HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD = 24;
+
+  /**
+   * Emit sparse slot offsets and payload in two bitmap passes. The old path first copied both into a
+   * per-spill {@code int[]} and {@code byte[]}; writing offsets in pass one and exact slot segment
+   * ranges in pass two retains the same packed order without either allocation.
+   */
+  private static void serializeSparseHOTLeafEntries(final BytesOut<?> sink, final HOTLeafPage hotLeaf,
+      final int expectedEntryCount, final int expectedPayloadBytes) {
+    final int entryCount = hotLeaf.getEntryCount();
+    final int usedSlotBytes = hotLeaf.getUsedSlotsSize();
+    final MemorySegment slots = hotLeaf.slots();
+    if (expectedEntryCount <= 0 || expectedEntryCount > entryCount || entryCount > HOTLeafPage.MAX_ENTRIES
+        || expectedPayloadBytes <= 0 || expectedPayloadBytes > usedSlotBytes
+        || usedSlotBytes > slots.byteSize()) {
+      throw new IllegalStateException("Invalid sparse HOT-leaf bounds: dirtyCount=" + expectedEntryCount
+          + ", entryCount=" + entryCount + ", dirtyBytes=" + expectedPayloadBytes + ", usedSlotBytes="
+          + usedSlotBytes + ", slotCapacity=" + slots.byteSize());
+    }
+
+    int emittedEntries = 0;
+    int packedOffset = 0;
+    final int bitmapWordCount = (HOTLeafPage.MAX_ENTRIES + Long.SIZE - 1) / Long.SIZE;
+    for (int wordIndex = 0; wordIndex < bitmapWordCount; wordIndex++) {
+      long word = hotLeaf.getDirtyBitmapWord(wordIndex);
+      while (word != 0L) {
+        final int entryIndex = (wordIndex << 6) | Long.numberOfTrailingZeros(word);
+        if (entryIndex < entryCount) {
+          final int slotOffset = hotLeaf.getSlotOffset(entryIndex);
+          final int slotSize = hotLeaf.getSlotSize(entryIndex);
+          if (emittedEntries >= expectedEntryCount || slotOffset < 0 || slotSize <= 0
+              || slotOffset > usedSlotBytes - slotSize) {
+            throw new IllegalStateException("Invalid dirty HOT-leaf slot " + entryIndex + ": offset=" + slotOffset
+                + ", size=" + slotSize + ", usedSlotBytes=" + usedSlotBytes);
+          }
+          sink.writeInt(packedOffset);
+          packedOffset += slotSize;
+          emittedEntries++;
+        }
+        word &= word - 1L;
+      }
+    }
+    validateSparseHOTLeafPass(expectedEntryCount, expectedPayloadBytes, emittedEntries, packedOffset, "offset");
+
+    emittedEntries = 0;
+    int emittedBytes = 0;
+    for (int wordIndex = 0; wordIndex < bitmapWordCount; wordIndex++) {
+      long word = hotLeaf.getDirtyBitmapWord(wordIndex);
+      while (word != 0L) {
+        final int entryIndex = (wordIndex << 6) | Long.numberOfTrailingZeros(word);
+        if (entryIndex < entryCount) {
+          final int slotSize = hotLeaf.getSlotSize(entryIndex);
+          sink.writeSegment(slots, hotLeaf.getSlotOffset(entryIndex), slotSize);
+          emittedBytes += slotSize;
+          emittedEntries++;
+        }
+        word &= word - 1L;
+      }
+    }
+    validateSparseHOTLeafPass(expectedEntryCount, expectedPayloadBytes, emittedEntries, emittedBytes, "payload");
+  }
+
+  private static void validateSparseHOTLeafPass(final int expectedEntryCount, final int expectedPayloadBytes,
+      final int actualEntryCount, final int actualPayloadBytes, final String pass) {
+    if (actualEntryCount != expectedEntryCount || actualPayloadBytes != expectedPayloadBytes) {
+      throw new IllegalStateException("Sparse HOT-leaf " + pass + " pass changed beneath serialization: entries="
+          + actualEntryCount + '/' + expectedEntryCount + ", bytes=" + actualPayloadBytes + '/'
+          + expectedPayloadBytes);
+    }
+  }
+
+  /** Return reusable primitive scratch with an explicit format-derived capacity bound. */
+  private static long[] hotLeafSideReferenceKeyScratch(final int required) {
+    if (required < 0 || required > MAX_HOT_LEAF_SIDE_REFERENCES) {
+      throw new IllegalStateException("HOT-leaf side-reference count " + required + " exceeds format limit "
+          + MAX_HOT_LEAF_SIDE_REFERENCES);
+    }
+    long[] scratch = HOT_LEAF_SIDE_REFERENCE_KEYS.get();
+    if (scratch.length >= required) {
+      return scratch;
+    }
+
+    int capacity = scratch.length;
+    while (capacity < required) {
+      capacity = capacity <= MAX_HOT_LEAF_SIDE_REFERENCES / 2
+          ? capacity << 1
+          : MAX_HOT_LEAF_SIDE_REFERENCES;
+    }
+    scratch = new long[capacity];
+    HOT_LEAF_SIDE_REFERENCE_KEYS.set(scratch);
+    return scratch;
+  }
+
+  /**
+   * Sort exactly the populated prefix using signed-long order, matching the historical
+   * {@link Arrays#sort(long[], int, int)} wire order without its large-input work array. The normal
+   * path is a median-of-three quicksort; a depth limit switches adversarial inputs to heapsort, and
+   * recursing only into the smaller partition keeps stack usage logarithmic.
+   */
+  static void sortHotLeafSideReferenceKeyPrefix(final long[] keys, final int keyCount) {
+    if (keyCount < 2) {
+      return;
+    }
+    final int depthLimit = 2 * (Integer.SIZE - 1 - Integer.numberOfLeadingZeros(keyCount));
+    introsortHotLeafSideReferenceKeys(keys, 0, keyCount, depthLimit);
+  }
+
+  private static void introsortHotLeafSideReferenceKeys(final long[] keys, int from, int to, int depthLimit) {
+    while (to - from > HOT_LEAF_SIDE_REFERENCE_INSERTION_SORT_THRESHOLD) {
+      if (depthLimit == 0) {
+        heapSortHotLeafSideReferenceKeys(keys, from, to);
+        return;
+      }
+      depthLimit--;
+
+      final int middle = from + ((to - from) >>> 1);
+      final long pivot = medianSignedLong(keys[from], keys[middle], keys[to - 1]);
+      int left = from;
+      int right = to - 1;
+      while (left <= right) {
+        while (keys[left] < pivot) {
+          left++;
+        }
+        while (keys[right] > pivot) {
+          right--;
+        }
+        if (left <= right) {
+          final long value = keys[left];
+          keys[left++] = keys[right];
+          keys[right--] = value;
+        }
+      }
+
+      // Finish the smaller partition recursively and loop over the larger one. Besides eliminating
+      // one call per partition, this caps stack depth even before the heapsort guard is reached.
+      if (right - from < to - left) {
+        introsortHotLeafSideReferenceKeys(keys, from, right + 1, depthLimit);
+        from = left;
+      } else {
+        introsortHotLeafSideReferenceKeys(keys, left, to, depthLimit);
+        to = right + 1;
+      }
+    }
+    insertionSortHotLeafSideReferenceKeys(keys, from, to);
+  }
+
+  private static long medianSignedLong(final long first, final long middle, final long last) {
+    if (first < middle) {
+      return middle < last
+          ? middle
+          : first < last
+              ? last
+              : first;
+    }
+    return first < last
+        ? first
+        : middle < last
+            ? last
+            : middle;
+  }
+
+  private static void insertionSortHotLeafSideReferenceKeys(final long[] keys, final int from, final int to) {
+    for (int index = from + 1; index < to; index++) {
+      final long value = keys[index];
+      int insertionIndex = index;
+      while (insertionIndex > from && value < keys[insertionIndex - 1]) {
+        keys[insertionIndex] = keys[insertionIndex - 1];
+        insertionIndex--;
+      }
+      keys[insertionIndex] = value;
+    }
+  }
+
+  private static void heapSortHotLeafSideReferenceKeys(final long[] keys, final int from, final int to) {
+    final int length = to - from;
+    for (int root = (length >>> 1) - 1; root >= 0; root--) {
+      siftDownHotLeafSideReferenceKeys(keys, from, root, length);
+    }
+    for (int end = length - 1; end > 0; end--) {
+      final long maximum = keys[from];
+      keys[from] = keys[from + end];
+      keys[from + end] = maximum;
+      siftDownHotLeafSideReferenceKeys(keys, from, 0, end);
+    }
+  }
+
+  private static void siftDownHotLeafSideReferenceKeys(final long[] keys, final int offset, int root,
+      final int length) {
+    final long value = keys[offset + root];
+    final int firstLeaf = length >>> 1;
+    while (root < firstLeaf) {
+      int child = (root << 1) + 1;
+      long childValue = keys[offset + child];
+      final int rightChild = child + 1;
+      if (rightChild < length && childValue < keys[offset + rightChild]) {
+        child = rightChild;
+        childValue = keys[offset + child];
+      }
+      if (value >= childValue) {
+        break;
+      }
+      keys[offset + root] = childValue;
+      root = child;
+    }
+    keys[offset + root] = value;
+  }
+
+  /**
    * Serializes a HOT leaf's segment-reference side map as a trailing section:
    * {@code varint count + count × (compositeKey u64, diskOffsetKey u64)}. Entries are emitted in
    * ascending compositeKey order so identical maps serialize to identical bytes. Every reference must
@@ -5086,9 +5230,18 @@ public enum PageKind {
    * fail loudly instead.
    */
   private static void serializeSegmentRefs(final BytesOut<?> sink, final HOTLeafPage hotLeaf) {
-    final long[] keys = hotLeaf.overflowPageRefKeysSorted();
-    Utils.putVarLong(sink, keys.length);
-    for (final long compositeKey : keys) {
+    final int keyCount = hotLeaf.segmentRefCount();
+    final long[] keys = hotLeafSideReferenceKeyScratch(keyCount);
+    final int copiedKeyCount = hotLeaf.copyOverflowPageRefKeysInto(keys);
+    if (copiedKeyCount != keyCount) {
+      throw new IllegalStateException(
+          "HOT-leaf side-reference map changed beneath serialization: copied=" + copiedKeyCount + ", expected="
+              + keyCount);
+    }
+    sortHotLeafSideReferenceKeyPrefix(keys, keyCount);
+    Utils.putVarLong(sink, keyCount);
+    for (int keyIndex = 0; keyIndex < keyCount; keyIndex++) {
+      final long compositeKey = keys[keyIndex];
       final PageReference ref = hotLeaf.getPageReference(compositeKey);
       if (ref == null || ref.getKey() == Constants.NULL_ID_LONG) {
         throw new IllegalStateException("Unresolved projection segment reference at compositeKey=" + compositeKey
@@ -5103,6 +5256,10 @@ public enum PageKind {
   /** Inverse of {@link #serializeSegmentRefs}: rebuilds the side map with key-only references. */
   private static void deserializeSegmentRefs(final BytesIn<?> source, final HOTLeafPage page) {
     final long count = Utils.getVarLong(source);
+    if (count < 0L || count > MAX_HOT_LEAF_SIDE_REFERENCES) {
+      throw new IllegalStateException(
+          "HOT-leaf side-reference count " + count + " exceeds format limit " + MAX_HOT_LEAF_SIDE_REFERENCES);
+    }
     for (long i = 0; i < count; i++) {
       final long compositeKey = source.readLong();
       final long diskKey = source.readLong();
@@ -5239,6 +5396,10 @@ public enum PageKind {
   private static final ThreadLocal<int[]> NUMBER_PATH_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
+  /** Reusable number-region encoder for the page serializer's one-thread-at-a-time seal path. */
+  private static final ThreadLocal<NumberRegion.Encoder> NUMBER_REGION_ENCODER =
+      ThreadLocal.withInitial(() -> new NumberRegion.Encoder(PageLayout.SLOT_COUNT));
+
   /** Per-thread buffers for double-typed number values the long region declines. */
   private static final ThreadLocal<double[]> DOUBLE_VALUE_SCRATCH =
       ThreadLocal.withInitial(() -> new double[PageLayout.SLOT_COUNT]);
@@ -5273,10 +5434,20 @@ public enum PageKind {
       ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
 
   /**
+   * Shared sequential output for the small page regions. {@link RegionTable#set(byte, byte[], int)}
+   * copies each valid prefix into page-owned native storage before the next encoder reuses it.
+   */
+  private static final ThreadLocal<byte[]> REGION_ENCODE_SCRATCH = ThreadLocal.withInitial(() ->
+      new byte[Math.max(NumberZoneMapRegion.encodedSize(PageLayout.SLOT_COUNT),
+          Math.max(ObjectKeyNameKeyRegion.maxEncodedSize(PageLayout.SLOT_COUNT),
+              RecordOrdinalRegion.maxEncodedSize()))]);
+
+  /**
    * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal fastutil maps and
-   * per-tag arrays are retained across pages; only per-page counts and value-byte references are
-   * cleared via {@link StringRegion.Encoder#reset()}. Writer threads therefore pay at most one
-   * encoder allocation in their lifetime instead of one per committed page.
+   * per-tag arrays/value-store capacity are retained across pages; only per-page counts, live shared
+   * store references, and logical store length are cleared via {@link StringRegion.Encoder#reset()}.
+   * Writer threads therefore pay at most one encoder allocation in their lifetime instead of one per
+   * committed page.
    */
   private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER =
       ThreadLocal.withInitial(StringRegion.Encoder::new);
@@ -5290,6 +5461,41 @@ public enum PageKind {
   private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER_PATH =
       ThreadLocal.withInitial(StringRegion.Encoder::new);
 
+  /**
+   * Release the previous page's path candidate whenever the name candidate starts a page, even when
+   * the current resource has no path summary. Writer threads can move between resources: a path
+   * candidate from the preceding resource may still borrow ranges from the name encoder's value
+   * store, and leaving it untouched would defer every subsequent name-store reset.
+   *
+   * @return the reset candidate when path tagging is enabled for this page, otherwise {@code null}
+   */
+  static StringRegion.@Nullable Encoder resetStringRegionPathCandidate(final boolean enabled) {
+    final StringRegion.Encoder pathCandidate = STRING_REGION_ENCODER_PATH.get();
+    pathCandidate.reset();
+    return enabled
+        ? pathCandidate
+        : null;
+  }
+
+  /**
+   * Reusable destination for copying fused stored-string payloads out of native page memory. Its
+   * contents are borrowed only until both candidate StringRegion encoders return synchronously.
+   */
+  private static final ThreadLocal<byte[]> STRING_REGION_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[1024]);
+
+  /** Grow the current thread's scratch geometrically without copying dead contents. */
+  private static byte[] growStringRegionValueScratch(final byte[] current, final int required) {
+    if (required <= current.length) {
+      return current;
+    }
+    final long doubled = Math.max(1L, (long) current.length << 1);
+    final int capacity = (int) Math.min((long) Integer.MAX_VALUE, Math.max((long) required, doubled));
+    final byte[] grown = new byte[capacity];
+    STRING_REGION_VALUE_SCRATCH.set(grown);
+    return grown;
+  }
+
   // ==================== Offset-table dedup scratch ====================
 
   /**
@@ -5298,6 +5504,14 @@ public enum PageKind {
    */
   private static final ThreadLocal<int[]> SLOT_KINDID_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread field-count array parallel to {@link #SLOT_KINDID_SCRATCH}. The bitmap scan derives it
+   * once from the cached kind id; the encoder's pre-scan, sizing pass and staging pass then consume the
+   * byte directly instead of repeating the same kind-table lookup.
+   */
+  private static final ThreadLocal<byte[]> SLOT_FIELD_COUNT_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
 
   /**
    * Per-thread heapOffset array (one entry per populated slot). Avoids a re-walk of the bitmap when
@@ -5428,8 +5642,7 @@ public enum PageKind {
 
   /**
    * Per-thread compact buffer for the pathNodeKey-bearing slot int-values fed to
-   * {@link PathNodeKeyRegion#encodedSize} / {@link PathNodeKeyRegion#encode}. Compacted form — length
-   * = slots with pathNodeKey, bitmap order.
+   * {@link PathNodeKeyRegion#encode}. Compacted form — length = slots with pathNodeKey, bitmap order.
    */
   private static final ThreadLocal<int[]> SLOT_PATH_NODE_KEY_VALUES_COMPACT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -5444,14 +5657,15 @@ public enum PageKind {
 
   /**
    * Per-thread scratch byte buffer for the {@link PathNodeKeyRegion} encoded column bytes. Grows on
-   * demand. Worst-case size bound is {@code 1 + 256*4 + 2 + 128 + SLOT_COUNT}.
+   * demand on the read path. Its initial capacity has one spare dictionary entry beyond the
+   * encoder's 255-entry ceiling, so every writer payload fits without a sizing pass or growth.
    */
   private static final ThreadLocal<byte[]> PATH_NODE_KEY_COLUMN_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[1 + 256 * 4 + 2 + 128 + PageLayout.SLOT_COUNT]);
 
   /**
-   * Per-thread 256-int dictionary scratch shared by {@link PathNodeKeyRegion#encodedSize} and
-   * {@link PathNodeKeyRegion#encode}. Replaces the former per-page {@code new int[256]} alloc.
+   * Per-thread 256-int dictionary scratch for {@link PathNodeKeyRegion#encode}. Replaces the former
+   * per-page {@code new int[256]} allocation.
    */
   private static final ThreadLocal<int[]> PNK_ENCODE_DICT_SCRATCH = ThreadLocal.withInitial(() -> new int[256]);
 
@@ -5703,14 +5917,6 @@ public enum PageKind {
    */
   private static final ThreadLocal<byte[]> SLOT_NAME_KEY_WIDTH_PACKED_SCRATCH =
       ThreadLocal.withInitial(() -> new byte[PageLayout.SLOT_COUNT]);
-
-  /**
-   * Per-thread small int-dict for tracking distinct nameKeys during the Lever-4 writer pre-scan.
-   * Sized 256 to match {@link ObjectKeyNameKeyRegion#encode}'s 255-unique-cap; the dict is built via
-   * linear-search insert (typical fused-OBJECT_NAMED_* page has 5-10 unique nameKeys, so the scan is
-   * short and branch-predictable).
-   */
-  private static final ThreadLocal<int[]> NAME_KEY_UNIQUE_DICT_SCRATCH = ThreadLocal.withInitial(() -> new int[256]);
 
   /**
    * Structural-flags byte bit positions for the compressed-blob header. Kept as constants so writer +
@@ -6357,6 +6563,19 @@ public enum PageKind {
    */
   public abstract void serializePage(final ResourceConfiguration ResourceConfiguration, final BytesOut<?> sink,
       final Page page, final SerializationType type);
+
+  /**
+   * Serialize a caller-owned disposable page without publishing serializer-only native state onto
+   * the page that crosses an asynchronous hand-off.
+   *
+   * <p>Only {@link #KEYVALUELEAFPAGE} has such state (its writer-built {@link RegionTable}); every
+   * other kind rejects this specialized entry point so a future caller cannot silently assume an
+   * ownership contract that kind does not implement.</p>
+   */
+  public void serializeDisposablePage(final ResourceConfiguration resourceConfiguration, final BytesOut<?> sink,
+      final Page page, final SerializationType type) {
+    throw new UnsupportedOperationException(name() + " has no disposable serialization path");
+  }
 
   /**
    * Deserialize page.
