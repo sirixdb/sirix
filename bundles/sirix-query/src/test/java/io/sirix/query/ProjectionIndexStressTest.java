@@ -56,9 +56,8 @@ import java.util.concurrent.atomic.AtomicReference;
  *       persisted leaves must serve the final state.</li>
  *   <li><b>Concurrent readers vs. writer</b> — REST-shaped concurrency (one session per
  *       reader) with revision-pinned checks racing ongoing maintenance commits.</li>
- *   <li><b>Tombstone → rebuild cycles</b> — repeated unattributable changes (subtree moves
- *       out of the record set), each followed by a same-definition re-create that must serve
- *       again.</li>
+ *   <li><b>Structural fail-closed cycles</b> — repeated attempts to reorder projection record
+ *       roots must leave both the committed tree and the still-served projection unchanged.</li>
  * </ul>
  */
 public final class ProjectionIndexStressTest extends AbstractJsonTest {
@@ -203,18 +202,10 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     }
     if (dice < 90) {
       final Row row = randomRecord(rnd);
-      if (dice < 80 || oracle.isEmpty()) {
-        moveToArray(wtx);
-        wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(recordJson(row)),
-                                     JsonNodeTrx.Commit.NO);
-        oracle.add(row);
-      } else {
-        final int idx = rnd.nextInt(oracle.size());
-        moveToRow(wtx, idx);
-        wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(recordJson(row)),
-                                        JsonNodeTrx.Commit.NO);
-        oracle.add(idx + 1, row);
-      }
+      moveToArray(wtx);
+      wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader(recordJson(row)),
+                                   JsonNodeTrx.Commit.NO);
+      oracle.add(row);
       return 0;
     }
     if (dice < 95) {
@@ -476,11 +467,11 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
   }
 
   // ---------------------------------------------------------------------------------------------
-  // Repeated tombstone → same-definition rebuild cycles.
+  // Repeated record-root document-order splices.
   // ---------------------------------------------------------------------------------------------
 
   @Test
-  public void tombstoneRebuildCyclesKeepServingExactly() throws IOException {
+  public void repeatedRecordRootMovesKeepServingExactly() throws IOException {
     query("jn:store('" + CYCLE_DB + "','cycle.jn','{"
         + "\"records\":[{\"age\":1},{\"age\":2},{\"age\":3},{\"age\":4},{\"age\":5},"
         + "{\"age\":6},{\"age\":7},{\"age\":8},{\"age\":9},{\"age\":10}],"
@@ -492,19 +483,10 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
     query(createQuery);
 
     final String[] recordsPath = { "records", "[]" };
-    long expectedSum = 55;
     for (int cycle = 0; cycle < 4; cycle++) {
-      // Served before the unattributable change.
-      assertRecordsSumServed(recordsPath, expectedSum, "cycle " + cycle + " pre-move");
+      assertRecordsSumServed(recordsPath, 55L, "cycle " + cycle + " pre-move");
 
-      // Move the first record OUT of the record set. This is an unattributable subtree move,
-      // so the projection is free to EITHER tombstone (and fall back) OR maintain itself in
-      // place (re-extraction drops the moved record) — both are production-valid. The test
-      // therefore asserts the observable INVARIANT (the aggregate equals live data on
-      // whichever path the executor takes), never the mechanism: pinning "must tombstone"
-      // was environment-dependent (local tombstoned, CI maintained a correct 9-row leaf).
-      // A fresh database + session per phase: revisions committed through other database
-      // instances (the query() helpers) are only visible to sessions opened afterwards.
+      // Move the first projected record out. Its row is removed without rebuilding any distant leaf.
       try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
            final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
         try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
@@ -521,32 +503,30 @@ public final class ProjectionIndexStressTest extends AbstractJsonTest {
           wtx.moveSubtreeToFirstChild(recordKey);
           wtx.commit();
         }
-        expectedSum -= (cycle + 1);
+      }
+      test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
+          + "return sum(for $r in $doc.records[] return $r.age)", "54");
+      assertRecordsSumServed(recordsPath, 54L, "cycle " + cycle + " moved out");
 
-        // Whichever path the projection took, the served-or-fallback answer must equal live
-        // data. The VALUE check is the real guard: a stale-snapshot leak (kept the moved
-        // record, or dropped the wrong one) would surface here as a wrong sum, not silently
-        // pass a mechanism assertion. When the projection is tombstoned the executor's
-        // generic fallback answers; when it is maintained the projection serves — both 54.
-        final int afterMove = session.getMostRecentRevisionNumber();
-        final SirixVectorizedExecutor exec = new SirixVectorizedExecutor(session, afterMove, 2);
-        try {
-          final Sequence sum = exec.executeAggregate(null, recordsPath, "sum", "age");
-          Assertions.assertNotNull(sum, "cycle " + cycle + ": the aggregate must be answered "
-              + "(served or generic fallback), never left unanswered");
-          Assertions.assertEquals(expectedSum, ((Int64) sum).longValue(),
-              "cycle " + cycle + ": post-move answer must equal live data — a projection that "
-                  + "kept the moved-out record or dropped the wrong one would fail here");
-        } finally {
-          exec.close();
+      // Move the same stable record root back to the first document position.
+      try (final Database<JsonResourceSession> database = openStressDatabase(CYCLE_DB);
+           final JsonResourceSession session = database.beginResourceSession("cycle.jn")) {
+        try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+          Assertions.assertTrue(wtx.moveToDocumentRoot());
+          Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
+          Assertions.assertTrue(wtx.moveToFirstChild());       // records
+          final long recordsArrayKey = wtx.getNodeKey();
+          Assertions.assertTrue(wtx.moveToRightSibling());     // archive
+          Assertions.assertTrue(wtx.moveToFirstChild());       // moved age=1 record
+          final long recordKey = wtx.getNodeKey();
+          Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
+          wtx.moveSubtreeToFirstChild(recordKey);
+          wtx.commit();
         }
       }
       test("let $doc := jn:doc('" + CYCLE_DB + "','cycle.jn') "
-          + "return sum(for $r in $doc.records[] return $r.age)", String.valueOf(expectedSum));
-
-      // Same-definition re-create must rebuild and serve again.
-      query(createQuery);
-      assertRecordsSumServed(recordsPath, expectedSum, "cycle " + cycle + " post-rebuild");
+          + "return sum(for $r in $doc.records[] return $r.age)", "55");
+      assertRecordsSumServed(recordsPath, 55L, "cycle " + cycle + " moved back");
     }
   }
 

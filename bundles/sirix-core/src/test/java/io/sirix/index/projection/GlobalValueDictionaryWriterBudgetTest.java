@@ -1,8 +1,12 @@
 package io.sirix.index.projection;
 
+import io.sirix.node.ByteArrayBytesIn;
+import io.sirix.node.NodeKind;
+import io.sirix.node.ValueDictionaryEntryNode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -48,19 +52,102 @@ final class GlobalValueDictionaryWriterBudgetTest {
   }
 
   @Test
-  @DisplayName("An unbounded writer is unaffected — the bound is opt-in, not a behaviour change")
+  @DisplayName("An unbounded writer is unaffected below the mandatory structural ceiling")
   void unboundedWriterInternsFreely() {
-    // NON-VACUITY, and the regression guard for every existing caller: the SAME loop that refuses
-    // above must run to completion when no budget is imposed. Without this, a mis-scaled bound that
-    // refused everything would still pass the test above.
+    // The aggregate byte budget is opt-in.  The non-humongous structural ceiling is not.
     final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter();
-    for (int i = 0; i < 20_000; i++) {
+    for (int i = 0; i < 10_000; i++) {
       final byte[] v = value(i);
       writer.intern(v, 0, v.length);
     }
-    assertEquals(20_000, writer.entryCount());
-    assertTrue(writer.retainedBytes() > GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES + (64L << 10),
-        "the unbounded run must have exceeded the bounded run's budget, or the two arms are not comparable");
+    assertEquals(10_000, writer.entryCount());
+  }
+
+  @Test
+  @DisplayName("The canonical 16,384-entry chunk fits without a humongous backing array")
+  void canonicalChunkFitsAndTheFollowingEntryDeclinesBeforeGrowth() {
+    final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter();
+    for (int i = 0; i < GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND; i++) {
+      final byte[] bytes = compactValue(i);
+      assertEquals(i + 1, writer.intern(bytes, 0, bytes.length));
+    }
+
+    assertEquals(16_384, writer.entryCount());
+    assertEquals(32_768, writer.hashTableCapacityForTest(),
+        "the 50%-full canonical chunk must not grow the table one insertion early");
+    assertTrue(writer.largestBackingArrayPayloadBytesForTest() <= (256 << 10),
+        "no geometrically grown backing array may approach G1's minimum humongous threshold");
+
+    final long retainedBefore = writer.retainedBytes();
+    final int tableCapacityBefore = writer.hashTableCapacityForTest();
+    final byte[] next = compactValue(16_384);
+    final GlobalDictionaryBudgetExceededException reservationDecline =
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> writer.reservationBytesForIntern(next, 0, next.length));
+    assertTrue(reservationDecline.admissionDetail().contains("16,385"));
+    final GlobalDictionaryBudgetExceededException insertDecline =
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> writer.intern(next, 0, next.length));
+    assertTrue(insertDecline.admissionDetail().contains("16,385"));
+    assertEquals(16_384, writer.entryCount());
+    assertEquals(retainedBefore, writer.retainedBytes());
+    assertEquals(tableCapacityBefore, writer.hashTableCapacityForTest());
+
+    final byte[] duplicate = compactValue(16_383);
+    assertEquals(16_384, writer.intern(duplicate, 0, duplicate.length),
+        "a hit at the structural ceiling must remain allocation-free and legal");
+  }
+
+  @Test
+  @DisplayName("Oversized values decline before state mutation or UTF-8 materialisation")
+  void oversizedValuesAreRejectedBeforeUnsafeMaterialisation() {
+    final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter();
+    final byte[] maximum = new byte[GlobalValueDictionaryWriter.MAX_VALUE_BYTES];
+    assertEquals(1, writer.intern(maximum, 0, maximum.length));
+    assertEquals(GlobalValueDictionaryWriter.MAX_VALUE_BYTES, writer.valueBytes(1).length);
+    final long retainedBefore = writer.retainedBytes();
+
+    final byte[] oversized = new byte[GlobalValueDictionaryWriter.MAX_VALUE_BYTES + 1];
+    final GlobalDictionaryBudgetExceededException byteDecline =
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> writer.intern(oversized, 0, oversized.length));
+    assertTrue(byteDecline.admissionDetail().contains("value length"));
+    assertEquals(1, writer.entryCount());
+    assertEquals(retainedBefore, writer.retainedBytes());
+
+    final String oversizedUtf8 = "\u20ac".repeat(GlobalValueDictionaryWriter.MAX_VALUE_BYTES / 3 + 1);
+    final GlobalDictionaryBudgetExceededException stringDecline =
+        assertThrows(GlobalDictionaryBudgetExceededException.class,
+            () -> writer.intern(oversizedUtf8));
+    assertTrue(stringDecline.admissionDetail().contains("UTF-8 value"));
+    assertEquals(1, writer.entryCount());
+    assertEquals(retainedBefore, writer.retainedBytes());
+  }
+
+  @Test
+  @DisplayName("A corrupt oversized reverse value is rejected from its length prefix")
+  void oversizedWireValueIsRejectedBeforePayloadAllocation() {
+    final byte[] onlyLengthPrefix = ByteBuffer.allocate(Integer.BYTES)
+        .putInt(ValueDictionaryEntryNode.MAX_VALUE_LENGTH + 1)
+        .array();
+
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> NodeKind.VALUE_DICTIONARY_ENTRY.deserialize(
+            new ByteArrayBytesIn(onlyLengthPrefix), 1L, null, null));
+    assertTrue(failure.getMessage().contains("safe V0 payload limit"), failure.getMessage());
+  }
+
+  @Test
+  @DisplayName("Forced-global mode fails closed instead of emitting AUTO's typed decline")
+  void forcedGlobalModeFailsClosed() {
+    final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter(7,
+        Long.MAX_VALUE, GlobalValueDictionaryWriter.AdmissionPolicy.FAIL_CLOSED);
+    final byte[] oversized = new byte[GlobalValueDictionaryWriter.MAX_VALUE_BYTES + 1];
+
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> writer.intern(oversized, 0, oversized.length));
+    assertTrue(failure.getCause() instanceof GlobalDictionaryBudgetExceededException);
+    assertEquals(0, writer.entryCount());
   }
 
   @Test
@@ -75,5 +162,88 @@ final class GlobalValueDictionaryWriterBudgetTest {
       assertEquals(first, writer.intern(v, 0, v.length));
     }
     assertEquals(1, writer.entryCount());
+  }
+
+  @Test
+  @DisplayName("Capacity growth is refused before any backing array grows")
+  void capacityGrowthIsPreflightedAgainstTheBudget() {
+    final GlobalValueDictionaryWriter calibration = new GlobalValueDictionaryWriter();
+    for (int i = 0; i < 2_047; i++) {
+      final byte[] value = {(byte) i, (byte) (i >>> 8), (byte) (i >>> 16), (byte) (i >>> 24)};
+      calibration.intern(value, 0, value.length);
+    }
+    final long budget = calibration.estimatedFlushPeakBytes();
+    final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter(2, budget);
+    for (int i = 0; i < 2_047; i++) {
+      final byte[] value = {(byte) i, (byte) (i >>> 8), (byte) (i >>> 16), (byte) (i >>> 24)};
+      assertEquals(i + 1, writer.intern(value, 0, value.length));
+    }
+    final long retainedBefore = writer.retainedBytes();
+
+    final byte[] next = {(byte) 0xff, (byte) 0xff, 0x07, 0x00};
+    assertThrows(GlobalDictionaryBudgetExceededException.class,
+        () -> writer.intern(next, 0, next.length));
+
+    assertEquals(2_047, writer.entryCount());
+    assertEquals(retainedBefore, writer.retainedBytes());
+    assertTrue(retainedBefore <= budget);
+  }
+
+  @Test
+  @DisplayName("The budget includes persisted nodes and transaction pages retained during flush")
+  void persistedOutputIsIncludedInThePeak() {
+    final GlobalValueDictionaryWriter writer = new GlobalValueDictionaryWriter();
+    for (int i = 0; i < 4_096; i++) {
+      final byte[] v = value(i);
+      writer.intern(v, 0, v.length);
+    }
+
+    assertTrue(writer.estimatedFlushPeakBytes() > writer.retainedBytes() + writer.valueBytes(),
+        "the projected peak must include directory nodes, KVL/TIL pages, and encoded output");
+  }
+
+  @Test
+  @DisplayName("Arena growth saturates without signed overflow")
+  void arenaGrowthSaturatesWithoutSignedOverflow() {
+    assertEquals(Integer.MAX_VALUE - 8,
+        GlobalValueDictionaryWriter.grownCapacityForTest(1 << 30, (1L << 30) + 1));
+    assertThrows(IllegalStateException.class,
+        () -> GlobalValueDictionaryWriter.grownCapacityForTest(Integer.MAX_VALUE - 8,
+            (long) Integer.MAX_VALUE - 7));
+  }
+
+  @Test
+  @DisplayName("Election estimates saturate instead of overflowing into an admission")
+  void electionEstimateSaturatesOnOverflow() {
+    assertEquals(186L, ProjectionIndexBuilder.projectedGlobalDictionaryBytes(3L, 10L));
+    assertEquals(Long.MAX_VALUE,
+        ProjectionIndexBuilder.projectedGlobalDictionaryBytes(Long.MAX_VALUE, 1L));
+    assertEquals(Long.MAX_VALUE,
+        ProjectionIndexBuilder.projectedGlobalDictionaryBytes(1L, Long.MAX_VALUE));
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionIndexBuilder.projectedGlobalDictionaryBytes(-1L, 1L));
+  }
+
+  @Test
+  @DisplayName("Maximum-cardinality reverse planning is range arithmetic, not an entry array")
+  void maximumCardinalityReversePlanningDoesNotMaterialiseEntries() {
+    final long reverseBuckets = ((long) Integer.MAX_VALUE + 255L) >>> 8;
+    final long levelTwoNodes = (reverseBuckets + 255L) >>> 8;
+    final long levelOneNodes = (levelTwoNodes + 255L) >>> 8;
+
+    assertEquals(reverseBuckets + levelTwoNodes + levelOneNodes + 1L,
+        GlobalValueDictionaryRadix.denseReverseRecordCountForTest(0, Integer.MAX_VALUE));
+    assertEquals(17L + (Integer.MAX_VALUE - 1L)
+            * GlobalValueDictionary.PERSISTENT_RECORD_STRIDE,
+        GlobalValueDictionaryRadix.entryKeyForLocalIdForTest(17L, Integer.MAX_VALUE));
+  }
+
+  private static byte[] compactValue(final int value) {
+    return new byte[] {
+        (byte) value,
+        (byte) (value >>> 8),
+        (byte) (value >>> 16),
+        (byte) (value >>> 24)
+    };
   }
 }

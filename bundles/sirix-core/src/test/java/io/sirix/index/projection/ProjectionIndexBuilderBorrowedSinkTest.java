@@ -111,6 +111,35 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
   }
 
   @Test
+  void exactSampleSeedingAdmitsRepeatedValuesEvenWhenPerLeafTotalsExceedTheDistinctCap() {
+    final int distinctValues = 300;
+    final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
+    long repeatedPerLeafDictionaryEntries = 0L;
+    for (int leafIndex = 0; leafIndex < SAMPLE_LEAVES; leafIndex++) {
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
+      for (int value = 0; value < distinctValues; value++) {
+        assertTrue(page.appendRow(100_000L + (long) leafIndex * distinctValues + value,
+            new long[] {value, 0L}, new boolean[2], new String[] {"", "shared-" + value}));
+      }
+      repeatedPerLeafDictionaryEntries += page.stringDictionarySize(1);
+      sample.add(page);
+    }
+    assertTrue(repeatedPerLeafDictionaryEntries
+            > GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND,
+        "fixture must exceed the old repeated-per-leaf admission bound");
+
+    final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter(1, Long.MAX_VALUE,
+        GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
+    try {
+      ProjectionIndexBuilder.seedGlobalDictionaryFromSample(sample, 1, dictionary);
+      assertEquals(distinctValues, dictionary.entryCount(),
+          "sample election must cap the exact resource-wide distinct set, not repeated local ids");
+    } finally {
+      dictionary.release();
+    }
+  }
+
+  @Test
   void borrowedPageIsNeverResetWhenItsSinkThrows() {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(REUSE_KINDS);
     populateSmallRawShape(page);

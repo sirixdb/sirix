@@ -6,12 +6,16 @@ package io.sirix.index.projection;
 import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.node.ValueDictionaryDirectoryNode;
 import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
+import io.sirix.page.PageLayout;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Locale;
+import java.util.Objects;
 
 /**
  * Build-side half of the global projection value dictionary: interns values during a build and
@@ -22,47 +26,91 @@ import java.util.Arrays;
  * The build asks "what is this value's id" once per ROW — ten million times on a ten-million-row
  * corpus. Answering that from the persistent forward directory would cost a binary search per row,
  * which is not a slower build, it is an impossible one. So the mapping is held in memory for the
- * duration of the build and the persistent structures are produced from it in one pass at the end,
- * which is also the only moment the entry count is known exactly — and therefore the only moment a
- * sorted directory can be laid out without guessing a capacity.
+ * duration of the build and the persistent radix structures are produced from it in one pass at the
+ * end.
  *
- * <p>The memory that costs is one copy of each DISTINCT value plus twelve bytes of index per value:
- * about 45 MB per million distinct 32-byte values. It is transient — {@link #release()} drops it —
- * and it is bounded by the distinct count rather than the row count, which is what makes it
- * affordable at a scale where holding a per-row structure would not be. Nothing here allocates per
- * ROW: {@link #intern} takes a byte range and compares it against the arena in place.
+ * <p>Nothing here allocates per row: {@link #intern} takes a byte range and compares it against the
+ * chunked arena in place.  One append generation admits at most
+ * {@link #MAX_DISTINCT_ENTRIES_PER_APPEND} distinct values, keeps every geometrically grown backing
+ * array at or below a 256 KiB payload, and stores value bytes in fixed 64 KiB chunks.  An individual
+ * UTF-8 value is likewise capped at {@link #MAX_VALUE_BYTES} bytes before copying or String
+ * materialisation.  AUTO receives a typed decline and abandons the optional projection; forced
+ * global encoding fails the owning operation.  {@link #release()} drops the transient generation.
  *
  * <h2>Structures written</h2>
  *
  * <ul>
- * <li>one {@link ValueDictionaryEntryNode} per value, at the key its id names — the reverse
- * direction, which needs no index because the id <em>is</em> the address;</li>
- * <li>{@link ValueDictionaryDirectoryNode} blocks holding every {@code (valueHash, id)} pair sorted
- * by hash — the forward direction;</li>
+ * <li>immutable reverse-id buckets reached through a persistent radix directory;</li>
+ * <li>immutable hash buckets reached through a second persistent radix directory;</li>
  * <li>one {@link ValueDictionaryHeaderNode} saying how much of each exists.</li>
  * </ul>
  */
-public final class GlobalValueDictionaryWriter {
+public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryEncoder {
 
-  /** Initial arena size; grown by doubling. */
-  private static final int INITIAL_ARENA_BYTES = 1 << 16;
+  enum AdmissionPolicy {
+    /** Typed refusal: AUTO abandons the optional projection while the ingest continues. */
+    DECLINE,
+    /** Forced-global mode: refusing the requested encoding fails the owning operation. */
+    FAIL_CLOSED
+  }
+
+  /**
+   * Payload cap for any geometrically grown primitive/reference array.  G1's minimum region is
+   * 1 MiB and its humongous threshold is half a region; 256 KiB plus an array header stays well
+   * below the minimum 512 KiB threshold.
+   */
+  private static final int MAX_SAFE_ARRAY_PAYLOAD_BYTES = 256 << 10;
+
+  private static final int MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH =
+      MAX_SAFE_ARRAY_PAYLOAD_BYTES / Long.BYTES;
+
+  /**
+   * Largest append admitted by the current in-memory interner.  The next id would double the
+   * half-full hash table from 32,768 to 65,536 longs, creating a 512 KiB payload before its object
+   * header and therefore crossing the minimum G1 humongous boundary.
+   */
+  public static final int MAX_DISTINCT_ENTRIES_PER_APPEND =
+      MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH / 2;
+
+  /** Largest individual UTF-8 value admitted without a humongous materialisation. */
+  public static final int MAX_VALUE_BYTES = ValueDictionaryEntryNode.MAX_VALUE_LENGTH;
+
+  /** Largest chunk-directory length under a worst-case eight-byte reference. */
+  private static final int MAX_ARENA_CHUNKS = MAX_SAFE_LONG_OR_REFERENCE_ARRAY_LENGTH;
+
+  /**
+   * Value bytes are retained in fixed-size chunks.  A single geometrically-grown byte array is a
+   * particularly bad fit for high-cardinality columns: growing a 1 GiB arena briefly needs the old
+   * 1 GiB array and a new 2 GiB array at the same time, and both are humongous GC objects.  Fixed
+   * chunks make every value-byte allocation bounded and make the preflight delta exact.
+   */
+  static final int ARENA_CHUNK_BYTES = 1 << 16;
+
+  private static final int INITIAL_ARENA_CHUNK_CAPACITY = 16;
 
   /** Initial open-addressing capacity; a power of two, grown by doubling at half load. */
   private static final int INITIAL_TABLE_CAPACITY = 1 << 12;
 
-  /** Concatenated value bytes; {@code offsets[id]} and {@code lengths[id]} slice into it. */
-  private byte[] arena = new byte[INITIAL_ARENA_BYTES];
+  private static final int MAX_ARRAY_LENGTH = Integer.MAX_VALUE - 8;
 
-  private int arenaLength;
+  /** Concatenated value bytes, split into non-humongous fixed-size chunks. */
+  private byte[][] arenaChunks = new byte[INITIAL_ARENA_CHUNK_CAPACITY][];
 
-  /** Start of each value in {@link #arena}, indexed by id. Slot 0 is unused; ids start at 1. */
-  private int[] offsets = new int[64];
+  private int allocatedArenaChunks;
+
+  private long arenaLength;
+
+  /** Start of each value in the logical chunked arena, indexed by id. */
+  private long[] offsets = new long[64];
 
   /** Length of each value in {@link #arena}, indexed by id. */
   private int[] lengths = new int[64];
 
   /** Value hash per id, kept so the directory can be built without rehashing the arena. */
   private long[] hashes = new long[64];
+
+  /** Independent digest used to split full primary-hash buckets. */
+  private long[] secondaryHashes = new long[64];
 
   /** Open-addressed slots: the value hash, meaningful only where {@link #tableIds} is non-zero. */
   private long[] tableHashes = new long[INITIAL_TABLE_CAPACITY];
@@ -73,6 +121,8 @@ public final class GlobalValueDictionaryWriter {
   /** How many distinct values have been interned; the highest id in use. */
   private int entryCount;
 
+  private int maxValueLength;
+
   private boolean released;
 
   /**
@@ -81,21 +131,24 @@ public final class GlobalValueDictionaryWriter {
   private final int column;
 
   /**
-   * Hard ceiling on {@link #retainedBytes()}, or {@link Long#MAX_VALUE} for unbounded.
+   * Hard ceiling on the largest simultaneously live build or flush allocation set, or
+   * {@link Long#MAX_VALUE} for unbounded.
    *
    * <p>
-   * The class comment above prices the memory at "about 45 MB per million distinct 32-byte values"
-   * and calls it affordable. That is true of the corpus it was written against and false of the one
-   * that broke it: ClickBench URL/Referer/Title are neither 32 bytes nor low-cardinality, and at
-   * 100M rows this structure wanted more than a 16 GB heap. It did not fail — it doubled its arena
-   * until the collector took every core and the load stopped producing rows while still looking
-   * alive. A bound turns that into a decline.
+   * The original implementation treated distinct-count scaling as affordable.  That was false for
+   * ClickBench URL/Referer/Title: at 100M rows the monolithic arena wanted more than a 16 GB heap and
+   * doubled until the collector took every core.  This aggregate bound complements the mandatory
+   * structural caps above: it accounts for simultaneous build/flush workspace and turns pressure
+   * into an admission decision before planner object graphs or persistent output are allocated.
    * </p>
    */
   private final long budgetBytes;
 
+  private final AdmissionPolicy admissionPolicy;
+
   /**
-   * Unbounded, for callers with no budget to enforce (the post-pass build, tests).
+   * No aggregate byte budget, for standalone callers and tests.  The structural entry, value and
+   * array ceilings remain mandatory; "unbounded" never means "may allocate a humongous array".
    *
    * <p>
    * PUBLIC deliberately: before the budget existed this class had only the implicit public no-arg
@@ -104,7 +157,7 @@ public final class GlobalValueDictionaryWriter {
    * </p>
    */
   public GlobalValueDictionaryWriter() {
-    this(-1, Long.MAX_VALUE);
+    this(-1, Long.MAX_VALUE, AdmissionPolicy.DECLINE);
   }
 
   /**
@@ -118,16 +171,26 @@ public final class GlobalValueDictionaryWriter {
    * from the same initial sizes as the fields, so it cannot drift from them.
    * </p>
    */
-  public static final long MINIMUM_BUDGET_BYTES =
-      INITIAL_ARENA_BYTES + 64L * Integer.BYTES + 64L * Integer.BYTES + 64L * Long.BYTES
+  private static final long EMPTY_RETAINED_BYTES =
+      (long) INITIAL_ARENA_CHUNK_CAPACITY * Long.BYTES
+          + 64L * Integer.BYTES + 192L * Long.BYTES
           + (long) INITIAL_TABLE_CAPACITY * Long.BYTES + (long) INITIAL_TABLE_CAPACITY * Integer.BYTES;
+
+  public static final long MINIMUM_BUDGET_BYTES = EMPTY_RETAINED_BYTES
+      + KeyValueLeafPage.MAX_SLOTTED_PAGE_CAPACITY + 2L * PageLayout.INITIAL_PAGE_SIZE;
 
   /**
    * @param column the column this dictionary encodes, for the breach message
-   * @param budgetBytes ceiling on retained bytes, at least {@link #MINIMUM_BUDGET_BYTES};
+   * @param budgetBytes ceiling on simultaneously live dictionary bytes, at least
+   *        {@link #MINIMUM_BUDGET_BYTES};
    *        {@link Long#MAX_VALUE} disables the check
    */
   GlobalValueDictionaryWriter(final int column, final long budgetBytes) {
+    this(column, budgetBytes, AdmissionPolicy.DECLINE);
+  }
+
+  GlobalValueDictionaryWriter(final int column, final long budgetBytes,
+      final AdmissionPolicy admissionPolicy) {
     if (budgetBytes < MINIMUM_BUDGET_BYTES) {
       throw new IllegalArgumentException("budgetBytes must be at least MINIMUM_BUDGET_BYTES ("
           + MINIMUM_BUDGET_BYTES + "), got " + budgetBytes
@@ -136,6 +199,8 @@ public final class GlobalValueDictionaryWriter {
     }
     this.column = column;
     this.budgetBytes = budgetBytes;
+    this.admissionPolicy = Objects.requireNonNull(admissionPolicy,
+        "admissionPolicy must not be null");
   }
 
   /**
@@ -144,8 +209,11 @@ public final class GlobalValueDictionaryWriter {
    * is what actually costs — a half-full arena of 4 GB is 4 GB.
    */
   public long retainedBytes() {
-    return (long) arena.length + (long) offsets.length * Integer.BYTES + (long) lengths.length * Integer.BYTES
-        + (long) hashes.length * Long.BYTES + (long) tableHashes.length * Long.BYTES
+    return (long) arenaChunks.length * Long.BYTES
+        + (long) allocatedArenaChunks * ARENA_CHUNK_BYTES
+        + (long) offsets.length * Long.BYTES + (long) lengths.length * Integer.BYTES
+        + (long) hashes.length * Long.BYTES + (long) secondaryHashes.length * Long.BYTES
+        + (long) tableHashes.length * Long.BYTES
         + (long) tableIds.length * Integer.BYTES;
   }
 
@@ -155,8 +223,18 @@ public final class GlobalValueDictionaryWriter {
   }
 
   /** Total bytes of distinct value data held, for the build's memory accounting. */
-  public int valueBytes() {
+  public long valueBytes() {
     return arenaLength;
+  }
+
+  long hashAt(final int id) {
+    if (id < 1 || id > entryCount) throw new IllegalArgumentException("invalid dictionary id");
+    return hashes[id];
+  }
+
+  long secondaryHashAt(final int id) {
+    if (id < 1 || id > entryCount) throw new IllegalArgumentException("invalid dictionary id");
+    return secondaryHashes[id];
   }
 
   /**
@@ -170,20 +248,94 @@ public final class GlobalValueDictionaryWriter {
    * @param len length in {@code src}
    * @return the value's id, {@code >= 1}
    */
+  @Override
   public int intern(final byte[] src, final int off, final int len) {
+    checkInternArguments(src, off, len);
+    final long hash = GlobalValueDictionary.valueHash(src, off, len);
+    final int slot = findSlot(hash, src, off, len);
+    final int existingId = tableIds[slot];
+    if (existingId != 0) {
+      return existingId;
+    }
+    preflightStructuralNewEntry(len);
+    return insertAt(slot, hash, GlobalValueDictionary.secondaryValueHash(src, off, len),
+        src, off, len);
+  }
+
+  @Override
+  public int intern(final String value) {
+    Objects.requireNonNull(value, "value must not be null");
+    final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
+        MAX_VALUE_BYTES);
+    if (encodedLength > MAX_VALUE_BYTES) {
+      refuseAdmission("UTF-8 value exceeds the safe V0 limit of " + MAX_VALUE_BYTES
+          + " bytes");
+    }
+    final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+    return intern(utf8, 0, utf8.length);
+  }
+
+  /**
+   * Return the largest allocation the next {@link #intern(byte[], int, int)} call can make.
+   *
+   * <p>The method is deliberately allocation-free.  A transaction-wide memory ledger can reserve
+   * this delta before it lets the writer mutate; a duplicate value returns zero.  The delta counts
+   * complete newly allocated arrays (not merely their retained-size difference), because an array
+   * copy keeps the old array live until the copy has completed.
+   */
+  public long reservationBytesForIntern(final byte[] src, final int off, final int len) {
+    checkInternArguments(src, off, len);
+    final long hash = GlobalValueDictionary.valueHash(src, off, len);
+    if (tableIds[findSlot(hash, src, off, len)] != 0) {
+      return 0L;
+    }
+    preflightStructuralNewEntry(len);
+    final int id = nextId();
+    final long requiredArenaLength = Math.addExact(arenaLength, len);
+    final int requiredChunks = requiredArenaChunks(requiredArenaLength);
+    final int arenaChunkCapacity = requiredChunks > arenaChunks.length
+        ? grownCapacity(arenaChunks.length, requiredChunks)
+        : arenaChunks.length;
+    final int idArrayCapacity = id >= offsets.length
+        ? grownCapacity(offsets.length, Math.addExact((long) id, 1L))
+        : offsets.length;
+    final int tableCapacity = tableCapacityFor(id);
+    return allocationBytes(requiredChunks, arenaChunkCapacity, idArrayCapacity, tableCapacity);
+  }
+
+  private void checkInternArguments(final byte[] src, final int off, final int len) {
     if (released) {
       throw new IllegalStateException("value dictionary writer was released");
     }
-    final long hash = GlobalValueDictionary.valueHash(src, off, len);
+    Objects.checkFromIndexSize(off, len, src.length);
+    if (len > MAX_VALUE_BYTES) {
+      refuseAdmission("value length " + len + " exceeds the safe V0 limit of "
+          + MAX_VALUE_BYTES + " bytes");
+    }
+  }
+
+  private void preflightStructuralNewEntry(final int length) {
+    final int id = nextId();
+    if (id > MAX_DISTINCT_ENTRIES_PER_APPEND) {
+      refuseAdmission(String.format(Locale.ROOT,
+          "append entry %,d exceeds the safe per-append limit of %,d",
+          id, MAX_DISTINCT_ENTRIES_PER_APPEND));
+    }
+    final long requiredArenaLength = Math.addExact(arenaLength, length);
+    final int requiredChunks = requiredArenaChunks(requiredArenaLength);
+    if (requiredChunks > MAX_ARENA_CHUNKS) {
+      refuseAdmission("chunk directory would need " + requiredChunks
+          + " references, above its safe limit of " + MAX_ARENA_CHUNKS);
+    }
+  }
+
+  private int findSlot(final long hash, final byte[] src, final int off, final int len) {
     final int mask = tableIds.length - 1;
     int slot = ((int) (hash ^ (hash >>> 32))) & mask;
     while (true) {
       final int id = tableIds[slot];
-      if (id == 0) {
-        return insertAt(slot, hash, src, off, len);
-      }
-      if (tableHashes[slot] == hash && regionMatches(id, src, off, len)) {
-        return id;
+      if (id == 0 || tableHashes[slot] == hash && regionMatches(id, src, off, len)) {
+        return slot;
       }
       slot = (slot + 1) & mask;
     }
@@ -193,46 +345,240 @@ public final class GlobalValueDictionaryWriter {
     if (lengths[id] != len) {
       return false;
     }
-    return Arrays.equals(arena, offsets[id], offsets[id] + len, src, off, off + len);
+    long arenaOffset = offsets[id];
+    int sourceOffset = off;
+    int remaining = len;
+    while (remaining > 0) {
+      final int chunkIndex = Math.toIntExact(arenaOffset / ARENA_CHUNK_BYTES);
+      final int chunkOffset = (int) (arenaOffset & (ARENA_CHUNK_BYTES - 1));
+      final int compared = Math.min(remaining, ARENA_CHUNK_BYTES - chunkOffset);
+      if (!Arrays.equals(arenaChunks[chunkIndex], chunkOffset, chunkOffset + compared,
+          src, sourceOffset, sourceOffset + compared)) {
+        return false;
+      }
+      arenaOffset += compared;
+      sourceOffset += compared;
+      remaining -= compared;
+    }
+    return true;
   }
 
-  private int insertAt(final int slot, final long hash, final byte[] src, final int off, final int len) {
-    // Checked here and only here: this runs once per DISTINCT value, never on a hit, so the cost is
-    // a few field reads on the path that is already allocating. Checking BEFORE the growth below
-    // bounds the peak at the budget plus one doubling step rather than after the array that broke
-    // it has already been allocated.
-    if (budgetBytes != Long.MAX_VALUE && retainedBytes() + len >= budgetBytes) {
-      throw new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes, entryCount);
+  /** Compare caller-owned bytes to an interned value without materialising the arena slice. */
+  int compareCandidateUnsigned(final byte[] candidate, final int offset, final int length,
+      final int id) {
+    Objects.checkFromIndexSize(offset, length, candidate.length);
+    if (id < 1 || id > entryCount) {
+      throw new IllegalArgumentException("invalid dictionary id");
     }
-    final int id = entryCount + 1;
-    if (id + 1 >= offsets.length) {
-      final int grown = offsets.length << 1;
-      offsets = Arrays.copyOf(offsets, grown);
-      lengths = Arrays.copyOf(lengths, grown);
-      hashes = Arrays.copyOf(hashes, grown);
+    final int commonLength = Math.min(length, lengths[id]);
+    long arenaOffset = offsets[id];
+    for (int index = 0; index < commonLength; index++) {
+      final int chunkIndex = Math.toIntExact(arenaOffset / ARENA_CHUNK_BYTES);
+      final int chunkOffset = (int) (arenaOffset & (ARENA_CHUNK_BYTES - 1));
+      final int comparison = Integer.compare(Byte.toUnsignedInt(candidate[offset + index]),
+          Byte.toUnsignedInt(arenaChunks[chunkIndex][chunkOffset]));
+      if (comparison != 0) {
+        return comparison;
+      }
+      arenaOffset++;
     }
-    while (arenaLength + len > arena.length) {
-      arena = Arrays.copyOf(arena, Math.max(arena.length << 1, arenaLength + len));
+    return Integer.compare(length, lengths[id]);
+  }
+
+  private int insertAt(final int slot, final long hash, final long secondaryHash,
+      final byte[] src, final int off, final int len) {
+    final long requiredArenaLength = Math.addExact(arenaLength, len);
+    final int requiredChunks = requiredArenaChunks(requiredArenaLength);
+    final int id = nextId();
+    if (id > MAX_DISTINCT_ENTRIES_PER_APPEND || requiredChunks > MAX_ARENA_CHUNKS) {
+      throw new IllegalStateException("value dictionary structural preflight was bypassed");
     }
-    System.arraycopy(src, off, arena, arenaLength, len);
-    offsets[id] = arenaLength;
-    lengths[id] = len;
-    hashes[id] = hash;
-    arenaLength += len;
+    final int idArrayCapacity = id >= offsets.length
+        ? grownCapacity(offsets.length, Math.addExact((long) id, 1L))
+        : offsets.length;
+    final int arenaChunkCapacity = requiredChunks > arenaChunks.length
+        ? grownCapacity(arenaChunks.length, requiredChunks)
+        : arenaChunks.length;
+    final int tableCapacity = tableCapacityFor(id);
+    final long allocationBytes = allocationBytes(requiredChunks, arenaChunkCapacity,
+        idArrayCapacity, tableCapacity);
+    final long futureRetained = saturatedAdd(retainedBytes(), retainedGrowthBytes(requiredChunks,
+        arenaChunkCapacity, idArrayCapacity, tableCapacity));
+    final long flushPeak = flushPeakBytes(futureRetained, id, requiredArenaLength,
+        Math.max(maxValueLength, len));
+    if (budgetBytes != Long.MAX_VALUE
+        && Math.max(saturatedAdd(retainedBytes(), allocationBytes), flushPeak) > budgetBytes) {
+      refuseAdmission(null);
+    }
+
+    final long[] nextOffsets = idArrayCapacity == offsets.length
+        ? offsets
+        : Arrays.copyOf(offsets, idArrayCapacity);
+    final int[] nextLengths = idArrayCapacity == lengths.length
+        ? lengths
+        : Arrays.copyOf(lengths, idArrayCapacity);
+    final long[] nextHashes = idArrayCapacity == hashes.length
+        ? hashes
+        : Arrays.copyOf(hashes, idArrayCapacity);
+    final long[] nextSecondaryHashes = idArrayCapacity == secondaryHashes.length
+        ? secondaryHashes
+        : Arrays.copyOf(secondaryHashes, idArrayCapacity);
+    final byte[][] nextArenaChunks = arenaChunkCapacity == arenaChunks.length
+        ? arenaChunks
+        : Arrays.copyOf(arenaChunks, arenaChunkCapacity);
+    for (int chunk = allocatedArenaChunks; chunk < requiredChunks; chunk++) {
+      nextArenaChunks[chunk] = new byte[ARENA_CHUNK_BYTES];
+    }
+    final long[] nextTableHashes;
+    final int[] nextTableIds;
+    final int targetSlot;
+    if (tableCapacity != tableIds.length) {
+      nextTableHashes = new long[tableCapacity];
+      nextTableIds = new int[tableCapacity];
+      rehashInto(nextTableHashes, nextTableIds);
+      targetSlot = findEmptySlot(nextTableHashes, nextTableIds, hash);
+    } else {
+      nextTableHashes = tableHashes;
+      nextTableIds = tableIds;
+      targetSlot = slot;
+    }
+
+    copyIntoArena(nextArenaChunks, arenaLength, src, off, len);
+    nextOffsets[id] = arenaLength;
+    nextLengths[id] = len;
+    nextHashes[id] = hash;
+    nextSecondaryHashes[id] = secondaryHash;
+    nextTableHashes[targetSlot] = hash;
+    nextTableIds[targetSlot] = id;
+
+    offsets = nextOffsets;
+    lengths = nextLengths;
+    hashes = nextHashes;
+    secondaryHashes = nextSecondaryHashes;
+    arenaChunks = nextArenaChunks;
+    allocatedArenaChunks = requiredChunks;
+    tableHashes = nextTableHashes;
+    tableIds = nextTableIds;
+    arenaLength = requiredArenaLength;
     entryCount = id;
-    tableHashes[slot] = hash;
-    tableIds[slot] = id;
-    if ((entryCount << 1) >= tableIds.length) {
-      rehash();
-    }
+    maxValueLength = Math.max(maxValueLength, len);
     return id;
   }
 
-  private void rehash() {
-    final int capacity = tableIds.length << 1;
-    final long[] newHashes = new long[capacity];
-    final int[] newIds = new int[capacity];
-    final int mask = capacity - 1;
+  private int nextId() {
+    if (entryCount == Integer.MAX_VALUE) {
+      throw new IllegalStateException("value dictionary entry capacity exhausted");
+    }
+    return entryCount + 1;
+  }
+
+  private int tableCapacityFor(final int id) {
+    // Filling the last slot at the 50% load boundary is safe.  Grow only for the following id so
+    // the canonical 16,384-mutation maintenance chunk fits its existing 32,768-slot table, while
+    // structural admission rejects id 16,385 before this method can request a humongous array.
+    if (id <= (tableIds.length >>> 1)) {
+      return tableIds.length;
+    }
+    if (tableIds.length >= (1 << 30)) {
+      throw new IllegalStateException("value dictionary hash table capacity exhausted");
+    }
+    return tableIds.length << 1;
+  }
+
+  private static int requiredArenaChunks(final long requiredArenaLength) {
+    if (requiredArenaLength < 0) {
+      throw new IllegalStateException("value dictionary byte count overflow");
+    }
+    final long chunks = requiredArenaLength == 0
+        ? 0L
+        : 1L + (requiredArenaLength - 1L) / ARENA_CHUNK_BYTES;
+    if (chunks > MAX_ARRAY_LENGTH) {
+      throw new IllegalStateException("value dictionary chunk index capacity exhausted");
+    }
+    return (int) chunks;
+  }
+
+  private long allocationBytes(final int requiredChunks, final int arenaChunkCapacity,
+      final int idArrayCapacity, final int tableCapacity) {
+    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks,
+        ARENA_CHUNK_BYTES);
+    if (arenaChunkCapacity != arenaChunks.length) {
+      bytes = saturatedAdd(bytes, (long) arenaChunkCapacity * Long.BYTES);
+    }
+    if (idArrayCapacity != offsets.length) {
+      bytes = saturatedAdd(bytes,
+          (long) idArrayCapacity * (Integer.BYTES + 3L * Long.BYTES));
+    }
+    if (tableCapacity != tableIds.length) {
+      bytes = saturatedAdd(bytes, (long) tableCapacity * (Long.BYTES + Integer.BYTES));
+    }
+    return bytes;
+  }
+
+  private long retainedGrowthBytes(final int requiredChunks, final int arenaChunkCapacity,
+      final int idArrayCapacity, final int tableCapacity) {
+    long bytes = Math.multiplyExact((long) requiredChunks - allocatedArenaChunks,
+        ARENA_CHUNK_BYTES);
+    bytes = saturatedAdd(bytes,
+        (long) (arenaChunkCapacity - arenaChunks.length) * Long.BYTES);
+    bytes = saturatedAdd(bytes, (long) (idArrayCapacity - offsets.length)
+        * (Integer.BYTES + 3L * Long.BYTES));
+    return saturatedAdd(bytes, (long) (tableCapacity - tableIds.length)
+        * (Long.BYTES + Integer.BYTES));
+  }
+
+  private static void copyIntoArena(final byte[][] destination, long destinationOffset,
+      final byte[] source, int sourceOffset, int remaining) {
+    while (remaining > 0) {
+      final int chunkIndex = Math.toIntExact(destinationOffset / ARENA_CHUNK_BYTES);
+      final int chunkOffset = (int) (destinationOffset & (ARENA_CHUNK_BYTES - 1));
+      final int copied = Math.min(remaining, ARENA_CHUNK_BYTES - chunkOffset);
+      System.arraycopy(source, sourceOffset, destination[chunkIndex], chunkOffset, copied);
+      destinationOffset += copied;
+      sourceOffset += copied;
+      remaining -= copied;
+    }
+  }
+
+  private static long flushPeakBytes(final long retained, final int entries, final long valueBytes,
+      final int largestValueBytes) {
+    return saturatedAdd(retained, GlobalValueDictionaryRadix.reservationBytesForAppend(
+        0, entries, valueBytes, largestValueBytes));
+  }
+
+  private static long saturatedAdd(final long left, final long right) {
+    return left > Long.MAX_VALUE - right ? Long.MAX_VALUE : left + right;
+  }
+
+  private static int grownCapacity(final int current, final long required) {
+    if (required > MAX_ARRAY_LENGTH) {
+      throw new IllegalStateException("value dictionary array capacity exhausted");
+    }
+    final long doubled = (long) current << 1;
+    return (int) Math.min(MAX_ARRAY_LENGTH, Math.max(required, doubled));
+  }
+
+  static int grownCapacityForTest(final int current, final long required) {
+    return grownCapacity(current, required);
+  }
+
+  int hashTableCapacityForTest() {
+    return tableIds.length;
+  }
+
+  int largestBackingArrayPayloadBytesForTest() {
+    int largest = ARENA_CHUNK_BYTES;
+    largest = Math.max(largest, Math.multiplyExact(arenaChunks.length, Long.BYTES));
+    largest = Math.max(largest, Math.multiplyExact(offsets.length, Long.BYTES));
+    largest = Math.max(largest, Math.multiplyExact(lengths.length, Integer.BYTES));
+    largest = Math.max(largest, Math.multiplyExact(hashes.length, Long.BYTES));
+    largest = Math.max(largest, Math.multiplyExact(secondaryHashes.length, Long.BYTES));
+    largest = Math.max(largest, Math.multiplyExact(tableHashes.length, Long.BYTES));
+    return Math.max(largest, Math.multiplyExact(tableIds.length, Integer.BYTES));
+  }
+
+  private void rehashInto(final long[] newHashes, final int[] newIds) {
+    final int mask = newIds.length - 1;
     for (int i = 0; i < tableIds.length; i++) {
       final int id = tableIds[i];
       if (id == 0) {
@@ -246,8 +592,15 @@ public final class GlobalValueDictionaryWriter {
       newHashes[slot] = hash;
       newIds[slot] = id;
     }
-    tableHashes = newHashes;
-    tableIds = newIds;
+  }
+
+  private static int findEmptySlot(final long[] hashes, final int[] ids, final long hash) {
+    final int mask = ids.length - 1;
+    int slot = ((int) (hash ^ (hash >>> 32))) & mask;
+    while (ids[slot] != 0) {
+      slot = (slot + 1) & mask;
+    }
+    return slot;
   }
 
   /**
@@ -261,7 +614,23 @@ public final class GlobalValueDictionaryWriter {
     if (id < 1 || id > entryCount) {
       throw new IllegalArgumentException("no such value dictionary id: " + id);
     }
-    return Arrays.copyOfRange(arena, offsets[id], offsets[id] + lengths[id]);
+    final byte[] value = new byte[lengths[id]];
+    copyFromArena(offsets[id], value, 0, value.length);
+    return value;
+  }
+
+  private void copyFromArena(long sourceOffset, final byte[] destination,
+      int destinationOffset, int remaining) {
+    while (remaining > 0) {
+      final int chunkIndex = Math.toIntExact(sourceOffset / ARENA_CHUNK_BYTES);
+      final int chunkOffset = (int) (sourceOffset & (ARENA_CHUNK_BYTES - 1));
+      final int copied = Math.min(remaining, ARENA_CHUNK_BYTES - chunkOffset);
+      System.arraycopy(arenaChunks[chunkIndex], chunkOffset, destination, destinationOffset,
+          copied);
+      sourceOffset += copied;
+      destinationOffset += copied;
+      remaining -= copied;
+    }
   }
 
   /**
@@ -289,118 +658,121 @@ public final class GlobalValueDictionaryWriter {
     if (released) {
       throw new IllegalStateException("value dictionary writer was released");
     }
+    ensureFlushFitsBudget(reservationBytesForFlush());
     namePage.createProjectionValueDictionaryTree(databaseType, storageEngineWriter, log);
 
-    final int perBlock = ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK;
-    final int blockCount = (entryCount + perBlock - 1) / perBlock;
-    final long runStart = namePage.reserveProjectionValueDictionaryKeys(databaseType,
-        GlobalValueDictionary.keysToReserve(entryCount, blockCount));
-    final long headerKey = runStart;
-    final long entryBase = runStart + 1;
-    final long directoryBase = entryBase + (long) GlobalValueDictionary.ENTRY_STRIDE * entryCount;
-
+    final long headerKey = namePage.reserveProjectionValueDictionaryKeys(databaseType, 1L);
+    final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(0L, 0L, 0,
+        this, namePage, databaseType, storageEngineWriter, log);
     final ValueDictionaryHeaderNode header = new ValueDictionaryHeaderNode(headerKey,
-        ValueDictionaryHeaderNode.VERSION, entryCount, entryBase, directoryBase, blockCount, entryCount);
-
-    for (int id = 1; id <= entryCount; id++) {
-      namePage.putProjectionValueDictionaryRecord(
-          new ValueDictionaryEntryNode(GlobalValueDictionary.entryKey(header, id),
-              Arrays.copyOfRange(arena, offsets[id], offsets[id] + lengths[id])),
-          databaseType, storageEngineWriter, log);
-    }
-
-    writeDirectory(header, blockCount, namePage, databaseType, storageEngineWriter, log);
-
+        ValueDictionaryHeaderNode.VERSION, entryCount, roots.forward(), roots.reverse(), 0);
     namePage.putProjectionValueDictionaryRecord(header, databaseType, storageEngineWriter, log);
     return headerKey;
   }
 
   /**
-   * Sort every {@code (valueHash, id)} pair by hash and write it out in blocks.
+   * Append this writer's values as one immutable segment and update only the stable base header.
    */
-  private void writeDirectory(final ValueDictionaryHeaderNode header, final int blockCount,
-      final NamePage namePage, final DatabaseType databaseType, final StorageEngineWriter storageEngineWriter,
+  public long flushAppend(final ValueDictionaryHeaderNode baseHeader, final NamePage namePage,
+      final DatabaseType databaseType, final StorageEngineWriter storageEngineWriter,
       final TransactionIntentLog log) {
+    if (released) {
+      throw new IllegalStateException("value dictionary writer was released");
+    }
+    validateAppendHeader(baseHeader);
     if (entryCount == 0) {
-      return;
+      return baseHeader.getNodeKey();
     }
-    final long[] sortedHashes = new long[entryCount];
-    final int[] sortedIds = new int[entryCount];
-    for (int id = 1; id <= entryCount; id++) {
-      sortedHashes[id - 1] = hashes[id];
-      sortedIds[id - 1] = id;
-    }
-    radixSortByHash(sortedHashes, sortedIds);
-
-    final int perBlock = ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK;
-    for (int block = 0; block < blockCount; block++) {
-      final int from = block * perBlock;
-      final int to = Math.min(from + perBlock, entryCount);
-      namePage.putProjectionValueDictionaryRecord(
-          new ValueDictionaryDirectoryNode(GlobalValueDictionary.directoryKey(header, block),
-              Arrays.copyOfRange(sortedHashes, from, to), Arrays.copyOfRange(sortedIds, from, to)),
-          databaseType, storageEngineWriter, log);
-    }
+    final int totalEntries = Math.toIntExact(Math.addExact(
+        (long) baseHeader.getEntryCount(), entryCount));
+    ensureFlushFitsBudget(reservationBytesForFlushAppend(baseHeader));
+    final GlobalValueDictionaryRadix.Roots roots = GlobalValueDictionaryRadix.append(
+        baseHeader.getForwardRootKey(), baseHeader.getReverseRootKey(), baseHeader.getEntryCount(),
+        this, namePage, databaseType, storageEngineWriter, log);
+    namePage.putProjectionValueDictionaryRecord(new ValueDictionaryHeaderNode(baseHeader.getNodeKey(),
+        ValueDictionaryHeaderNode.VERSION, totalEntries, roots.forward(), roots.reverse(),
+        Math.addExact(baseHeader.getGeneration(), 1)), databaseType, storageEngineWriter, log);
+    return baseHeader.getNodeKey();
   }
 
   /**
-   * Least-significant-digit radix sort of {@code keys} into ascending UNSIGNED order, permuting
-   * {@code values} alongside.
-   *
-   * <p>Radix rather than a comparison sort for two reasons beyond the linear time: it sorts
-   * primitives without boxing a five-million-element index array, and it orders raw bytes, which is
-   * unsigned order by construction — the same order {@code Long.compareUnsigned} gives the probe's
-   * binary search, with no sign-bit trick to get wrong.
+   * Allocation-free reservation for a new dictionary flush.  Persistent node-key reservation is
+   * intentionally not part of this number; keys are allocated exactly by the radix writer.
    */
-  private static void radixSortByHash(final long[] keys, final int[] values) {
-    final int n = keys.length;
-    long[] srcKeys = keys;
-    int[] srcValues = values;
-    long[] dstKeys = new long[n];
-    int[] dstValues = new int[n];
-    final int[] histogram = new int[256];
-    for (int shift = 0; shift < 64; shift += 8) {
-      Arrays.fill(histogram, 0);
-      for (int i = 0; i < n; i++) {
-        histogram[(int) ((srcKeys[i] >>> shift) & 0xFF)]++;
-      }
-      // A digit the whole array shares changes nothing; skipping it saves a full pass, which on
-      // 64-bit hashes of short strings is most of the high passes.
-      if (histogram[(int) ((srcKeys[0] >>> shift) & 0xFF)] == n) {
-        continue;
-      }
-      int sum = 0;
-      for (int d = 0; d < 256; d++) {
-        final int count = histogram[d];
-        histogram[d] = sum;
-        sum += count;
-      }
-      for (int i = 0; i < n; i++) {
-        final int slot = histogram[(int) ((srcKeys[i] >>> shift) & 0xFF)]++;
-        dstKeys[slot] = srcKeys[i];
-        dstValues[slot] = srcValues[i];
-      }
-      final long[] swapKeys = srcKeys;
-      srcKeys = dstKeys;
-      dstKeys = swapKeys;
-      final int[] swapValues = srcValues;
-      srcValues = dstValues;
-      dstValues = swapValues;
+  public long reservationBytesForFlush() {
+    if (released) {
+      throw new IllegalStateException("value dictionary writer was released");
     }
-    // An odd number of executed passes leaves the result in the scratch buffers.
-    if (srcKeys != keys) {
-      System.arraycopy(srcKeys, 0, keys, 0, n);
-      System.arraycopy(srcValues, 0, values, 0, n);
+    return GlobalValueDictionaryRadix.reservationBytesForAppend(0, entryCount, arenaLength,
+        maxValueLength);
+  }
+
+  /**
+   * Allocation-free reservation for appending this writer to {@code baseHeader}.
+   */
+  public long reservationBytesForFlushAppend(final ValueDictionaryHeaderNode baseHeader) {
+    if (released) {
+      throw new IllegalStateException("value dictionary writer was released");
     }
+    validateAppendHeader(baseHeader);
+    Math.toIntExact(Math.addExact((long) baseHeader.getEntryCount(), entryCount));
+    return GlobalValueDictionaryRadix.reservationBytesForAppend(baseHeader.getEntryCount(),
+        entryCount, arenaLength, maxValueLength);
+  }
+
+  private static void validateAppendHeader(final ValueDictionaryHeaderNode baseHeader) {
+    if (baseHeader == null || baseHeader.getVersion() != ValueDictionaryHeaderNode.VERSION
+        || !baseHeader.isDirectoryComplete()) {
+      throw new IllegalArgumentException("a complete current value dictionary header is required");
+    }
+  }
+
+  private void ensureFlushFitsBudget(final long reservationBytes) {
+    if (budgetBytes != Long.MAX_VALUE
+        && saturatedAdd(retainedBytes(), reservationBytes) > budgetBytes) {
+      refuseAdmission(null);
+    }
+  }
+
+  long estimatedFlushPeakBytes() {
+    return saturatedAdd(retainedBytes(), reservationBytesForFlush());
+  }
+
+  void ensureAppendWorkspaceFitsBudget(final long workspaceBytes) {
+    if (workspaceBytes < 0) {
+      throw new IllegalArgumentException("workspaceBytes must be non-negative");
+    }
+    if (budgetBytes != Long.MAX_VALUE
+        && saturatedAdd(retainedBytes(), workspaceBytes) > budgetBytes) {
+      refuseAdmission(null);
+    }
+  }
+
+  private void refuseAdmission(final String detail) {
+    final GlobalDictionaryBudgetExceededException decline =
+        new GlobalDictionaryBudgetExceededException(column, retainedBytes(), budgetBytes,
+            entryCount, detail);
+    if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
+      throw new IllegalStateException("Forced global value dictionary for column " + column
+          + " cannot continue safely: "
+          + (detail == null ? "configured aggregate budget exhausted" : detail), decline);
+    }
+    throw decline;
+  }
+
+  long logicalPersistedBytes() {
+    return saturatedAdd(arenaLength, (long) entryCount * 64L);
   }
 
   /** Drop the in-memory arena and index. The writer cannot be used afterwards. */
   public void release() {
     released = true;
-    arena = null;
+    arenaChunks = null;
+    allocatedArenaChunks = 0;
     offsets = null;
     lengths = null;
     hashes = null;
+    secondaryHashes = null;
     tableHashes = null;
     tableIds = null;
   }

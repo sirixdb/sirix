@@ -8,11 +8,13 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -24,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Verdict probe for the maintenance-commit metadata loss: DECLINE or WRONG ANSWER?
@@ -150,7 +153,7 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
   }
 
   @Test
-  public void aMaintenanceCommitOnAGlobalDictStoreDeclinesRatherThanAnsweringWrong() throws IOException {
+  public void aMaintenanceCommitOnAGlobalDictStoreRemainsServed() throws IOException {
     Assertions.assertEquals(1, buildUnderDefault(),
         "AUTO must have elected exactly one global column (did) — without it this probe tests nothing");
 
@@ -193,17 +196,39 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
           "AUTO-WIRED (shipping default) arm did not answer correctly after the maintenance commit in " + e.shape()
               + " — this is the configuration a real user is in.\n  generic  : " + e.generic() + "\n  autoWired: "
               + e.auto());
-      // PARKED, not softened. The correctness assertions above are the ones that matter and they
-      // stay armed; this one is the performance half, and it cannot pass until the kind-consistency
-      // defect behind task #45 is fixed. A deliberately-red test in a shared suite teaches people to
-      // ignore red, so it is gated off by default and armed with -Dsirix.test.projMaintenanceServes
-      // once there is something to arm it against.
-      if (Boolean.getBoolean("sirix.test.projMaintenanceServes")) {
-        Assertions.assertTrue(e.counterDelta() > 0,
-            e.shape() + " answered correctly but its route did not run after the maintenance commit — see task #45: "
-                + "maintenance leaves the store's per-leaf column kinds disagreeing, so every fast path on that "
-                + "column declines");
-      }
+      Assertions.assertTrue(e.counterDelta() > 0,
+          e.shape() + " answered correctly but its projection route did not run after maintenance");
+    }
+  }
+
+  @Test
+  public void maintenanceInternsANewGlobalValueAndKeepsItsRouteServing() throws IOException {
+    Assertions.assertEquals(1, buildUnderDefault());
+    final String newValue = "did:plc:brand-new-maintained-value";
+    updateGlobalValueAndCommit(newValue);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+
+    final String query = "count(for $e in jn:doc('json-path1','serving.jn')[] where $e.did eq \""
+        + newValue + "\" return $e)";
+    final Evidence evidence = probe("AFTER", "EQ_NEW", query, Counter.PROJECTION_COUNTS);
+    Assertions.assertTrue(evidence.agrees(), evidence.toString());
+    Assertions.assertTrue(evidence.autoAgrees(), evidence.toString());
+    Assertions.assertTrue(evidence.counterDelta() > 0, evidence.toString());
+
+    try (final Database<JsonResourceSession> database =
+        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession("serving.jn");
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
+      final ProjectionIndexMetadata metadata =
+          ProjectionIndexMetadata.parse(ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L));
+      Assertions.assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL, metadata.columnKinds()[1]);
+      final long headerKey = metadata.valueDictionaryHeaderKey(1);
+      final int id = GlobalValueDictionary.probe(headerKey, newValue.getBytes(StandardCharsets.UTF_8),
+          rtx.getStorageEngineReader());
+      Assertions.assertTrue(id > 0);
+      Assertions.assertEquals(newValue,
+          GlobalValueDictionary.value(headerKey, id, rtx.getStorageEngineReader()));
     }
   }
 
@@ -436,6 +461,21 @@ public final class GlobalDictMaintenanceVerdictTest extends AbstractJsonTest {
         wtx.commit();
       }
       System.out.println("  metadata AFTER  commit: " + describeDictionaries(session));
+    }
+  }
+
+  private void updateGlobalValueAndCommit(final String value) {
+    try (final Database<JsonResourceSession> database =
+        Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession("serving.jn");
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      Assertions.assertTrue(wtx.moveToDocumentRoot());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToFirstChild());
+      Assertions.assertTrue(wtx.moveToRightSibling());
+      wtx.setStringValue(value);
+      wtx.commit();
     }
   }
 

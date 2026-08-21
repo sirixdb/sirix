@@ -49,6 +49,129 @@ tasks.withType(JavaCompile).configureEach {
 
 description = 'Sirix/Brackit binding.'
 
+def hftBuildIdentityRelativePath = 'META-INF/sirix-hft-build.properties'
+def hftBuildIdentityFile = tasks.named('compileJava', JavaCompile).flatMap {
+    it.destinationDirectory.file(hftBuildIdentityRelativePath)
+}
+def hftTestBuildIdentityFile = tasks.named('compileTestJava', JavaCompile).flatMap {
+    it.destinationDirectory.file(hftBuildIdentityRelativePath)
+}
+
+def hftGitOutput = { List<String> arguments ->
+    def process = new ProcessBuilder(['git'] + arguments)
+        .directory(rootDir)
+        .redirectErrorStream(true)
+        .start()
+    def output = process.inputStream.getText('UTF-8').trim()
+    if (process.waitFor() != 0) {
+        throw new GradleException("git ${arguments.join(' ')} failed: ${output}")
+    }
+    output
+}
+def hftUpdateFile = { java.security.MessageDigest digest, File file ->
+    file.withInputStream { source ->
+        byte[] buffer = new byte[64 * 1024]
+        int read
+        while ((read = source.read(buffer)) >= 0) {
+            if (read > 0) {
+                digest.update(buffer, 0, read)
+            }
+        }
+    }
+}
+def hftUpdateLong = { java.security.MessageDigest digest, long value ->
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        digest.update((byte) (value >>> shift))
+    }
+}
+def hftEntryDigest = { File entry ->
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    if (entry.isFile()) {
+        digest.update((byte) 70)
+        digest.update((byte) 0)
+        hftUpdateFile(digest, entry)
+        return digest.digest()
+    }
+    if (!entry.isDirectory()) {
+        throw new GradleException("runtime classpath entry is unreadable: ${entry}")
+    }
+    digest.update((byte) 68)
+    digest.update((byte) 0)
+    def rootPath = entry.toPath()
+    def files
+    java.nio.file.Files.walk(rootPath).withCloseable { stream ->
+        files = stream.filter { java.nio.file.Files.isRegularFile(it) }
+            .filter { rootPath.relativize(it).toString().replace(File.separatorChar, '/' as char)
+                != hftBuildIdentityRelativePath }
+            .sorted(java.util.Comparator.comparing {
+                rootPath.relativize(it).toString().replace(File.separatorChar, '/' as char)
+            })
+            .toList()
+    }
+    for (def file : files) {
+        byte[] name = rootPath.relativize(file).toString().replace(File.separatorChar, '/' as char)
+            .getBytes('UTF-8')
+        hftUpdateLong(digest, name.length)
+        digest.update(name)
+        hftUpdateLong(digest, java.nio.file.Files.size(file))
+        hftUpdateFile(digest, file.toFile())
+    }
+    digest.digest()
+}
+def hftRuntimeClasspathSha256 = { String classpath ->
+    def aggregate = java.security.MessageDigest.getInstance('SHA-256')
+    aggregate.update('SIRIX-HFT-CLASSPATH-V1\0'.getBytes('UTF-8'))
+    classpath.split(java.util.regex.Pattern.quote(File.pathSeparator), -1).each { rawEntry ->
+        if (rawEntry.isBlank()) {
+            throw new GradleException('runtime classpath contains an empty entry')
+        }
+        aggregate.update(hftEntryDigest(new File(rawEntry).canonicalFile))
+    }
+    java.util.HexFormat.of().formatHex(aggregate.digest())
+}
+def hftEnsureOutputDirectories = { sourceSet ->
+    sourceSet.output.files.each { output ->
+        if (!output.isDirectory() && !output.mkdirs()) {
+            throw new GradleException("cannot materialize runtime output directory: ${output}")
+        }
+    }
+}
+def hftWriteBuildIdentity = { outputProvider, String runtimeClasspath ->
+    def outputFile = outputProvider.get().asFile
+    if (!outputFile.parentFile.isDirectory() && !outputFile.parentFile.mkdirs()) {
+        throw new GradleException("cannot materialize HFT identity directory: ${outputFile.parentFile}")
+    }
+    def gitSha = hftGitOutput(['rev-parse', 'HEAD'])
+    def clean = hftGitOutput(['status', '--porcelain', '--untracked-files=normal']).isEmpty()
+    def artifactSha256 = hftRuntimeClasspathSha256(runtimeClasspath)
+    outputFile.setText("gitSha=${gitSha}\nclean=${clean}\nartifactSha256=${artifactSha256}\n", 'UTF-8')
+}
+
+tasks.register('generateHftBuildIdentity') {
+    dependsOn(tasks.named('compileJava'), tasks.named('compileKotlin'), tasks.named('processResources'))
+    outputs.file(hftBuildIdentityFile)
+    outputs.upToDateWhen { false }
+    doLast {
+        hftEnsureOutputDirectories(sourceSets.main)
+        hftWriteBuildIdentity(hftBuildIdentityFile, sourceSets.main.runtimeClasspath.asPath)
+    }
+}
+
+tasks.register('generateHftTestBuildIdentity') {
+    dependsOn(tasks.named('testClasses'))
+    outputs.file(hftTestBuildIdentityFile)
+    outputs.upToDateWhen { false }
+    doLast {
+        hftEnsureOutputDirectories(sourceSets.main)
+        hftEnsureOutputDirectories(sourceSets.test)
+        hftWriteBuildIdentity(hftTestBuildIdentityFile, sourceSets.test.runtimeClasspath.asPath)
+    }
+}
+
+tasks.named('classes').configure {
+    dependsOn(tasks.named('generateHftBuildIdentity'))
+}
+
 jar {
     manifest {
         attributes('Main-Class': 'io.sirix.query.Main')
@@ -177,6 +300,69 @@ tasks.register('clickBenchLoad', JavaExec) {
     jvmArgs = extraJvmArgs.isEmpty()
         ? baseJvmArgs
         : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+tasks.register('clickBenchMaintenance', JavaExec) {
+    group = 'verification'
+    description = 'Run fixed-heap AUTO-global ordinary projection maintenance.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.clickbench.ClickBenchMaintenanceMain'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx4g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+tasks.register('clickBenchAppendSaturation', JavaExec) {
+    group = 'verification'
+    description = 'Run the canonical p=1/q=1 async append saturation arm.'
+    dependsOn(tasks.named('generateHftTestBuildIdentity'))
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'io.sirix.access.trx.page.AppendSaturationProcess'
+    def argsStr = (findProperty('clickbench.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx4g'
+    ]
+    def extraJvmArgs = (findProperty('clickbench.jvmArgs') ?: '').toString().trim()
+    jvmArgs = extraJvmArgs.isEmpty()
+        ? baseJvmArgs
+        : baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+}
+
+tasks.register('printClickBenchRuntimeClasspath') {
+    group = 'verification'
+    description = 'Print the normalized-input classpath for ClickBench HFT gates.'
+    dependsOn(tasks.named('generateHftBuildIdentity'))
+    doLast {
+        println sourceSets.main.runtimeClasspath.asPath
+    }
+}
+
+tasks.register('printClickBenchTestRuntimeClasspath') {
+    group = 'verification'
+    description = 'Print the normalized-input test classpath for append-saturation HFT gates.'
+    dependsOn(tasks.named('generateHftTestBuildIdentity'))
+    doLast {
+        println sourceSets.test.runtimeClasspath.asPath
+    }
 }
 
 // ClickBench synthetic data writer: emits the same records the loader's

@@ -7,6 +7,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.service.InsertPosition;
@@ -18,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.brackit.query.util.path.Path.parse;
@@ -136,6 +138,68 @@ final class ProjectionBulkLoadFailureTest {
       load.abort();
       assertEquals(1, publicationAttempts.get());
       assertThrows(IllegalStateException.class, () -> load.observeRecord(secondRecordKey + 1));
+    }
+  }
+
+  @Test
+  void finalCommitPublicationFaultMakesTheOwningTransactionRollbackOnly() {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
+      final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
+          IndexDef.DbType.JSON);
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final RuntimeException injected = new RuntimeException("injected final row-group publication failure");
+      final AtomicInteger publicationAttempts = new AtomicInteger();
+      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx,
+          wtx.getPathSummary(), wtx.getStorageEngineWriter(), -1L, (storage, rowGroupId, encoded) -> {
+            publicationAttempts.incrementAndGet();
+            storage.putRowGroupAsColumnSegmentSlots(rowGroupId, encoded);
+            throw injected;
+          });
+      final JsonIndexController controller =
+          (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      controller.getIndexes().add(indexDef);
+      controller.createIndexListeners(Set.of(indexDef), wtx);
+
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":7}]"),
+          InsertPosition.AS_FIRST_CHILD).build().call();
+
+      final RuntimeException thrown = assertThrows(RuntimeException.class, wtx::commit);
+      assertSame(injected, thrown, "the final commit must preserve the publication failure");
+      assertEquals(1, publicationAttempts.get());
+      assertTrue(load.isFinished(), "a finalization fault must poison the streaming builder");
+      assertNull(ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER, wtx));
+
+      final ProjectionIndexHOTStorage storage =
+          ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      assertNotNull(storage.getRowGroupFromColumnSegmentSlots(1),
+          "the fixture must fail after a real row-group write");
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
+      assertNotNull(metadata);
+      assertTrue(metadata.isStale(), "a partial finalization became reachable through live metadata");
+
+      assertEquals(0, session.getMostRecentRevisionNumber(),
+          "a failed pre-publication commit advanced the durable revision");
+      try (final var committed = session.beginNodeReadOnlyTrx(0)) {
+        assertTrue(committed.moveToDocumentRoot());
+        assertFalse(committed.moveToFirstChild(),
+            "the uncommitted JSON tree leaked into the preceding revision");
+        assertNull(ProjectionIndexHOTStorage.readBlob(committed.getStorageEngineReader(), INDEX_NUMBER, 0L),
+            "the uncommitted projection valve leaked into the preceding revision");
+      }
+
+      assertThrows(SirixUsageException.class, wtx::commit,
+          "retrying a failed atomic publication without rollback must be rejected");
+      assertThrows(SirixUsageException.class, wtx::insertArrayAsFirstChild,
+          "mutating a transaction after partial index publication must be rejected");
+
+      wtx.rollback();
+      assertTrue(wtx.moveToDocumentRoot());
+      wtx.insertArrayAsFirstChild();
+      wtx.rollback();
+      assertFalse(ProjectionBulkLoad.anyActive());
     }
   }
 

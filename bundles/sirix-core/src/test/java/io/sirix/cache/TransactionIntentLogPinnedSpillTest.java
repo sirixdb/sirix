@@ -4,6 +4,7 @@
 package io.sirix.cache;
 
 import io.sirix.page.IndirectPage;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
@@ -19,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 final class TransactionIntentLogPinnedSpillTest {
@@ -249,6 +252,32 @@ final class TransactionIntentLogPinnedSpillTest {
     } finally {
       log.close();
     }
+  }
+
+  @Test
+  void pinnedTeardownDrainsEveryOwnedPageBeforeRethrowing() {
+    final TransactionIntentLog log = newLog();
+    final HOTLeafPage failingPage = mock(HOTLeafPage.class);
+    final HOTLeafPage companionPage = mock(HOTLeafPage.class);
+    final HOTLeafPage laterPage = mock(HOTLeafPage.class);
+    final RuntimeException expected = new RuntimeException("release failed");
+    doThrow(expected).when(failingPage).close();
+
+    final PageReference firstReference = new PageReference();
+    final PageReference secondReference = new PageReference();
+    log.put(firstReference, PageContainer.getInstance(failingPage, companionPage));
+    log.put(secondReference, PageContainer.getInstance(laterPage, laterPage));
+    assertEquals(2, log.snapshot());
+    log.cleanupSnapshot();
+
+    final RuntimeException failure = assertThrows(RuntimeException.class, log::clear);
+
+    assertSame(expected, failure);
+    verify(companionPage).close();
+    verify(laterPage).close();
+    assertEquals(0, log.pinnedSize());
+    assertEquals(0, log.getList().size());
+    log.close();
   }
 
   private static TransactionIntentLog newLog() {

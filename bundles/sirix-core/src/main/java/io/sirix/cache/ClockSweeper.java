@@ -184,6 +184,7 @@ public final class ClockSweeper implements Runnable {
     }
 
     try {
+      final Throwable[] retirementFailure = new Throwable[1];
       int minActiveRev = epochTracker.minActiveRevision();
       int mapSize = shard.map.size();
 
@@ -254,14 +255,10 @@ public final class ClockSweeper implements Runnable {
           // Evict atomically within compute(). A guard can arrive after the count check above;
           // retiring transfers the deferred physical close to that holder, but cache ownership and
           // accounting end now. The cache bumps the page version only if close already completed.
-          try {
-            cache.onEvicted(ref, page);
-            pagesEvicted.incrementAndGet();
-            return null;
-          } catch (Exception e) {
-            LOGGER.error("Failed to evict page {}: {}", page.getPageKey(), e.getMessage());
-            return page; // Keep in cache on error
-          }
+          retirementFailure[0] = ShardedPageCache.retainCleanupFailure(
+              retirementFailure[0], cache.onEvicted(ref, page));
+          pagesEvicted.incrementAndGet();
+          return null;
         });
 
         scanned++;
@@ -269,6 +266,7 @@ public final class ClockSweeper implements Runnable {
 
       // Update clockHand for next cycle, wrapping around if needed
       shard.clockHand = (startPosition + scanned) % Math.max(1, shard.map.size());
+      ShardedPageCache.rethrowCleanupFailure(retirementFailure[0]);
     } finally {
       shard.evictionLock.unlock();
     }

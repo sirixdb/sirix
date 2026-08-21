@@ -50,15 +50,20 @@ import java.util.function.Function;
  *       reconstruct the global order by scanning the shards in index order.</li>
  *   <li><b>All-or-nothing.</b> If any partition fails (reader error, shred error, OOM, interruption),
  *       every resource this call created is removed and the first failure is rethrown (later failures
- *       attached as suppressed). On success, exactly {@code partitions.size()} resources exist.</li>
+ *       attached as suppressed). Rollback starts only after every worker has stopped. A worker that
+ *       ignores interruption beyond the bounded shutdown timeout is the sole exception: its resources
+ *       are retained rather than removed underneath a live writer, and that cleanup failure is attached
+ *       to the primary exception. On success, exactly {@code partitions.size()} resources exist.</li>
  *   <li><b>Fail-fast on collision.</b> If a target resource name already exists in the database the
  *       call throws before creating or writing anything — it never clobbers existing data.</li>
  *   <li><b>Bounded.</b> At most {@code maxConcurrency} shreds run at once. Each in-flight shred holds
  *       roughly one auto-commit window of pages off-heap (tens of MB), so size concurrency so that
  *       {@code maxConcurrency × per-shred-footprint} stays within the off-heap allocator budget; the
  *       default ({@code availableProcessors}) is safe for the standard multi-GB budget.</li>
- *   <li><b>No thread leak.</b> The dedicated executor is always shut down before returning, including
- *       on every error path.</li>
+ *   <li><b>Bounded shutdown.</b> Executor shutdown is always requested and actual termination is
+ *       awaited for up to 60 seconds. If a cancelled worker ignores interruption beyond that bound,
+ *       the method throws with the daemon worker potentially still live and retains the resources it
+ *       might still own.</li>
  * </ul>
  *
  * <p>The {@link Database} instance is shared across the worker threads — that is the required usage
@@ -252,7 +257,7 @@ public final class ParallelJsonShredder {
   /**
    * Phase 2 — shred the partitions in parallel (one writer per resource) on a bounded dedicated pool,
    * awaiting every worker. On any failure the created resources are rolled back and the first failure
-   * is rethrown; the pool is always shut down.
+   * is rethrown. Pool shutdown is always requested; termination is awaited up to the documented bound.
    */
   private static void shredAllInParallel(final Database<JsonResourceSession> database, final List<String> names,
       final List<? extends Callable<JsonReader>> partitions, final int autoCommitNodeCount,
@@ -260,9 +265,18 @@ public final class ParallelJsonShredder {
     final int n = names.size();
     final int concurrency =
         Math.min(n, maxConcurrency <= 0 ? Runtime.getRuntime().availableProcessors() : maxConcurrency);
-    final ExecutorService pool = Executors.newFixedThreadPool(concurrency, namedDaemonFactory());
+    final ExecutorService pool;
     try {
-      final List<Future<?>> futures = new ArrayList<>(n);
+      pool = Executors.newFixedThreadPool(concurrency, namedDaemonFactory());
+    } catch (final RuntimeException | Error poolFailure) {
+      rollback(database, created, poolFailure);
+      throw poolFailure;
+    }
+
+    final List<Future<?>> futures = new ArrayList<>(n);
+    Throwable firstFailure = null;
+    boolean interrupted = false;
+    try {
       for (int i = 0; i < n; i++) {
         final String name = names.get(i);
         final Callable<JsonReader> partition = partitions.get(i);
@@ -273,15 +287,45 @@ public final class ParallelJsonShredder {
       }
 
       final Outcome outcome = awaitAll(futures);
-      if (outcome.firstFailure() != null) {
-        rollback(database, created, outcome.firstFailure());
-        if (outcome.interrupted()) {
-          Thread.currentThread().interrupt();
+      firstFailure = outcome.firstFailure();
+      interrupted = outcome.interrupted();
+    } catch (final RuntimeException | Error submissionOrAwaitFailure) {
+      firstFailure = combine(firstFailure, submissionOrAwaitFailure);
+      futures.forEach(future -> future.cancel(true));
+    }
+
+    // A cancelled Future is complete from Future.get's point of view before its task has necessarily
+    // returned. Executor termination, not Future cancellation, is therefore the ownership fence: only
+    // after it holds can rollback remove a resource without racing a worker that still owns its session.
+    final ShutdownOutcome shutdown = shutDownPool(pool, database);
+    interrupted |= shutdown.interrupted();
+    try {
+      if (firstFailure != null) {
+        if (shutdown.terminated()) {
+          rollback(database, created, firstFailure);
+        } else {
+          firstFailure.addSuppressed(new SirixException(
+              "rollback skipped for database '" + database.getName()
+                  + "' because the parallel-shred pool still has live workers after the shutdown timeout"));
         }
-        throwShredFailure(database, outcome.firstFailure());
+        throwShredFailure(database, firstFailure);
+      }
+
+      if (!shutdown.terminated()) {
+        final SirixException shutdownFailure = new SirixException(
+            "parallel-shred pool did not terminate after all workers completed for database '"
+                + database.getName() + "'");
+        // Every Future completed normally, so no worker owns a resource even if an executor thread has
+        // failed to terminate. Rollback is safe and preserves the all-or-nothing success contract.
+        rollback(database, created, shutdownFailure);
+        throw shutdownFailure;
       }
     } finally {
-      shutDownPool(pool, database);
+      // Keep the flag consumed through database cleanup: lock acquisition/removal is allowed to react
+      // to interruption. Restore exactly at this method's throw/return boundary, even if cleanup fails.
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
     }
   }
 
@@ -290,9 +334,9 @@ public final class ParallelJsonShredder {
   }
 
   /**
-   * Await EVERY future (rather than bailing on the first failure) so no worker is still mutating its
-   * resource when rollback begins — a half-written, concurrently-removed resource is the corruption to
-   * avoid. The first failure wins; the rest attach as suppressed.
+   * Await every Future outcome rather than bailing on the first failure. A cancelled Future does not
+   * prove its task has returned; {@link #shutDownPool} supplies that separate ownership fence before
+   * rollback. The first failure wins; the rest attach as suppressed.
    */
   private static Outcome awaitAll(final List<Future<?>> futures) {
     Throwable firstFailure = null;
@@ -308,7 +352,8 @@ public final class ParallelJsonShredder {
       } catch (final InterruptedException ie) {
         interrupted = true;
         firstFailure = combine(firstFailure, ie);
-        // Stop the remaining work promptly, then keep draining so we don't roll back live writers.
+        // Stop the remaining work promptly, then collect every Future outcome. Actual task termination
+        // is awaited separately before rollback because cancel(true) only requests interruption.
         futures.forEach(other -> other.cancel(true));
       }
     }
@@ -326,16 +371,43 @@ public final class ParallelJsonShredder {
     throw new SirixException("parallel shred failed for database '" + database.getName() + "'", firstFailure);
   }
 
-  /** Always shut the pool down; shutdownNow interrupts stragglers so the JVM never leaks threads. */
-  private static void shutDownPool(final ExecutorService pool, final Database<JsonResourceSession> database) {
+  /** Whether executor termination was reached, plus any interruption consumed while waiting for it. */
+  private record ShutdownOutcome(boolean terminated, boolean interrupted) {
+  }
+
+  /**
+   * Shut the pool down and wait up to the existing bounded timeout for actual task termination.
+   *
+   * <p>Interruptions are remembered but deliberately not restored inside this method: restoring the
+   * flag before another {@link ExecutorService#awaitTermination} would make it throw immediately and
+   * destroy the ownership fence rollback relies on. The caller restores the flag after this method
+   * establishes termination (or records that a worker outlived the timeout) and completes any safe
+   * database cleanup. It restores the flag immediately before the final return or throw.</p>
+   */
+  private static ShutdownOutcome shutDownPool(final ExecutorService pool,
+      final Database<JsonResourceSession> database) {
     pool.shutdownNow();
-    try {
-      if (!pool.awaitTermination(60, TimeUnit.SECONDS)) {
+    final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60);
+    boolean interrupted = false;
+    while (!pool.isTerminated()) {
+      final long remaining = deadline - System.nanoTime();
+      if (remaining <= 0L) {
         LOGGER.warn("parallel-shred pool did not terminate within 60s for database '{}'", database.getName());
+        return new ShutdownOutcome(false, interrupted);
       }
-    } catch (final InterruptedException ie) {
-      Thread.currentThread().interrupt();
+      try {
+        if (!pool.awaitTermination(remaining, TimeUnit.NANOSECONDS)) {
+          LOGGER.warn("parallel-shred pool did not terminate within 60s for database '{}'", database.getName());
+          return new ShutdownOutcome(false, interrupted);
+        }
+      } catch (final InterruptedException ignored) {
+        interrupted = true;
+        // A second interrupt may arrive while cancellation is already in flight. Reassert the shutdown
+        // request, consume the signal for now, and keep waiting within the original wall-clock bound.
+        pool.shutdownNow();
+      }
     }
+    return new ShutdownOutcome(true, interrupted);
   }
 
   /** Shred a single partition into its resource: open session + write trx, insert subtree, commit. */

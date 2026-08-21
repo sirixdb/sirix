@@ -26,7 +26,10 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -447,6 +450,133 @@ final class HOTIndirectPageSplitFaithfulTest {
   }
 
   @Test
+  @DisplayName("adjacent-pair replacement drops a parent discriminator that becomes constant")
+  void replaceAdjacentPairRecompressesDeadParentColumn() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final byte[] key00 = {(byte) 0x00};
+    final byte[] key01 = {(byte) 0x40};
+    final byte[] key10 = {(byte) 0x80};
+    final HOTLeafPage leaf00 = leaf(allocator, key00);
+    final HOTLeafPage leaf01 = leaf(allocator, key01);
+    final HOTLeafPage leaf10 = leaf(allocator, key10);
+    final PageReference ref00 = swizzle(leaf00);
+    final PageReference ref01 = swizzle(leaf01);
+    final PageReference ref10 = swizzle(leaf10);
+
+    // Sparse block-trie entries 00, 01, 10 over parent bits [a=0,b=1]. Collapsing the first
+    // BiNode pair removes 01 from the parent. Column b is then constant zero in the surviving
+    // old-coordinate entries [00,10] and must disappear; it remains discriminative inside mini.
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1},
+        new int[] {0, 1, 2}, new PageReference[] {ref00, ref01, ref10}, 1, 1,
+        allocator::getAndIncrement);
+    final HOTIndirectPage mini = HOTBulkBuilder.assembleIndirect(new int[] {1}, new int[] {0, 1},
+        new PageReference[] {ref00, ref01}, 1, 1, allocator::getAndIncrement);
+
+    final PageReference resultRef = HOTIncrementalInsert.replaceAdjacentPairAndCompress(parent, 0,
+        swizzle(mini), 1, allocator::getAndIncrement);
+    assertTrue(resultRef.getPage() instanceof HOTIndirectPage);
+    final HOTIndirectPage result = (HOTIndirectPage) resultRef.getPage();
+    assertArrayEquals(new int[] {0}, HOTIncrementalInsert.discriminativeBits(result));
+    assertArrayEquals(new int[] {0, 1}, result.getPartialKeysRef());
+    assertSame(mini, result.getChildReference(0).getPage());
+    assertEquals(0, result.findChildIndex(key00));
+    assertEquals(0, result.findChildIndex(key01));
+    assertEquals(1, result.findChildIndex(key10));
+    assertClean(resultRef, "dead parent discriminator recompression");
+    assertRoutesAll(resultRef, List.of(key00, key01, key10),
+        "dead parent discriminator recompression");
+
+    closeAll(parent, result);
+  }
+
+  @Test
+  @DisplayName("minimal complete range expands a non-sibling adjacent pair to three leaves")
+  void replaceMinimalCompleteThreeLeafRange() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final byte[] key000 = {(byte) 0x00};
+    final byte[] key010 = {(byte) 0x40};
+    final byte[] key011 = {(byte) 0x60};
+    final byte[] key100 = {(byte) 0x80};
+    final HOTLeafPage leaf000 = leaf(allocator, key000);
+    final HOTLeafPage leaf010 = leaf(allocator, key010);
+    final HOTLeafPage leaf011 = leaf(allocator, key011);
+    final HOTLeafPage leaf100 = leaf(allocator, key100);
+    final PageReference ref000 = swizzle(leaf000);
+    final PageReference ref010 = swizzle(leaf010);
+    final PageReference ref011 = swizzle(leaf011);
+    final PageReference ref100 = swizzle(leaf100);
+
+    // In sparse entries [000,010,011,100], adjacent 000/010 are not siblings: 010 shares a
+    // deeper BiNode with 011. Their smallest complete flattened range is therefore the first
+    // three children, rooted at parent column b.
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {0, 1, 2},
+        new int[] {0, 2, 3, 4}, new PageReference[] {ref000, ref010, ref011, ref100}, 1, 1,
+        allocator::getAndIncrement);
+    final HOTIncrementalInsert.ChildRange range =
+        HOTIncrementalInsert.minimalBiNodeRangeContaining(parent, 0, 1);
+    assertEquals(0, range.fromInclusive());
+    assertEquals(3, range.toExclusive());
+
+    final HOTIndirectPage mini = HOTBulkBuilder.assembleIndirect(new int[] {1, 2},
+        new int[] {0, 2, 3}, new PageReference[] {ref000, ref010, ref011}, 1, 1,
+        allocator::getAndIncrement);
+    final PageReference miniRef = swizzle(mini);
+    assertThrows(IllegalArgumentException.class,
+        () -> HOTIncrementalInsert.replaceChildRangeAndCompress(parent, 0, 2, miniRef, 1,
+            allocator::getAndIncrement));
+
+    final PageReference resultRef = HOTIncrementalInsert.replaceChildRangeAndCompress(parent,
+        range.fromInclusive(), range.toExclusive(), miniRef, 1, allocator::getAndIncrement);
+    assertTrue(resultRef.getPage() instanceof HOTIndirectPage);
+    final HOTIndirectPage result = (HOTIndirectPage) resultRef.getPage();
+    assertArrayEquals(new int[] {0}, HOTIncrementalInsert.discriminativeBits(result));
+    assertArrayEquals(new int[] {0, 1}, result.getPartialKeysRef());
+    assertSame(mini, result.getChildReference(0).getPage());
+    assertClean(resultRef, "three-leaf complete frontier");
+    assertRoutesAll(resultRef, List.of(key000, key010, key011, key100),
+        "three-leaf complete frontier");
+
+    closeAll(parent, result);
+  }
+
+  @Test
+  @DisplayName("a complete frontier spanning the parent pulls its mini-root up by identity")
+  void replaceWholeParentFrontierPullsUpReplacement() {
+    final AtomicLong allocator = new AtomicLong(1);
+    final byte[] key000 = {(byte) 0x00};
+    final byte[] key010 = {(byte) 0x40};
+    final byte[] key011 = {(byte) 0x60};
+    final HOTLeafPage leaf000 = leaf(allocator, key000);
+    final HOTLeafPage leaf010 = leaf(allocator, key010);
+    final HOTLeafPage leaf011 = leaf(allocator, key011);
+    final PageReference ref000 = swizzle(leaf000);
+    final PageReference ref010 = swizzle(leaf010);
+    final PageReference ref011 = swizzle(leaf011);
+    final HOTIndirectPage parent = HOTBulkBuilder.assembleIndirect(new int[] {1, 2},
+        new int[] {0, 2, 3}, new PageReference[] {ref000, ref010, ref011}, 1, 1,
+        allocator::getAndIncrement);
+    assertClean(swizzle(parent), "whole-parent frontier source");
+    final HOTIncrementalInsert.ChildRange range =
+        HOTIncrementalInsert.minimalBiNodeRangeContaining(parent, 0, 1);
+    assertEquals(0, range.fromInclusive());
+    assertEquals(parent.getNumChildren(), range.toExclusive());
+
+    final HOTIndirectPage mini = HOTBulkBuilder.assembleIndirect(new int[] {1, 2},
+        new int[] {0, 2, 3}, new PageReference[] {ref000, ref010, ref011}, 1, 1,
+        allocator::getAndIncrement);
+    final PageReference miniRef = swizzle(mini);
+    final PageReference resultRef = HOTIncrementalInsert.replaceChildRangeAndCompress(parent,
+        range.fromInclusive(), range.toExclusive(), miniRef, 1, allocator::getAndIncrement);
+
+    assertSame(miniRef, resultRef, "a lone surviving range root must be pulled up without a wrapper");
+    assertClean(resultRef, "whole-parent frontier pull-up");
+    assertRoutesAll(resultRef, List.of(key000, key010, key011),
+        "whole-parent frontier pull-up");
+
+    closeAll(parent, mini);
+  }
+
+  @Test
   @DisplayName("a leaf split's two halves are BiNode-paired and merge back — round-trip")
   void mergeUndoesLeafSplit() {
     int checked = 0;
@@ -648,6 +778,12 @@ final class HOTIndirectPageSplitFaithfulTest {
       entries.add(new HOTBulkBuilder.Entry(key, VALUE));
     }
     return entries;
+  }
+
+  private static HOTLeafPage leaf(final AtomicLong allocator, final byte[] key) {
+    final HOTLeafPage leaf = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
+    assertTrue(leaf.put(key, VALUE));
+    return leaf;
   }
 
   private static TreeSet<String> collectKeys(final Page page) {

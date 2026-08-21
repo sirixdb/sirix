@@ -11,6 +11,7 @@ import io.sirix.api.Database;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.HOTIncrementalInsert;
 import io.sirix.index.hot.HOTInvariantValidator;
 import io.sirix.page.PageReference;
@@ -30,6 +31,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -90,6 +92,13 @@ final class ProjectionSegmentRefSplitTest {
   @Timeout(value = 600, unit = TimeUnit.SECONDS)
   void segmentsSurviveIncrementalLeafSplits() throws IOException {
     final long carriesBefore = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get();
+    final long frontierSplicesBefore = AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get();
+    final long multiLeafFrontierSplicesBefore =
+        AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get();
+    final long fullHalfSubinsertsBefore = AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get();
+    final long directionOneFallbacksBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
+    final long projectionRebuildAttemptsBefore = AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get();
+    final long subtreeRebuildsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
     final List<Long> order = new ArrayList<>(ROW_GROUPS);
     for (long rg = 1; rg <= ROW_GROUPS; rg++) {
       order.add(rg);
@@ -114,6 +123,20 @@ final class ProjectionSegmentRefSplitTest {
       final long carries = HOTIncrementalInsert.SPLIT_SEGMENT_REF_CARRIES.get() - carriesBefore;
       assertTrue(carries > 0, "the build did not reach the incremental split with references pending — the "
           + "test no longer covers the path it exists for (carries=" + carries + ")");
+      assertTrue(AbstractHOTIndexWriter.DIRECTION_ONE_LEAF_FRONTIER_SPLICE.get() - frontierSplicesBefore > 0,
+          "the build no longer covers the I8/I12-safe direct-leaf-frontier Direction-1 splice");
+      assertTrue(AbstractHOTIndexWriter.DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.get()
+          - multiLeafFrontierSplicesBefore > 0,
+          "the build no longer covers a non-sibling adjacent pair expanded to its complete leaf frontier");
+      assertTrue(AbstractHOTIndexWriter.FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.get() - fullHalfSubinsertsBefore > 0,
+          "the build no longer covers Direction 1 inside a freshly split full-node half");
+      assertEquals(0L, AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - directionOneFallbacksBefore,
+          "projection insertion must not abandon a Direction-1 shape to subtree reconstruction");
+      assertEquals(0L,
+          AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get() - projectionRebuildAttemptsBefore,
+          "projection insertion attempted a forbidden subtree rebuild");
+      assertEquals(0L, AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get() - subtreeRebuildsBefore,
+          "projection insertion performed a subtree rebuild");
 
       try (JsonNodeTrx probe = session.beginNodeTrx()) {
         final StorageEngineReader reader = probe.getStorageEngineReader();

@@ -46,6 +46,15 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   NodeTrx rollback();
 
   /**
+   * Mark this transaction as requiring rollback after an atomic operation has failed after partially
+   * mutating transaction-owned state. Subsequent mutations and commits are rejected until
+   * {@link #rollback()} establishes a fresh lineage.
+   *
+   * @param cause failure that made the transaction unsafe to continue
+   */
+  void markRollbackOnly(Throwable cause);
+
+  /**
    * Reverting all changes to the revision defined. This command has to be finalized with a commit. A
    * revert is always bound to a {@link XmlNodeReadOnlyTrx#moveToDocumentRoot()}.
    *
@@ -85,6 +94,11 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   default void runLocked(Runnable work) {
     work.run();
   }
+
+  /**
+   * Wait until a predecessor asynchronous commit has published its durable append frontier.
+   */
+  void awaitPendingAsyncCommit();
 
   /**
    * Truncate to a revision.

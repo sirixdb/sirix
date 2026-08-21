@@ -10,6 +10,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -163,6 +164,7 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
   public void segmentSlotUpdateIsMaintainedAndKeepsTheLayoutFlag() throws IOException {
     storeAndCreateSegmentSlotProjection();
     final long baseline = expectedTotalAge();
+    ProjectionIndexChangeListener.resetMaintenanceTelemetry();
 
     try (final Database<JsonResourceSession> database = openDatabase();
         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
@@ -180,6 +182,19 @@ public final class ProjectionSegmentSlotMaintenanceTest extends AbstractJsonTest
         }
         wtx.commit();
       }
+
+      final ProjectionIndexChangeListener.MaintenanceLocality locality =
+          ProjectionIndexChangeListener.lastMaintenanceLocality();
+      Assertions.assertEquals(0, locality.fullRowGroupsRead(),
+          "one numeric cell update must never assemble a complete row group");
+      Assertions.assertEquals(1, locality.descriptorsRead());
+      Assertions.assertEquals(1, locality.keySegmentsRead());
+      Assertions.assertEquals(1, locality.bodySegmentsRead(), "only the dirty age column BODY is read");
+      Assertions.assertEquals(0, locality.dictionarySegmentsRead(), "numeric maintenance needs no dictionaries");
+      Assertions.assertEquals(1, locality.columnSegmentsEncoded(), "only the dirty age BODY is encoded");
+      Assertions.assertEquals(1, locality.columnSegmentsWritten(), "only the dirty age BODY is persisted");
+      Assertions.assertEquals(1, locality.descriptorsWritten(), "the row-group directory is the only shared unit");
+      Assertions.assertEquals(1, locality.rowGroupsColumnPatched());
 
       // Persisted state after the commit.
       final SirixVectorizedExecutor afterCommit =

@@ -4,7 +4,8 @@
 package io.sirix.index.projection;
 
 /**
- * A resource-wide value dictionary reached its byte budget while a build was still feeding it.
+ * A resource-wide value dictionary declined an aggregate-budget or structural admission while a
+ * build was still feeding it.
  *
  * <p>
  * This is a DECLINE, not a failure: a bounded structure hitting its bound must give the build a way
@@ -37,18 +38,38 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
   /** Distinct values interned before it stopped. */
   private final int entryCount;
 
+  /** Structural admission reason, or {@code null} for the configured aggregate byte budget. */
+  private final String admissionDetail;
+
   GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes, final long budgetBytes,
       final int entryCount) {
-    super("Resource-wide value dictionary for column " + column + " reached its budget: retained " + retainedBytes
-        + " B across " + entryCount + " distinct values, budget " + budgetBytes
-        + " B. The projection is abandoned for this load (readers fall back to the generic pipeline); the load"
-        + " itself completes. Raise -Dsirix.projection.globalDict.budgetBytes, pass an expected-row-count hint"
-        + " so the election can decline this column up front, or build the index after the load with"
-        + " jn:create-projection-index.");
+    this(column, retainedBytes, budgetBytes, entryCount, null);
+  }
+
+  GlobalDictionaryBudgetExceededException(final int column, final long retainedBytes,
+      final long budgetBytes, final int entryCount, final String admissionDetail) {
+    super(message(column, retainedBytes, budgetBytes, entryCount, admissionDetail));
     this.column = column;
     this.retainedBytes = retainedBytes;
     this.budgetBytes = budgetBytes;
     this.entryCount = entryCount;
+    this.admissionDetail = admissionDetail;
+  }
+
+  private static String message(final int column, final long retainedBytes,
+      final long budgetBytes, final int entryCount, final String admissionDetail) {
+    final String reason = admissionDetail == null
+        ? "reached its configured aggregate budget of " + budgetBytes + " B"
+        : "declined an unsafe allocation before mutation: " + admissionDetail;
+    final String remediation = admissionDetail == null
+        ? " Raise the configured byte budget, use per-leaf dictionaries, or split the ingest into"
+            + " bounded append generations."
+        : " Use per-leaf dictionaries or split the ingest into bounded append generations; raising"
+            + " the byte budget cannot override a structural allocation ceiling.";
+    return "Resource-wide value dictionary for column " + column + " " + reason
+        + "; retained " + retainedBytes + " B across " + entryCount
+        + " distinct values. The projection is abandoned for this load (readers fall back to the generic"
+        + " pipeline); the load itself completes." + remediation;
   }
 
   /** The column whose dictionary hit the bound. */
@@ -69,5 +90,10 @@ public final class GlobalDictionaryBudgetExceededException extends RuntimeExcept
   /** Distinct values interned before it stopped. */
   public int entryCount() {
     return entryCount;
+  }
+
+  /** Structural admission reason, or {@code null} when only the aggregate byte budget was hit. */
+  public String admissionDetail() {
+    return admissionDetail;
   }
 }

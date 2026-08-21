@@ -15,6 +15,7 @@ import io.sirix.io.StorageType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.settings.VersioningType;
 
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -133,6 +134,11 @@ public final class ClickBenchLoadMain {
     return value;
   }
 
+  private static int appendWorkers() {
+    final int defaultWorkers = Math.min(2, Math.max(1, Runtime.getRuntime().availableProcessors() / 4));
+    return positiveIntProperty("sirix.asyncFlush.appendParallelism", defaultWorkers);
+  }
+
   public static void main(final String[] args) throws Exception {
     if (args.length < 2) {
       System.err.println("Usage: ClickBenchLoadMain <dbDir> <source>");
@@ -150,6 +156,8 @@ public final class ClickBenchLoadMain {
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "1048576"));
     final StorageType storageType =
         StorageType.fromString(System.getProperty("storageType", StorageType.FILE_CHANNEL.name()));
+    final VersioningType versioningType =
+        VersioningType.fromString(System.getProperty("versioningType", VersioningType.FULL.name()));
     final boolean projection = Boolean.parseBoolean(System.getProperty("clickbench.projection", "true"));
     // One-pass by default: the projection is declared before the shred and maintained by it. The
     // second-pass route stays available (-Dclickbench.projection.incremental=false) because it is
@@ -179,6 +187,9 @@ public final class ClickBenchLoadMain {
         ? expectedRows(source)
         : -1L;
     final boolean hftTelemetry = Boolean.getBoolean("sirix.hft.telemetry");
+    final HftRuntimeEvidence.Build hftBuild = hftTelemetry
+        ? HftRuntimeEvidence.capture(ClickBenchLoadMain.class)
+        : null;
     final int pinnedTrieScanBudget = positiveIntProperty(
         "sirix.asyncFlush.pinnedTrieSpillScanBudget", 1_024);
     final int pinnedTrieBatchCapacity = positiveIntProperty(
@@ -188,15 +199,19 @@ public final class ClickBenchLoadMain {
     final String hftConfiguration = hftTelemetry
         ? String.format(Locale.ROOT,
             "# HFT_CONFIG globalDict=%s autoCommitNodes=%d arenaStrategy=%s maxNewSizeBytes=%d "
+                + "initialHeapBytes=%d maxHeapBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s "
                 + "storage=%s projectionMode=%s expectedRows=%d pinnedTrieScanBudget=%d "
-                + "pinnedTrieBatchCapacity=%d",
+                + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",
             System.getProperty("sirix.projection.globalDict", "auto").toLowerCase(Locale.ROOT),
             autoCommit, SharedArenas.strategy().name().toLowerCase(Locale.ROOT),
-            effectiveVmOption("MaxNewSize"), storageType,
+            effectiveVmOption("MaxNewSize"), effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"),
+            effectiveVmOption("G1HeapRegionSize"),
+            hftBuild.gcLogging(), hftBuild.safepointLogging(), storageType,
             projection
                 ? incrementalProjection ? "incremental" : "second-pass"
                 : "disabled",
-            sourceExpectedRows, pinnedTrieScanBudget, pinnedTrieBatchCapacity)
+            sourceExpectedRows, pinnedTrieScanBudget, pinnedTrieBatchCapacity, versioningType,
+            appendWorkers(), positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1))
         : null;
 
     Files.createDirectories(dbDir);
@@ -209,6 +224,7 @@ public final class ClickBenchLoadMain {
     try (var store = BasicJsonDBStore.newBuilder()
                                      .location(dbDir)
                                      .storageType(storageType)
+                                     .versioningType(versioningType)
                                      .numberOfNodesBeforeAutoCommit(autoCommit)
                                      .buildPathSummary(pathSummary)
                                      .buildPathStatistics(pathStatistics)
@@ -221,6 +237,8 @@ public final class ClickBenchLoadMain {
         // ingestion old-gen pressure. The end marker is emitted only after close + explicit sync.
         System.out.println("# HFT_MEASURE_START");
         if (hftConfiguration != null) {
+          System.out.println("# HFT_BUILD gitSha=" + hftBuild.gitSha()
+              + " artifactSha256=" + hftBuild.artifactSha256());
           System.out.println(hftConfiguration);
         }
         System.out.flush();

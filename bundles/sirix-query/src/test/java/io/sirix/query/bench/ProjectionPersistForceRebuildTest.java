@@ -13,12 +13,8 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
-import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
-import io.sirix.index.projection.ProjectionIndexFences;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
-import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
-import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -33,7 +29,6 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -57,14 +52,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       path on top.</li>
  * </ol>
  *
- * <p>The fixture persists slot-0 metadata and the fence chunks exactly as
- * {@code ScaleBenchProjectionSetup} does. That is load-bearing rather than
- * cosmetic: {@code installWildcard} decides fast-path-vs-rebuild by parsing
- * slot 0, so a leaves-only store sends phase 4 down the SLOW path, where it
- * rebuilds the same six columns from the same revision and returns the same
- * leaf count — passing the assertion while testing the opposite path. Phase 4
- * pins the distinction on the revision number, the one thing the two paths do
- * not share (the rebuild commits, the hydrate does not).
+ * <p>The fixture persists through the production builder, including locators, dictionaries,
+ * summaries, Bloom/fence chunks and live slot-0 metadata strictly last. That is load-bearing rather
+ * than cosmetic: {@code installWildcard} decides fast-path-vs-rebuild by parsing slot 0, so a
+ * leaves-only store sends phase 4 down the SLOW path and can make the test pass while exercising the
+ * opposite path. Phase 4 pins the distinction on the revision number, the one thing the two paths
+ * do not share (the rebuild commits, the hydrate does not).
  */
 public final class ProjectionPersistForceRebuildTest {
 
@@ -73,10 +66,6 @@ public final class ProjectionPersistForceRebuildTest {
   private static final String DB = "proj-rebuild-db";
   private static final String RES = "records.jn";
   private static final int INDEX_NUMBER = 0;
-  private static final String[] THREE_COLUMN_NAMES = {"age", "active", "dept"};
-  private static final String[] SIX_COLUMN_NAMES =
-      {"age", "active", "dept", "city", "amount", "score"};
-
   private java.nio.file.Path dbDir;
 
   @BeforeEach
@@ -128,7 +117,7 @@ public final class ProjectionPersistForceRebuildTest {
         final List<byte[]> threeColLeaves = threeCol.leaves();
         assertTrue(threeColLeaves.size() >= 32,
             "test needs enough leaves to split HOT pages, got " + threeColLeaves.size());
-        persist(session, threeColumnDef(), THREE_COLUMN_NAMES, threeCol);
+        persist(session, threeColumnDef());
 
         // ---- Phase 2: force-rebuild with all six columns (larger leaves). ----
         final Built sixCol = buildLeaves(session, sixColumnDef());
@@ -144,7 +133,7 @@ public final class ProjectionPersistForceRebuildTest {
         assertTrue(grownLeaves > sixColLeaves.size() / 2,
             "6-column leaves must be larger than their 3-column predecessors (grown="
                 + grownLeaves + "/" + sixColLeaves.size() + ")");
-        persist(session, sixColumnDef(), SIX_COLUMN_NAMES, sixCol);
+        persist(session, sixColumnDef());
 
         // ---- Phase 3: hydrate — every leaf byte-identical to the rebuild. ----
         try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
@@ -170,8 +159,8 @@ public final class ProjectionPersistForceRebuildTest {
     }
   }
 
-  /** A build's leaves plus the column kinds its metadata blob has to declare. */
-  private record Built(List<byte[]> leaves, byte[] columnKinds) {
+  /** The byte-exact expected row groups built independently of persistence. */
+  private record Built(List<byte[]> leaves) {
   }
 
   private static Built buildLeaves(final JsonResourceSession session, final IndexDef def) {
@@ -181,39 +170,15 @@ public final class ProjectionPersistForceRebuildTest {
          PathSummaryReader pathSummary = session.openPathSummary(revision)) {
       final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
       builder.build(rtx);
-      return new Built(leaves, builder.columnKinds());
+      return new Built(leaves);
     }
   }
 
-  /** Mirrors the persist block in {@code ScaleBenchProjectionSetup.installWildcard}. */
-  private static void persist(final JsonResourceSession session, final IndexDef def,
-      final String[] fieldNames, final Built built) {
-    final List<byte[]> leaves = built.leaves();
+  /** Exercise the same canonical persistence boundary used by the benchmark and controllers. */
+  private static void persist(final JsonResourceSession session, final IndexDef def) {
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexHOTStorage storage =
-          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      final List<Path<QNm>> fieldPaths = def.getProjectionFields();
-      final String[] fieldPathStrings = new String[fieldPaths.size()];
-      for (int i = 0; i < fieldPathStrings.length; i++) {
-        fieldPathStrings[i] = fieldPaths.get(i).toString();
-      }
-      final long[] leafFirstKeys = new long[leaves.size()];
-      final long[] leafLastKeys = new long[leaves.size()];
-      for (int i = 0; i < leaves.size(); i++) {
-        final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(leaves.get(i));
-        assertNotNull(range, "serialised leaf " + i + " must carry a header");
-        leafFirstKeys[i] = range[0];
-        leafLastKeys[i] = range[1];
-      }
-      final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(
-          def.getProjectionRootPath().toString(), fieldPathStrings, fieldNames,
-          built.columnKinds(), leaves.size(), wtx.getRevisionNumber());
-      storage.putBlob(0, metadata.serialize());
-      ProjectionIndexFences.write(storage, leaves.size(), leafFirstKeys, leafLastKeys, 0);
-      for (int i = 0; i < leaves.size(); i++) {
-        storage.putRowGroupAsColumnSegmentSlots(i + 1,
-            ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaves.get(i))); // slots 1..N
-      }
+      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx,
+          wtx.getStorageEngineWriter(), false);
       wtx.commit();
     }
   }

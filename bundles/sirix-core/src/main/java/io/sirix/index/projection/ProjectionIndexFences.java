@@ -3,146 +3,877 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.api.StorageEngineReader;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
+import java.util.Arrays;
+
 /**
- * Chunked, copy-on-write-deduplicated store for the projection's per-leaf
- * record-key <b>fences</b> — the {@code (firstRecordKey, lastRecordKey)} zone
- * map that incremental maintenance ({@link ProjectionIndexChangeListener})
- * reads once per commit to locate the leaves a write touched.
+ * Persistent local-order and normal-backbone routing metadata for projection row groups.
  *
- * <h2>Why not keep the fences in the slot-0 metadata blob?</h2>
- *
- * <p>Every maintenance commit changes at least one leaf's range, which changes
- * the fence bytes, which — when all fences live inside the single slot-0
- * {@code PIXM} blob — rewrites the WHOLE array. At scale that array is large
- * (16 bytes per leaf: two little-endian longs), so a store with ~100k leaves
- * re-persisted ~1.5&nbsp;MB of fences on <i>every</i> commit, and SirixDB's
- * copy-on-write history keeps each rewrite forever. That is ~1.5&nbsp;MB of
- * permanent growth per commit for data that barely moved.
- *
- * <h2>The fix: split the fences into fixed-size chunks</h2>
- *
- * <p>The fences are cut into fixed spans of {@link #CHUNK_LEAVES} leaves, and
- * each chunk is stored as its own blob under a reserved slot key
- * ({@link #CHUNK_SLOT_BASE}&nbsp;+&nbsp;chunkIndex, far above the data leaves'
- * slots so the two never collide). Writing a chunk goes through
- * {@link ProjectionIndexHOTStorage#putBlob}, which already <b>carries an
- * unchanged blob forward by reference</b> (same length + content hash → no page
- * write) — the exact deduplication the hot trie and the column-segment slots use.
- *
- * <p>So a commit that touches a handful of leaves rewrites only the one or two
- * chunks those leaves fall in (plus the tail chunk for appends); every other
- * chunk is a byte-for-byte match and costs nothing. Per-commit growth drops
- * from the full fence array to a few chunks (a chunk is
- * {@code CHUNK_LEAVES × 16} bytes). Reads are unchanged in cost: maintenance
- * still loads every fence, just from several small chunks instead of one big
- * blob.
- *
- * <p>Fences are a <b>writer-only</b> zone map — the builder writes them, the
- * change listener reads and rewrites them, and nothing on the query/hydrate
- * path ever touches them. Losing or mis-sizing a chunk therefore never returns
- * a wrong answer; {@link #read} reports the damage as {@code null} and the
- * caller falls back to a full rebuild.
+ * <p>Stable document node keys are identities, not order labels. Every live physical leaf is
+ * therefore linked explicitly in document order. Only rows whose KEYS exception bit is clear take
+ * part in numeric fence routing; those rows form a globally strictly-increasing backbone. Sparse
+ * exceptions are resolved by {@link ProjectionRecordLocator} before this structure is consulted.
+ * Initial build leaves are immutable base/sentinel heads. Local split leaves belong to one base and
+ * are linked into that base's numeric skip list only while they contain a normal row.</p>
  */
 public final class ProjectionIndexFences {
 
-  /**
-   * First reserved slot key for fence chunks. In the DESCRIPTOR layout data-leaf slots run
-   * 1..rowGroupCount (bounded by {@code MAX_PROBED_LEAVES = 2^24}) and slot 0 is the metadata. In the
-   * segment-slot layout a leaf slot is {@code (rowGroupId << 16) | slotKind}, so its exact max is
-   * {@code (2^24 << 16) | 0xffff = 2^40 + 65535} — the base must clear that (the old 2^40 assumed an
-   * 8-bit slotKind and a {@code << 8} shift). 2^42 sits above every leaf slot of both layouts, so
-   * leaf probing never reaches the fence chunks and the ranges cannot alias; it also stays below the
-   * side-map owner-slot ceiling (2^47) so a fence chunk that spills to an OverflowPage still keys
-   * legally. Chunk {@code c} lives at {@code CHUNK_SLOT_BASE + c}.
-   */
+  /** First reserved positive slot for fence chunks. */
   static final long CHUNK_SLOT_BASE = 1L << 42;
 
   /**
-   * Leaves per fence chunk. A full chunk is {@code CHUNK_LEAVES × 16} bytes
-   * (512 → 8&nbsp;KiB): small enough that a commit touching a few leaves
-   * re-persists little, large enough that the chunk count (and thus the number
-   * of carry-forward probes per commit) stays modest even at 100M rows
-   * (~200 chunks).
+   * Physical leaves per persistent unit. An entry carries explicit document links, owner and the
+   * bounded numeric skip tower, so 32 entries keep a touched chunk near one ordinary page instead
+   * of rewriting a 64+ KiB blob for a one-leaf change.
    */
-  static final int CHUNK_LEAVES = 512;
+  static final int CHUNK_LEAVES = 32;
 
-  /** Bytes per leaf entry: firstRecordKey + lastRecordKey, both little-endian longs. */
-  private static final int ENTRY_BYTES = 16;
+  static final long ORDER_HEADER_SLOT = CHUNK_SLOT_BASE + (1L << 20);
+
+  private static final int ORDER_MAGIC = 0x4F464950;
+  private static final byte ORDER_VERSION = 0;
+  private static final int ORDER_HEADER_BYTES = 32;
+  private static final int SKIP_LEVELS = 25;
+
+  private static final int FIRST_OFFSET = 0;
+  private static final int LAST_OFFSET = 8;
+  private static final int DOC_NEXT_OFFSET = 16;
+  private static final int DOC_PREV_OFFSET = 20;
+  private static final int OWNER_BASE_OFFSET = 24;
+  private static final int NUMERIC_SKIP_OFFSET = 28;
+  private static final int BASE_UPPER_OFFSET = NUMERIC_SKIP_OFFSET + SKIP_LEVELS * Integer.BYTES;
+  private static final int FREE_NEXT_OFFSET = BASE_UPPER_OFFSET + Long.BYTES;
+  private static final int ENTRY_BYTES = 144;
 
   private ProjectionIndexFences() {
   }
 
-  /** Number of chunks needed to cover {@code rowGroupCount} leaves. */
-  public static int chunkCount(final int rowGroupCount) {
-    return (rowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
+  public static int chunkCount(final int physicalRowGroupCount) {
+    return (physicalRowGroupCount + CHUNK_LEAVES - 1) / CHUNK_LEAVES;
   }
 
   /**
-   * Persist the per-leaf fences as carry-forward chunks. {@code first}/{@code last}
-   * are 0-based and index-aligned with leaf slots 1..{@code rowGroupCount} (entry
-   * {@code i} describes slot {@code i + 1}). Chunks whose bytes match the prior
-   * revision are no-ops (shared by reference); chunks that no longer exist
-   * because the leaf count shrank (a rebuild) are tombstoned.
-   *
-   * @param priorRowGroupCount leaf count of the snapshot being replaced, so orphaned
-   *                       trailing chunks can be dropped; pass {@code 0} when there
-   *                       is nothing to reclaim
+   * Initialise the V0 metadata for an explicit build. {@code first}/{@code last} are normal-
+   * backbone bounds, so a nonempty exception-only leaf legitimately carries MAX/MIN sentinels.
    */
   public static void write(final ProjectionIndexHOTStorage storage, final int rowGroupCount,
       final long[] first, final long[] last, final int priorRowGroupCount) {
-    // Exactly one entry per leaf (the invariant the old inline-fence metadata constructor
-    // enforced): a shorter array reads out of bounds, a longer one carries stale trailing
-    // entries beyond rowGroupCount that read() would silently ignore.
+    if (storage == null) {
+      throw new NullPointerException("storage is required");
+    }
+    checkRowGroupCount(rowGroupCount);
     if (first.length != rowGroupCount || last.length != rowGroupCount) {
       throw new IllegalArgumentException("fence arrays must carry exactly rowGroupCount " + rowGroupCount
           + " entries, got " + first.length + "/" + last.length);
     }
-    final int chunks = chunkCount(rowGroupCount);
-    for (int c = 0; c < chunks; c++) {
-      final int start = c * CHUNK_LEAVES;
+    long baseUpper = Long.MIN_VALUE;
+    for (int chunkId = 0; chunkId < chunkCount(rowGroupCount); chunkId++) {
+      final int start = chunkId * CHUNK_LEAVES;
       final int end = Math.min(start + CHUNK_LEAVES, rowGroupCount);
       final byte[] bytes = new byte[(end - start) * ENTRY_BYTES];
-      int off = 0;
-      for (int i = start; i < end; i++) {
-        RowGroupDescriptor.putLongLE(bytes, off, first[i]);
-        RowGroupDescriptor.putLongLE(bytes, off + 8, last[i]);
-        off += ENTRY_BYTES;
+      for (int index = start; index < end; index++) {
+        final long normalFirst = first[index];
+        final long normalLast = last[index];
+        final boolean normal = validateNormalRange(normalFirst, normalLast);
+        if (normal) {
+          if (normalFirst <= baseUpper) {
+            throw new IllegalStateException("projection normal backbone is not strictly increasing at leaf "
+                + (index + 1) + ": " + normalFirst + " <= " + baseUpper);
+          }
+          baseUpper = normalLast;
+        }
+        final int offset = (index - start) * ENTRY_BYTES;
+        RowGroupDescriptor.putLongLE(bytes, offset + FIRST_OFFSET, normalFirst);
+        RowGroupDescriptor.putLongLE(bytes, offset + LAST_OFFSET, normalLast);
+        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + DOC_NEXT_OFFSET,
+            index + 1 < rowGroupCount ? index + 2 : 0);
+        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + DOC_PREV_OFFSET, index);
+        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + OWNER_BASE_OFFSET, index + 1);
+        RowGroupDescriptor.putLongLE(bytes, offset + BASE_UPPER_OFFSET, baseUpper);
       }
-      storage.putBlob(CHUNK_SLOT_BASE + c, bytes);
+      storage.putBlob(CHUNK_SLOT_BASE + chunkId, bytes);
     }
-    // Reclaim chunks the shrunk (rebuilt) projection no longer covers.
-    for (int c = chunks; c < chunkCount(priorRowGroupCount); c++) {
-      storage.tombstoneRowGroup(CHUNK_SLOT_BASE + c);
+    for (int chunkId = chunkCount(rowGroupCount); chunkId < chunkCount(priorRowGroupCount); chunkId++) {
+      storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
     }
+    storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0,
+        rowGroupCount == 0 ? 0 : 1, rowGroupCount));
   }
 
-  /**
-   * Reassemble the full 0-based fence arrays for {@code rowGroupCount} leaves from
-   * their chunks. Returns {@code {first, last}} (each length {@code rowGroupCount}),
-   * or {@code null} when any chunk is missing or the wrong size — an
-   * inconsistency the caller must resolve with a full rebuild rather than trust
-   * a partial zone map.
-   */
+  /** Read physical-slot-aligned normal fence arrays, or {@code null} for malformed/missing chunks. */
   public static long @Nullable [][] read(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
-    final long[] first = new long[rowGroupCount];
-    final long[] last = new long[rowGroupCount];
-    final int chunks = chunkCount(rowGroupCount);
-    for (int c = 0; c < chunks; c++) {
-      final int start = c * CHUNK_LEAVES;
-      final int end = Math.min(start + CHUNK_LEAVES, rowGroupCount);
-      final byte[] bytes = storage.getBlob(CHUNK_SLOT_BASE + c);
-      if (bytes == null || bytes.length != (end - start) * ENTRY_BYTES) {
+    if (storage == null) {
+      throw new NullPointerException("storage is required");
+    }
+    final OrderHeader header;
+    try {
+      header = readOrderHeader(storage.getBlob(ORDER_HEADER_SLOT), rowGroupCount);
+    } catch (final IllegalStateException malformed) {
+      return null;
+    }
+    final long[] first = new long[header.physicalRowGroupCount()];
+    final long[] last = new long[header.physicalRowGroupCount()];
+    for (int chunkId = 0; chunkId < chunkCount(header.physicalRowGroupCount()); chunkId++) {
+      final int start = chunkId * CHUNK_LEAVES;
+      final int entries = Math.min(CHUNK_LEAVES, header.physicalRowGroupCount() - start);
+      final byte[] bytes = storage.getBlob(CHUNK_SLOT_BASE + chunkId);
+      if (bytes == null || bytes.length != entries * ENTRY_BYTES) {
         return null;
       }
-      int off = 0;
-      for (int i = start; i < end; i++) {
-        first[i] = ProjectionIndexRowGroupCodec.getLongLE(bytes, off);
-        last[i] = ProjectionIndexRowGroupCodec.getLongLE(bytes, off + 8);
-        off += ENTRY_BYTES;
+      for (int local = 0; local < entries; local++) {
+        final int offset = local * ENTRY_BYTES;
+        first[start + local] = ProjectionIndexRowGroupCodec.getLongLE(bytes, offset + FIRST_OFFSET);
+        last[start + local] = ProjectionIndexRowGroupCodec.getLongLE(bytes, offset + LAST_OFFSET);
       }
     }
     return new long[][] {first, last};
+  }
+
+  public static int[] readPhysicalOrder(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount) {
+    if (reader == null) {
+      throw new NullPointerException("reader is required");
+    }
+    return readPhysicalOrder(slot -> ProjectionIndexHOTStorage.readBlob(reader, indexNumber, slot), rowGroupCount);
+  }
+
+  static int[] readPhysicalOrder(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
+    if (storage == null) {
+      throw new NullPointerException("storage is required");
+    }
+    return readPhysicalOrder(storage::getBlob, rowGroupCount);
+  }
+
+  private static int[] readPhysicalOrder(final BlobReader reader, final int rowGroupCount) {
+    checkRowGroupCount(rowGroupCount);
+    final OrderHeader header = readOrderHeader(reader.read(ORDER_HEADER_SLOT), rowGroupCount);
+    final int physicalCount = header.physicalRowGroupCount();
+    final int[] docNext = new int[physicalCount + 1];
+    final int[] docPrev = new int[physicalCount + 1];
+    final int[] freeNext = new int[physicalCount + 1];
+    for (int chunkId = 0; chunkId < chunkCount(physicalCount); chunkId++) {
+      final int start = chunkId * CHUNK_LEAVES;
+      final int entries = Math.min(CHUNK_LEAVES, physicalCount - start);
+      final byte[] bytes = reader.read(CHUNK_SLOT_BASE + chunkId);
+      if (bytes == null || bytes.length != entries * ENTRY_BYTES) {
+        throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);
+      }
+      for (int local = 0; local < entries; local++) {
+        final int slot = start + local + 1;
+        final int offset = local * ENTRY_BYTES;
+        docNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_NEXT_OFFSET);
+        docPrev[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_PREV_OFFSET);
+        freeNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + FREE_NEXT_OFFSET);
+      }
+    }
+    final boolean[] free = new boolean[physicalCount + 1];
+    int freeCount = 0;
+    int freeSlot = header.freeHead();
+    while (freeSlot != 0) {
+      if (freeSlot <= header.baseRowGroupCount() || freeSlot > physicalCount || free[freeSlot]
+          || freeCount++ >= physicalCount) {
+        throw new IllegalStateException("malformed projection row-group free list at " + freeSlot);
+      }
+      free[freeSlot] = true;
+      freeSlot = freeNext[freeSlot];
+    }
+    final int[] order = new int[rowGroupCount];
+    final boolean[] visited = new boolean[physicalCount + 1];
+    int count = 0;
+    int previous = 0;
+    int slot = header.documentHead();
+    while (slot != 0) {
+      if (slot < 1 || slot > physicalCount || free[slot] || visited[slot] || docPrev[slot] != previous
+          || count == rowGroupCount) {
+        throw new IllegalStateException("malformed projection document order at physical leaf " + slot);
+      }
+      visited[slot] = true;
+      order[count++] = slot;
+      previous = slot;
+      slot = docNext[slot];
+    }
+    if (previous != header.documentTail() || count != rowGroupCount || count + freeCount != physicalCount) {
+      throw new IllegalStateException("projection document order reaches " + count + " live and " + freeCount
+          + " free of " + physicalCount + " physical leaves");
+    }
+    return order;
+  }
+
+  private static byte[] orderHeader(final int baseRowGroupCount, final int physicalRowGroupCount,
+      final int liveRowGroupCount, final int freeHead, final int documentHead, final int documentTail) {
+    final byte[] bytes = new byte[ORDER_HEADER_BYTES];
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 0, ORDER_MAGIC);
+    bytes[Integer.BYTES] = ORDER_VERSION;
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 8, baseRowGroupCount);
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 12, physicalRowGroupCount);
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 16, liveRowGroupCount);
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 20, freeHead);
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 24, documentHead);
+    ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 28, documentTail);
+    return bytes;
+  }
+
+  private static OrderHeader readOrderHeader(final byte @Nullable [] bytes, final int rowGroupCount) {
+    if (bytes == null || bytes.length != ORDER_HEADER_BYTES
+        || ProjectionIndexRowGroupCodec.getIntLE(bytes, 0) != ORDER_MAGIC
+        || bytes[Integer.BYTES] != ORDER_VERSION
+        || ProjectionIndexRowGroupCodec.getIntLE(bytes, 16) != rowGroupCount) {
+      throw new IllegalStateException("missing or malformed projection row-group order header");
+    }
+    final int baseCount = ProjectionIndexRowGroupCodec.getIntLE(bytes, 8);
+    final int physicalCount = ProjectionIndexRowGroupCodec.getIntLE(bytes, 12);
+    final int freeHead = ProjectionIndexRowGroupCodec.getIntLE(bytes, 20);
+    final int documentHead = ProjectionIndexRowGroupCodec.getIntLE(bytes, 24);
+    final int documentTail = ProjectionIndexRowGroupCodec.getIntLE(bytes, 28);
+    if ((rowGroupCount == 0 && (baseCount != 0 || physicalCount != 0 || documentHead != 0 || documentTail != 0))
+        || (rowGroupCount > 0 && (baseCount < 1 || baseCount > rowGroupCount || physicalCount < rowGroupCount
+            || documentHead < 1 || documentHead > physicalCount || documentTail < 1
+            || documentTail > physicalCount))
+        || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS || freeHead < 0 || freeHead > physicalCount) {
+      throw new IllegalStateException("projection row-group order header is out of range");
+    }
+    return new OrderHeader(baseCount, physicalCount, freeHead, documentHead, documentTail);
+  }
+
+  private record OrderHeader(int baseRowGroupCount, int physicalRowGroupCount, int freeHead,
+                             int documentHead, int documentTail) {
+  }
+
+  private static void checkRowGroupCount(final int rowGroupCount) {
+    if (rowGroupCount < 0 || rowGroupCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException("rowGroupCount out of range: " + rowGroupCount);
+    }
+  }
+
+  /** @return true iff the range contains at least one normal-backbone key. */
+  private static boolean validateNormalRange(final long first, final long last) {
+    if (first == Long.MAX_VALUE && last == Long.MIN_VALUE) {
+      return false;
+    }
+    if (first < 0 || last < first) {
+      throw new IllegalStateException("invalid projection normal fence [" + first + ", " + last + "]");
+    }
+    return true;
+  }
+
+  private static boolean hasNormalRange(final long first, final long last) {
+    return first != Long.MAX_VALUE || last != Long.MIN_VALUE;
+  }
+
+  @FunctionalInterface
+  private interface BlobReader {
+    byte @Nullable [] read(long slot);
+  }
+
+  public static Accessor open(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
+    return new Accessor(storage, rowGroupCount);
+  }
+
+  public static final class Accessor {
+    private final ProjectionIndexHOTStorage storage;
+    private final int priorPhysicalRowGroupCount;
+    private final int priorBaseRowGroupCount;
+    private final int priorLiveRowGroupCount;
+    private final int priorFreeHead;
+    private final int priorDocumentHead;
+    private final int priorDocumentTail;
+    private int baseRowGroupCount;
+    private int currentPhysicalRowGroupCount;
+    private int liveRowGroupCount;
+    private int freeHead;
+    private int documentHead;
+    private int documentTail;
+    private final Int2ObjectOpenHashMap<byte[]> chunks = new Int2ObjectOpenHashMap<>();
+    private final IntOpenHashSet changedChunks = new IntOpenHashSet();
+    private final IntOpenHashSet reusedSlots = new IntOpenHashSet();
+    private final IntOpenHashSet allocatedSlots = new IntOpenHashSet();
+    private @Nullable IntOpenHashSet freeSlots;
+    private int chunksRead;
+    private int chunksWritten;
+    private long bytesRead;
+    private long bytesWritten;
+
+    private Accessor(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
+      if (storage == null) {
+        throw new NullPointerException("storage is required");
+      }
+      checkRowGroupCount(rowGroupCount);
+      this.storage = storage;
+      final OrderHeader header = readOrderHeader(storage.getBlob(ORDER_HEADER_SLOT), rowGroupCount);
+      priorPhysicalRowGroupCount = header.physicalRowGroupCount();
+      priorBaseRowGroupCount = header.baseRowGroupCount();
+      priorLiveRowGroupCount = rowGroupCount;
+      priorFreeHead = header.freeHead();
+      priorDocumentHead = header.documentHead();
+      priorDocumentTail = header.documentTail();
+      currentPhysicalRowGroupCount = priorPhysicalRowGroupCount;
+      baseRowGroupCount = priorBaseRowGroupCount;
+      liveRowGroupCount = rowGroupCount;
+      freeHead = priorFreeHead;
+      documentHead = priorDocumentHead;
+      documentTail = priorDocumentTail;
+    }
+
+    public long first(final int slot) {
+      return longValue(slot, FIRST_OFFSET);
+    }
+
+    public long last(final int slot) {
+      return longValue(slot, LAST_OFFSET);
+    }
+
+    public int next(final int slot) {
+      return intValue(slot, DOC_NEXT_OFFSET);
+    }
+
+    public int previous(final int slot) {
+      return intValue(slot, DOC_PREV_OFFSET);
+    }
+
+    public int ownerBase(final int slot) {
+      return intValue(slot, OWNER_BASE_OFFSET);
+    }
+
+    public int documentHead() {
+      return documentHead;
+    }
+
+    public int lastPhysicalSlot() {
+      return documentTail;
+    }
+
+    public int findSlot(final long recordKey) {
+      if (recordKey < 0 || baseRowGroupCount == 0) {
+        return -1;
+      }
+      int low = 1;
+      int high = baseRowGroupCount;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        if (baseUpper(middle) < recordKey) {
+          low = middle + 1;
+        } else {
+          high = middle - 1;
+        }
+      }
+      if (low > baseRowGroupCount) {
+        return -1;
+      }
+      final int base = low;
+      if (containsNormal(base, recordKey)) {
+        return base;
+      }
+      int predecessor = base;
+      for (int level = SKIP_LEVELS - 1; level >= 0; level--) {
+        int candidate;
+        while ((candidate = checkedNumericSuccessor(predecessor, level, base)) != 0
+            && last(candidate) < recordKey) {
+          predecessor = candidate;
+        }
+      }
+      final int candidate = checkedNumericSuccessor(predecessor, 0, base);
+      return candidate != 0 && containsNormal(candidate, recordKey) ? candidate : -1;
+    }
+
+    /** Compatibility helper; document-relative insertion should use an explicitly located neighbor. */
+    public int insertionSlot(final long recordKey) {
+      final int exact = findSlot(recordKey);
+      if (exact >= 1) {
+        return exact;
+      }
+      if (liveRowGroupCount == 0) {
+        return -1;
+      }
+      int low = 1;
+      int high = baseRowGroupCount;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        if (baseUpper(middle) < recordKey) {
+          low = middle + 1;
+        } else {
+          high = middle - 1;
+        }
+      }
+      return low > baseRowGroupCount ? documentTail : low;
+    }
+
+    public long maxRecordKey() {
+      return baseRowGroupCount == 0 ? Long.MIN_VALUE : baseUpper(baseRowGroupCount);
+    }
+
+    /** Whether a new document-tail row can safely extend the final base's numeric backbone. */
+    public boolean canExtendLastBaseFrom(final int physicalSlot, final long recordKey) {
+      return baseRowGroupCount > 0 && isLivePhysicalSlot(physicalSlot)
+          && ownerBase(physicalSlot) == baseRowGroupCount
+          && recordKey > baseUpper(baseRowGroupCount);
+    }
+
+    /** Extend only the immutable last base's ownership boundary for a proven document-tail append. */
+    public void extendLastBaseUpper(final long recordKey) {
+      if (baseRowGroupCount == 0 || recordKey <= baseUpper(baseRowGroupCount)) {
+        throw new IllegalArgumentException("tail backbone key does not extend the last base: " + recordKey);
+      }
+      setLong(baseRowGroupCount, BASE_UPPER_OFFSET, recordKey);
+    }
+
+    /**
+     * Establish slot 1 as the first immutable base after an explicitly built empty projection.
+     * This is the only transition that grows the base set during ordinary maintenance; every later
+     * local overflow uses {@link #allocateSlot()} and {@link #linkAfter(int, int)}.
+     */
+    public int bootstrapFirstBase() {
+      if (baseRowGroupCount != 0 || currentPhysicalRowGroupCount != 0 || liveRowGroupCount != 0
+          || freeHead != 0 || documentHead != 0 || documentTail != 0
+          || !allocatedSlots.isEmpty() || !reusedSlots.isEmpty()) {
+        throw new IllegalStateException("first projection base can only be bootstrapped from an empty store");
+      }
+      baseRowGroupCount = 1;
+      currentPhysicalRowGroupCount = 1;
+      liveRowGroupCount = 1;
+      documentHead = 1;
+      documentTail = 1;
+      allocatedSlots.add(1);
+      clearEntry(1);
+      setInt(1, OWNER_BASE_OFFSET, 1);
+      setLong(1, BASE_UPPER_OFFSET, Long.MIN_VALUE);
+      return 1;
+    }
+
+    public int allocateSlot() {
+      final int slot;
+      if (freeHead != 0) {
+        slot = freeHead;
+        freeHead = freeNext(slot);
+        if (freeSlots != null) {
+          freeSlots.remove(slot);
+        }
+        reusedSlots.add(slot);
+      } else {
+        if (currentPhysicalRowGroupCount == ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
+          throw new IllegalStateException("projection row-group limit reached");
+        }
+        slot = ++currentPhysicalRowGroupCount;
+      }
+      allocatedSlots.add(slot);
+      liveRowGroupCount++;
+      clearEntry(slot);
+      return slot;
+    }
+
+    public boolean wasReused(final int slot) {
+      return reusedSlots.contains(slot);
+    }
+
+    public boolean isLivePhysicalSlot(final int slot) {
+      if (slot < 1 || slot > currentPhysicalRowGroupCount) {
+        return false;
+      }
+      if (allocatedSlots.contains(slot) || slot <= baseRowGroupCount) {
+        return true;
+      }
+      return !freeSlots().contains(slot);
+    }
+
+    public boolean canRecycle(final int slot) {
+      return slot > baseRowGroupCount && slot <= currentPhysicalRowGroupCount;
+    }
+
+    public void recycle(final int slot) {
+      if (!canRecycle(slot) || !isLivePhysicalSlot(slot)) {
+        throw new IllegalArgumentException("projection row group is not a live recyclable split leaf: " + slot);
+      }
+      validateDocumentLinks(slot);
+      if (hasNormal(slot)) {
+        unlinkNumeric(slot);
+      }
+      final int prev = previous(slot);
+      final int next = next(slot);
+      if (prev == 0) {
+        documentHead = next;
+      } else {
+        setInt(prev, DOC_NEXT_OFFSET, next);
+      }
+      if (next == 0) {
+        documentTail = prev;
+      } else {
+        setInt(next, DOC_PREV_OFFSET, prev);
+      }
+      clearEntry(slot);
+      setInt(slot, FREE_NEXT_OFFSET, freeHead);
+      freeHead = slot;
+      if (freeSlots != null) {
+        freeSlots.add(slot);
+      }
+      reusedSlots.remove(slot);
+      allocatedSlots.remove(slot);
+      liveRowGroupCount--;
+    }
+
+    public int liveRowGroupCount() {
+      return liveRowGroupCount;
+    }
+
+    public int physicalRowGroupCount() {
+      return currentPhysicalRowGroupCount;
+    }
+
+    /** Set a physical leaf's normal-backbone fence; rows themselves remain in document order. */
+    public void set(final int slot, final long first, final long last) {
+      if (slot < 1 || slot > currentPhysicalRowGroupCount) {
+        throw new IllegalArgumentException("fence slot outside current physical range: " + slot);
+      }
+      validateNormalRange(first, last);
+      // A membership rewrite can change only sparse exception rows while leaving the normal
+      // backbone byte-identical.  Do not unlink/relink a split or dirty its shared fence chunk in
+      // that case: the row-group payload is the unit that changed, not its routing metadata.
+      if (first(slot) == first && last(slot) == last) {
+        return;
+      }
+      final boolean linkedSplit = slot > baseRowGroupCount && ownerBase(slot) != 0;
+      if (linkedSplit && hasNormal(slot)) {
+        unlinkNumeric(slot);
+      }
+      setLong(slot, FIRST_OFFSET, first);
+      setLong(slot, LAST_OFFSET, last);
+      if (linkedSplit && hasNormalRange(first, last)) {
+        insertNumeric(slot);
+      }
+    }
+
+    /** Splice a freshly allocated local split after {@code slot} in explicit document order. */
+    public void linkAfter(final int slot, final int newSlot) {
+      if (!isLivePhysicalSlot(slot) || !allocatedSlots.contains(newSlot) || ownerBase(newSlot) != 0) {
+        throw new IllegalArgumentException("invalid projection row-group link " + slot + " -> " + newSlot);
+      }
+      validateDocumentLinks(slot);
+      if (previous(newSlot) != 0 || next(newSlot) != 0) {
+        throw new IllegalStateException("fresh projection row group already has document links: " + newSlot);
+      }
+      final int owner = ownerBase(slot);
+      if (owner < 1 || owner > baseRowGroupCount) {
+        throw new IllegalStateException("projection row group has no valid base owner: " + slot);
+      }
+      final int successor = next(slot);
+      setInt(newSlot, OWNER_BASE_OFFSET, owner);
+      setInt(newSlot, DOC_PREV_OFFSET, slot);
+      setInt(newSlot, DOC_NEXT_OFFSET, successor);
+      setInt(slot, DOC_NEXT_OFFSET, newSlot);
+      if (successor == 0) {
+        documentTail = newSlot;
+      } else {
+        setInt(successor, DOC_PREV_OFFSET, newSlot);
+      }
+      if (hasNormal(newSlot)) {
+        insertNumeric(newSlot);
+      }
+    }
+
+    /**
+     * Validate one live leaf's local document-order position without walking the whole projection.
+     * Both adjacent identities must be live, carry valid base ownership, and point back to this leaf;
+     * a boundary leaf must agree with the persisted head/tail fields.
+     */
+    void validateDocumentLinks(final int slot) {
+      validateLiveOwner(slot);
+      final int predecessor = previous(slot);
+      if (predecessor == 0) {
+        if (documentHead != slot) {
+          throw new IllegalStateException("projection document head does not name leaf " + slot);
+        }
+      } else {
+        validateLiveOwner(predecessor);
+        if (next(predecessor) != slot) {
+          throw new IllegalStateException("projection predecessor " + predecessor
+              + " does not point back to leaf " + slot);
+        }
+      }
+
+      final int successor = next(slot);
+      if (successor == 0) {
+        if (documentTail != slot) {
+          throw new IllegalStateException("projection document tail does not name leaf " + slot);
+        }
+      } else {
+        validateLiveOwner(successor);
+        if (previous(successor) != slot) {
+          throw new IllegalStateException("projection successor " + successor
+              + " does not point back to leaf " + slot);
+        }
+      }
+    }
+
+    public void flush(final int rowGroupCount) {
+      if (rowGroupCount != liveRowGroupCount) {
+        throw new IllegalArgumentException("live rowGroupCount mismatch: " + rowGroupCount
+            + " != " + liveRowGroupCount);
+      }
+      final int[] changedChunkIds = changedChunks.toIntArray();
+      Arrays.sort(changedChunkIds);
+      for (final int chunkId : changedChunkIds) {
+        final int start = chunkId * CHUNK_LEAVES;
+        if (start >= currentPhysicalRowGroupCount) {
+          storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+          chunksWritten++;
+          continue;
+        }
+        final int entries = Math.min(CHUNK_LEAVES, currentPhysicalRowGroupCount - start);
+        final byte[] bytes = Arrays.copyOf(chunks.get(chunkId), entries * ENTRY_BYTES);
+        storage.putBlob(CHUNK_SLOT_BASE + chunkId, bytes);
+        chunksWritten++;
+        bytesWritten += bytes.length;
+      }
+      for (int chunkId = chunkCount(currentPhysicalRowGroupCount);
+           chunkId < chunkCount(priorPhysicalRowGroupCount); chunkId++) {
+        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+        chunksWritten++;
+      }
+      if (baseRowGroupCount != priorBaseRowGroupCount
+          || currentPhysicalRowGroupCount != priorPhysicalRowGroupCount
+          || liveRowGroupCount != priorLiveRowGroupCount || freeHead != priorFreeHead
+          || documentHead != priorDocumentHead || documentTail != priorDocumentTail) {
+        storage.putBlob(ORDER_HEADER_SLOT, orderHeader(baseRowGroupCount, currentPhysicalRowGroupCount,
+            liveRowGroupCount, freeHead, documentHead, documentTail));
+      }
+    }
+
+    int chunksRead() {
+      return chunksRead;
+    }
+
+    int chunksWritten() {
+      return chunksWritten;
+    }
+
+    long bytesRead() {
+      return bytesRead;
+    }
+
+    long bytesWritten() {
+      return bytesWritten;
+    }
+
+    private boolean containsNormal(final int slot, final long recordKey) {
+      return hasNormal(slot) && first(slot) <= recordKey && recordKey <= last(slot);
+    }
+
+    private boolean hasNormal(final int slot) {
+      return hasNormalRange(first(slot), last(slot));
+    }
+
+    private long baseUpper(final int base) {
+      return longValue(base, BASE_UPPER_OFFSET);
+    }
+
+    private int numericSkip(final int slot, final int level) {
+      if (level < 0 || level >= SKIP_LEVELS) {
+        throw new IllegalArgumentException("projection numeric skip level out of range: " + level);
+      }
+      return intValue(slot, NUMERIC_SKIP_OFFSET + level * Integer.BYTES);
+    }
+
+    private void insertNumeric(final int slot) {
+      if (slot <= baseRowGroupCount || !hasNormal(slot)) {
+        return;
+      }
+      final int base = ownerBase(slot);
+      final int[] predecessors = predecessorsFor(base, first(slot));
+      final int successor = checkedNumericSuccessor(predecessors[0], 0, base);
+      if ((predecessors[0] == base && hasNormal(base) && last(base) >= first(slot))
+          || (predecessors[0] != base && last(predecessors[0]) >= first(slot))
+          || (successor != 0 && first(successor) <= last(slot))) {
+        throw new IllegalStateException("overlapping projection normal fences while linking leaf " + slot);
+      }
+      final int height = skipHeight(slot);
+      for (int level = 0; level < height; level++) {
+        final int predecessor = predecessors[level];
+        setInt(slot, NUMERIC_SKIP_OFFSET + level * Integer.BYTES,
+            checkedNumericSuccessor(predecessor, level, base));
+        setInt(predecessor, NUMERIC_SKIP_OFFSET + level * Integer.BYTES, slot);
+      }
+    }
+
+    private void unlinkNumeric(final int slot) {
+      final int base = ownerBase(slot);
+      final int[] predecessors = predecessorsFor(base, first(slot));
+      if (checkedNumericSuccessor(predecessors[0], 0, base) != slot) {
+        throw new IllegalStateException("projection normal leaf is not linked from its base: " + slot);
+      }
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        final int predecessor = predecessors[level];
+        if (checkedNumericSuccessor(predecessor, level, base) == slot) {
+          setInt(predecessor, NUMERIC_SKIP_OFFSET + level * Integer.BYTES,
+              checkedNumericSuccessor(slot, level, base));
+        }
+        setInt(slot, NUMERIC_SKIP_OFFSET + level * Integer.BYTES, 0);
+      }
+    }
+
+    private int[] predecessorsFor(final int base, final long firstRecordKey) {
+      final int[] predecessors = new int[SKIP_LEVELS];
+      int slot = base;
+      for (int level = SKIP_LEVELS - 1; level >= 0; level--) {
+        int candidate;
+        while ((candidate = checkedNumericSuccessor(slot, level, base)) != 0
+            && last(candidate) < firstRecordKey) {
+          slot = candidate;
+        }
+        predecessors[level] = slot;
+      }
+      return predecessors;
+    }
+
+    /**
+     * Read one numeric skip edge and prove that it advances strictly inside the same base-owned
+     * normal chain. The strict key progression makes a cycle impossible, so corrupt self/back links
+     * fail immediately instead of hanging a commit-time lookup.
+     */
+    private int checkedNumericSuccessor(final int slot, final int level, final int base) {
+      final int candidate = numericSkip(slot, level);
+      if (candidate == 0) {
+        return 0;
+      }
+      if (base < 1 || base > baseRowGroupCount || candidate <= baseRowGroupCount
+          || candidate > currentPhysicalRowGroupCount || candidate == slot
+          || ownerBase(candidate) != base) {
+        throw new IllegalStateException("malformed projection numeric skip edge " + slot + " -> " + candidate
+            + " at level " + level + " for base " + base);
+      }
+      final long candidateFirst = first(candidate);
+      final long candidateLast = last(candidate);
+      if (!validateNormalRange(candidateFirst, candidateLast)) {
+        throw new IllegalStateException("projection numeric skip points to exception-only leaf " + candidate);
+      }
+      if (slot == base) {
+        if (hasNormal(slot) && last(slot) >= candidateFirst) {
+          throw new IllegalStateException("projection numeric skip does not advance beyond base " + base);
+        }
+      } else if (ownerBase(slot) != base || !hasNormal(slot) || last(slot) >= candidateFirst) {
+        throw new IllegalStateException("projection numeric skip does not advance from leaf " + slot
+            + " within base " + base);
+      }
+      return candidate;
+    }
+
+    private int freeNext(final int slot) {
+      return intValue(slot, FREE_NEXT_OFFSET);
+    }
+
+    private void validateLiveOwner(final int slot) {
+      if (!isLivePhysicalSlot(slot)) {
+        throw new IllegalStateException("projection document link names non-live physical leaf " + slot);
+      }
+      final int owner = ownerBase(slot);
+      if (owner < 1 || owner > baseRowGroupCount) {
+        throw new IllegalStateException("projection document leaf " + slot
+            + " has invalid base owner " + owner);
+      }
+    }
+
+    private IntOpenHashSet freeSlots() {
+      IntOpenHashSet slots = freeSlots;
+      if (slots != null) {
+        return slots;
+      }
+      slots = new IntOpenHashSet();
+      int slot = freeHead;
+      while (slot != 0) {
+        if (slot <= baseRowGroupCount || slot > currentPhysicalRowGroupCount || !slots.add(slot)
+            || slots.size() > currentPhysicalRowGroupCount) {
+          throw new IllegalStateException("malformed projection row-group free list at physical leaf " + slot);
+        }
+        slot = freeNext(slot);
+      }
+      freeSlots = slots;
+      return slots;
+    }
+
+    private void clearEntry(final int slot) {
+      final byte[] chunk = chunk(slot, true);
+      final int offset = entryOffset(slot);
+      Arrays.fill(chunk, offset, offset + ENTRY_BYTES, (byte) 0);
+      RowGroupDescriptor.putLongLE(chunk, offset + FIRST_OFFSET, Long.MAX_VALUE);
+      RowGroupDescriptor.putLongLE(chunk, offset + LAST_OFFSET, Long.MIN_VALUE);
+      changedChunks.add(chunkId(slot));
+    }
+
+    private long longValue(final int slot, final int fieldOffset) {
+      checkPhysicalSlot(slot);
+      return ProjectionIndexRowGroupCodec.getLongLE(chunk(slot, false), entryOffset(slot) + fieldOffset);
+    }
+
+    private int intValue(final int slot, final int fieldOffset) {
+      checkPhysicalSlot(slot);
+      return ProjectionIndexRowGroupCodec.getIntLE(chunk(slot, false), entryOffset(slot) + fieldOffset);
+    }
+
+    private void setLong(final int slot, final int fieldOffset, final long value) {
+      final byte[] chunk = chunk(slot, true);
+      RowGroupDescriptor.putLongLE(chunk, entryOffset(slot) + fieldOffset, value);
+      changedChunks.add(chunkId(slot));
+    }
+
+    private void setInt(final int slot, final int fieldOffset, final int value) {
+      final byte[] chunk = chunk(slot, true);
+      ProjectionIndexRowGroupCodec.putIntLEAt(chunk, entryOffset(slot) + fieldOffset, value);
+      changedChunks.add(chunkId(slot));
+    }
+
+    private void checkPhysicalSlot(final int slot) {
+      if (slot < 1 || slot > currentPhysicalRowGroupCount) {
+        throw new IllegalArgumentException("projection physical slot outside current snapshot: " + slot);
+      }
+    }
+
+    private byte[] chunk(final int slot, final boolean allowAppend) {
+      final int chunkId = chunkId(slot);
+      final byte[] cached = chunks.get(chunkId);
+      final int neededEntries = allowAppend
+          ? CHUNK_LEAVES
+          : Math.min(CHUNK_LEAVES, priorPhysicalRowGroupCount - chunkId * CHUNK_LEAVES);
+      if (cached != null) {
+        if (cached.length >= neededEntries * ENTRY_BYTES) {
+          return cached;
+        }
+        final byte[] expanded = Arrays.copyOf(cached, neededEntries * ENTRY_BYTES);
+        chunks.put(chunkId, expanded);
+        return expanded;
+      }
+      final byte[] stored = storage.getBlob(CHUNK_SLOT_BASE + chunkId);
+      final int priorEntries = Math.max(0,
+          Math.min(CHUNK_LEAVES, priorPhysicalRowGroupCount - chunkId * CHUNK_LEAVES));
+      if (priorEntries > 0 && (stored == null || stored.length != priorEntries * ENTRY_BYTES)) {
+        throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);
+      }
+      if (stored != null) {
+        chunksRead++;
+        bytesRead += stored.length;
+      }
+      final byte[] loaded = allowAppend
+          ? Arrays.copyOf(stored == null ? new byte[0] : stored, neededEntries * ENTRY_BYTES)
+          : stored;
+      chunks.put(chunkId, loaded);
+      return loaded;
+    }
+
+    private static int chunkId(final int slot) {
+      return (slot - 1) / CHUNK_LEAVES;
+    }
+
+    private static int entryOffset(final int slot) {
+      return ((slot - 1) % CHUNK_LEAVES) * ENTRY_BYTES;
+    }
+
+    private static int skipHeight(final int physicalSlot) {
+      long mixed = physicalSlot * 0x9E3779B97F4A7C15L;
+      mixed ^= mixed >>> 33;
+      mixed *= 0xC2B2AE3D27D4EB4FL;
+      mixed ^= mixed >>> 29;
+      return Math.min(SKIP_LEVELS,
+          Long.numberOfTrailingZeros(mixed | (1L << (SKIP_LEVELS - 1))) + 1);
+    }
   }
 }

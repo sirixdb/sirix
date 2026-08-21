@@ -277,7 +277,7 @@ Overlay = 4 × (5×2×2×2×4×2) = **2,560** pages. Plus indexType ∈ {DOCUMEN
 
 ## 4. MIGRATION + ROLLOUT
 
-**4.1 Version gate.** Page-envelope flags bit 0x01; envelope binaryVersion stays 0; resource `BINARY_ENCODING_VERSION` stays V1 (no reject-at-open — unnecessary because the reader keeps both body formats forever). Old binaries reading new pages fail loudly by existing design; new binaries read everything.
+**4.1 Version gate.** Page-envelope flags bit 0x01; the row-store body keeps both ranged and monolith readers. The resource and every current internal projection header emit version zero. A future incompatible row-store or projection layout must advance its fail-closed version byte before any resource using it is written.
 
 **4.2 Mixed-version fragment policy.** Fully supported, permanent. Fragments are self-framed full pages; format is branched per fragment at deserialize; combine operates on decoded slots and is untouched. The first commit after enablement necessarily creates mixed chains — this is the tested path (I2), not an edge case.
 
@@ -379,31 +379,21 @@ where they conflict.
 
 ---
 
-# NO-COMPAT SIMPLIFICATION (BINDING — supersedes conflicting text above)
+# WIRE-COMPATIBLE DELIVERY (BINDING — supersedes conflicting text above)
 
-There are NO existing deployed databases. The format break is clean, per the established
-precedent (V0 resources REJECTED at open; benchmark corpora re-ingested — see
-binary-encoding-v1-break):
+The ranged-decode work does not require a storage-format break. This section supersedes A5 and
+every statement above that requires a binary-version bump, deletion of the monolith reader, or
+rejection of an otherwise supported resource.
 
-- **D8 is replaced**: bump the page binaryVersion; the CHUNKED body becomes THE body format.
-  The monolith deserializer path is DELETED, not kept alongside — one write path, one read
-  path, no flag dispatch on the hot path. Old resources fail at open with the existing
-  version fence; no page-level flag needed, no chunkedBodiesWritten config bit (A5 collapses
-  into the version bump).
-- **Corner-case classes REMOVED**: mixed-format fragment chains (all fragments share the
-  format by construction), old-reader-meets-new-page mid-query paths, the per-page FSST
-  eligibility split of A2 (all pages carry the prefix fsstDictId; the probe contract
-  extension in A2 STANDS — it is required regardless).
-- **I4 restates** as: any pre-bump resource fails AT OPEN with an attributable version error
-  (one test), and the bounded probe on a pre-bump file fails the same way. The mixed-chain
-  arm of I2 is dropped; I2 keeps the N-fragment combine arm (fragments still combine — they
-  are just all chunked).
-- **Ledger + generator shrink accordingly**; the 8,800-combination sweep loses the format-
-  version axis and gains nothing — recompute the cross-product in the implementing commit.
-- **Corpora**: db-1m-proj and every benchmark resource re-ingest after the bump; the 43/43
-  byte-identical bar is then re-established against freshly generated reference dumps from
-  the GENERIC pipeline (never against old-format dumps).
-- Everything else — entry-space chunking (D1), META section (D2), C=4KiB (D3), no dict (D4),
-  sticky codec election (D5), two-level XXH3 (D6), FSST prefix hoist (D7), chunk-granular
-  lazy expansion with poison-fill gate enforcement (D9/A3), bulk META predictors (D10),
-  Lemma A per A1, I1 full-segment equality per A4 — stands unchanged.
+- Existing monolith pages remain readable and writable; their deserializer is retained.
+- Chunked bodies are an optional page representation selected by the existing per-page dispatch,
+  so mixed-format resources and fragment chains remain valid inputs to the conformance sweep.
+- Chunked writes remain disabled by default. Enabling them is an explicit resource choice and does
+  not change the binary version of monolith pages.
+- Cold reopen, bounded probes, FSST eligibility, and full-fragment combination are verified for
+  both representations. Unsupported page flags fail at the page boundary without making older
+  monolith resources fail at resource open.
+- Benchmark corpora may be re-ingested for measurement, but re-ingestion is not a compatibility
+  requirement and is never used to avoid testing the retained reader.
+- Entry-space chunking, the META section, codec election, checksums, lazy expansion, and the proof
+  obligations in A1 through A4 and A6 through A8 otherwise remain unchanged.

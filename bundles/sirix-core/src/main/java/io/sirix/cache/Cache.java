@@ -124,6 +124,17 @@ public interface Cache<K, V> {
    */
   void toSecondCache();
 
+  /**
+   * Return a concurrent observational view when this implementation has one.
+   *
+   * <p>Mutation support is implementation-specific: lifecycle-owning caches may return an
+   * unmodifiable view so callers cannot bypass retirement, accounting, or synchronization. Callers
+   * must use the cache's mutation methods rather than assume this map supports optional mutating
+   * operations.</p>
+   *
+   * @return the implementation's live concurrent view
+   * @throws UnsupportedOperationException if this cache has no map view
+   */
   default ConcurrentMap<K, V> asMap() {
     throw new UnsupportedOperationException();
   }

@@ -167,7 +167,7 @@ public final class JsonBenchRunMain {
         session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"}, new String[] {"kind"});
     final long tLookup = System.nanoTime();
     if (handle != null && handle.columnStoreOrNull() != null) {
-      handle.kickSegmentPrefetch(() -> session.beginNodeReadOnlyTrx(revision),
+      handle.kickSegmentPrefetch(Runnable::run, () -> session.beginNodeReadOnlyTrx(revision),
           trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
     }
     if (PHASE_DIAG) {

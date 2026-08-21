@@ -14,6 +14,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -47,6 +49,80 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 final class AsyncIntermediateCommitStaleRefTest {
 
   private static final int RECORD_COUNT = 20_000;
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  @DisplayName("A threshold of one commits the first mutation before, not during, the second")
+  void thresholdOneCountsTheMutationAfterRotation(final VersioningType versioningType) {
+    final String resource = "boundary-one-" + versioningType.name().toLowerCase();
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      db.createResource(ResourceConfiguration.newBuilder(resource)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(versioningType)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+      try (final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx(1, AfterCommitState.KEEP_OPEN)) {
+        final long arrayKey = wtx.insertArrayAsFirstChild().getNodeKey();
+        assertEquals(0, session.getMostRecentRevisionNumber(),
+            "the first mutation must not cause an empty pre-mutation commit");
+        wtx.moveTo(arrayKey);
+        wtx.insertStringValueAsFirstChild("first");
+        assertEquals(1, session.getMostRecentRevisionNumber(),
+            "the second mutation must rotate the one-mutation predecessor epoch");
+        wtx.commit();
+      }
+      assertArrayChildCount(db, resource, 1, 0);
+      assertArrayChildCount(db, resource, 2, 1);
+    }
+  }
+
+  @ParameterizedTest
+  @EnumSource(VersioningType.class)
+  @DisplayName("An exact-N epoch rotates before mutation N+1 on every versioning type")
+  void exactThresholdContainsExactlyNMutations(final VersioningType versioningType) {
+    final String resource = "boundary-three-" + versioningType.name().toLowerCase();
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      db.createResource(ResourceConfiguration.newBuilder(resource)
+          .storeDiffs(false)
+          .hashKind(HashType.NONE)
+          .buildPathSummary(false)
+          .versioningApproach(versioningType)
+          .storageType(StorageType.FILE_CHANNEL)
+          .build());
+      try (final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx(3, AfterCommitState.KEEP_OPEN)) {
+        final long arrayKey = wtx.insertArrayAsFirstChild().getNodeKey();
+        wtx.moveTo(arrayKey);
+        wtx.insertStringValueAsFirstChild("first");
+        wtx.moveTo(arrayKey);
+        wtx.insertStringValueAsFirstChild("second");
+        assertEquals(0, session.getMostRecentRevisionNumber(),
+            "N completed mutations must remain in the current epoch");
+        wtx.moveTo(arrayKey);
+        wtx.insertStringValueAsFirstChild("third");
+        assertEquals(1, session.getMostRecentRevisionNumber(),
+            "mutation N+1 must rotate the exact-N predecessor before it runs");
+        wtx.commit();
+      }
+      assertArrayChildCount(db, resource, 1, 2);
+      assertArrayChildCount(db, resource, 2, 3);
+    }
+  }
+
+  private static void assertArrayChildCount(final Database<JsonResourceSession> database,
+      final String resource, final int revision, final long expectedChildren) {
+    try (final JsonResourceSession session = database.beginResourceSession(resource);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      rtx.moveToFirstChild();
+      assertEquals(expectedChildren, rtx.getChildCount(),
+          "revision " + revision + " has the wrong auto-commit epoch contents");
+    }
+  }
 
   @BeforeEach
   void setUp() {

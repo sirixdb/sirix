@@ -20,6 +20,8 @@ Exit status:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import re
 import statistics
@@ -28,11 +30,17 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from hft_artifact import runtime_classpath_sha256
+
 
 MEASURE_START = "# HFT_MEASURE_START"
 MEASURE_END = "# HFT_MEASURE_END"
 HFT_CONFIG_PREFIX = "# HFT_CONFIG "
+HFT_BUILD_PREFIX = "# HFT_BUILD "
 ASYNC_FLUSH_PREFIX = "# HFT_ASYNC_FLUSH "
+PROJECTION_MAINTENANCE_PREFIX = "# HFT_PROJECTION_MAINTENANCE "
+PROJECTION_EVIDENCE_PREFIX = "# HFT_PROJECTION_EVIDENCE "
+PROJECTION_REVISION_PREFIX = "# HFT_PROJECTION_REVISION "
 
 MIB = 1024 * 1024
 GIB = 1024 * MIB
@@ -42,6 +50,7 @@ DEFAULT_EXPECTED_HEAP_GIB = 4.0
 DEFAULT_EXPECTED_MAX_NEW_MIB = 1024.0
 DEFAULT_EXPECTED_SIDE_BATCH_MIB = 64.0
 DEFAULT_MAX_PERMIT_WAIT_MS = 250.0
+CANONICAL_MAX_FOREGROUND_WAIT_MS = 250.0
 DEFAULT_SMALL_ROWS = 1_000_000
 DEFAULT_LARGE_ROWS = 4_000_000
 EXPECTED_AUTO_COMMIT_NODES = 4_194_304
@@ -50,6 +59,7 @@ EXPECTED_GLOBAL_DICTIONARY_MODE = "never"
 EXPECTED_ARENA_STRATEGY = "shared"
 EXPECTED_STORAGE = "FILE_CHANNEL"
 EXPECTED_PROJECTION_MODE = "incremental"
+EXPECTED_VERSIONING_TYPE = "FULL"
 EXPECTED_PINNED_TRIE_SCAN_BUDGET = 1_024
 EXPECTED_PINNED_TRIE_BATCH_CAPACITY = 64
 DEFAULT_MIN_SMALL_SAMPLES = 5
@@ -76,8 +86,19 @@ _SAFEPOINT_TOTAL_RE = re.compile(
     r"\bTotal:\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>ns|us|µs|ms|s)\b",
     re.IGNORECASE,
 )
+_SAFEPOINT_TAG_RE = re.compile(r"\[(?:error|warning|info|debug|trace)\s*\]\[safepoint\]", re.IGNORECASE)
+_SAFEPOINT_METADATA_RE = re.compile(
+    r"^(?:Application time:|Entering safepoint region:|Leaving safepoint region|"
+    r"Safepoint synchronization initiated using |Total time for which application threads were stopped:|"
+    r"Waiting for \d+ thread\(s\) to block|Synchronization status:|JavaThread |VM Operation took )",
+    re.IGNORECASE,
+)
 _G1_REGION_SIZE_RE = re.compile(
     rf"\bregion size\s+(?P<size>{_SIZE_TOKEN})\b",
+    re.IGNORECASE,
+)
+_HUMONGOUS_REGIONS_RE = re.compile(
+    r"\bHumongous regions:\s*(?P<before>\d+)\s*->\s*(?P<after>\d+)\b",
     re.IGNORECASE,
 )
 
@@ -102,6 +123,16 @@ _ASYNC_FLUSH_FIELDS = (
     "workerRuns",
     "workerTotalNs",
     "workerMaxNs",
+    "submitWaitCount",
+    "submitWaitTotalNs",
+    "submitWaitMaxNs",
+    "callerThreadAppendRuns",
+    "startFlushCount",
+    "startFlushTotalNs",
+    "startFlushMaxNs",
+    "finalDrainCount",
+    "finalDrainTotalNs",
+    "finalDrainMaxNs",
     "nativeReservoirCount",
     "nativeReservoirBytes",
     "kvlFrameCachePages",
@@ -120,11 +151,77 @@ _HFT_CONFIG_FIELDS = (
     "autoCommitNodes",
     "arenaStrategy",
     "maxNewSizeBytes",
+    "initialHeapBytes",
+    "maxHeapBytes",
+    "g1RegionSizeBytes",
+    "gcLogging",
+    "safepointLogging",
     "storage",
     "projectionMode",
     "expectedRows",
     "pinnedTrieScanBudget",
     "pinnedTrieBatchCapacity",
+    "versioningType",
+    "appendWorkers",
+    "appendQueueCapacity",
+)
+
+_PROJECTION_MAINTENANCE_FIELDS = (
+    "commits",
+    "dirtyRecords",
+    "rowGroupsRead",
+    "rowGroupsWritten",
+    "dictionarySegments",
+    "fenceChunksRead",
+    "fenceChunksWritten",
+    "setChunksRead",
+    "setChunksWritten",
+    "bloomRowGroupsRead",
+    "bloomChunksWritten",
+    "metadataReads",
+    "metadataWrites",
+    "dictionaryProbes",
+    "storageReads",
+    "storageWrites",
+    "allocatorAllocations",
+    "allocatorReleases",
+    "tilReads",
+    "tilWrites",
+    "nativeAllocations",
+    "nativeReleases",
+    "asyncSubmissions",
+    "asyncCompletions",
+    "operations",
+    "bytesRead",
+    "bytesWritten",
+    "fullRebuilds",
+)
+
+_PROJECTION_EVIDENCE_FIELDS = (
+    "revisionsVerified",
+    "historicalRevisions",
+    "oracleRows",
+    "servedRows",
+    "oracleMatches",
+    "servedMatches",
+    "servedRevisions",
+    "stableAnchors",
+    "stableIds",
+    "successorSegments",
+    "introductionRevision",
+    "maxProbeUnits",
+)
+
+_PROJECTION_REVISION_FIELDS = (
+    "revision",
+    "oracleRows",
+    "servedRows",
+    "oracleMatches",
+    "servedMatches",
+    "anchor",
+    "oldId",
+    "newId",
+    "successorSegments",
 )
 
 # These are not warning-only events.  A fixed-heap run containing any one of them has failed to
@@ -132,6 +229,7 @@ _HFT_CONFIG_FIELDS = (
 # the report says exactly which invariant was violated.
 _FORBIDDEN_EVENTS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("full collection", re.compile(r"\b(?:Pause Full|Full GC)\b", re.IGNORECASE)),
+    ("major collection", re.compile(r"\b(?:Major GC|Pause Old|G1 Old Generation)\b", re.IGNORECASE)),
     (
         "concurrent old-generation cycle",
         re.compile(
@@ -185,13 +283,42 @@ class HftConfiguration:
     values: dict[str, str]
 
 
+@dataclass(frozen=True)
+class HftBuild:
+    line_number: int
+    git_sha: str
+    artifact_sha256: str
+
+
+@dataclass(frozen=True)
+class ProjectionMaintenanceTelemetry:
+    line_number: int
+    values: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ProjectionEvidence:
+    line_number: int
+    values: dict[str, int]
+
+
+@dataclass(frozen=True)
+class ProjectionRevisionEvidence:
+    line_number: int
+    values: dict[str, int]
+
+
 @dataclass
 class ParsedRun:
     source: str
     young_samples: list[YoungGcSample] = field(default_factory=list)
     safepoint_nanos: list[int] = field(default_factory=list)
     hft_configurations: list[HftConfiguration] = field(default_factory=list)
+    hft_builds: list[HftBuild] = field(default_factory=list)
     async_flush_telemetry: list[AsyncFlushTelemetry] = field(default_factory=list)
+    projection_maintenance_telemetry: list[ProjectionMaintenanceTelemetry] = field(default_factory=list)
+    projection_evidence: list[ProjectionEvidence] = field(default_factory=list)
+    projection_revision_evidence: list[ProjectionRevisionEvidence] = field(default_factory=list)
     forbidden_events: list[ForbiddenEvent] = field(default_factory=list)
     g1_region_sizes: set[int] = field(default_factory=set)
     errors: list[str] = field(default_factory=list)
@@ -244,6 +371,7 @@ class RunEvaluation:
     pinned_trie_spill_batch_max: int | None = None
     pinned_trie_live_max: int | None = None
     pinned_trie_high_water: int | None = None
+    zero_young_events: bool = False
 
     @property
     def passed(self) -> bool:
@@ -373,6 +501,22 @@ def parse_lines(lines: Iterable[str], source: str = "<memory>") -> ParsedRun:
                 parsed.hft_configurations.append(HftConfiguration(line_number, values))
             continue
 
+        if stripped.startswith(HFT_BUILD_PREFIX):
+            tokens = stripped[len(HFT_BUILD_PREFIX) :].split()
+            fields = dict(token.partition("=")[::2] for token in tokens if token.count("=") == 1)
+            if len(tokens) != 2 or set(fields) != {"gitSha", "artifactSha256"}:
+                parsed.errors.append(f"line {line_number}: malformed HFT build record")
+            else:
+                git_sha = fields["gitSha"]
+                artifact_sha256 = fields["artifactSha256"]
+                if re.fullmatch(r"[0-9a-f]{40}", git_sha) is None:
+                    parsed.errors.append(f"line {line_number}: invalid HFT build git SHA")
+                elif re.fullmatch(r"[0-9a-f]{64}", artifact_sha256) is None:
+                    parsed.errors.append(f"line {line_number}: invalid HFT artifact SHA-256")
+                else:
+                    parsed.hft_builds.append(HftBuild(line_number, git_sha, artifact_sha256))
+            continue
+
         if stripped.startswith(ASYNC_FLUSH_PREFIX):
             values: dict[str, int] = {}
             malformed = False
@@ -413,6 +557,167 @@ def parse_lines(lines: Iterable[str], source: str = "<memory>") -> ParsedRun:
                 parsed.async_flush_telemetry.append(AsyncFlushTelemetry(line_number, values))
             continue
 
+        if stripped.startswith(PROJECTION_MAINTENANCE_PREFIX):
+            values: dict[str, int] = {}
+            malformed = False
+            for token in stripped[len(PROJECTION_MAINTENANCE_PREFIX) :].split():
+                name, separator, raw_value = token.partition("=")
+                if not separator or not name or not raw_value:
+                    parsed.errors.append(
+                        f"line {line_number}: malformed projection-maintenance token {token!r}"
+                    )
+                    malformed = True
+                    continue
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    parsed.errors.append(
+                        f"line {line_number}: non-integer projection-maintenance value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if value < 0:
+                    parsed.errors.append(
+                        f"line {line_number}: negative projection-maintenance value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if name in values:
+                    parsed.errors.append(
+                        f"line {line_number}: duplicate projection-maintenance field {name!r}"
+                    )
+                    malformed = True
+                    continue
+                values[name] = value
+            missing = [name for name in _PROJECTION_MAINTENANCE_FIELDS if name not in values]
+            unknown = [name for name in values if name not in _PROJECTION_MAINTENANCE_FIELDS]
+            if missing:
+                parsed.errors.append(
+                    f"line {line_number}: projection-maintenance telemetry missing fields: "
+                    + ", ".join(missing)
+                )
+                malformed = True
+            if unknown:
+                parsed.errors.append(
+                    f"line {line_number}: unknown projection-maintenance telemetry fields: "
+                    + ", ".join(unknown)
+                )
+                malformed = True
+            if not malformed:
+                parsed.projection_maintenance_telemetry.append(
+                    ProjectionMaintenanceTelemetry(line_number, values)
+                )
+            continue
+
+        if stripped.startswith(PROJECTION_EVIDENCE_PREFIX):
+            values: dict[str, int] = {}
+            malformed = False
+            for token in stripped[len(PROJECTION_EVIDENCE_PREFIX) :].split():
+                name, separator, raw_value = token.partition("=")
+                if not separator or not name or not raw_value:
+                    parsed.errors.append(
+                        f"line {line_number}: malformed projection-evidence token {token!r}"
+                    )
+                    malformed = True
+                    continue
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    parsed.errors.append(
+                        f"line {line_number}: non-integer projection-evidence value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if value < 0:
+                    parsed.errors.append(
+                        f"line {line_number}: negative projection-evidence value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if name in values:
+                    parsed.errors.append(
+                        f"line {line_number}: duplicate projection-evidence field {name!r}"
+                    )
+                    malformed = True
+                    continue
+                values[name] = value
+            missing = [name for name in _PROJECTION_EVIDENCE_FIELDS if name not in values]
+            unknown = [name for name in values if name not in _PROJECTION_EVIDENCE_FIELDS]
+            if missing:
+                parsed.errors.append(
+                    f"line {line_number}: projection-evidence missing fields: " + ", ".join(missing)
+                )
+                malformed = True
+            if unknown:
+                parsed.errors.append(
+                    f"line {line_number}: unknown projection-evidence fields: " + ", ".join(unknown)
+                )
+                malformed = True
+            if not malformed:
+                parsed.projection_evidence.append(ProjectionEvidence(line_number, values))
+            continue
+
+        if stripped.startswith(PROJECTION_REVISION_PREFIX):
+            values: dict[str, int] = {}
+            malformed = False
+            for token in stripped[len(PROJECTION_REVISION_PREFIX) :].split():
+                name, separator, raw_value = token.partition("=")
+                if not separator or not name or not raw_value:
+                    parsed.errors.append(
+                        f"line {line_number}: malformed projection-revision token {token!r}"
+                    )
+                    malformed = True
+                    continue
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    parsed.errors.append(
+                        f"line {line_number}: non-integer projection-revision value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if value < 0:
+                    parsed.errors.append(
+                        f"line {line_number}: negative projection-revision value {token!r}"
+                    )
+                    malformed = True
+                    continue
+                if name in values:
+                    parsed.errors.append(
+                        f"line {line_number}: duplicate projection-revision field {name!r}"
+                    )
+                    malformed = True
+                    continue
+                values[name] = value
+            missing = [name for name in _PROJECTION_REVISION_FIELDS if name not in values]
+            unknown = [name for name in values if name not in _PROJECTION_REVISION_FIELDS]
+            if missing:
+                parsed.errors.append(
+                    f"line {line_number}: projection-revision evidence missing fields: "
+                    + ", ".join(missing)
+                )
+                malformed = True
+            if unknown:
+                parsed.errors.append(
+                    f"line {line_number}: unknown projection-revision evidence fields: "
+                    + ", ".join(unknown)
+                )
+                malformed = True
+            if not malformed:
+                parsed.projection_revision_evidence.append(
+                    ProjectionRevisionEvidence(line_number, values)
+                )
+            continue
+
+        humongous_regions = _HUMONGOUS_REGIONS_RE.search(line)
+        if (humongous_regions is not None and (
+            int(humongous_regions.group("before")) > 0
+            or int(humongous_regions.group("after")) > 0
+        )):
+            parsed.forbidden_events.append(
+                ForbiddenEvent(line_number, "humongous-region occupancy", line.strip())
+            )
+
         for kind, pattern in _FORBIDDEN_EVENTS:
             if pattern.search(line):
                 parsed.forbidden_events.append(ForbiddenEvent(line_number, kind, line.strip()))
@@ -445,10 +750,18 @@ def parse_lines(lines: Iterable[str], source: str = "<memory>") -> ParsedRun:
                 except ValueError as error:
                     parsed.errors.append(f"line {line_number}: {error}")
 
-        if "[safepoint" in line.lower() or "Safepoint " in line:
+        safepoint_tag = _SAFEPOINT_TAG_RE.search(line)
+        if safepoint_tag is not None or "Safepoint " in line:
             total = _SAFEPOINT_TOTAL_RE.search(line)
             if total is not None:
                 parsed.safepoint_nanos.append(_duration_nanos(total.group("value"), total.group("unit")))
+            else:
+                payload = line[safepoint_tag.end() :].strip() if safepoint_tag is not None else line.strip()
+                if _SAFEPOINT_METADATA_RE.match(payload) is not None:
+                    continue
+                parsed.errors.append(
+                    f"line {line_number}: could not parse safepoint Total duration: {line.strip()}"
+                )
 
     if not start_seen:
         parsed.errors.append(f"missing {MEASURE_START} marker")
@@ -528,9 +841,14 @@ def evaluate_run(
     max_rotation_permit_wait_nanos: int = int(DEFAULT_MAX_PERMIT_WAIT_MS * 1_000_000),
     expected_rows: int | None = None,
     expected_max_new_bytes: int = EXPECTED_MAX_NEW_BYTES,
+    expected_git_sha: str | None = None,
+    expected_artifact_sha256: str | None = None,
+    expected_versioning_type: str = EXPECTED_VERSIONING_TYPE,
 ) -> RunEvaluation:
     if min_samples < 2:
         raise ValueError("min_samples must be at least 2")
+    if max_rotation_permit_wait_nanos > int(CANONICAL_MAX_FOREGROUND_WAIT_MS * 1_000_000):
+        raise ValueError("the canonical foreground wait bound cannot exceed 250 ms")
     evaluation = RunEvaluation(label=label, parsed=parsed)
     evaluation.issues.extend(parsed.errors)
 
@@ -539,6 +857,23 @@ def evaluate_run(
             f"line {event.line_number}: forbidden {event.kind}: {event.text}"
         )
 
+    if len(parsed.hft_builds) != 1:
+        evaluation.issues.append(
+            f"expected exactly one {HFT_BUILD_PREFIX.strip()} record, found {len(parsed.hft_builds)}"
+        )
+    else:
+        build = parsed.hft_builds[0]
+        if expected_git_sha is not None and build.git_sha != expected_git_sha:
+            evaluation.issues.append(
+                f"line {build.line_number}: HFT build SHA {build.git_sha} does not match {expected_git_sha}"
+            )
+        if expected_artifact_sha256 is not None and build.artifact_sha256 != expected_artifact_sha256:
+            evaluation.issues.append(
+                f"line {build.line_number}: HFT artifact SHA-256 {build.artifact_sha256} "
+                f"does not match {expected_artifact_sha256}"
+            )
+
+    configuration_values: dict[str, str] | None = None
     if len(parsed.hft_configurations) != 1:
         evaluation.issues.append(
             f"expected exactly one {HFT_CONFIG_PREFIX.strip()} record, "
@@ -547,15 +882,19 @@ def evaluate_run(
     else:
         configuration = parsed.hft_configurations[0]
         values = configuration.values
+        configuration_values = values
         expected_values = {
             "globalDict": EXPECTED_GLOBAL_DICTIONARY_MODE,
             "autoCommitNodes": str(EXPECTED_AUTO_COMMIT_NODES),
             "arenaStrategy": EXPECTED_ARENA_STRATEGY,
             "maxNewSizeBytes": str(expected_max_new_bytes),
+            "initialHeapBytes": str(expected_capacity_bytes),
+            "maxHeapBytes": str(expected_capacity_bytes),
             "storage": EXPECTED_STORAGE,
             "projectionMode": EXPECTED_PROJECTION_MODE,
             "pinnedTrieScanBudget": str(EXPECTED_PINNED_TRIE_SCAN_BUDGET),
             "pinnedTrieBatchCapacity": str(EXPECTED_PINNED_TRIE_BATCH_CAPACITY),
+            "versioningType": expected_versioning_type,
         }
         if expected_rows is not None:
             expected_values["expectedRows"] = str(expected_rows)
@@ -565,6 +904,36 @@ def evaluate_run(
                     f"line {configuration.line_number}: HFT config {name}={values[name]!r}, "
                     f"expected {expected_value!r}"
                 )
+        if values["gcLogging"] != "true":
+            evaluation.issues.append(
+                f"line {configuration.line_number}: HFT config effective GC logging is not enabled"
+            )
+        if values["safepointLogging"] != "true":
+            evaluation.issues.append(
+                f"line {configuration.line_number}: HFT config effective safepoint logging is not enabled"
+            )
+        try:
+            configured_region_size = int(values["g1RegionSizeBytes"])
+        except ValueError:
+            evaluation.issues.append(
+                f"line {configuration.line_number}: g1RegionSizeBytes is not an integer"
+            )
+        else:
+            if configured_region_size <= 0:
+                evaluation.issues.append(
+                    f"line {configuration.line_number}: g1RegionSizeBytes must be positive"
+                )
+            else:
+                evaluation.g1_region_size_bytes = configured_region_size
+        evaluation.capacity_bytes = expected_capacity_bytes
+        if values["appendWorkers"] not in {"1", "2"}:
+            evaluation.issues.append(
+                f"line {configuration.line_number}: HFT config appendWorkers must be 1 or 2"
+            )
+        if values["appendQueueCapacity"] != "1":
+            evaluation.issues.append(
+                f"line {configuration.line_number}: HFT config appendQueueCapacity must be 1"
+            )
 
     if len(parsed.async_flush_telemetry) != 1:
         evaluation.issues.append(
@@ -597,6 +966,15 @@ def evaluate_run(
         if values["workerRuns"] != epochs:
             evaluation.issues.append(
                 f"line {telemetry.line_number}: workerRuns={values['workerRuns']} but epochs={epochs}"
+            )
+        if values["submitWaitCount"] != epochs:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: submitWaitCount={values['submitWaitCount']} but epochs={epochs}"
+            )
+        if values["callerThreadAppendRuns"] != 0:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: caller thread executed "
+                f"{values['callerThreadAppendRuns']} append task(s)"
             )
         if values["permitAcquires"] < values["workerRuns"]:
             evaluation.issues.append(
@@ -728,50 +1106,116 @@ def evaluate_run(
             evaluation.issues.append(
                 f"line {telemetry.line_number}: worker maximum exceeds its total"
             )
-        evaluation.max_rotation_permit_wait_nanos = values["rotationPermitWaitMaxNs"]
-        evaluation.max_drain_permit_wait_nanos = values["drainPermitWaitMaxNs"]
+        if values["submitWaitTotalNs"] < values["submitWaitMaxNs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: submit wait maximum exceeds its total"
+            )
+        if values["startFlushTotalNs"] < values["startFlushMaxNs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: whole startAsyncFlush maximum exceeds its total"
+            )
+        if values["startFlushCount"] < epochs:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: fewer whole startAsyncFlush calls than append epochs"
+            )
+        if values["finalDrainTotalNs"] < values["finalDrainMaxNs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: whole final-drain maximum exceeds its total"
+            )
+        if values["startFlushMaxNs"] < max(
+            values["rotationPermitWaitMaxNs"], values["submitWaitMaxNs"]
+        ):
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: whole startAsyncFlush maximum is smaller than a component wait"
+            )
+        if values["finalDrainCount"] == 0:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: no whole final-drain call was measured"
+            )
+        if values["finalDrainMaxNs"] < values["drainPermitWaitMaxNs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: whole final-drain maximum is smaller than its component wait"
+            )
+        evaluation.max_rotation_permit_wait_nanos = values["startFlushMaxNs"]
+        evaluation.max_drain_permit_wait_nanos = values["finalDrainMaxNs"]
         if evaluation.max_rotation_permit_wait_nanos > max_rotation_permit_wait_nanos:
             evaluation.issues.append(
-                f"line {telemetry.line_number}: max foreground epoch-rotation wait "
+                f"line {telemetry.line_number}: max whole startAsyncFlush elapsed "
                 f"{_format_duration(evaluation.max_rotation_permit_wait_nanos)} exceeds "
                 f"{_format_duration(max_rotation_permit_wait_nanos)}"
             )
+        if evaluation.max_drain_permit_wait_nanos > max_rotation_permit_wait_nanos:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: max whole final-drain elapsed "
+                f"{_format_duration(evaluation.max_drain_permit_wait_nanos)} exceeds "
+                f"{_format_duration(max_rotation_permit_wait_nanos)}"
+            )
 
-    if not parsed.g1_region_sizes:
-        evaluation.issues.append(
-            "missing G1 region size inside the measurement region; enable gc+heap=debug logging"
-        )
-    elif len(parsed.g1_region_sizes) != 1:
+        for field_name in (
+            "permitWaitMaxNs",
+            "rotationPermitWaitMaxNs",
+            "drainPermitWaitMaxNs",
+            "workerMaxNs",
+            "submitWaitMaxNs",
+            "startFlushMaxNs",
+            "finalDrainMaxNs",
+        ):
+            if values[field_name] > max_rotation_permit_wait_nanos:
+                evaluation.issues.append(
+                    f"line {telemetry.line_number}: {field_name} "
+                    f"{_format_duration(values[field_name])} exceeds "
+                    f"{_format_duration(max_rotation_permit_wait_nanos)}"
+                )
+
+    if len(parsed.g1_region_sizes) > 1:
         formatted = ", ".join(_format_bytes(size) for size in sorted(parsed.g1_region_sizes))
         evaluation.issues.append(
             f"G1 region size changed inside fixed-heap run: {formatted}"
         )
-    else:
-        evaluation.g1_region_size_bytes = next(iter(parsed.g1_region_sizes))
-        if evaluation.g1_region_size_bytes <= 0:
-            evaluation.issues.append("G1 region size must be greater than zero")
-            evaluation.g1_region_size_bytes = None
+    elif parsed.g1_region_sizes:
+        logged_region_size = next(iter(parsed.g1_region_sizes))
+        if evaluation.g1_region_size_bytes is not None and logged_region_size != evaluation.g1_region_size_bytes:
+            evaluation.issues.append(
+                "logged G1 region size does not match effective runtime configuration: "
+                f"{_format_bytes(logged_region_size)} != "
+                f"{_format_bytes(evaluation.g1_region_size_bytes)}"
+            )
 
     if parsed.young_samples:
         evaluation.max_young_pause_nanos = max(sample.pause_nanos for sample in parsed.young_samples)
+        if evaluation.max_young_pause_nanos > max_rotation_permit_wait_nanos:
+            evaluation.issues.append(
+                f"max young-GC pause {_format_duration(evaluation.max_young_pause_nanos)} exceeds "
+                f"{_format_duration(max_rotation_permit_wait_nanos)}"
+            )
         capacities = {sample.capacity_bytes for sample in parsed.young_samples}
         if len(capacities) != 1:
             formatted = ", ".join(_format_bytes(capacity) for capacity in sorted(capacities))
             evaluation.issues.append(f"heap capacity changed inside fixed-heap run: {formatted}")
-        evaluation.capacity_bytes = parsed.young_samples[0].capacity_bytes
-        if evaluation.capacity_bytes != expected_capacity_bytes:
+        observed_capacity = parsed.young_samples[0].capacity_bytes
+        if observed_capacity != expected_capacity_bytes:
             evaluation.issues.append(
                 "fixed heap does not match gate profile: "
-                f"observed {_format_bytes(evaluation.capacity_bytes)}, "
+                f"observed {_format_bytes(observed_capacity)}, "
                 f"expected {_format_bytes(expected_capacity_bytes)}"
             )
     else:
-        evaluation.issues.append("no post-young occupancy samples inside the measurement region")
+        evaluation.zero_young_events = True
+        if configuration_values is None or configuration_values.get("gcLogging") != "true":
+            evaluation.issues.append("no young-GC samples and no valid effective GC logging evidence")
 
     if parsed.safepoint_nanos:
         evaluation.max_safepoint_nanos = max(parsed.safepoint_nanos)
+        if evaluation.max_safepoint_nanos > max_rotation_permit_wait_nanos:
+            evaluation.issues.append(
+                f"max safepoint {_format_duration(evaluation.max_safepoint_nanos)} exceeds "
+                f"{_format_duration(max_rotation_permit_wait_nanos)}"
+            )
     else:
-        evaluation.issues.append("no safepoint Total samples inside the measurement region")
+        if configuration_values is None or configuration_values.get("safepointLogging") != "true":
+            evaluation.issues.append("no safepoint samples and no valid effective safepoint logging evidence")
+        elif parsed.young_samples:
+            evaluation.issues.append("young-GC events were present without safepoint event evidence")
 
     if (
         not parsed.young_samples
@@ -881,6 +1325,9 @@ def evaluate_pair(
     expected_max_new_bytes: int = EXPECTED_MAX_NEW_BYTES,
     small_rows: int = DEFAULT_SMALL_ROWS,
     large_rows: int = DEFAULT_LARGE_ROWS,
+    expected_git_sha: str | None = None,
+    expected_artifact_sha256: str | None = None,
+    expected_versioning_type: str = EXPECTED_VERSIONING_TYPE,
 ) -> PairEvaluation:
     _validate_row_counts(small_rows, large_rows)
     small_label = _format_row_label(small_rows)
@@ -894,6 +1341,9 @@ def evaluate_pair(
         max_rotation_permit_wait_nanos,
         small_rows,
         expected_max_new_bytes,
+        expected_git_sha,
+        expected_artifact_sha256,
+        expected_versioning_type,
     )
     four = evaluate_run(
         four_million,
@@ -904,6 +1354,9 @@ def evaluate_pair(
         max_rotation_permit_wait_nanos,
         large_rows,
         expected_max_new_bytes,
+        expected_git_sha,
+        expected_artifact_sha256,
+        expected_versioning_type,
     )
     pair = PairEvaluation(one_million=one, four_million=four)
 
@@ -927,7 +1380,7 @@ def evaluate_pair(
                 f"{_format_bytes(pair.cross_scale_growth_bytes)} over {small_label}; "
                 f"allowance is {_format_bytes(pair.cross_scale_allowance_bytes)}"
             )
-    else:
+    elif not (one.zero_young_events or four.zero_young_events):
         pair.cross_scale_issues.append(
             "cross-scale comparison unavailable because a run has no valid steady post-young occupancy"
         )
@@ -988,10 +1441,10 @@ def _print_run(evaluation: RunEvaluation) -> None:
     print(f"  max young pause: {_format_duration(evaluation.max_young_pause_nanos)}")
     print(f"  max safepoint: {_format_duration(evaluation.max_safepoint_nanos)}")
     print(
-        "  max foreground epoch-rotation wait: "
+        "  max whole startAsyncFlush elapsed: "
         f"{_format_duration(evaluation.max_rotation_permit_wait_nanos)}"
     )
-    print(f"  max final/drain wait: {_format_duration(evaluation.max_drain_permit_wait_nanos)}")
+    print(f"  max whole final-drain elapsed: {_format_duration(evaluation.max_drain_permit_wait_nanos)}")
     if evaluation.attempted_kvl_pages is not None and evaluation.promoted_kvl_pages is not None:
         print(
             "  async KVL outcomes: "
@@ -1085,6 +1538,18 @@ def _argument_parser() -> argparse.ArgumentParser:
         help=f"expected row count in the larger-corpus log (default: {DEFAULT_LARGE_ROWS})",
     )
     parser.add_argument(
+        "--expected-git-sha",
+        required=True,
+        metavar="SHA",
+        help="lowercase 40-character commit SHA embedded by the measured process",
+    )
+    parser.add_argument(
+        "--runtime-classpath",
+        required=True,
+        metavar="CLASSPATH",
+        help="exact path-separated runtime classpath used for both measured JVMs",
+    )
+    parser.add_argument(
         "--expected-heap-gib",
         type=_positive_float,
         default=DEFAULT_EXPECTED_HEAP_GIB,
@@ -1113,15 +1578,21 @@ def _argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--max-permit-wait-ms",
-        type=_positive_float,
+        type=_foreground_wait_bound,
         default=DEFAULT_MAX_PERMIT_WAIT_MS,
         metavar="MS",
         help=(
-            "maximum foreground epoch-rotation wait for the prior append worker in milliseconds; "
-            "final/drain fencing is reported separately and does not use this ingestion-backpressure bound "
+            "maximum whole startAsyncFlush and final-drain elapsed time in milliseconds; "
+            "the canonical acceptance bound cannot be relaxed above 250 ms "
             f"(default: {DEFAULT_MAX_PERMIT_WAIT_MS:g})"
         ),
     )
+    parser.add_argument(
+        "--versioning-type",
+        choices=("FULL", "DIFFERENTIAL", "INCREMENTAL", "SLIDING_SNAPSHOT"),
+        default=EXPECTED_VERSIONING_TYPE,
+    )
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument(
         "--min-small-samples",
         type=_sample_floor,
@@ -1151,6 +1622,12 @@ def _parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     try:
         _validate_row_counts(args.small_rows, args.large_rows)
     except ValueError as error:
+        parser.error(str(error))
+    if re.fullmatch(r"[0-9a-f]{40}", args.expected_git_sha) is None:
+        parser.error("--expected-git-sha must be a lowercase 40-character commit SHA")
+    try:
+        args.artifact_sha256 = runtime_classpath_sha256(args.runtime_classpath)
+    except (OSError, ValueError) as error:
         parser.error(str(error))
     return args
 
@@ -1194,6 +1671,13 @@ def _positive_float(raw: str) -> float:
     return value
 
 
+def _foreground_wait_bound(raw: str) -> float:
+    value = _positive_float(raw)
+    if value > CANONICAL_MAX_FOREGROUND_WAIT_MS:
+        raise argparse.ArgumentTypeError("canonical foreground wait bound cannot exceed 250 ms")
+    return value
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_arguments(argv)
     pair = evaluate_pair(
@@ -1207,9 +1691,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         expected_max_new_bytes=int(args.expected_max_new_mib * MIB),
         small_rows=args.small_rows,
         large_rows=args.large_rows,
+        expected_git_sha=args.expected_git_sha,
+        expected_artifact_sha256=args.artifact_sha256,
+        expected_versioning_type=args.versioning_type,
     )
     print_report(pair)
+    if args.manifest is not None:
+        manifest = {
+            "kind": "projection-ingestion",
+            "gitSha": args.expected_git_sha,
+            "artifactSha256": args.artifact_sha256,
+            "versioningType": args.versioning_type,
+            "smallRows": args.small_rows,
+            "largeRows": args.large_rows,
+            "smallLogSha256": _sha256(args.one_million),
+            "largeLogSha256": _sha256(args.four_million),
+            "gateScriptSha256": _sha256(Path(__file__)),
+            "passed": pair.passed,
+        }
+        args.manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0 if pair.passed else 1
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 if __name__ == "__main__":

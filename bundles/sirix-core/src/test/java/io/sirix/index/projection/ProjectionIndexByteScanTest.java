@@ -40,12 +40,47 @@ final class ProjectionIndexByteScanTest {
     return p.serialize();
   }
 
+  private static byte[] buildOrderMetadataLeaf(final boolean dense) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
+        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final long[] keys = dense
+        ? new long[] {2L, 100L, 5L, 8L}
+        : new long[] {2L, 5L, 8L, 11L};
+    for (int row = 0; row < keys.length; row++) {
+      assertTrue(page.appendExtractedUtf8Row(keys[row], new long[] {10L + row * 10L}, new boolean[1],
+          new byte[1][], new int[1], new String[1][], new boolean[] {true}, new boolean[1], new boolean[1],
+          new boolean[1], dense && row == 1));
+    }
+    return page.serialize();
+  }
+
   @Test
   void countRowsParity() {
     final List<byte[]> leaves = new ArrayList<>();
     leaves.add(buildLeaf(1000L, 10));
     leaves.add(buildLeaf(2000L, 5));
     assertEquals(ProjectionIndexScan.countRows(leaves), ProjectionIndexByteScan.countRows(leaves));
+  }
+
+  @Test
+  void v0NoneAndDenseOrderMetadataPreserveByteScanColumnOffsets() {
+    final byte[] none = buildOrderMetadataLeaf(false);
+    final byte[] dense = buildOrderMetadataLeaf(true);
+    final int orderMarkerOffset = 24 + 1 + 4 * Long.BYTES;
+    assertEquals(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE, none[orderMarkerOffset]);
+    assertEquals(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE, dense[orderMarkerOffset]);
+    assertEquals(none.length + Long.BYTES, dense.length,
+        "four DENSE rows add exactly one live exception word before the column bytes");
+
+    final ProjectionIndexScan.ColumnPredicate[] predicates =
+        {ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 25L)};
+    for (final byte[] leaf : List.of(none, dense)) {
+      final List<byte[]> leaves = List.of(leaf);
+      assertEquals(4L, ProjectionIndexByteScan.countRows(leaves));
+      assertEquals(2L, ProjectionIndexByteScan.conjunctiveCount(leaves, predicates));
+      assertEquals(ProjectionIndexScan.conjunctiveCount(leaves, predicates),
+          ProjectionIndexByteScan.conjunctiveCount(leaves, predicates));
+    }
   }
 
   @Test

@@ -146,6 +146,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
             + "jn:create-projection-index to build over existing data.");
       }
     }
+    nodeWriteTrx.awaitPendingAsyncCommit();
 
     // Allocate all ownership bookkeeping before publishing the first ACTIVE entry. Once begin()
     // returns, storing its reference in the preallocated array cannot fail and strand the owner.
@@ -156,7 +157,7 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
         // Catalogues the def so it serializes on commit and is discoverable after re-open, exactly as
         // createIndexBuilders does for the walking path.
         indexes.add(indexDef);
-        final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey,
+        final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey, nodeWriteTrx,
             nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
         ownedLoads[ownedCount] = ownedLoad;
         ownedCount++;
@@ -202,9 +203,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
           "Projection indexes require a resource created with a path summary "
               + "(buildPathSummary=true) — the builder resolves its paths through it.");
     }
-    // Creation fails loudly on a root path with no instances (caller
-    // error); the maintenance rebuild path reuses the same core with the
-    // empty record set allowed.
+    nodeWriteTrx.awaitPendingAsyncCommit();
+    // Creation fails loudly on a root path with no instances (caller error).
     ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
         nodeWriteTrx.getStorageEngineWriter(), false);
   }

@@ -23,6 +23,7 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import it.unimi.dsi.fastutil.ints.IntArrays;
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -221,8 +222,8 @@ public final class FileChannelReader extends AbstractReader {
    */
   private void readFully(final ByteBuffer buffer, final long offset, final String what) throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = dataFileChannel.read(buffer, offset + buffer.position());
-      if (n < 0) {
+      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      if (n <= 0) {
         throw new SirixIOException("Truncated " + what + " at offset " + offset
             + " — the data file ends before the expected " + buffer.limit() + " bytes.");
       }
@@ -403,8 +404,8 @@ public final class FileChannelReader extends AbstractReader {
   /** Read up to the buffer's limit; a short read at EOF is expected here, not an error. */
   private void readAtMost(final ByteBuffer buffer, final long offset) throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = dataFileChannel.read(buffer, offset + buffer.position());
-      if (n < 0) {
+      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      if (n <= 0) {
         break;
       }
     }
@@ -611,7 +612,7 @@ public final class FileChannelReader extends AbstractReader {
       final ByteBuffer slot = ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES);
       int position = 0;
       while (slot.hasRemaining()) {
-        final int read = dataFileChannel.read(slot, offset + position);
+        final int read = readAt(dataFileChannel, slot, offset + position);
         if (read <= 0) {
           break; // EOF — short slot is handled by the verifier
         }
@@ -651,7 +652,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.order(ByteOrder.LITTLE_ENDIAN);
       int bytesRead = 0;
       while (buffer.hasRemaining()) {
-        final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + bytesRead);
+        final int read = readAt(revisionsOffsetFileChannel, buffer, fileOffset + bytesRead);
         if (read <= 0) {
           // Crash-shortened revisions file (or a zero-byte read, legal per the FileChannel
           // contract): under lazy revision records the trailing records may never have reached
@@ -754,7 +755,7 @@ public final class FileChannelReader extends AbstractReader {
   private void healRevisionRecord(final int revision, final RevisionFileData ringRecord) {
     try {
       final ByteBuffer magicProbe = ByteBuffer.allocate(Superblock.MAGIC.length);
-      final int probeRead = revisionsOffsetFileChannel.read(magicProbe, 0);
+      final int probeRead = readAt(revisionsOffsetFileChannel, magicProbe, 0L);
       if (probeRead < Superblock.MAGIC.length) {
         return;
       }
@@ -772,7 +773,7 @@ public final class FileChannelReader extends AbstractReader {
           ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
       int currentRead = 0;
       while (current.hasRemaining()) {
-        final int n = revisionsOffsetFileChannel.read(current, recordOffset + currentRead);
+        final int n = readAt(revisionsOffsetFileChannel, current, recordOffset + currentRead);
         if (n <= 0) {
           break;
         }
@@ -796,14 +797,24 @@ public final class FileChannelReader extends AbstractReader {
       record.putLong(pageHash);
       record.flip();
       while (record.hasRemaining()) {
-        if (revisionsOffsetFileChannel.write(record, recordOffset + record.position()) <= 0) {
+        final int written = revisionsOffsetFileChannel.write(record, recordOffset + record.position());
+        if (written <= 0) {
           throw new IOException("Revision-record heal stalled: no progress");
         }
+        HftBoundaryTelemetry.storageWrite(written);
       }
     } catch (final IOException | RuntimeException healFailure) {
       LOGGER.warn("Salvaged revision record {} could not be healed back into the revisions file", revision,
           healFailure);
     }
+  }
+
+  private static int readAt(final FileChannel channel, final ByteBuffer buffer, final long offset) throws IOException {
+    final int read = channel.read(buffer, offset);
+    if (read > 0) {
+      HftBoundaryTelemetry.storageRead(read);
+    }
+    return read;
   }
 
   @Override

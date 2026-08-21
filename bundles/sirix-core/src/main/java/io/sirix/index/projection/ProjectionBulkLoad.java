@@ -7,7 +7,10 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -33,10 +36,8 @@ import java.util.concurrent.ConcurrentMap;
  * <h2>Why this is not just the incremental maintenance path</h2>
  *
  * {@link ProjectionIndexChangeListener}'s per-leaf patcher maintains an EXISTING snapshot: it
- * re-extracts touched leaves, appends to the tail leaf, and deliberately drops the structures a full
- * build owns — it tombstones the fingerprint blocks and writes no resource-wide dictionary. Running
- * it over a bulk load would therefore produce an index that answers the same questions more slowly
- * than the post-pass build, and its dirty-record ceiling would degrade to a full rebuild once per
+ * re-extracts touched leaves, appends to the tail leaf, and updates derived structures in bounded
+ * persistent units. Running it over a bulk load would still repeat touched-unit work at every
  * auto-commit window. This class instead keeps the REAL build machinery
  * ({@link ProjectionIndexBuilder} in its record-fed mode) alive for the whole load, so the leaves,
  * the global-dictionary decision, the fingerprint blocks, the fences and the metadata are produced by
@@ -77,12 +78,16 @@ public final class ProjectionBulkLoad {
    * Active bulk loads by {@code resourceKey#defId}. Process-global by the same reasoning as
    * {@link ProjectionIndexRegistry}'s registry: the state has to outlive the objects that reach it
    * (listeners are rebuilt per commit epoch, index controllers per revision), and the resource path is
-   * the only identity all of them agree on.
+   * the only durable identity all of them agree on. Each value additionally carries the owning
+   * write-transaction object identity, so a different transaction using the same path cannot attach
+   * to the load.
    */
   private static final ConcurrentMap<String, ProjectionBulkLoad> ACTIVE = new ConcurrentHashMap<>();
 
   private final IndexDef indexDef;
   private final String key;
+  /** Identity of the one write transaction whose successful intermediate epochs may feed this load. */
+  private final Object ownerToken;
 
   /** Owner-confined FSST scratch reused by every row group in this bulk-load stream. */
   private final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
@@ -193,10 +198,11 @@ public final class ProjectionBulkLoad {
         + " extractFailures=" + diagExtractFailures + " arrayRoots=" + arrayRootInstances.size() + ']';
   }
 
-  private ProjectionBulkLoad(final IndexDef indexDef, final String key, final PathSummaryReader pathSummary,
-      final RowGroupPublisher rowGroupPublisher) {
+  private ProjectionBulkLoad(final IndexDef indexDef, final String key, final Object ownerToken,
+      final PathSummaryReader pathSummary, final RowGroupPublisher rowGroupPublisher) {
     this.indexDef = indexDef;
     this.key = key;
+    this.ownerToken = Objects.requireNonNull(ownerToken, "ownerToken must not be null");
     final RowGroupPublisher checkedPublisher =
         Objects.requireNonNull(rowGroupPublisher, "rowGroupPublisher must not be null");
     this.hasSetColumn = ProjectionIndexBuilder.hasStringSetColumn(indexDef);
@@ -205,6 +211,7 @@ public final class ProjectionBulkLoad {
       if (leaf.getRowCount() == 0) {
         throw new IllegalStateException("Projection leaf " + firstKeys.size() + " is empty");
       }
+      final int physicalSlot = firstKeys.size() + 1;
       firstKeys.add(leaf.firstRecordKey());
       lastKeys.add(leaf.lastRecordKey());
       if (hasSetColumn) {
@@ -213,8 +220,10 @@ public final class ProjectionBulkLoad {
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
-      checkedPublisher.publish(currentStorage, firstKeys.size(), encoded);
-      bloomChunks.append(encoded, firstKeys.size(), currentStorage);
+      checkedPublisher.publish(currentStorage, physicalSlot, encoded);
+      ProjectionIndexBuilder.persistOrderExceptionLocators(leaf, physicalSlot,
+          ProjectionRecordLocator.open(currentStorage));
+      bloomChunks.append(encoded, physicalSlot, currentStorage);
     });
   }
 
@@ -230,7 +239,8 @@ public final class ProjectionBulkLoad {
    */
   public static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter) {
-    return begin(indexDef, resourceKey, pathSummary, storageEngineWriter, -1L);
+    return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter, -1L,
+        DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
   /**
@@ -240,7 +250,19 @@ public final class ProjectionBulkLoad {
   public static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter,
       final long expectedRows) {
-    return begin(indexDef, resourceKey, pathSummary, storageEngineWriter, expectedRows,
+    return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter, expectedRows,
+        DEFAULT_ROW_GROUP_PUBLISHER);
+  }
+
+  /**
+   * Arm a load owned by {@code ownerTrx}. Listener epochs may resolve the process-global handoff only
+   * when they carry this exact transaction identity; another transaction on the same resource and
+   * definition can neither attach to nor advance it.
+   */
+  public static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
+      final NodeReadOnlyTrx ownerTrx, final PathSummaryReader pathSummary,
+      final StorageEngineWriter storageEngineWriter, final long expectedRows) {
+    return begin(indexDef, resourceKey, ownerTrx, pathSummary, storageEngineWriter, expectedRows,
         DEFAULT_ROW_GROUP_PUBLISHER);
   }
 
@@ -248,12 +270,22 @@ public final class ProjectionBulkLoad {
   static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
       final PathSummaryReader pathSummary, final StorageEngineWriter storageEngineWriter,
       final long expectedRows, final RowGroupPublisher rowGroupPublisher) {
+    return begin(indexDef, resourceKey, storageEngineWriter, pathSummary, storageEngineWriter,
+        expectedRows, rowGroupPublisher);
+  }
+
+  /** Owner-bound publication-injected form used by focused lifecycle and storage-failure coverage. */
+  static ProjectionBulkLoad begin(final IndexDef indexDef, final String resourceKey,
+      final Object ownerToken, final PathSummaryReader pathSummary,
+      final StorageEngineWriter storageEngineWriter, final long expectedRows,
+      final RowGroupPublisher rowGroupPublisher) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionBulkLoad requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
     final String key = keyOf(resourceKey, indexDef.getID());
-    final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, pathSummary, rowGroupPublisher);
+    final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, ownerToken, pathSummary,
+        rowGroupPublisher);
     load.builder.setExpectedRows(expectedRows);
     final ProjectionBulkLoad previous = ACTIVE.putIfAbsent(key, load);
     if (previous != null) {
@@ -261,8 +293,12 @@ public final class ProjectionBulkLoad {
           "A projection bulk load is already active for " + key + " — finish or abort it before starting another");
     }
     try {
-      ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID()).putBlob(0,
-          ProjectionIndexMetadata.staleTombstone().serialize());
+      final ProjectionIndexHOTStorage storage =
+          ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+      // begin() is an explicit full build boundary. Clear every prior positive storage slot and
+      // sparse negative record locator before publishing the fail-closed tombstone for the load.
+      storage.resetTree();
+      storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       return load;
     } catch (final Throwable failure) {
       // The registry entry is already visible. A failure to establish the tombstone must retire it
@@ -275,6 +311,13 @@ public final class ProjectionBulkLoad {
   /** The bulk load armed for this definition, or {@code null} when the resource is not being loaded. */
   public static @Nullable ProjectionBulkLoad active(final String resourceKey, final int indexDefId) {
     return ACTIVE.get(keyOf(resourceKey, indexDefId));
+  }
+
+  /** Resolve an armed load only for its exact owning write transaction. */
+  public static @Nullable ProjectionBulkLoad active(final String resourceKey, final int indexDefId,
+      final NodeReadOnlyTrx ownerTrx) {
+    final ProjectionBulkLoad load = ACTIVE.get(keyOf(resourceKey, indexDefId));
+    return load != null && load.ownerToken == ownerTrx ? load : null;
   }
 
   /** Whether any bulk load is armed at all — one map read on the listener's construction path. */
@@ -294,7 +337,11 @@ public final class ProjectionBulkLoad {
     try {
       bloomChunks.release();
     } finally {
-      storage = null;
+      try {
+        builder.releaseTransientState();
+      } finally {
+        storage = null;
+      }
     }
   }
 
@@ -377,7 +424,7 @@ public final class ProjectionBulkLoad {
    * shredder mid-insert.
    */
   public void drain(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
-      final JsonNodeReadOnlyTrx rtx) {
+      final NodeReadOnlyTrx rtx) {
     if (finished || completedRecordKeys.isEmpty()) {
       return;
     }
@@ -395,7 +442,7 @@ public final class ProjectionBulkLoad {
       builder.refreshFieldPaths(pathSummary);
       diagDrains++;
       for (int i = 0; i < completedRecordKeys.size(); i++) {
-        if (!builder.appendRecord(rtx, completedRecordKeys.getLong(i))) {
+        if (!appendRecord(rtx, completedRecordKeys.getLong(i))) {
           diagExtractFailures++;
         }
       }
@@ -408,7 +455,7 @@ public final class ProjectionBulkLoad {
       try {
         completedRecordKeys.clear();
         if (restoreCursor && !rtx.moveTo(savedNodeKey)) {
-          rtx.moveToDocumentRoot();
+          ((NodeCursor) rtx).moveToDocumentRoot();
         }
       } catch (final Throwable failure) {
         cleanupFailure = failure;
@@ -457,7 +504,7 @@ public final class ProjectionBulkLoad {
    * loudly now, with the tombstone still in place.
    */
   public void finish(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
-      final JsonNodeReadOnlyTrx rtx, final int buildRevision) {
+      final NodeReadOnlyTrx rtx, final int buildRevision) {
     if (finished) {
       return;
     }
@@ -484,15 +531,19 @@ public final class ProjectionBulkLoad {
       // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
       // the new leaf count to tombstone.
       ProjectionIndexBuilder.finishPersist(indexDef, storage, firstKeys, lastKeys, 0, buildRevision,
-          columnKinds, setValueRowCounts, null, valueDictionaryHeaderKeys);
-      // The legacy block slots were invalidated by finishPersist. Publish the new manifests LAST:
-      // a crash/failure before here leaves no manifest and readers safely use the per-leaf chain.
-      bloomChunks.publishManifests(storage, firstKeys.size());
+          columnKinds, setValueRowCounts, null, valueDictionaryHeaderKeys, bloomChunks);
     } finally {
-      bloomChunks.release();
-      this.storage = null;
-      finished = true;
-      ACTIVE.remove(key, this);
+      try {
+        bloomChunks.release();
+      } finally {
+        try {
+          builder.releaseTransientState();
+        } finally {
+          this.storage = null;
+          finished = true;
+          ACTIVE.remove(key, this);
+        }
+      }
     }
   }
 
@@ -517,7 +568,7 @@ public final class ProjectionBulkLoad {
    * takes the kind-filtered fast path; a non-array record root is resolved by the full ancestor walk
    * for every notification and has no comparable counter to check against.
    */
-  private void assertEveryRecordEmitted(final JsonNodeReadOnlyTrx rtx) {
+  private void assertEveryRecordEmitted(final NodeReadOnlyTrx rtx) {
     if (arrayRootInstances.isEmpty()) {
       return;
     }
@@ -534,7 +585,7 @@ public final class ProjectionBulkLoad {
       }
     } finally {
       if (!rtx.moveTo(savedNodeKey)) {
-        rtx.moveToDocumentRoot();
+        ((NodeCursor) rtx).moveToDocumentRoot();
       }
     }
     if (expected != builder.rowsEmitted()) {
@@ -599,6 +650,16 @@ public final class ProjectionBulkLoad {
     return current;
   }
 
+  private boolean appendRecord(final NodeReadOnlyTrx rtx, final long recordKey) {
+    if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
+      return builder.appendRecord(jsonRtx, recordKey);
+    }
+    if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
+      return builder.appendRecord(xmlRtx, recordKey);
+    }
+    throw new IllegalArgumentException("projection bulk load requires a JSON or XML node transaction");
+  }
+
   /** The declared field types, for callers that mirror the definition's column shape. */
   List<Type> fieldTypes() {
     return indexDef.getProjectionFieldTypes();
@@ -626,6 +687,9 @@ public final class ProjectionBulkLoad {
 
   /** Drop every armed load — test isolation only. */
   public static void clearActive() {
+    for (final ProjectionBulkLoad load : ACTIVE.values()) {
+      load.abort();
+    }
     ACTIVE.clear();
   }
 

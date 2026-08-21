@@ -3,8 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
@@ -12,9 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * Round-trip tests for {@link ProjectionIndexRowGroupPage} — append rows via
@@ -28,6 +34,16 @@ final class ProjectionIndexRowGroupPageTest {
       ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
       ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
   };
+
+  private static boolean appendNumericRow(final ProjectionIndexRowGroupPage page, final long recordKey,
+      final long value, final boolean orderException) {
+    return page.appendExtractedUtf8Row(recordKey, new long[] {value}, new boolean[1], new byte[1][], new int[1],
+        new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], orderException);
+  }
+
+  private static int orderMarkerOffset(final ProjectionIndexRowGroupPage page) {
+    return 24 + page.getColumnCount() + page.getRowCount() * Long.BYTES;
+  }
 
   @Test
   void emptyPageRoundTrips() {
@@ -87,6 +103,161 @@ final class ProjectionIndexRowGroupPageTest {
     assertArrayEquals("Eng".getBytes(), dict[0]);
     assertArrayEquals("Sales".getBytes(), dict[1]);
     assertArrayEquals("Ops".getBytes(), dict[2]);
+  }
+
+  @Test
+  void noneOrderMetadataIsLazyAndRoundTrips() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(page.appendRow(2L, new long[] {10L}, new boolean[1], new String[1]));
+    assertTrue(page.appendRow(5L, new long[] {20L}, new boolean[1], new String[1]));
+    assertTrue(page.appendRow(8L, new long[] {30L}, new boolean[1], new String[1]));
+
+    assertFalse(page.hasOrderExceptions());
+    assertNull(page.orderExceptionBits(), "normal-only leaves must not allocate an exception bitmap");
+    final byte[] raw = page.serialize();
+    assertEquals(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE, raw[orderMarkerOffset(page)]);
+
+    final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(raw);
+    assertFalse(restored.hasOrderExceptions());
+    assertNull(restored.orderExceptionBits());
+    assertArrayEquals(new long[] {2L, 5L, 8L}, Arrays.copyOf(restored.recordKeys(), 3));
+    assertEquals(2L, restored.firstRecordKey());
+    assertEquals(8L, restored.lastRecordKey());
+  }
+
+  @Test
+  void rewrittenGroupRejectsDuplicateRecordIdentity() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(appendNumericRow(page, 41L, 1L, true));
+    assertTrue(appendNumericRow(page, 41L, 2L, true));
+    final ProjectionRecordLocator.Accessor locator = mock(ProjectionRecordLocator.Accessor.class);
+    when(locator.find(41L)).thenReturn(3);
+
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3, locator,
+            new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
+
+    assertTrue(failure.getMessage().contains("occurs more than once"));
+  }
+
+  @Test
+  void rewrittenGroupRevalidatesCarriedExceptionLocator() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(appendNumericRow(page, 10L, 1L, false));
+    assertTrue(appendNumericRow(page, 41L, 2L, true));
+    final ProjectionRecordLocator.Accessor locator = mock(ProjectionRecordLocator.Accessor.class);
+    // Models an unchanged exceptional row whose pre-existing sparse locator was lost or corrupted.
+    // The rewrite did not insert/move key 41, but validation must still inspect it.
+    when(locator.find(41L)).thenReturn(0);
+
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> ProjectionIndexChangeListener.validateRewrittenRowGroup(page, 3, locator,
+            new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS)));
+
+    assertTrue(failure.getMessage().contains("instead of rewritten leaf 3 row 1"));
+  }
+
+  @Test
+  void denseOrderMetadataRoundTripsAtWordBoundaries() {
+    for (final int rows : new int[] {1, 64, 65, ProjectionIndexRowGroupPage.MAX_ROWS}) {
+      final ProjectionIndexRowGroupPage dense =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      final ProjectionIndexRowGroupPage none =
+          new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+      for (int row = 0; row < rows; row++) {
+        final long key = row + 1L;
+        final boolean exception = row == rows - 1;
+        assertTrue(appendNumericRow(dense, key, row, exception));
+        assertTrue(appendNumericRow(none, key, row, false));
+      }
+
+      final byte[] denseRaw = dense.serialize();
+      final byte[] noneRaw = none.serialize();
+      final int liveWords = (rows + 63) >>> 6;
+      assertEquals(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE, denseRaw[orderMarkerOffset(dense)]);
+      assertEquals(noneRaw.length + liveWords * Long.BYTES, denseRaw.length,
+          "DENSE must persist only ceil(rowCount/64) live words at rowCount=" + rows);
+
+      final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(denseRaw);
+      assertTrue(restored.hasOrderExceptions());
+      assertTrue(restored.orderExceptionAt(rows - 1));
+      if (rows > 1) {
+        assertFalse(restored.orderExceptionAt(rows - 2));
+        assertEquals(1L, restored.firstRecordKey());
+        assertEquals(rows - 1L, restored.lastRecordKey());
+      } else {
+        assertEquals(Long.MAX_VALUE, restored.firstRecordKey());
+        assertEquals(Long.MIN_VALUE, restored.lastRecordKey());
+      }
+    }
+  }
+
+  @Test
+  void builderReuseClearsLiveExceptionWords() {
+    final ProjectionIndexRowGroupPage page =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    for (int row = 0; row < 65; row++) {
+      assertTrue(appendNumericRow(page, row + 1L, row, row == 64));
+    }
+    assertTrue(page.orderExceptionAt(64));
+
+    page.resetForBuilderReuse(null);
+    assertFalse(page.hasOrderExceptions());
+    assertNull(page.orderExceptionBits(), "retained scratch must not become logical DENSE metadata");
+    assertTrue(appendNumericRow(page, 100L, 1L, false));
+    assertTrue(appendNumericRow(page, 101L, 2L, false));
+
+    final byte[] raw = page.serialize();
+    assertEquals(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE, raw[orderMarkerOffset(page)]);
+    final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(raw);
+    assertFalse(restored.hasOrderExceptions());
+    assertArrayEquals(new long[] {100L, 101L}, Arrays.copyOf(restored.recordKeys(), 2));
+  }
+
+  @Test
+  void malformedOrderMetadataFailsClosed() {
+    final ProjectionIndexRowGroupPage dense =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(appendNumericRow(dense, 10L, 1L, true));
+    final byte[] validDense = dense.serialize();
+    final int denseMarker = orderMarkerOffset(dense);
+
+    final byte[] unknownKind = validDense.clone();
+    unknownKind[denseMarker] = 2;
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(unknownKind));
+
+    final byte[] noExceptionSet = validDense.clone();
+    Arrays.fill(noExceptionSet, denseMarker + 1, denseMarker + 1 + Long.BYTES, (byte) 0);
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(noExceptionSet));
+
+    final byte[] bitBeyondRowCount = validDense.clone();
+    bitBeyondRowCount[denseMarker + 1] |= 0x02;
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(bitBeyondRowCount));
+
+    final byte[] wrongFence = validDense.clone();
+    ByteBuffer.wrap(wrongFence).order(ByteOrder.LITTLE_ENDIAN).putLong(8, 10L);
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(wrongFence));
+
+    final ProjectionIndexRowGroupPage normal =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(appendNumericRow(normal, 2L, 1L, false));
+    assertTrue(appendNumericRow(normal, 5L, 2L, false));
+    final byte[] nonMonotone = normal.serialize();
+    ByteBuffer.wrap(nonMonotone).order(ByteOrder.LITTLE_ENDIAN).putLong(25 + Long.BYTES, 1L);
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(nonMonotone));
+
+    final byte[] negativeKey = normal.serialize();
+    ByteBuffer.wrap(negativeKey).order(ByteOrder.LITTLE_ENDIAN).putLong(25, -1L);
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(negativeKey));
+
+    final ProjectionIndexRowGroupPage empty =
+        new ProjectionIndexRowGroupPage(new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    final byte[] denseEmpty = empty.serialize();
+    denseEmpty[orderMarkerOffset(empty)] = ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE;
+    assertThrows(IllegalStateException.class, () -> ProjectionIndexRowGroupPage.deserialize(denseEmpty));
   }
 
   @Test

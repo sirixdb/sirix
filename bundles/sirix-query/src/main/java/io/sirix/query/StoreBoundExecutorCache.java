@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.atomic.QNm;
@@ -56,12 +55,14 @@ import io.sirix.settings.Fixed;
  * <p>
  * Executors are cached per {@code (database, resource, revision)} because building one per compile
  * would build a worker pool per compile. The cache is bounded and access-ordered: the
- * least-recently-used entry is closed on overflow. Two things make eviction (and the revision
- * advance that causes most of it) safe rather than merely likely-safe — a
+ * least-recently-used entry is removed under the cache monitor and closed after releasing it. A
+ * potentially slow executor retirement therefore never serializes unrelated document resolution.
+ * Two things make eviction (and the revision advance that causes most of it) safe rather than
+ * merely likely-safe — a
  * {@link SirixVectorizedExecutor} whose pool has been shut down runs its chunks on the calling
- * thread, and its record transaction is reopened when it is found closed. A compiled query holding
- * an evicted executor therefore keeps answering, single-threaded, from the revision it was compiled
- * against.
+ * thread, while lazy record-materialization cursors remain owned by their resource session. A
+ * compiled query or already-returned database object holding an evicted executor's state therefore
+ * keeps answering, single-threaded, from the revision it was compiled against.
  *
  * <p>
  * Not thread-confined: one chain may compile on many threads, so every mutation of the cache takes
@@ -91,7 +92,7 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   /** The store every resource is resolved through; never {@code null}. */
   private final JsonDBStore store;
 
-  /** Access-ordered LRU; the evicted entry is closed by {@link #removeEldestEntry}. */
+  /** Access-ordered LRU; overflow victims are removed under {@link #lock} and retired outside it. */
   private final LinkedHashMap<ExecutorKey, SirixVectorizedExecutor> executors;
 
   /** Set by {@link #close()}; a resolve after close hands back nothing rather than a live pool. */
@@ -110,16 +111,7 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       throw new IllegalArgumentException("store must not be null");
     }
     this.store = store;
-    this.executors = new LinkedHashMap<>(MAX_CACHED_EXECUTORS * 2, 0.75f, true) {
-      @Override
-      protected boolean removeEldestEntry(final Map.Entry<ExecutorKey, SirixVectorizedExecutor> eldest) {
-        if (size() <= MAX_CACHED_EXECUTORS) {
-          return false;
-        }
-        closeQuietly(eldest.getValue());
-        return true;
-      }
-    };
+    this.executors = new LinkedHashMap<>(MAX_CACHED_EXECUTORS * 2, 0.75f, true);
   }
 
   /**
@@ -192,6 +184,8 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       return null;
     }
     final ExecutorKey key = new ExecutorKey(source.database(), source.resource(), revision);
+    final SirixVectorizedExecutor built;
+    final SirixVectorizedExecutor evicted;
     synchronized (lock) {
       if (closed) {
         return null;
@@ -200,10 +194,25 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       if (cached != null) {
         return cached;
       }
-      final SirixVectorizedExecutor built = new SirixVectorizedExecutor(session, revision);
+      built = new SirixVectorizedExecutor(session, revision);
       executors.put(key, built);
-      return built;
+      evicted = evictEldestOnOverflow();
     }
+    // Executor shutdown may wait for in-flight work. Keep that wait out of the cache monitor so a
+    // warm-up on the LRU victim cannot stall resolutions for otherwise unrelated resources.
+    closeQuietly(evicted);
+    return built;
+  }
+
+  /** Remove and return the LRU overflow victim. Caller must hold {@link #lock}. */
+  private SirixVectorizedExecutor evictEldestOnOverflow() {
+    if (executors.size() <= MAX_CACHED_EXECUTORS) {
+      return null;
+    }
+    final Iterator<SirixVectorizedExecutor> values = executors.values().iterator();
+    final SirixVectorizedExecutor eldest = values.next();
+    values.remove();
+    return eldest;
   }
 
   /** Close every cached executor. Idempotent; the chain's stores are closed by the chain. */
@@ -224,6 +233,9 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   }
 
   private static void closeQuietly(final SirixVectorizedExecutor executor) {
+    if (executor == null) {
+      return;
+    }
     try {
       executor.close();
     } catch (final Exception ignored) {

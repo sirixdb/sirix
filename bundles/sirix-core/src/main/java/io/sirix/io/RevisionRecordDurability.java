@@ -151,19 +151,19 @@ public final class RevisionRecordDurability {
   // ===== Write-frontier snapshot (writer-to-writer handoff, preallocated profile) =====
 
   /**
-   * The three frontiers as ONE immutable snapshot. They are only meaningful together — the
-   * adoption gate validates the logical end against the preallocation ends — so publishing them
-   * as three independent volatiles would let a reader mix one commit's logical end with another's
-   * preallocation end and adopt a frontier no writer ever held.
+   * The frontiers and their durable revision-root identity as ONE immutable snapshot. They are only
+   * meaningful together, so publishing them independently could mix one commit's logical end with
+   * another commit's identity and adopt a frontier no writer ever held.
    *
    * @param dataLogicalEnd logical data-file write frontier; {@code -1} = unknown
    * @param dataPreallocEnd physical preallocation end of the data file
    * @param revisionsPreallocEnd physical preallocation end of the revisions file
    */
-  private record Frontiers(long dataLogicalEnd, long dataPreallocEnd, long revisionsPreallocEnd) {
+  private record Frontiers(long dataLogicalEnd, long dataPreallocEnd, long revisionsPreallocEnd,
+                           int revision, long revisionRootOffset, long revisionRootHash) {
   }
 
-  private static final Frontiers UNKNOWN_FRONTIERS = new Frontiers(-1L, -1L, -1L);
+  private static final Frontiers UNKNOWN_FRONTIERS = new Frontiers(-1L, -1L, -1L, -1, -1L, 0L);
 
   private volatile Frontiers frontiers = UNKNOWN_FRONTIERS;
 
@@ -176,22 +176,32 @@ public final class RevisionRecordDurability {
    * @param dataLogicalEnd logical data-file write frontier
    * @param dataPreallocEnd physical preallocation end of the data file
    * @param revisionsPreallocEnd physical preallocation end of the revisions file
+   * @param revision durable revision advertised by the beacon
+   * @param revisionRootOffset durable revision-root frame offset
+   * @param revisionRootHash durable revision-root payload hash
    */
   public void storeFrontiers(final long dataLogicalEnd, final long dataPreallocEnd,
-      final long revisionsPreallocEnd) {
-    frontiers = new Frontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd);
+      final long revisionsPreallocEnd, final int revision, final long revisionRootOffset,
+      final long revisionRootHash) {
+    if (revision < 0 || revisionRootOffset < IOStorage.DATA_REGION_START || revisionRootHash == 0L) {
+      throw new IllegalArgumentException("a durable revision-root identity is required");
+    }
+    frontiers = new Frontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, revision,
+        revisionRootOffset, revisionRootHash);
   }
 
   /**
-   * The cached frontiers as one consistent triple. Callers MUST validate and adopt from this
+   * The cached frontiers and durable frame identity as one consistent snapshot. Callers MUST validate and adopt from this
    * single snapshot rather than re-reading, so the values they check are the values they use.
    *
-   * @return {@code [dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd]}; a logical end of
+   * @return {@code [dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, revision,
+   *         revisionRootOffset, revisionRootHash]}; a logical end of
    *         {@code -1} means "unknown, derive from disk"
    */
   public long[] cachedFrontiers() {
     final Frontiers snapshot = frontiers;
     return new long[] {snapshot.dataLogicalEnd(), snapshot.dataPreallocEnd(),
-        snapshot.revisionsPreallocEnd()};
+        snapshot.revisionsPreallocEnd(), snapshot.revision(), snapshot.revisionRootOffset(),
+        snapshot.revisionRootHash()};
   }
 }

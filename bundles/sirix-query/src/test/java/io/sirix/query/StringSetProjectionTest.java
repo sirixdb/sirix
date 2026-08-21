@@ -4,6 +4,12 @@ import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.junit.jupiter.api.AfterEach;
@@ -16,6 +22,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -125,6 +132,46 @@ final class StringSetProjectionTest {
     assertTrue(drama > 0 && drama < N, "'Drama' selected " + drama + " of " + N + " — it must select a proper subset");
     assertTrue(count("Silent") > 0, "'Silent' must select something or the rare path is untested");
     assertEquals(0L, count("Nowhere"), "a genre no record carries must select nothing");
+  }
+
+  @Test
+  @DisplayName("incremental maintenance preserves and updates set summaries")
+  void incrementalMaintenancePreservesAndUpdatesSetSummaries() throws Exception {
+    createProjection();
+    final long dramaBefore = count("Drama");
+    final long comedyBefore = count("Comedy");
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbDir.resolve(DB));
+        final JsonResourceSession session = database.beginResourceSession(RES);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToRightSibling());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToRightSibling());
+      assertEquals("genres", wtx.getName().getLocalName());
+      assertTrue(wtx.moveToFirstChild());
+      wtx.setStringValue("Drama");
+      wtx.commit();
+    }
+
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbDir.resolve(DB));
+        final JsonResourceSession session = database.beginResourceSession(RES)) {
+      ProjectionIndexRegistry.clear();
+      ProjectionIndexCatalog.clearCache();
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
+          session.getResourceConfig().getResource().toString(), session.getMostRecentRevisionNumber(),
+          new String[] {"[]"}, new String[] {"genres"});
+      assertNotNull(handle);
+      assertEquals(dramaBefore + 1, handle.setValueRowCount(1, "Drama"));
+      assertEquals(comedyBefore - 1, handle.setValueRowCount(1, "Comedy"));
+    }
+
+    SirixVectorizedExecutor.resetProjectionCountsServed();
+    assertEquals(dramaBefore + 1, count("Drama"));
+    assertEquals(comedyBefore - 1, count("Comedy"));
+    assertTrue(SirixVectorizedExecutor.projectionCountsServed() > 0);
   }
 
   /** Declare the ELEMENTS of the array-valued field: the trailing array step is what says "set". */

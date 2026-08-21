@@ -20,12 +20,17 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -144,6 +149,70 @@ final class ParallelJsonShredderTest {
     assertEquals(0, database.listResources().size());
   }
 
+  @Test
+  void interruptionWaitsForWorkerTerminationBeforeRollback() throws Exception {
+    final CountDownLatch workerEntered = new CountDownLatch(1);
+    final CountDownLatch workerWasInterrupted = new CountDownLatch(1);
+    final CountDownLatch releaseWorker = new CountDownLatch(1);
+    final AtomicReference<Throwable> callerFailure = new AtomicReference<>();
+    final AtomicBoolean callerInterruptRestored = new AtomicBoolean();
+    final AtomicReference<Boolean> rollbackInterruptStatus = new AtomicReference<>();
+    final Database<JsonResourceSession> interruptObservingDatabase =
+        observeRemoveInterruptStatus(database, rollbackInterruptStatus);
+
+    // Block before the worker opens a resource session and deliberately consume cancellation. With the
+    // old ordering, Future.cancel(true) made Future.get return immediately, rollback deleted records-0,
+    // and this factory later resumed against a resource that had disappeared underneath it.
+    final Callable<JsonReader> interruptionIgnoringPartition = () -> {
+      workerEntered.countDown();
+      boolean released = false;
+      while (!released) {
+        try {
+          released = releaseWorker.await(5, TimeUnit.SECONDS);
+        } catch (final InterruptedException ignored) {
+          workerWasInterrupted.countDown();
+        }
+      }
+      return new JsonReader(new StringReader("[1]"));
+    };
+
+    final Thread caller = new Thread(() -> {
+      try {
+        ParallelJsonShredder.shredPartitioned(interruptObservingDatabase,
+            List.of(interruptionIgnoringPartition), BASE, CONFIG, 0, 1);
+      } catch (final Throwable failure) {
+        callerFailure.set(failure);
+      } finally {
+        callerInterruptRestored.set(Thread.currentThread().isInterrupted());
+      }
+    }, "parallel-shred-interrupted-caller");
+
+    caller.start();
+    try {
+      assertTrue(workerEntered.await(5, TimeUnit.SECONDS), "worker did not enter its partition factory");
+      caller.interrupt();
+      assertTrue(workerWasInterrupted.await(5, TimeUnit.SECONDS), "worker did not receive cancellation");
+
+      // The caller must remain inside the executor-termination ownership fence while the worker is
+      // live. In particular, the resource must not be removed before the worker relinquishes it.
+      assertTrue(waitForThreadState(caller, Thread.State.TIMED_WAITING, TimeUnit.SECONDS.toMillis(5)),
+          "caller never waited for executor termination while an interruption-ignoring worker was live");
+      assertTrue(database.existsResource("records-0"), "rollback removed a resource underneath a live worker");
+    } finally {
+      releaseWorker.countDown();
+    }
+
+    caller.join(TimeUnit.SECONDS.toMillis(5));
+    assertFalse(caller.isAlive(), "caller did not finish after the worker was released");
+    assertInstanceOf(SirixException.class, callerFailure.get());
+    assertInstanceOf(InterruptedException.class, rootCause(callerFailure.get()));
+    assertEquals(Boolean.FALSE, rollbackInterruptStatus.get(),
+        "rollback must run with interruption consumed so database cleanup cannot abort early");
+    assertTrue(callerInterruptRestored.get(), "caller interrupt status must be restored after safe rollback");
+    assertFalse(database.existsResource("records-0"), "resource must be rolled back after the worker terminates");
+    assertEquals(0, database.listResources().size());
+  }
+
   // ---------------------------------------------------------------------------------------------
   // Fail-fast: collision + config integrity (no mutation)
   // ---------------------------------------------------------------------------------------------
@@ -224,6 +293,34 @@ final class ParallelJsonShredderTest {
 
   private static Callable<JsonReader> readerOf(final String json) {
     return () -> new JsonReader(new StringReader(json));
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Database<JsonResourceSession> observeRemoveInterruptStatus(
+      final Database<JsonResourceSession> delegate, final AtomicReference<Boolean> observedStatus) {
+    return (Database<JsonResourceSession>) Proxy.newProxyInstance(Database.class.getClassLoader(),
+        new Class<?>[] {Database.class}, (proxy, method, args) -> {
+          if ("removeResource".equals(method.getName())) {
+            observedStatus.compareAndSet(null, Thread.currentThread().isInterrupted());
+          }
+          try {
+            return method.invoke(delegate, args);
+          } catch (final InvocationTargetException invocationFailure) {
+            throw invocationFailure.getCause();
+          }
+        });
+  }
+
+  private static boolean waitForThreadState(final Thread thread, final Thread.State expected,
+      final long timeoutMillis) {
+    final long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    while (thread.isAlive() && System.nanoTime() < deadline) {
+      if (thread.getState() == expected) {
+        return true;
+      }
+      Thread.onSpinWait();
+    }
+    return thread.isAlive() && thread.getState() == expected;
   }
 
   private String serialize(final String resourceName) {

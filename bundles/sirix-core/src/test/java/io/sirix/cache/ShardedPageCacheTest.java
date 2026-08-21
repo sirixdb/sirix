@@ -7,6 +7,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.Arena;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -264,12 +266,36 @@ class ShardedPageCacheTest {
       key.setPage(page);
 
       cache.evictUnderPressure(); // consume HOT second chance
-      cache.evictUnderPressure();
+      final AssertionError failure = assertThrows(AssertionError.class, cache::evictUnderPressure);
 
+      assertEquals("expected release failure", failure.getMessage());
       assertTrue(page.isClosed());
       assertEquals(0L, cache.size());
       assertEquals(0L, cache.getCurrentWeightBytes());
       assertNull(key.getPage(), "fail-closed eviction must clear the exact stale swizzle");
+    }
+  }
+
+  @Test
+  @DisplayName("clear retires every page before propagating a retirement Error")
+  void clearDrainsEveryOwnerBeforeRethrowing() {
+    try (Arena arena = Arena.ofConfined()) {
+      final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+      final HOTLeafPage failing = new HOTLeafPage(305, 1, IndexType.PROJECTION,
+          arena.allocate(HOTLeafPage.DEFAULT_SIZE), () -> {
+            throw new AssertionError("expected clear release failure");
+          }, new int[HOTLeafPage.MAX_ENTRIES], 0, 0);
+      final HOTLeafPage succeeding = hotLeaf(arena, 306, 1);
+      cache.put(keyFor(305), failing);
+      cache.put(keyFor(306), succeeding);
+
+      final AssertionError failure = assertThrows(AssertionError.class, cache::clear);
+
+      assertEquals("expected clear release failure", failure.getMessage());
+      assertTrue(failing.isClosed());
+      assertTrue(succeeding.isClosed());
+      assertEquals(0L, cache.size());
+      assertEquals(0L, cache.getCurrentWeightBytes());
     }
   }
 
@@ -307,6 +333,42 @@ class ShardedPageCacheTest {
       assertEquals(0L, cache.size());
       assertEquals(0L, cache.getCurrentWeightBytes());
       page.close();
+    } finally {
+      allowWeight.countDown();
+      executor.shutdownNow();
+    }
+  }
+
+  @Test
+  @DisplayName("clear waits for an in-flight admission and retires its exact owner")
+  void clearAndConcurrentAdmissionCannotLeaveMappingOrCharge() throws Exception {
+    final ShardedPageCache<FakePage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final CountDownLatch weightStarted = new CountDownLatch(1);
+    final CountDownLatch allowWeight = new CountDownLatch(1);
+    final CountDownLatch clearStarted = new CountDownLatch(1);
+    final CountDownLatch clearReturned = new CountDownLatch(1);
+    final FakePage page = new FakePage(405, weightStarted, allowWeight);
+    final ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      final Future<?> insertion = executor.submit(() -> cache.putIfAbsent(keyFor(405), page));
+      assertTrue(weightStarted.await(5, TimeUnit.SECONDS));
+
+      final Future<?> clearing = executor.submit(() -> {
+        clearStarted.countDown();
+        cache.clear();
+        clearReturned.countDown();
+      });
+      assertTrue(clearStarted.await(5, TimeUnit.SECONDS));
+      assertFalse(clearReturned.await(1, TimeUnit.SECONDS),
+          "clear must establish quiescence instead of racing a half-published admission");
+
+      allowWeight.countDown();
+      insertion.get(5, TimeUnit.SECONDS);
+      clearing.get(5, TimeUnit.SECONDS);
+
+      assertEquals(0L, cache.size());
+      assertEquals(0L, cache.getCurrentWeightBytes());
+      assertTrue(page.isClosed(), "the admitted page must be retired before clear returns");
     } finally {
       allowWeight.countDown();
       executor.shutdownNow();
@@ -386,6 +448,96 @@ class ShardedPageCacheTest {
     assertNull(cache.get(key), "raw get must never expose a closed cached page");
     assertEquals(0L, cache.size());
     assertEquals(0L, cache.getCurrentWeightBytes());
+  }
+
+  @Test
+  @DisplayName("asMap is a cached live view with no raw ownership-mutation escape")
+  void asMapRejectsEveryMutationRouteBeforeInvokingCallbacks() {
+    final ShardedPageCache<FakePage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final PageReference key = keyFor(405);
+    final FakePage page = new FakePage(405);
+    cache.put(key, page);
+    final var view = cache.asMap();
+    final var entry = view.entrySet().iterator().next();
+    final AtomicInteger callbacks = new AtomicInteger();
+
+    assertSame(view, cache.asMap(), "asMap must not allocate a wrapper on each observation");
+    assertThrows(UnsupportedOperationException.class, () -> view.put(key, page));
+    assertThrows(UnsupportedOperationException.class, () -> view.remove(key));
+    assertThrows(UnsupportedOperationException.class, () -> view.putAll(Map.of()));
+    assertThrows(UnsupportedOperationException.class, view::clear);
+    assertThrows(UnsupportedOperationException.class, () -> view.putIfAbsent(key, page));
+    assertThrows(UnsupportedOperationException.class, () -> view.remove(key, page));
+    assertThrows(UnsupportedOperationException.class, () -> view.replace(key, page));
+    assertThrows(UnsupportedOperationException.class, () -> view.replace(key, page, page));
+    assertThrows(UnsupportedOperationException.class, () -> view.replaceAll((_, value) -> {
+      callbacks.incrementAndGet();
+      return value;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.computeIfAbsent(keyFor(406), _ -> {
+      callbacks.incrementAndGet();
+      return page;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.computeIfPresent(key, (_, value) -> {
+      callbacks.incrementAndGet();
+      return value;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.compute(key, (_, value) -> {
+      callbacks.incrementAndGet();
+      return value;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.merge(key, page, (left, _) -> {
+      callbacks.incrementAndGet();
+      return left;
+    }));
+
+    assertThrows(UnsupportedOperationException.class, () -> view.keySet().remove(key));
+    assertThrows(UnsupportedOperationException.class, () -> view.keySet().removeAll(Set.of(key)));
+    assertThrows(UnsupportedOperationException.class, () -> view.keySet().retainAll(Set.of()));
+    assertThrows(UnsupportedOperationException.class, () -> view.keySet().removeIf(ignored -> {
+      callbacks.incrementAndGet();
+      return true;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.values().remove(page));
+    assertThrows(UnsupportedOperationException.class, () -> view.values().removeAll(Set.of(page)));
+    assertThrows(UnsupportedOperationException.class, () -> view.values().retainAll(Set.of()));
+    assertThrows(UnsupportedOperationException.class, () -> view.values().removeIf(ignored -> {
+      callbacks.incrementAndGet();
+      return true;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> view.entrySet().remove(entry));
+    assertThrows(UnsupportedOperationException.class, () -> view.entrySet().removeAll(Set.of(entry)));
+    assertThrows(UnsupportedOperationException.class, () -> view.entrySet().retainAll(Set.of()));
+    assertThrows(UnsupportedOperationException.class, () -> view.entrySet().removeIf(ignored -> {
+      callbacks.incrementAndGet();
+      return true;
+    }));
+    assertThrows(UnsupportedOperationException.class, () -> {
+      final var iterator = view.keySet().iterator();
+      iterator.next();
+      iterator.remove();
+    });
+    assertThrows(UnsupportedOperationException.class, () -> {
+      final var iterator = view.values().iterator();
+      iterator.next();
+      iterator.remove();
+    });
+    assertThrows(UnsupportedOperationException.class, () -> {
+      final var iterator = view.entrySet().iterator();
+      iterator.next();
+      iterator.remove();
+    });
+    assertThrows(UnsupportedOperationException.class, () -> entry.setValue(page));
+
+    assertEquals(0, callbacks.get(), "unsupported mutation must fail before a user callback runs");
+    assertSame(page, view.get(key));
+    assertEquals(1L, cache.size());
+    assertEquals(PAGE_BYTES, cache.getCurrentWeightBytes());
+    assertFalse(page.isClosed());
+
+    cache.clear();
+    assertTrue(view.isEmpty(), "the observational view must remain live");
+    assertTrue(page.isClosed());
   }
 
   @Test

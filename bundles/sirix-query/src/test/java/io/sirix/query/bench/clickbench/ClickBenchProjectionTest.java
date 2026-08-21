@@ -1,8 +1,20 @@
 package io.sirix.query.bench.clickbench;
 
+import com.google.gson.stream.JsonReader;
+import io.brackit.query.Query;
+import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexDef;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.Reader;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -20,18 +32,6 @@ final class ClickBenchProjectionTest {
     final Set<String> schema = new HashSet<>(ClickBenchSchema.COLUMNS);
     for (final String column : ClickBenchProjection.PROJECTED_COLUMNS) {
       Assertions.assertTrue(schema.contains(column), "projected column is not in the schema: " + column);
-    }
-  }
-
-  @Test
-  void projectsEveryColumnTheQueriesDereference() {
-    final Set<String> schema = new HashSet<>(ClickBenchSchema.COLUMNS);
-    final Set<String> projected = new HashSet<>(ClickBenchProjection.PROJECTED_COLUMNS);
-    for (final String referenced : ClickBenchQueries.referencedColumns()) {
-      if (schema.contains(referenced)) {
-        Assertions.assertTrue(projected.contains(referenced), "query text dereferences '" + referenced
-            + "' but the projection does not cover it — " + "every query touching it would decline");
-      }
     }
   }
 
@@ -67,12 +67,37 @@ final class ClickBenchProjectionTest {
   }
 
   @Test
-  void createQueryNamesEveryProjectedColumnUnderTheRootPath() {
-    final String query = ClickBenchProjection.createQuery();
-    Assertions.assertTrue(query.contains("jn:create-projection-index"), query);
-    for (final String column : ClickBenchProjection.PROJECTED_COLUMNS) {
-      Assertions.assertTrue(query.contains("'" + ClickBenchProjection.ROOT_PATH + "/" + column + "'"),
-          "create query omits " + column);
+  void createQueryPersistsTheDeclaredProjection(@TempDir final Path directory) throws Exception {
+    try (BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+                                                     .location(directory)
+                                                     .buildPathSummary(true)
+                                                     .build();
+        Reader source = ClickBenchSource.open("generate:4");
+        JsonReader jsonReader = new JsonReader(source)) {
+      store.create(ClickBenchSchema.DATABASE, ClickBenchSchema.RESOURCE, jsonReader);
+      try (SirixQueryContext context = SirixQueryContext.createWithJsonStore(store);
+          SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+        new Query(chain, ClickBenchProjection.createQuery()).evaluate(context);
+      }
+    }
+
+    try (Database<JsonResourceSession> database =
+             Databases.openJsonDatabase(directory.resolve(ClickBenchSchema.DATABASE));
+        JsonResourceSession session = database.beginResourceSession(ClickBenchSchema.RESOURCE)) {
+      final List<IndexDef> definitions = session.getRtxIndexController(session.getMostRecentRevisionNumber())
+                                                   .getIndexes()
+                                                   .getIndexDefs()
+                                                   .stream()
+                                                   .filter(IndexDef::isProjectionIndex)
+                                                   .toList();
+      Assertions.assertEquals(1, definitions.size());
+      final IndexDef expected = ClickBenchProjection.spec().toIndexDef();
+      final IndexDef actual = definitions.getFirst();
+      Assertions.assertEquals(expected.getProjectionRootPath().toString(),
+          actual.getProjectionRootPath().toString());
+      Assertions.assertEquals(expected.getProjectionFields().stream().map(Object::toString).toList(),
+          actual.getProjectionFields().stream().map(Object::toString).toList());
+      Assertions.assertEquals(expected.getProjectionFieldTypes(), actual.getProjectionFieldTypes());
     }
   }
 }

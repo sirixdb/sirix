@@ -63,6 +63,44 @@ final class FileChannelWriterShortWriteTest {
   }
 
   @Test
+  void positionalReadDrainsEveryShortReadAtTheNextExactOffset() throws IOException {
+    final FileChannel channel = mock(FileChannel.class);
+    final byte[] expected = {2, 3, 5, 7, 11, 13, 17};
+    final long initialOffset = 211L;
+    final AtomicInteger calls = new AtomicInteger();
+
+    when(channel.read(any(ByteBuffer.class), anyLong())).thenAnswer(invocation -> {
+      final ByteBuffer target = invocation.getArgument(0);
+      final long fileOffset = invocation.getArgument(1);
+      final int sourceOffset = Math.toIntExact(fileOffset - initialOffset);
+      final int count = Math.min(2, target.remaining());
+      target.put(expected, sourceOffset, count);
+      calls.incrementAndGet();
+      return count;
+    });
+
+    final ByteBuffer target = ByteBuffer.allocate(expected.length);
+    FileChannelWriter.readFully(channel, target, initialOffset);
+
+    assertArrayEquals(expected, target.array());
+    assertEquals(expected.length, target.position());
+    assertEquals(4, calls.get());
+  }
+
+  @Test
+  void zeroProgressReadFailsInsteadOfSpinningDuringRecovery() throws IOException {
+    final FileChannel channel = mock(FileChannel.class);
+    final ByteBuffer target = ByteBuffer.allocate(4);
+    when(channel.read(any(ByteBuffer.class), anyLong())).thenReturn(0);
+
+    final IOException failure = assertThrows(IOException.class,
+        () -> FileChannelWriter.readFully(channel, target, 307L));
+
+    assertEquals(0, target.position());
+    assertTrue(failure.getMessage().contains("made no progress"));
+  }
+
+  @Test
   void reusableConcreteViewDrainsOnlyItsExactPrefixAcrossPartialWrites() throws IOException {
     final FileChannel channel = mock(FileChannel.class);
     final byte[] expected = {2, 7, 1, 8, 2, 8};

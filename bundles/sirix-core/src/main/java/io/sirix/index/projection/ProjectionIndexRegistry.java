@@ -19,6 +19,8 @@ import java.util.Objects;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -53,6 +55,18 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public final class ProjectionIndexRegistry {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionIndexRegistry.class);
+
+  /**
+   * Executor-owned advisory work that can be abandoned before it starts.
+   *
+   * <p>{@link java.util.concurrent.ExecutorService#shutdownNow()} returns commands that never
+   * started. The executor owner calls {@link #cancelBeforeExecution()} for those commands so a
+   * handle's one-shot latch is not stranded by cache eviction and a later live executor can issue
+   * the hint. A command already running is fenced by executor termination instead.</p>
+   */
+  public interface CancellableBackgroundTask extends Runnable {
+    void cancelBeforeExecution();
+  }
 
   /**
    * Immutable handle published into the registry. Column order in {@link #fieldNames} defines the
@@ -737,24 +751,36 @@ public final class ProjectionIndexRegistry {
 
     /**
      * Background advisory readahead of every projection segment — a fresh process's first queries
-     * otherwise demand-fault the segments column by column. One daemon sweep through
+     * otherwise demand-fault the segments column by column. One executor-owned sweep through
      * {@link ProjectionColumnStore#prefetchAllSegments}; failures stay silent (pure hint).
      */
-    public void kickSegmentPrefetch(final Supplier<AutoCloseable> trxFactory,
+    public void kickSegmentPrefetch(final Executor executor, final Supplier<AutoCloseable> trxFactory,
         final Function<AutoCloseable, StorageEngineReader> readerOf) {
       final ProjectionColumnStore store = columnStore;
       if (store == null || !segmentPrefetchKicked.compareAndSet(false, true)) {
         return;
       }
-      final Thread t = new Thread(() -> {
-        try (AutoCloseable trx = trxFactory.get()) {
-          store.prefetchAllSegments(readerOf.apply(trx));
-        } catch (final Exception ignored) {
-          // Advisory only.
+      final CancellableBackgroundTask task = new CancellableBackgroundTask() {
+        @Override
+        public void run() {
+          try (AutoCloseable trx = trxFactory.get()) {
+            store.prefetchAllSegments(readerOf.apply(trx));
+          } catch (final Exception ignored) {
+            // Advisory only.
+          }
         }
-      }, "sirix-projection-prefetch");
-      t.setDaemon(true);
-      t.start();
+
+        @Override
+        public void cancelBeforeExecution() {
+          segmentPrefetchKicked.set(false);
+        }
+      };
+      try {
+        executor.execute(task);
+      } catch (final RejectedExecutionException rejected) {
+        // The owning executor raced close. Let a later live executor issue the one-shot hint.
+        task.cancelBeforeExecution();
+      }
     }
 
     /** One-shot latch so background promotion is kicked exactly once per handle. */
@@ -781,13 +807,13 @@ public final class ProjectionIndexRegistry {
     private static final long DEFAULT_PROMOTE_MAX_BYTES = 4L << 30;
 
     /**
-     * HOT promotion without the stall: materialize the whole-leaf payloads on a background thread while
+     * HOT promotion without the stall: materialize the whole-leaf payloads on an executor-owned task while
      * callers keep serving from slices; {@link #payloadsMaterialized()} flips when the work lands and
      * the byte kernels take over on the NEXT query. Failures are swallowed — a failed promotion just
      * means staying on the (correct) sliced path; the next synchronous consumer re-surfaces the error
      * attributably through {@link #rowGroupPayloads(Supplier)}.
      */
-    public void promoteInBackground(final Supplier<List<byte[]>> materializer) {
+    public void promoteInBackground(final Executor executor, final Supplier<List<byte[]>> materializer) {
       if (materializer == null || !promotionKicked.compareAndSet(false, true)) {
         return;
       }
@@ -801,15 +827,27 @@ public final class ProjectionIndexRegistry {
             projectedWeightBytes, promoteMaxBytes());
         return;
       }
-      final Thread t = new Thread(() -> {
-        try {
-          rowGroupPayloads(materializer);
-        } catch (final RuntimeException ignored) {
-          // Stay sliced; the sync path reports real corruption attributably.
+      final CancellableBackgroundTask task = new CancellableBackgroundTask() {
+        @Override
+        public void run() {
+          try {
+            rowGroupPayloads(materializer);
+          } catch (final RuntimeException ignored) {
+            // Stay sliced; the sync path reports real corruption attributably.
+          }
         }
-      }, "sirix-projection-promote");
-      t.setDaemon(true);
-      t.start();
+
+        @Override
+        public void cancelBeforeExecution() {
+          promotionKicked.set(false);
+        }
+      };
+      try {
+        executor.execute(task);
+      } catch (final RejectedExecutionException rejected) {
+        // The owning executor raced close. A later live executor may retry the promotion.
+        task.cancelBeforeExecution();
+      }
     }
 
     /**

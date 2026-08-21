@@ -100,11 +100,10 @@ public final class CommitSafetyTest {
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-      // maxNodeCount = 2: the threshold check runs at the START of each mutator, so with the
-      // top-level replace counting 1 and the nested remove() counting 2, the nested INSERT
-      // (count 3) crosses the threshold — without the compound-operation guard the auto-commit
-      // fires after the field was removed but before its replacement is inserted, durably
-      // committing the half-replaced tree.
+      // maxNodeCount = 2: the threshold preflight runs at the START of each mutator, so with the
+      // top-level replace counting 1 and the nested remove() counting 2, the nested INSERT sees a
+      // full epoch — without the compound-operation guard the auto-commit fires after the field was
+      // removed but before its replacement is inserted, durably committing the half-replaced tree.
       try (final var wtx = manager.beginNodeTrx(2)) {
         wtx.moveToFirstChild(); // root OBJECT
         wtx.moveToFirstChild(); // first field

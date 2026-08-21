@@ -6,8 +6,10 @@ package io.sirix.index.projection;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.PathParser;
 import io.sirix.JsonTestHelper;
+import io.sirix.access.Databases;
 import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.access.trx.node.json.ForwardingJsonNodeReadOnlyTrx;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
@@ -21,10 +23,13 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import static io.brackit.query.util.path.Path.parse;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -151,6 +156,90 @@ final class ProjectionIndexNestedPathTest {
     // No east record carries nested/city — column all-missing.
     assertFalse(presentAt(leaf, 2, 0));
     assertFalse(presentAt(leaf, 2, 1));
+  }
+
+  @Test
+  void repeatedJsonDescendantScalarIsUnrepresentableInsteadOfLastWins() {
+    JsonTestHelper.deleteEverything();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
+          "{\"records\":[{\"left\":{\"value\":\"a\"},\"right\":{\"value\":\"b\"}}]}"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx();
+         final var pathSummary = manager.openPathSummary()) {
+      final IndexDef def = IndexDefs.createProjectionIdxDef(
+          parse("/records/[]", PathParser.Type.JSON),
+          List.of(parse("//value", PathParser.Type.JSON)),
+          List.of(Type.STR), 0, IndexDef.DbType.JSON);
+      final List<byte[]> leaves = new ArrayList<>();
+      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
+
+      assertEquals(1, leaves.size());
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
+      assertEquals(1, leaf.getRowCount());
+      assertTrue(presentAt(leaf, 0, 0));
+      assertTrue(leaf.columnUnrepresentable(0),
+          "a scalar descendant path matching two values must force generic fallback");
+    }
+  }
+
+  @Test
+  void indexCreationPreservesPreexistingNonMonotoneRecordOrder() {
+    JsonTestHelper.deleteEverything();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
+          "{\"records\":[{\"age\":1},{\"age\":2}]}"), InsertPosition.AS_FIRST_CHILD)
+          .commitAfterwards()
+          .build()
+          .call();
+    }
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      assertTrue(wtx.moveToFirstChild());
+      wtx.insertObjectAsFirstChild()
+          .insertObjectRecordAsFirstChild("age", new NumberValue(0));
+      wtx.commit();
+    }
+
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        parse("/records/[]", PathParser.Type.JSON),
+        List.of(parse("/records/[]/age", PathParser.Type.JSON)),
+        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      manager.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
+      wtx.commit();
+    }
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final int revision = manager.getMostRecentRevisionNumber();
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.load(manager, revision, definition);
+      assertNotNull(handle, "the cold-reopened projection route must remain catalog-servable");
+      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          manager, revision, definition.getID(), handle.rowGroupCount()));
+      final long[] actual = new long[3];
+      int offset = 0;
+      for (final byte[] leafBytes : leaves) {
+        final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leafBytes);
+        final int rowCount = leaf.getRowCount();
+        System.arraycopy(leaf.numericColumn(0), 0, actual, offset, rowCount);
+        offset += rowCount;
+      }
+      assertEquals(actual.length, offset);
+      assertArrayEquals(new long[] { 0L, 1L, 2L }, actual);
+    }
   }
 
   @Test

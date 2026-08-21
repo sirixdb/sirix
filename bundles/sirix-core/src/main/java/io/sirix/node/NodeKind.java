@@ -1819,8 +1819,8 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * One value of a global projection value dictionary, keyed by its own id. See
-   * {@link ValueDictionaryEntryNode}.
+   * One immutable value of a global projection dictionary.  Its reverse radix bucket maps the
+   * stable dictionary id to this record's densely reserved persistence key.
    */
   VALUE_DICTIONARY_ENTRY((byte) 37) {
     @Override
@@ -1831,16 +1831,25 @@ public enum NodeKind implements DeweyIdSerializer {
         throw new IllegalStateException(
             "Value dictionary entry " + recordID + " declares a negative length of " + length);
       }
+      if (length > ValueDictionaryEntryNode.MAX_VALUE_LENGTH) {
+        throw new IllegalStateException("Value dictionary entry " + recordID
+            + " exceeds the safe V0 payload limit of "
+            + ValueDictionaryEntryNode.MAX_VALUE_LENGTH + " bytes");
+      }
+      if ((long) length > source.remaining()) {
+        throw new IllegalStateException(
+            "Value dictionary entry " + recordID + " exceeds its remaining wire payload");
+      }
       final byte[] value = new byte[length];
       source.read(value);
-      return new ValueDictionaryEntryNode(recordID, value);
+      return ValueDictionaryEntryNode.takeOwnership(recordID, value);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final ValueDictionaryEntryNode node = (ValueDictionaryEntryNode) record;
-      final byte[] value = node.getValue();
+      final byte[] value = node.borrowedValueForSerialization();
       sink.writeInt(value.length);
       sink.write(value);
     }
@@ -1855,7 +1864,8 @@ public enum NodeKind implements DeweyIdSerializer {
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final int count = source.readInt();
-      if (count <= 0) {
+      if (count <= 0 || count > ValueDictionaryDirectoryNode.ENTRIES_PER_BLOCK
+          || (long) count * (Long.BYTES + Integer.BYTES) > source.remaining()) {
         throw new IllegalStateException(
             "Value dictionary directory block " + recordID + " declares " + count + " entries");
       }
@@ -1896,12 +1906,8 @@ public enum NodeKind implements DeweyIdSerializer {
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final int version = source.readInt();
       final int entryCount = source.readInt();
-      final long entryBase = source.readLong();
-      final long directoryBase = source.readLong();
-      final int directoryBlockCount = source.readInt();
-      final int directoryCoversMaxId = source.readInt();
-      return new ValueDictionaryHeaderNode(recordID, version, entryCount, entryBase, directoryBase,
-          directoryBlockCount, directoryCoversMaxId);
+      return new ValueDictionaryHeaderNode(recordID, version, entryCount, source.readLong(),
+          source.readLong(), source.readInt());
     }
 
     @Override
@@ -1910,10 +1916,129 @@ public enum NodeKind implements DeweyIdSerializer {
       final ValueDictionaryHeaderNode node = (ValueDictionaryHeaderNode) record;
       sink.writeInt(node.getVersion());
       sink.writeInt(node.getEntryCount());
+      sink.writeLong(node.getForwardRootKey());
+      sink.writeLong(node.getReverseRootKey());
+      sink.writeInt(node.getGeneration());
+    }
+  },
+
+  VALUE_DICTIONARY_SEGMENT((byte) 40) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      return new ValueDictionarySegmentNode(recordID, source.readLong(), source.readInt(),
+          source.readInt(), source.readLong(), source.readLong(), source.readInt());
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionarySegmentNode node = (ValueDictionarySegmentNode) record;
+      sink.writeLong(node.getPreviousSegmentKey());
+      sink.writeInt(node.getFirstId());
+      sink.writeInt(node.getEntryCount());
       sink.writeLong(node.getEntryBase());
       sink.writeLong(node.getDirectoryBase());
       sink.writeInt(node.getDirectoryBlockCount());
-      sink.writeInt(node.getDirectoryCoversMaxId());
+    }
+  },
+
+  VALUE_DICTIONARY_RADIX((byte) 41) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final byte indexKind = source.readByte();
+      final byte depth = source.readByte();
+      final int count = Short.toUnsignedInt(source.readShort());
+      if (count > ValueDictionaryRadixNode.FANOUT
+          || (long) count * (Byte.BYTES + Long.BYTES) > source.remaining()) {
+        throw new IllegalStateException("invalid value dictionary radix child count " + count);
+      }
+      final byte[] childSlots = new byte[count];
+      final long[] childKeys = new long[count];
+      for (int i = 0; i < count; i++) {
+        childSlots[i] = source.readByte();
+        childKeys[i] = source.readLong();
+      }
+      return new ValueDictionaryRadixNode(recordID, indexKind, depth, childSlots, childKeys);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryRadixNode node = (ValueDictionaryRadixNode) record;
+      sink.writeByte(node.getIndexKind());
+      sink.writeByte(node.getDepth());
+      final byte[] childSlots = node.getChildSlots();
+      final long[] childKeys = node.getSparseChildKeys();
+      sink.writeShort((short) childKeys.length);
+      for (int index = 0; index < childKeys.length; index++) {
+        sink.writeByte(childSlots[index]);
+        sink.writeLong(childKeys[index]);
+      }
+    }
+  },
+
+  VALUE_DICTIONARY_HASH_BUCKET((byte) 42) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int bucket = source.readInt();
+      final byte secondaryDepth = source.readByte();
+      final long secondaryPrefix = source.readLong();
+      final long nextBucketKey = source.readLong();
+      final int count = source.readInt();
+      if (count <= 0 || count > 128
+          || (long) count * (Long.BYTES + Integer.BYTES) > source.remaining()) {
+        throw new IllegalStateException("invalid value dictionary hash bucket size");
+      }
+      final long[] hashes = new long[count];
+      final int[] ids = new int[count];
+      for (int i = 0; i < count; i++) hashes[i] = source.readLong();
+      for (int i = 0; i < count; i++) ids[i] = source.readInt();
+      return new ValueDictionaryHashBucketNode(recordID, bucket, secondaryDepth, secondaryPrefix,
+          nextBucketKey, hashes, ids);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryHashBucketNode node = (ValueDictionaryHashBucketNode) record;
+      final long[] hashes = node.getHashes();
+      final int[] ids = node.getIds();
+      sink.writeInt(node.getBucket());
+      sink.writeByte(node.getSecondaryDepth());
+      sink.writeLong(node.getSecondaryPrefix());
+      sink.writeLong(node.getNextBucketKey());
+      sink.writeInt(hashes.length);
+      for (final long hash : hashes) sink.writeLong(hash);
+      for (final int id : ids) sink.writeInt(id);
+    }
+  },
+
+  VALUE_DICTIONARY_VALUE_BUCKET((byte) 43) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int firstId = source.readInt();
+      final int count = source.readInt();
+      if (firstId <= 0 || count <= 0 || count > ValueDictionaryValueBucketNode.VALUES_PER_BUCKET
+          || (long) firstId + count - 1L > Integer.MAX_VALUE
+          || (long) count * Long.BYTES > source.remaining()) {
+        throw new IllegalStateException("invalid value dictionary value bucket size");
+      }
+      final long[] entryKeys = new long[count];
+      for (int i = 0; i < count; i++) entryKeys[i] = source.readLong();
+      return new ValueDictionaryValueBucketNode(recordID, firstId, entryKeys);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryValueBucketNode node = (ValueDictionaryValueBucketNode) record;
+      sink.writeInt(node.getFirstId());
+      sink.writeInt(node.size());
+      for (final long entryKey : node.getEntryKeys()) sink.writeLong(entryKey);
     }
   },
 
@@ -1922,7 +2047,7 @@ public enum NodeKind implements DeweyIdSerializer {
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
       final int length = source.readInt();
-      if (length < 0) {
+      if (length < 0 || (long) length > source.remaining()) {
         throw new IllegalStateException("Negative PROJECTION_INDEX_LEAF payload length: " + length);
       }
       final byte[] payload = new byte[length];
@@ -1948,6 +2073,28 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
         ResourceConfiguration resourceConfig) {
       throw new UnsupportedOperationException();
+    }
+  },
+
+  VALUE_DICTIONARY_COLLISION((byte) 45) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      if (source.remaining() < 2L * Integer.BYTES + 2L * Long.BYTES) {
+        throw new IllegalStateException("truncated value dictionary collision node");
+      }
+      return new ValueDictionaryCollisionNode(recordID, source.readInt(), source.readInt(),
+          source.readLong(), source.readLong());
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ValueDictionaryCollisionNode node = (ValueDictionaryCollisionNode) record;
+      sink.writeInt(node.getId());
+      sink.writeInt(node.getHeight());
+      sink.writeLong(node.getLeftKey());
+      sink.writeLong(node.getRightKey());
     }
   },
 

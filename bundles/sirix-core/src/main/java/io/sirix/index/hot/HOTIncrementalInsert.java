@@ -664,6 +664,51 @@ public final class HOTIncrementalInsert {
         && biNodePairs(node)[leftIndex];
   }
 
+  /** A half-open direct-child range representing one complete flattened BiNode subtree. */
+  record ChildRange(int fromInclusive, int toExclusive) {
+    int size() {
+      return toExclusive - fromInclusive;
+    }
+  }
+
+  /**
+   * Find the smallest complete flattened-BiNode range containing two child slots. A range may have
+   * more than two entries: adjacent partials are not necessarily siblings when one of them shares a
+   * deeper branch with a following entry.
+   */
+  static ChildRange minimalBiNodeRangeContaining(final HOTIndirectPage node,
+      final int firstIndex, final int lastIndex) {
+    Objects.requireNonNull(node, "node");
+    final int n = node.getNumChildren();
+    Objects.checkIndex(firstIndex, n);
+    Objects.checkIndex(lastIndex, n);
+    if (firstIndex >= lastIndex) {
+      throw new IllegalArgumentException(
+          "range endpoints must be ordered and distinct: " + firstIndex + ", " + lastIndex);
+    }
+    return minimalBiNodeRangeContaining(node.getPartialKeysRef(), 0, n - 1, firstIndex,
+        lastIndex);
+  }
+
+  private static ChildRange minimalBiNodeRangeContaining(final int[] partials, final int lo,
+      final int hi, final int firstIndex, final int lastIndex) {
+    if (hi <= lo) {
+      throw new IllegalArgumentException("two distinct child slots cannot fit in a singleton range");
+    }
+    final int splitBit = Integer.highestOneBit(partials[lo] ^ partials[hi]);
+    int mid = lo + 1;
+    while ((partials[mid] & splitBit) == 0) {
+      mid++;
+    }
+    if (lastIndex < mid) {
+      return minimalBiNodeRangeContaining(partials, lo, mid - 1, firstIndex, lastIndex);
+    }
+    if (firstIndex >= mid) {
+      return minimalBiNodeRangeContaining(partials, mid, hi, firstIndex, lastIndex);
+    }
+    return new ChildRange(lo, hi + 1);
+  }
+
   /**
    * Collapse two adjacent BiNode-paired leaf children of {@code node} into a single merged leaf —
    * the inverse of a leaf-page split, the structural core of incremental leaf consolidation. The
@@ -693,27 +738,86 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(mergedLeaf, "mergedLeaf");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    return replaceAdjacentPairAndCompress(node, leftIndex, swizzle(mergedLeaf), revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Replace two adjacent BiNode-paired children with one subtree and recompress the surviving
+   * parent entries.
+   *
+   * <p>The replacement occupies the lower child's complete {@code R(S)} region. Removing the upper
+   * child can make one or more of the parent's discriminative-bit columns constant across every
+   * surviving entry. Reusing the old mask in that case leaves a dead column in the parent (and stale
+   * partial-key coordinates). Delegating the entire survivor array to {@link #compressHalf} drops
+   * exactly those columns and repacks every partial atomically.
+   *
+   * <p><b>Purity.</b> This method never mutates {@code node} or {@code replacementRef}. The caller
+   * retains ownership of both until it publishes the returned reference.
+   *
+   * @param node the compound node containing the adjacent pair
+   * @param leftIndex the lower of the two adjacent BiNode-paired child indices
+   * @param replacementRef the subtree replacing both children
+   * @param revision the revision stamped onto the rebuilt parent
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return a recompressed parent, or the replacement itself if it is the lone survivor
+   */
+  static PageReference replaceAdjacentPairAndCompress(final HOTIndirectPage node,
+      final int leftIndex, final PageReference replacementRef, final int revision,
+      final LongSupplier pageKeyAllocator) {
     final int n = node.getNumChildren();
     Objects.checkIndex(leftIndex, n - 1);
     if (!biNodePairs(node)[leftIndex]) {
       throw new IllegalArgumentException("children " + leftIndex + " and " + (leftIndex + 1)
           + " are not BiNode-paired — their union is not a single complete R(S)-subtree");
     }
+    return replaceChildRangeAndCompress(node, leftIndex, leftIndex + 2, replacementRef, revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Replace one complete contiguous flattened-BiNode child range with a subtree, then drop every
+   * parent discriminator column that became constant and repack the survivor partials.
+   *
+   * <p>The range must be exact: broadening or narrowing it would make the replacement cover only a
+   * fragment of an {@code R(S)} region and could redirect keys owned by a surviving sibling. The
+   * replacement inherits the range's lower stored partial before {@link #compressHalf} converts all
+   * survivors into their final coordinates.</p>
+   */
+  static PageReference replaceChildRangeAndCompress(final HOTIndirectPage node,
+      final int fromInclusive, final int toExclusive, final PageReference replacementRef,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(replacementRef, "replacementRef");
+    Objects.requireNonNull(replacementRef.getPage(), "replacementRef.page");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int n = node.getNumChildren();
+    Objects.checkFromToIndex(fromInclusive, toExclusive, n);
+    if (toExclusive - fromInclusive < 2) {
+      throw new IllegalArgumentException("a collapsed child range must contain at least two entries");
+    }
+    final ChildRange exact = minimalBiNodeRangeContaining(node, fromInclusive, toExclusive - 1);
+    if (exact.fromInclusive() != fromInclusive || exact.toExclusive() != toExclusive) {
+      throw new IllegalArgumentException("children [" + fromInclusive + ", " + toExclusive
+          + ") are not one complete flattened BiNode range; minimal complete range is ["
+          + exact.fromInclusive() + ", " + exact.toExclusive() + ")");
+    }
+
     final int[] partials = node.getPartialKeysRef();
     final int[] discBits = discriminativeBits(node);
-    final PageReference[] newChildren = new PageReference[n - 1];
-    final int[] newPartials = new int[n - 1];
-    for (int j = 0; j < n - 1; j++) {
-      if (j < leftIndex) {
-        newChildren[j] = node.getChildReference(j);
-        newPartials[j] = partials[j];
-      } else if (j == leftIndex) {
-        newChildren[j] = swizzle(mergedLeaf);
-        newPartials[j] = partials[leftIndex]; // the lower child already carries the joining bit 0
-      } else {
-        newChildren[j] = node.getChildReference(j + 1);
-        newPartials[j] = partials[j + 1];
-      }
+    final int newCount = n - (toExclusive - fromInclusive) + 1;
+    final PageReference[] newChildren = new PageReference[newCount];
+    final int[] newPartials = new int[newCount];
+    int target = 0;
+    for (int source = 0; source < fromInclusive; source++) {
+      newChildren[target] = node.getChildReference(source);
+      newPartials[target++] = partials[source];
+    }
+    newChildren[target] = replacementRef;
+    newPartials[target++] = partials[fromInclusive];
+    for (int source = toExclusive; source < n; source++) {
+      newChildren[target] = node.getChildReference(source);
+      newPartials[target++] = partials[source];
     }
     return compressHalf(newChildren, newPartials, discBits, revision, pageKeyAllocator);
   }

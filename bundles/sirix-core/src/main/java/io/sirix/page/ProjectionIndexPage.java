@@ -102,7 +102,7 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
    * {@code IndexDef} id. Creates an empty reference slot if none exists yet.
    */
   public PageReference getIndirectPageReference(int index) {
-    return getOrCreateReference(index);
+    return getOrCreateProjectionReference(index);
   }
 
   @Override
@@ -116,11 +116,7 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
    */
   public void createProjectionIndexTree(final StorageEngineReader storageEngineReader,
       final int index, final TransactionIntentLog log) {
-    PageReference reference = getOrCreateReference(index);
-    if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(index);
-    }
+    final PageReference reference = getOrCreateProjectionReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createHOTTree(reference, IndexType.PROJECTION, storageEngineReader, log);
@@ -133,23 +129,12 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     }
   }
 
-  /**
-   * Swap in a FRESH empty sub-tree for {@code index}, discarding the existing one — the
-   * v1→v2 migration primitive (docs/PROJECTION_INDEX_STORAGE_REDESIGN.md §6): a
-   * pre-descriptor chunked store cannot be selectively cleared (its composite chunk keys
-   * would poison descriptor enumeration forever), so a rebuild over one replaces the whole
-   * tree. Old pages become unreferenced from this revision on (append-only store: bytes stay
-   * on disk, unreachable); earlier revisions keep serving their own sub-tree.
-   */
+  /** Swap in a fresh empty sub-tree for {@code index}, preserving earlier revisions through CoW. */
   public void resetProjectionIndexTree(final StorageEngineReader storageEngineReader,
       final int index, final TransactionIntentLog log) {
-    PageReference reference = getOrCreateReference(index);
-    if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(index);
-    }
+    getOrCreateProjectionReference(index);
     final PageReference fresh = new PageReference();
-    delegate.setOrCreateReference(index, fresh);
+    delegate = PageUtils.setReference(delegate, index, fresh);
     PageUtils.createHOTTree(fresh, IndexType.PROJECTION, storageEngineReader, log);
     maxNodeKeys.put(index, 0L);
     maxHotPageKeys.put(index, 0L);
@@ -160,11 +145,7 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
   @SuppressWarnings("unused")
   public void createLegacyProjectionIndexTree(final DatabaseType databaseType,
       final StorageEngineReader storageEngineReader, final int index, final TransactionIntentLog log) {
-    PageReference reference = getOrCreateReference(index);
-    if (reference == null) {
-      delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
-      reference = delegate.getOrCreateReference(index);
-    }
+    final PageReference reference = getOrCreateProjectionReference(index);
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
       PageUtils.createTree(databaseType, reference, IndexType.PROJECTION, storageEngineReader, log);
@@ -175,6 +156,28 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
       }
       currentMaxLevelsOfIndirectPages.put(index, 0);
     }
+  }
+
+  /**
+   * Create one projection-root reference while honoring both delegate growth thresholds.
+   *
+   * <p>{@link BitmapReferencesPage#getOrCreateReference(int)} deliberately returns {@code null}
+   * when adding the threshold entry, after the entry has already been installed. Treating every
+   * such {@code null} as a {@link ReferencesPage4} overflow causes a class cast at the
+   * bitmap-to-full transition. Routing the replacement through {@link PageUtils#setReference}
+   * performs the correct sparse-to-bitmap or bitmap-to-full conversion.</p>
+   */
+  private PageReference getOrCreateProjectionReference(final int index) {
+    if (index < 0 || index >= Constants.INP_REFERENCE_COUNT) {
+      throw new IndexOutOfBoundsException("projection index number out of range: " + index);
+    }
+    final PageReference existingOrCreated = delegate.getOrCreateReference(index);
+    if (existingOrCreated != null) {
+      return existingOrCreated;
+    }
+    final PageReference created = new PageReference();
+    delegate = PageUtils.setReference(delegate, index, created);
+    return created;
   }
 
   public int getCurrentMaxLevelOfIndirectPages(int index) {
