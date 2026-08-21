@@ -1,5 +1,6 @@
 package io.sirix.cache;
 
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import org.jspecify.annotations.Nullable;
@@ -504,6 +505,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return the page container, or {@code null} if not in any TIL layer
    */
   public PageContainer get(final PageReference ref) {
+    HftBoundaryTelemetry.tilRead();
     // A copied reference may still carry the generation/log-key fields it had when it was copied.
     // Refreshing follows its reachability-scoped handle to either the newest TIL identity or the
     // durable offset, without consulting transaction-wide historical maps.
@@ -657,6 +659,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value the page container with complete and modified versions
    */
   public void put(final PageReference ref, final PageContainer value) {
+    HftBoundaryTelemetry.tilWrite();
     // Clear cached hash before modifying key properties
     ref.clearCachedHash();
 
@@ -1593,32 +1596,54 @@ public final class TransactionIntentLog implements AutoCloseable {
    * memory is released. Also clears any active snapshot (best-effort, no offset validation).
    */
   public void clear() {
-    // Ensure pending cache operations are complete before closing pages
-    bufferManager.getRecordPageCache().cleanUp();
-    bufferManager.getRecordPageFragmentCache().cleanUp();
-    bufferManager.getPageCache().cleanUp();
+    Throwable closeFailure = null;
+    try {
+      bufferManager.getRecordPageCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
+    try {
+      bufferManager.getRecordPageFragmentCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
+    try {
+      bufferManager.getPageCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Close all current TIL pages
     for (int i = 0; i < size; i++) {
       final PageContainer container = entries[i];
-      if (container != null) {
-        closePageContainer(container);
+      try {
+        if (container != null) {
+          closePageContainer(container);
+        }
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      } finally {
         entries[i] = null;
         entryRefs[i] = null;
       }
     }
     size = 0;
     resetHOTLeafIndex();
-    clearPinnedEntries();
+    try {
+      clearPinnedEntries();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Close snapshot pages unconditionally (best-effort — no offset validation).
-    // This handles the error/rollback path where bg thread may have failed mid-write.
-    clearSnapshotPages();
+    try {
+      clearSnapshotPages();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Clear completed disk offsets map
     completedDiskOffsets.clear();
     forwardedEntries.clear();
     completedDiskHashes.clear();
+    rethrowFailure(closeFailure);
   }
 
   /**
@@ -1631,10 +1656,16 @@ public final class TransactionIntentLog implements AutoCloseable {
     // zero. Rollback reaches this method with unresolved handles; in that case the high-water mark
     // stays append-only so an accidentally retained stale reference can never alias a later page.
     boolean allSurvivingHandlesDurable = true;
+    Throwable closeFailure = null;
     for (int position = 0; position < pinnedLiveCount; position++) {
       final PageReference reference = pinnedRefs[livePinnedSlots[position]];
-      if (reference == null || !reference.refreshesToUnclaimedDurableReference()) {
+      try {
+        if (reference == null || !reference.refreshesToUnclaimedDurableReference()) {
+          allSurvivingHandlesDurable = false;
+        }
+      } catch (final RuntimeException | Error failure) {
         allSurvivingHandlesDurable = false;
+        closeFailure = retainFailure(closeFailure, failure);
       }
     }
     if (!allSurvivingHandlesDurable) {
@@ -1646,13 +1677,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     for (int position = 0; position < pinnedLiveCount; position++) {
       final int slot = livePinnedSlots[position];
       final PageContainer container = pinnedEntries[slot];
-      if (container != null) {
-        closePageContainer(container);
+      try {
+        if (container != null) {
+          closePageContainer(container);
+        }
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      } finally {
         pinnedEntries[slot] = null;
+        pinnedRefs[slot] = null;
+        livePinnedPositionBySlot[slot] = -1;
+        livePinnedSlots[position] = -1;
       }
-      pinnedRefs[slot] = null;
-      livePinnedPositionBySlot[slot] = -1;
-      livePinnedSlots[position] = -1;
     }
     pinnedLiveCount = 0;
     pinnedSpillScanCursor = 0;
@@ -1662,6 +1698,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       // its handle. Together with the live pre-pass above this covers the whole [0, highWater) epoch.
       pinnedHighWater = 0;
     }
+    rethrowFailure(closeFailure);
   }
 
   /**
@@ -1669,31 +1706,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   @Override
   public void close() {
-    // Ensure pending cache operations are complete
-    bufferManager.getRecordPageCache().cleanUp();
-    bufferManager.getRecordPageFragmentCache().cleanUp();
-    bufferManager.getPageCache().cleanUp();
-
-    // Close all current TIL pages
-    for (int i = 0; i < size; i++) {
-      final PageContainer container = entries[i];
-      if (container != null) {
-        closePageContainer(container);
-        entries[i] = null;
-        entryRefs[i] = null;
-      }
-    }
-    size = 0;
-    resetHOTLeafIndex();
-    clearPinnedEntries();
-
-    // Close snapshot pages unconditionally
-    clearSnapshotPages();
-
-    // Clear completed disk offsets map
-    completedDiskOffsets.clear();
-    completedDiskHashes.clear();
-    forwardedEntries.clear();
+    clear();
   }
 
   /**
@@ -1702,10 +1715,17 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   private void clearSnapshotPages() {
     if (snapshotEntries != null) {
+      Throwable closeFailure = null;
       for (int i = 0; i < snapshotSize; i++) {
         final PageContainer container = snapshotEntries[i];
-        if (container != null) {
-          closePageContainer(container);
+        try {
+          if (container != null) {
+            closePageContainer(container);
+          }
+        } catch (final RuntimeException | Error failure) {
+          closeFailure = retainFailure(closeFailure, failure);
+        } finally {
+          snapshotEntries[i] = null;
         }
       }
       snapshotEntries = null;
@@ -1715,6 +1735,26 @@ public final class TransactionIntentLog implements AutoCloseable {
       snapshotHashPresent = null;
       snapshotLogReferences = null;
       snapshotSize = 0;
+      rethrowFailure(closeFailure);
+    }
+  }
+
+  private static Throwable retainFailure(final Throwable retained, final Throwable failure) {
+    if (retained == null) {
+      return failure;
+    }
+    if (retained != failure) {
+      retained.addSuppressed(failure);
+    }
+    return retained;
+  }
+
+  private static void rethrowFailure(final Throwable failure) {
+    if (failure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (failure instanceof Error error) {
+      throw error;
     }
   }
 
@@ -1722,10 +1762,22 @@ public final class TransactionIntentLog implements AutoCloseable {
    * Close both pages in a container, handling identity (complete == modified).
    */
   private void closePageContainer(final PageContainer container) {
-    closePage(container.getComplete());
-    if (container.getModified() != container.getComplete()) {
-      closePage(container.getModified());
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    Throwable closeFailure = null;
+    try {
+      closePage(complete);
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = failure;
     }
+    if (modified != complete) {
+      try {
+        closePage(modified);
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      }
+    }
+    rethrowFailure(closeFailure);
   }
 
   /**

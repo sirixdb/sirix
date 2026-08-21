@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.page;
 
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
@@ -102,10 +103,12 @@ import java.util.Optional;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -176,6 +179,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * Determines if transaction is closed.
    */
   private volatile boolean isClosed;
+
+  /**
+   * First failure after an in-memory structural mutation crossed its publication boundary. Unlike
+   * the async-flush latch, this describes a writer-thread page-graph failure. It is terminal for
+   * this writer; rollback replaces the writer instead of clearing the cause in place.
+   */
+  private volatile @Nullable Throwable transactionRollbackOnlyCause;
 
   /**
    * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter once it
@@ -394,7 +404,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /** One task identity per writer; the bounded append executor never needs an epoch task wrapper. */
-  private final Runnable asyncSnapshotWriteTask = this::runAsyncSnapshotWriteTask;
+  private final AsyncSnapshotWriteTask asyncSnapshotWriteTask = new AsyncSnapshotWriteTask();
 
   /**
    * The throwable that killed a background snapshot flush, or the one that stopped a flush from
@@ -471,6 +481,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * already-owning foreground/worker threads and emits one summary after the final fence.
    */
   private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+  private static final AtomicLong HFT_GLOBAL_SUBMIT_WAIT_COUNT = new AtomicLong();
+  private static final AtomicLong HFT_GLOBAL_SUBMIT_WAIT_NANOS = new AtomicLong();
+  private static final AtomicLong HFT_GLOBAL_SUBMIT_WAIT_MAX_NANOS = new AtomicLong();
+  private static final AtomicLong HFT_GLOBAL_CALLER_APPEND_RUNS = new AtomicLong();
 
   private long hftStagedSidePages;
   private long hftStagedSideBytes;
@@ -492,6 +506,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private long hftWorkerRuns;
   private long hftWorkerNanos;
   private long hftMaxWorkerNanos;
+  private long hftSubmitWaitCount;
+  private long hftSubmitWaitNanos;
+  private long hftMaxSubmitWaitNanos;
+  private long hftCallerThreadAppendRuns;
+  private long hftStartFlushCount;
+  private long hftStartFlushNanos;
+  private long hftMaxStartFlushNanos;
+  private long hftFinalDrainCount;
+  private long hftFinalDrainNanos;
+  private long hftMaxFinalDrainNanos;
 
   /** Monotonic writer-local identity for non-empty async epochs. */
   private long hftEpochSequence;
@@ -749,6 +773,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             + "permitWaitTotalNs=%d permitWaitMaxNs=%d rotationPermitAcquires=%d "
             + "rotationPermitWaitTotalNs=%d rotationPermitWaitMaxNs=%d drainPermitAcquires=%d "
             + "drainPermitWaitTotalNs=%d drainPermitWaitMaxNs=%d workerRuns=%d workerTotalNs=%d workerMaxNs=%d "
+            + "submitWaitCount=%d submitWaitTotalNs=%d submitWaitMaxNs=%d callerThreadAppendRuns=%d "
+            + "startFlushCount=%d startFlushTotalNs=%d startFlushMaxNs=%d "
+            + "finalDrainCount=%d finalDrainTotalNs=%d finalDrainMaxNs=%d "
             + "nativeReservoirCount=%d nativeReservoirBytes=%d kvlFrameCachePages=%d "
             + "kvlFrameCacheBytes=%d kvlCacheFallbackPages=%d kvlCacheFallbackBytes=%d "
             + "pinnedTrieSpillEpochs=%d pinnedTrieSpillPages=%d pinnedTrieSpillBatchMax=%d "
@@ -759,6 +786,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         hftMaxPermitWaitNanos, hftRotationPermitAcquires, hftRotationPermitWaitNanos,
         hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
         hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
+        hftSubmitWaitCount, hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns,
+        hftStartFlushCount, hftStartFlushNanos, hftMaxStartFlushNanos,
+        hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos,
         hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages,
         hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
         hftPinnedTrieSpillEpochs, hftPinnedTrieSpillPages, hftPinnedTrieSpillBatchMax,
@@ -859,6 +889,24 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   public void setWriteSingletonBinder(final WriteSingletonBinder binder) {
     this.writeSingletonBinder = binder;
+  }
+
+  @Override
+  public synchronized void markTransactionRollbackOnly(final Throwable cause) {
+    requireNonNull(cause);
+    if (transactionRollbackOnlyCause == null) {
+      transactionRollbackOnlyCause = cause;
+    }
+  }
+
+  @Override
+  public void assertTransactionWritable() {
+    final Throwable cause = transactionRollbackOnlyCause;
+    if (cause != null) {
+      throw new SirixIOException(
+          "Page transaction is rollback-only after a published structural mutation failed; rollback is required",
+          cause);
+    }
   }
 
   @Override
@@ -1490,6 +1538,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   /** Start either a combined KVL+side-page epoch or a side-page-only epoch. */
   private void startAsyncFlush(final boolean includeTransactionLog) {
+    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    try {
+      startAsyncFlushOwned(includeTransactionLog);
+    } finally {
+      if (HFT_TELEMETRY_ENABLED) {
+        final long elapsed = Math.max(0L, System.nanoTime() - started);
+        hftStartFlushCount++;
+        hftStartFlushNanos += elapsed;
+        hftMaxStartFlushNanos = Math.max(hftMaxStartFlushNanos, elapsed);
+      }
+    }
+  }
+
+  private void startAsyncFlushOwned(final boolean includeTransactionLog) {
     // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
     if (asyncTerminalFailure) {
       throw asyncFlushFailure("Transaction in terminal failure state from a prior async commit error");
@@ -1513,6 +1575,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // left behind parks the next awaitPendingAsyncFlush() forever — turning the rollback that a
     // failure here triggers into a hang that buries the very exception that caused it.
     boolean permitTransferred = false;
+    boolean admissionArmed = false;
+    boolean admissionTransferred = false;
     try {
       // CRITICAL double-check: error may have been set by background thread
       // between our latch check above and the acquire completing.
@@ -1539,6 +1603,27 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       injectAsyncFlushFault("prepare");
 
+      final long admissionWaitStart = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+      try {
+        if (!SNAPSHOT_APPEND_EXECUTOR.acquireAdmissionUntilProgressStalls(ASYNC_FLUSH_STALL_TIMEOUT_NANOS)) {
+          throw new SirixIOException("Snapshot append admission made no progress for "
+              + TimeUnit.NANOSECONDS.toMillis(ASYNC_FLUSH_STALL_TIMEOUT_NANOS) + " ms");
+        }
+      } catch (final InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new SirixIOException("Interrupted while waiting for snapshot append admission", interrupted);
+      }
+      try {
+        asyncSnapshotWriteTask.armAdmission();
+      } catch (final Throwable failure) {
+        SNAPSHOT_APPEND_EXECUTOR.releaseUnassignedAdmission();
+        throw failure;
+      }
+      admissionArmed = true;
+      final long admissionWaitNanos = HFT_TELEMETRY_ENABLED
+          ? Math.max(0L, System.nanoTime() - admissionWaitStart)
+          : 0L;
+
       // O(1) snapshots — array swaps only. A side-only epoch MUST NOT rotate the TIL: it can run
       // in the middle of projection maintenance while that maintenance is still reading records.
       final int snapshotSize = includeTransactionLog
@@ -1551,6 +1636,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // fake pending epoch into the next real flush.
           log.cleanupSnapshot();
         }
+        SNAPSHOT_APPEND_EXECUTOR.releaseTaskAdmission(asyncSnapshotWriteTask);
+        admissionArmed = false;
         return;
       }
 
@@ -1561,6 +1648,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           hftSideOnlyEpochs++;
         }
         hftActiveEpochId = ++hftEpochSequence;
+        hftSubmitWaitCount++;
+        hftSubmitWaitNanos += admissionWaitNanos;
+        hftMaxSubmitWaitNanos = Math.max(hftMaxSubmitWaitNanos, admissionWaitNanos);
+        HFT_GLOBAL_SUBMIT_WAIT_COUNT.incrementAndGet();
+        HFT_GLOBAL_SUBMIT_WAIT_NANOS.addAndGet(admissionWaitNanos);
+        HFT_GLOBAL_SUBMIT_WAIT_MAX_NANOS.accumulateAndGet(admissionWaitNanos, Math::max);
       }
 
       if (includeTransactionLog) {
@@ -1580,7 +1673,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       asyncSnapshotWriteComplete = false;
       asyncFlushInFlight = true;
       asyncFlushWorkerRunning = true;
-      asyncFlushProgressNanos = System.nanoTime();
+      markAsyncFlushProgress();
 
       // Background thread: append the frozen immutable pages, plus KVL pages for a combined epoch.
       // CRITICAL: If submission throws (RejectedExecutionException), the snapshot state is
@@ -1588,13 +1681,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // the finally hands the permit back.
       try {
         // Ownership transfers the instant execute returns. No completion wrapper is registered:
-        // executeSnapshotWrite catches every Throwable and always releases the permit, while the
+        // runAsyncSnapshotWriteTask catches every Throwable and always releases the permit, while the
         // persistent Runnable and array-backed queue keep the submission path allocation-free.
         if (HFT_TELEMETRY_ENABLED) {
           hftActiveEpochSubmittedNanos = System.nanoTime();
         }
         SNAPSHOT_APPEND_EXECUTOR.execute(asyncSnapshotWriteTask);
+        HftBoundaryTelemetry.asyncSubmission();
         permitTransferred = true;
+        admissionTransferred = true;
       } catch (final Throwable t) {
         // ThreadPoolExecutor.execute may exceptionally fail while ensuring a replacement worker
         // AFTER it has queued the command. The task-state CAS, not execute()'s return, decides who
@@ -1606,6 +1701,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           asyncSnapshotWriteComplete = false;
         } else {
           permitTransferred = true;
+          admissionTransferred = true;
         }
         throw new SirixIOException("Failed to submit async commit", t);
       }
@@ -1625,11 +1721,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (!permitTransferred) {
         flushPermit.release();
       }
+      if (admissionArmed && !admissionTransferred) {
+        SNAPSHOT_APPEND_EXECUTOR.releaseTaskAdmission(asyncSnapshotWriteTask);
+      }
     }
   }
 
   @Override
   public void awaitPendingAsyncFlush() {
+    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    try {
+      awaitPendingAsyncFlushOwned();
+    } finally {
+      if (HFT_TELEMETRY_ENABLED) {
+        final long elapsed = Math.max(0L, System.nanoTime() - started);
+        hftFinalDrainCount++;
+        hftFinalDrainNanos += elapsed;
+        hftMaxFinalDrainNanos = Math.max(hftMaxFinalDrainNanos, elapsed);
+      }
+    }
+  }
+
+  private void awaitPendingAsyncFlushOwned() {
     awaitInFlightAsyncFlushOnly();
 
     // Final projection maintenance can stage pages AFTER the last periodic async epoch. Drain that
@@ -1932,7 +2045,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     // Removal is for prompt queue-retention cleanup. Correctness comes from the state CAS: if a
     // worker dequeued immediately before it, run() observes CANCELLED and exits without releasing.
-    SNAPSHOT_APPEND_EXECUTOR.remove(asyncSnapshotWriteTask);
+    SNAPSHOT_APPEND_EXECUTOR.removeAdmitted(asyncSnapshotWriteTask);
+    SNAPSHOT_APPEND_EXECUTOR.releaseTaskAdmission(asyncSnapshotWriteTask);
     asyncFlushWorkerRunning = false;
     return true;
   }
@@ -1995,17 +2109,74 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * flush), which turned the {@code flushPermit} backpressure into a near-synchronous stall; parallel
    * pre-serialization restores the intended overlap.
    */
-  private void runAsyncSnapshotWriteTask() {
-    // Cancellation owns and has already released the permit when it wins ENQUEUED -> CANCELLED.
-    // A dequeued-but-not-yet-started command therefore exits without touching writer-owned state
-    // and, critically, without a second release.
-    if (!ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(this, ASYNC_TASK_ENQUEUED, ASYNC_TASK_RUNNING)) {
-      return;
+  private final class AsyncSnapshotWriteTask extends AdmittedSnapshotAppendTask {
+    @Override
+    public void run() {
+      runAsyncSnapshotWriteTask();
     }
-    executeSnapshotWrite();
+
+    @Override
+    boolean executorReleasesAdmission() {
+      // runAsyncSnapshotWriteTask releases before COMPLETED/flushPermit publication. Keeping that exact
+      // ordering closes the persistent-task reuse race without delaying global append admission.
+      return false;
+    }
+
+    @Override
+    void cancelledByShutdown() {
+      if (ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(NodeStorageEngineWriter.this,
+          ASYNC_TASK_ENQUEUED, ASYNC_TASK_CANCELLED)) {
+        final RejectedExecutionException shutdown =
+            new RejectedExecutionException("Snapshot append executor shut down before the task ran");
+        recordAsyncFlushFailure(shutdown);
+        asyncFlushInFlight = false;
+        asyncSnapshotIncludesLog = false;
+        asyncSnapshotWriteComplete = false;
+        asyncFlushWorkerRunning = false;
+        flushPermit.release();
+      }
+    }
+  }
+
+  private void runAsyncSnapshotWriteTask() {
+    if (ASYNC_SNAPSHOT_WRITE_TASK_STATE.compareAndSet(this, ASYNC_TASK_ENQUEUED, ASYNC_TASK_RUNNING)) {
+      try {
+        executeSnapshotWrite();
+      } catch (final Throwable failure) {
+        recordAsyncSnapshotWriteFailure(failure);
+      } finally {
+        try {
+          HftBoundaryTelemetry.asyncCompletion();
+        } catch (final Throwable telemetryFailure) {
+          recordAsyncSnapshotWriteFailure(telemetryFailure);
+        } finally {
+          // Release the global admission before publishing writer-local reuse. afterExecute must
+          // not repeat this release: the foreground may re-arm this persistent task identity as
+          // soon as COMPLETED and flushPermit become visible.
+          SNAPSHOT_APPEND_EXECUTOR.releaseTaskAdmission(asyncSnapshotWriteTask);
+          ASYNC_SNAPSHOT_WRITE_TASK_STATE.setRelease(this, ASYNC_TASK_COMPLETED);
+          asyncFlushWorkerRunning = false;
+          flushPermit.release();
+        }
+      }
+    }
+  }
+
+  /** Retain and report one worker failure without weakening the mandatory lifecycle release. */
+  private void recordAsyncSnapshotWriteFailure(final Throwable failure) {
+    recordAsyncFlushFailure(failure);
+    try {
+      LOGGER.error("Background snapshot flush FAILED — transaction is now in terminal failure state", failure);
+    } catch (final Throwable ignored) {
+      // The retained poison still carries the original append/serialization failure.
+    }
   }
 
   private void executeSnapshotWrite() {
+    if (HFT_TELEMETRY_ENABLED && !isSnapshotAppendWorkerThread()) {
+      hftCallerThreadAppendRuns++;
+      HFT_GLOBAL_CALLER_APPEND_RUNS.incrementAndGet();
+    }
     final long workerStart = HFT_TELEMETRY_ENABLED
         ? System.nanoTime()
         : 0L;
@@ -2032,9 +2203,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     long serializeJoinWaitNanos = 0L;
     long kvlAppendNanos = 0L;
     long finalFlushNanos = 0L;
-    asyncFlushProgressNanos = HFT_TELEMETRY_ENABLED
-        ? workerStart
-        : System.nanoTime();
+    markAsyncFlushProgress();
     try {
       // A timeout can publish poison just after this task wins ENQUEUED -> RUNNING. The worker now
       // owns the permit, but it need not start an append that can never be published; its finally
@@ -2092,7 +2261,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               }
             }
             serializeTask = null;
-            asyncFlushProgressNanos = System.nanoTime();
+            markAsyncFlushProgress();
             final int nextBase = base + SNAPSHOT_FLUSH_WINDOW;
             if (nextBase < size) {
               serializeTask = serializeSnapshotWindowAsync(config, nextBase, size, nextWindow);
@@ -2174,7 +2343,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             final KeyValueLeafPage[] swap = currentWindow;
             currentWindow = nextWindow;
             nextWindow = swap;
-            asyncFlushProgressNanos = System.nanoTime();
+            markAsyncFlushProgress();
           }
         } finally {
           // On failure mid-flight, wait out the in-flight serialization (its copies must
@@ -2211,7 +2380,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             finalFlushNanos += System.nanoTime() - finalFlushStart;
           }
         }
-        asyncFlushProgressNanos = System.nanoTime();
+        markAsyncFlushProgress();
         injectAsyncFlushFault("after-flush");
       } finally {
         bgBuffer.close();
@@ -2222,16 +2391,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Positive publication last. The semaphore release in finally is the happens-before edge to
       // the foreground, which refuses to publish a single real reference without this marker.
       asyncSnapshotWriteComplete = true;
-    } catch (final Throwable t) {
-      // Say it NOW. Nothing else observes this until some thread awaits, and under a bulk import
-      // that thread is minutes and gigabytes of insert away — the whole point of the async flush.
-      // A silently stored throwable is how a dead flush became an unexplained stall at 100M rows.
-      recordAsyncFlushFailure(t);
-      try {
-        LOGGER.error("Background snapshot flush FAILED — transaction is now in terminal failure state", t);
-      } catch (final Throwable ignored) {
-        // The retained poison still carries the original append/serialization failure.
-      }
     } finally {
       if (HFT_TELEMETRY_ENABLED) {
         final long workerNanos = System.nanoTime() - workerStart;
@@ -2276,10 +2435,55 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           hftMaxWorkerEpochDataGrowExact = telemetryFileWriter != null;
         }
       }
-      ASYNC_SNAPSHOT_WRITE_TASK_STATE.setRelease(this, ASYNC_TASK_COMPLETED);
-      asyncFlushWorkerRunning = false;
-      flushPermit.release();
     }
+  }
+
+  static boolean isSnapshotAppendWorkerThread() {
+    return SNAPSHOT_APPEND_WORKER.get();
+  }
+
+  static void resetGlobalAppendTelemetry() {
+    HFT_GLOBAL_SUBMIT_WAIT_COUNT.set(0L);
+    HFT_GLOBAL_SUBMIT_WAIT_NANOS.set(0L);
+    HFT_GLOBAL_SUBMIT_WAIT_MAX_NANOS.set(0L);
+    HFT_GLOBAL_CALLER_APPEND_RUNS.set(0L);
+  }
+
+  static long globalSubmitWaitCount() {
+    return HFT_GLOBAL_SUBMIT_WAIT_COUNT.get();
+  }
+
+  static long globalSubmitWaitNanos() {
+    return HFT_GLOBAL_SUBMIT_WAIT_NANOS.get();
+  }
+
+  static long globalSubmitWaitMaxNanos() {
+    return HFT_GLOBAL_SUBMIT_WAIT_MAX_NANOS.get();
+  }
+
+  static long globalCallerAppendRuns() {
+    return HFT_GLOBAL_CALLER_APPEND_RUNS.get();
+  }
+
+  static int snapshotAppendActiveWorkers() {
+    return SNAPSHOT_APPEND_EXECUTOR.getActiveCount();
+  }
+
+  static int snapshotAppendQueuedTasks() {
+    return SNAPSHOT_APPEND_EXECUTOR.getQueue().size();
+  }
+
+  static int snapshotAppendAdmissionWaiters() {
+    return SNAPSHOT_APPEND_EXECUTOR.admissionWaiters();
+  }
+
+  static int snapshotAppendAvailableAdmissions() {
+    return SNAPSHOT_APPEND_EXECUTOR.availableAdmissions();
+  }
+
+  private void markAsyncFlushProgress() {
+    asyncFlushProgressNanos = System.nanoTime();
+    SNAPSHOT_APPEND_EXECUTOR.signalProgress();
   }
 
   /** Append every frozen immutable side page and store only its offset in the foreground side-channel. */
@@ -2301,7 +2505,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storagePageReaderWriter.write(config, shadowRef, overflowPage, bgBuffer);
       sidePages.diskOffsets[i] = shadowRef.getKey();
       if ((i & 63) == 63) {
-        asyncFlushProgressNanos = System.nanoTime();
+        markAsyncFlushProgress();
       }
       injectAsyncFlushFault("side-write");
     }
@@ -2318,9 +2522,173 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * {@link #SNAPSHOT_FLUSH_POOL}: it waits for serializer jobs and would otherwise consume one of
    * their workers (deadlocking the parallelism-one configuration).
    */
-  private static final ThreadPoolExecutor SNAPSHOT_APPEND_EXECUTOR = createSnapshotAppendExecutor();
+  private static final SnapshotAppendExecutor SNAPSHOT_APPEND_EXECUTOR = createSnapshotAppendExecutor();
 
-  private static ThreadPoolExecutor createSnapshotAppendExecutor() {
+  private static final ThreadLocal<Boolean> SNAPSHOT_APPEND_WORKER =
+      ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+  abstract static class AdmittedSnapshotAppendTask implements Runnable {
+    private final AtomicInteger admissionOwned = new AtomicInteger();
+
+    final void armAdmission() {
+      if (!admissionOwned.compareAndSet(0, 1)) {
+        throw new IllegalStateException("snapshot append task already owns an admission");
+      }
+    }
+
+    final boolean releaseAdmission() {
+      return admissionOwned.compareAndSet(1, 0);
+    }
+
+    final boolean ownsAdmission() {
+      return admissionOwned.get() == 1;
+    }
+
+    /**
+     * Whether {@link SnapshotAppendExecutor#afterExecute(Runnable, Throwable)} owns the normal
+     * completion release. A persistent task that releases before publishing another reuse signal
+     * must override this: a stale {@code afterExecute} callback from epoch N could otherwise
+     * release the same task identity's newly armed admission for epoch N + 1.
+     */
+    boolean executorReleasesAdmission() {
+      return true;
+    }
+
+    void cancelledByShutdown() {
+    }
+  }
+
+  static final class SnapshotAppendExecutor extends ThreadPoolExecutor {
+    private final Semaphore admissions;
+    private final AtomicLong progress = new AtomicLong();
+
+    private SnapshotAppendExecutor(final int parallelism, final int queueCapacity) {
+      super(parallelism, parallelism, 0L, TimeUnit.MILLISECONDS,
+          new ArrayBlockingQueue<>(Math.addExact(parallelism, queueCapacity)), runnable -> {
+        final Thread thread = new Thread(() -> {
+          SNAPSHOT_APPEND_WORKER.set(Boolean.TRUE);
+          try {
+            runnable.run();
+          } finally {
+            SNAPSHOT_APPEND_WORKER.remove();
+          }
+        }, "sirix-snapshot-append-" + SNAPSHOT_APPEND_THREAD_ID.incrementAndGet());
+        thread.setDaemon(true);
+        return thread;
+      }, new AbortPolicy());
+      admissions = new Semaphore(parallelism + queueCapacity, true);
+    }
+
+    boolean acquireAdmissionUntilProgressStalls(final long stallTimeoutNanos) throws InterruptedException {
+      if (stallTimeoutNanos <= 0L) {
+        throw new IllegalArgumentException("stallTimeoutNanos must be positive");
+      }
+      long observedProgress = progress.get();
+      long stallStart = System.nanoTime();
+      for (;;) {
+        final long elapsed = System.nanoTime() - stallStart;
+        final long remaining = stallTimeoutNanos - elapsed;
+        if (remaining <= 0L) {
+          return false;
+        }
+        if (admissions.tryAcquire(Math.min(remaining, ASYNC_FLUSH_PROGRESS_POLL_NANOS), TimeUnit.NANOSECONDS)) {
+          return true;
+        }
+        final long currentProgress = progress.get();
+        if (currentProgress != observedProgress) {
+          observedProgress = currentProgress;
+          stallStart = System.nanoTime();
+        }
+      }
+    }
+
+    @Override
+    public void execute(final Runnable command) {
+      if (!(command instanceof final AdmittedSnapshotAppendTask task)) {
+        throw new IllegalArgumentException("snapshot append executor accepts admitted tasks only");
+      }
+      if (!task.ownsAdmission()) {
+        throw new IllegalStateException("snapshot append task has no admission");
+      }
+      super.execute(command);
+    }
+
+    void signalProgress() {
+      progress.incrementAndGet();
+    }
+
+    long progressMarker() {
+      return progress.get();
+    }
+
+    int availableAdmissions() {
+      return admissions.availablePermits();
+    }
+
+    int admissionWaiters() {
+      return admissions.getQueueLength();
+    }
+
+    void releaseTaskAdmission(final AdmittedSnapshotAppendTask task) {
+      if (task.releaseAdmission()) {
+        admissions.release();
+        signalProgress();
+      }
+    }
+
+    void releaseUnassignedAdmission() {
+      admissions.release();
+      signalProgress();
+    }
+
+    boolean removeAdmitted(final AdmittedSnapshotAppendTask task) {
+      final boolean removed = super.remove(task);
+      if (removed) {
+        releaseTaskAdmission(task);
+      }
+      return removed;
+    }
+
+    @Override
+    protected void beforeExecute(final Thread thread, final Runnable runnable) {
+      signalProgress();
+      super.beforeExecute(thread, runnable);
+    }
+
+    @Override
+    protected void afterExecute(final Runnable runnable, final Throwable failure) {
+      try {
+        if (runnable instanceof final AdmittedSnapshotAppendTask task && task.executorReleasesAdmission()) {
+          releaseTaskAdmission(task);
+        }
+      } finally {
+        super.afterExecute(runnable, failure);
+      }
+    }
+
+    @Override
+    public List<Runnable> shutdownNow() {
+      final List<Runnable> drained = super.shutdownNow();
+      Throwable callbackFailure = null;
+      for (final Runnable runnable : drained) {
+        if (runnable instanceof final AdmittedSnapshotAppendTask task) {
+          try {
+            task.cancelledByShutdown();
+          } catch (final Throwable failure) {
+            callbackFailure = retainFirstFailure(callbackFailure, failure);
+          } finally {
+            releaseTaskAdmission(task);
+          }
+        }
+      }
+      if (callbackFailure != null) {
+        throw asRuntimeFailure(callbackFailure);
+      }
+      return drained;
+    }
+  }
+
+  private static SnapshotAppendExecutor createSnapshotAppendExecutor() {
     final int processors = Runtime.getRuntime().availableProcessors();
     final int parallelism = positiveIntProperty("sirix.asyncFlush.appendParallelism",
         Math.min(2, Math.max(1, processors / 4)));
@@ -2328,13 +2696,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // slot can retain a writer's frozen TIL plus up to 64 MiB of side payload while a slow device
     // occupies the workers, so a deep task-count queue is not an acceptable memory bound here.
     final int queueCapacity = positiveIntProperty("sirix.asyncFlush.appendQueueCapacity", 1);
-    final ThreadPoolExecutor executor = new ThreadPoolExecutor(parallelism, parallelism, 0L,
-        TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(queueCapacity), runnable -> {
-          final Thread thread = new Thread(runnable,
-              "sirix-snapshot-append-" + SNAPSHOT_APPEND_THREAD_ID.incrementAndGet());
-          thread.setDaemon(true);
-          return thread;
-        }, new ThreadPoolExecutor.AbortPolicy());
+    return createSnapshotAppendExecutor(parallelism, queueCapacity);
+  }
+
+  static SnapshotAppendExecutor createSnapshotAppendExecutor(final int parallelism, final int queueCapacity) {
+    if (parallelism <= 0 || queueCapacity <= 0) {
+      throw new IllegalArgumentException("parallelism and queueCapacity must be positive");
+    }
+    final SnapshotAppendExecutor executor = new SnapshotAppendExecutor(parallelism, queueCapacity);
     executor.prestartAllCoreThreads();
     return executor;
   }
@@ -2727,6 +3096,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isAutoCommitting, final boolean isIntermediateCommit) {
     storageEngineReader.assertNotClosed();
+    assertTransactionWritable();
 
     storageEngineReader.resourceSession.getCommitLock().lock();
 
@@ -2743,6 +3113,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public UberPage commitWritePages(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
       final boolean isIntermediateCommit) {
     storageEngineReader.assertNotClosed();
+    assertTransactionWritable();
 
     // Keep the page-graph invariant local to the storage writer: no public commit path may reach
     // recursive HOT serialization while a side reference still carries the pending marker. The

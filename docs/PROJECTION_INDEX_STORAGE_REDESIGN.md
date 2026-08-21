@@ -12,19 +12,19 @@
 > 2. **The descriptor layout is gone, not deprecated.** There is exactly one
 >    storage layout and no code path that can produce the other, so a sub-tree can
 >    no longer end up with two layouts mixed in it. See §6.
-> 3. **The slot-0 `PIXM` metadata no longer carries the per-leaf fences.** The
->    fences moved into their own carry-forward **chunks** (512 row groups each, at
->    reserved slot keys `(1<<42)+c` — above every `rowGroupId << 16` leaf slot), so
->    a maintenance commit re-persists only the chunk(s) whose row groups moved
->    (~8–24 KB) instead of the whole ~1.5 MB fence array. `PIXM` is VERSION **0**:
+> 3. **The slot-0 `PIXM` metadata no longer carries per-leaf order/fences.**
+>    Explicit document links and normal-backbone routing metadata live in
+>    carry-forward **chunks** (32 physical row groups each, at reserved slot keys
+>    `(1<<42)+c` — above every `physicalSlot << 16` row-group slot), so a
+>    maintenance commit re-persists only locally changed units. `PIXM` is VERSION **0**:
 >    exactly one wire version is supported, and the byte exists so a future format
 >    change is REJECTED rather than misread, not so two formats can coexist. See
 >    [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md) §5.3–5.4 and
 >    `ProjectionIndexFences`.
 > 4. **The `PIXB` blob path is hybrid inline/referenced**: a payload ≤ 512 B rides
 >    the slot value; larger stays an `OverflowPage`. The small shape-only metadata
->    therefore inlines — no metadata page, one fewer random read on open. The 8 KB
->    fence chunks stay referenced. See DEEP_DIVE §5.3.
+>    therefore inlines — no metadata page, one fewer random read on open. The
+>    roughly 4.5 KB order/fence chunks stay referenced. See DEEP_DIVE §5.3.
 > 5. **Nomenclature.** What this document calls a *leaf* is a **row group** in the
 >    code, `LeafDescriptor` is `RowGroupDescriptor`, and `ProjectionSegmentPage`
 >    was folded into the existing `OverflowPage` rather than added as a new
@@ -127,7 +127,7 @@ chunk(s) whose bytes changed, at 4 KB granularity.
 Three self-describing formats, all carrying magic + version:
 
 - **Raw scan form** (`ProjectionIndexLeafPage.serialize()`, `PIX1` presence
-  tail, tail version 1): flat little-endian primitive arrays (header at
+  tail, tail version 0): flat little-endian primitive arrays (header at
   offsets 0/4/8/16/24: rowCount, columnCount, first/lastRecordKey, kinds;
   record keys; per-column zone maps + bodies), then the mandatory presence
   tail (per-column flags with `UNREPRESENTABLE` (0x01) / `NON_INTEGRAL` (0x02)
@@ -135,10 +135,10 @@ Three self-describing formats, all carrying magic + version:
   `deserialize()` rejects tail-less payloads as corrupt —
   integrality/presence provenance is never fabricated.
 - **Compact persisted form** (`ProjectionIndexLeafCodec`, `PIXC` magic,
-  version 1): delta/FOR record keys, frame-of-reference bit-packed numerics
+  version 0): delta/FOR record keys, frame-of-reference bit-packed numerics
   (widths > 56 fall back to aligned raw-64), packed dict-ids, marker-byte
   presence. Decodes **byte-identically** back to the raw form.
-- **Metadata form** (`ProjectionIndexMetadata`, `PIXM` magic, version 1).
+- **Metadata form** (`ProjectionIndexMetadata`, `PIXM` magic, version 0).
 
 The redesign keeps the raw scan form as the in-memory kernel target and keeps
 the compact codec's per-column encodings, but restructures the *persisted
@@ -147,28 +147,23 @@ grouping* into per-column segments (§2.3) and adds two new column encodings
 
 ### 1.5 Write and read paths (current) *(corrected)*
 
-- **Build:** `ProjectionIndexBuilder.buildAndPersist` walks the record set and
-  buffers **every encoded leaf on the heap** (`List<byte[]>`) — ~240 MB of
-  leaf byte[]s at the 100 M-row / 97 k-leaf scale, violating the class's own
-  streaming javadoc. `persist` then writes **slot 0 first** (fences computed
-  via `ProjectionIndexLeafCodec.recordKeyRange` over the buffered leaves),
-  then leaves at slots 1..N via the heap `put` chunking path. The off-heap
-  `putFromSegment`/`scratchSegment`/`serializeIntoSegment` HFT path has **zero
-  production callers** (one test) — it is dead code today. Slot-0-first vs
-  -last is crash-irrelevant (all writes ride one CoW commit), but note the two
-  writers disagree: incremental maintenance writes slot 0 **last**.
+- **Build:** `ProjectionIndexBuilder.buildAndPersist` walks the record set as a
+  bounded stream: it retains only the sizing sample and current row-group
+  state, rather than a list containing every encoded row group. An explicit
+  rebuild first clears stale locator state, then writes row-group descriptors,
+  locator exceptions, dictionaries, set summaries, Bloom chunks, and fence
+  chunks. Slot 0 is the authoritative publication record and is written
+  **strictly last**. A failure before that write cannot advertise a partially
+  persisted projection shape.
 - **Incremental maintenance:** `ProjectionIndexChangeListener.applyIncremental`
-  reads slot-0 fences (one read), two-pointer-merges dirty record keys against
-  ascending zone maps, **re-extracts each touched leaf entirely**, appends new
-  records at the tail (record keys are monotone, so appends always classify
-  cleanly), rewrites slot 0 with new `leafCount`/`buildRevision`/fences.
-  Degradation ladder: unattributable changes (subtree moves, > 100 k dirty
-  records via `-Dsirix.projection.maxIncrementalRecords`, non-ascending zone
-  maps over the quadratic-scan guard, any inconsistency `return false` path)
-  → same-commit `rebuildFully()`; double unexpected failure → stale tombstone
-  (corruption valve). A commit that creates a self-nested record-set shape
-  makes the rebuild rung throw (`assertNoNestedRootPcrs`) and lands in the
-  valve — by design, but previously undocumented.
+  resolves each dirty record through its exact locator exception or a bounded
+  fence probe, derives its predecessor/successor anchors from document order,
+  and applies positional inserts, deletes, moves, and value changes to only the
+  affected row groups. It rewrites touched row-group segments, local
+  locator/fence chunks, Bloom chunks, bounded set-summary columns, and affected
+  immutable global-dictionary radix paths. Slot 0 is again written strictly
+  last. There is no dirty-record threshold or full-projection rebuild fallback;
+  an inconsistent persistent unit makes the owning transaction rollback-only.
 - **Hydrate:** `readAll` → depth-2-parallel HOT scan; chunk fragments of one
   leaf can be dispersed across HOT sub-trees after splits, so accumulation
   places chunks at absolute offsets and merges fragments chunk-wise
@@ -495,18 +490,18 @@ earlier draft mislocated this):
   Handle), because kernels run over cached heap bytes either way.
 - **Update containment, precisely scoped**: a one-row, one-column *in-place
   value update* rewrites one BODY segment (+ DICT iff the dictionary grew) +
-  one descriptor slot. **Deletes and appends do not get this containment**: a
-  row delete changes `rowCount` and re-encodes every segment of the leaf; a
-  tail append dirties KEYS + every BODY (+ any DICT that interned) — bounded
-  at one ≤1024-row leaf, same bytes as today, and new-leaf spill writes
+  one descriptor slot. **Membership/order changes do not get single-column
+  containment**: a row delete or positional insert changes `rowCount`/`KEYS`
+  and re-encodes every segment of each locally affected row group. A tail
+  append is the one-group instance of that rule. Work remains bounded at
+  ≤1024 rows per touched group, and a local split writes
   O(columnCount) fresh segment pages, not O(1). Untouched-column
   byte-identity under re-extraction is **confirmed deterministic** (append-
   only first-occurrence dict interning, order-stable replay, per-leaf flag
   derivation) — the no-op share is sound for the update case.
-- **Full rebuilds become share-friendly**: `rebuildFully` routed through the
-  hash-compare no-op shares every unchanged leaf's segments by reference —
-  today a rebuild rewrites every chunk. This materially softens the
-  `MAX_INCREMENTAL_RECORDS` cliff (threshold worth re-measuring afterwards).
+- **Ordinary maintenance is bounded**: every unchanged leaf, dictionary run,
+  fence chunk, Bloom chunk, and set-summary column remains referenced at the
+  identical durable offset.
 - **Real deletes** replace zero-length chunk tombstones; chunk dispersal,
   `LeafChunkAccumulator`, gap probes, the `CHUNK_SIZE` knob, and the 1 MB
   leaf cap all disappear.
@@ -707,9 +702,10 @@ put(leafIndex, leaf):                       // build + full-leaf rewrite
 5. **Lengths and hashes are explicit and must agree.** Descriptor `byteLen`/
    `contentHash` vs segment page's own length prefix/bytes: disagreement is
    corruption → fail soft + negative-cache (§4).
-6. **Metadata is bounds authority.** `leafCount` bounds reads; rebuilds
-   should now *actually delete* orphaned descriptors above `leafCount`
-   (hygiene, not load-bearing).
+6. **Metadata and order header are authority.** `rowGroupCount` is the live
+   logical count; the order header supplies physical upper bound and explicit
+   document order. A live physical slot may exceed `rowGroupCount` after local
+   split/recycle operations.
 7. **Provenance never fabricated.** Fail-closed probes transfer to
    per-segment validation; descriptor flag mirrors may only short-circuit
    toward declining. Byte-identity round-trip tests run end-to-end, including
@@ -724,19 +720,18 @@ put(leafIndex, leaf):                       // build + full-leaf rewrite
 10. **Misconfiguration fails fast.** *(revised)* New guards: `3·columnCount +
     2 ≤ 255` (segmentId byte) at creation; worst-case descriptor footprint
     must fit an empty HOT leaf page.
-11. **Leaf-index contiguity + monotone record keys.** Gap-probe paths are
-    deleted with the redesign; the append-partition classification in
-    maintenance depends on **monotone node-key allocation** — document as an
-    explicit invariant.
+11. **Explicit physical + document order.** Monotone node-key allocation proves
+    freshness, not position. Creation greedily marks document-order key
+    inversions as sparse exceptions; maintenance uses predecessor/successor
+    anchors, exact exception locators, and local split links. Only a proven
+    high-key document-tail insert extends the normal backbone.
 12. **Same-commit create+update / create+delete of a record** dedupe in the
     dirty set and classify as appends; create+delete is skipped when
     extraction finds nothing. Preserve; one regression test.
-13. **The degradation ladder end-to-end**, including: nested-root shapes
-    created mid-commit make the rebuild rung throw → tombstone valve;
-    `emptyRecordSetAllowed` asymmetry (creation throws on unresolved root;
-    maintenance rebuild persists a truthful `leafCount = 0` store — which
-    must remain distinct from the stale tombstone, both being slot-0-only
-    states).
+13. **Fail-closed bounded maintenance end-to-end**, including: moves captured
+    before and after structural mutation, missing/corrupt touched units
+    requiring rollback, and an explicit empty set-summary capability that can
+    revive later.
 
 ### 5.2 Hazards introduced by the redesign
 
@@ -1112,10 +1107,9 @@ green on the full existing projection suite plus its own new tests.
 
 - Streaming builder (one leaf in memory; fences accumulated; slot 0 last);
   wire the off-heap encode path or delete it (no more dead code).
-- Maintenance: per-segment writes via re-encode + hash compare; rebuild
-  share-friendliness; tombstone/ladder preserved (incl. nested-root-throws
-  path, `emptyRecordSetAllowed` distinction, legacy invalidation-mode
-  decision per 5.2-e).
+- Maintenance: per-segment writes via re-encode + hash compare; immutable
+  global-dictionary radix CoW generations; lazy touched fence/Bloom chunks; no
+  ordinary rebuild or dirty-count threshold.
 - **Optional, measurement-gated**: per-column dirty tracking
   (`pathNodeKey → column` bitmask instead of the discarded field identity) to
   skip re-encoding untouched columns — CPU-only; land only with a benchmark
@@ -1124,7 +1118,7 @@ green on the full existing projection suite plus its own new tests.
   single-column update writes exactly one BODY (+descriptor) — measure bytes;
   delete-heavy and append-heavy soaks asserting the scoped containment of
   §2.5; multi-definition same-commit; same-commit create+update/delete;
-  `MAX_INCREMENTAL_RECORDS` cliff re-measured.
+  more than 100,000 dirty records without a behavior cliff.
 - Exit: full sirix-core + sirix-query projection suites green.
 
 ### P5 — Query integration (sirix-core catalog/registry/bytescan; sirix-query executor)
@@ -1194,7 +1188,7 @@ green on the full existing projection suite plus its own new tests.
 | Descriptor overhead exceeds disk-tax budget (5.2-j) | P3/P8 | measure at P3 with synthetic 100 M store; coalescing fallback designed but unbuilt |
 | ALP encode cost on the build path | P6 | encoding-byte fallback to raw-64; ALP is per-column opt-in by data shape |
 | No-op hash false sharing (hash collision carries stale segment) | P3 | 64-bit XXH3 + byteLen must both match; collision odds ~2⁻⁶⁴ per compare — document as accepted |
-| Rebuild-share changes `MAX_INCREMENTAL_RECORDS` calibration | P4 | re-measure threshold after share-friendly rebuild lands |
+| Touched-unit attribution is incomplete | P4 | reject before mutation or publication; require rollback |
 
 ---
 

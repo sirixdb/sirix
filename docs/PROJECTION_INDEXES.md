@@ -16,8 +16,9 @@ versioned document store stays ~10%. Double columns store exact values in an ord
 encoding; value-exact consumers decline columns tainted by lossy decimal conversions
 (fail-closed).
 
-For the internals, see [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md) and
-the storage-design notes in this directory.
+For the internals, see [`PROJECTION_INDEX_DEEP_DIVE.md`](PROJECTION_INDEX_DEEP_DIVE.md),
+[`PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md`](PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md)
+for exact row lookup and positional updates, and the storage-design notes in this directory.
 
 ## Creating a projection
 
@@ -98,21 +99,19 @@ their revision.
 Update transactions maintain projections **incrementally** (wired through the
 index-controller listener lifecycle, like the other index types): changes are attributed to
 their records as they happen, and at commit time only the touched leaves are patched —
-updated records are re-extracted in place, deleted records drop out, and new records append
-to the tail — so the same catalogued projection keeps serving across updates with no
-re-creation call — including replacing a record set wholesale (deleting the array drops its
-rows, a fresh record set at the same path is picked up automatically) and, for
-descendant-pattern roots, record sets appearing and disappearing.
+updated records are re-extracted in place, deleted records drop out, and new or moved records
+are spliced at their document predecessor/successor anchors. First and middle inserts use
+sparse exact locators; a proven high-key tail insert stays on the compact normal fence
+backbone. The same catalogued projection therefore keeps serving without a re-creation call,
+including record reordering, moves into or out of the projected set, replacing a record set
+wholesale, and descendant-pattern record sets appearing or disappearing.
 
-Changes the incremental path cannot attribute exactly (subtree moves, unresolvable
-structure, or more dirty records per transaction than
-`-Dsirix.projection.maxIncrementalRecords`, default 100 000, where patching approaches
-rebuild cost) degrade to an **automatic full rebuild inside the same commit** — the
-projection stays exactly maintained, like the other index families, with no manual
-intervention. Only an unexpected failure of both the incremental patch and the rebuild
-tombstones the projection (a corruption valve: queries transparently use the regular
-pipeline and re-running `jn:create-projection-index` rebuilds under the same definition);
-calling it with a different shape creates an additional projection.
+Maintenance has no dirty-record cliff and never scans or rebuilds the complete projection.
+It updates only touched row groups, 32-physical-leaf order/fence chunks, 256-leaf Bloom
+chunks, bounded per-column set summaries, sparse locators, and immutable global-dictionary
+radix paths. An unresolvable or corrupt touched unit fails the owning transaction and requires
+rollback. Calling `jn:create-projection-index` with a different shape creates an additional
+projection.
 
 Uncommitted state is servable too: an executor constructed over an open write transaction
 (`new SirixVectorizedExecutor(wtx, threads)`) answers unpredicated aggregates, group-bys and

@@ -53,7 +53,7 @@ public final class ProjectionIndexRowGroupCodec {
    * mismatch can only mean a newer writer or corruption — the metadata's own version gate triggers a
    * rebuild before hydration ever reaches an incompatible leaf).
    */
-  public static final byte COMPACT_VERSION = 1;
+  public static final byte COMPACT_VERSION = 0;
 
   private ProjectionIndexRowGroupCodec() {}
 
@@ -148,6 +148,18 @@ public final class ProjectionIndexRowGroupCodec {
     }
     if (rowCount > 0) {
       encodeRecordKeys(out, page.recordKeys(), rowCount);
+    }
+    final long[] orderExceptionBits = page.orderExceptionBits();
+    if (orderExceptionBits == null) {
+      out.write(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE);
+    } else {
+      out.write(ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE);
+      final int orderWords = (rowCount + 63) >>> 6;
+      for (int word = 0; word < orderWords; word++) {
+        putLongLE(out, orderExceptionBits[word]);
+      }
+    }
+    if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
         putLongLE(out, page.columnMin(c));
         putLongLE(out, page.columnMax(c));
@@ -427,6 +439,18 @@ public final class ProjectionIndexRowGroupCodec {
     final long[] recordKeys = rowCount > 0
         ? decodeRecordKeys(in, rowCount)
         : new long[0];
+    final byte orderKind = in.readByte();
+    final long[] orderExceptionBits;
+    if (orderKind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE) {
+      orderExceptionBits = null;
+    } else if (orderKind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE && rowCount > 0) {
+      orderExceptionBits = new long[(rowCount + 63) >>> 6];
+      for (int word = 0; word < orderExceptionBits.length; word++) {
+        orderExceptionBits[word] = in.readLong();
+      }
+    } else {
+      throw new IllegalStateException("unknown projection order-exception kind " + orderKind);
+    }
     final long[] columnMin = new long[columnCount];
     final long[] columnMax = new long[columnCount];
     final long[][] numericCols = new long[columnCount][];
@@ -478,8 +502,9 @@ public final class ProjectionIndexRowGroupCodec {
       decodePresenceInto(in, bits, presWords, rowCount);
     }
     final ProjectionIndexRowGroupPage page =
-        ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, columnMin,
-            columnMax, numericCols, booleanCols, dictIdCols, dicts, setCountCols, setElemCols, presence, columnFlags);
+        ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
+            orderExceptionBits, columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts,
+            setCountCols, setElemCols, presence, columnFlags);
     return page.serialize();
   }
 

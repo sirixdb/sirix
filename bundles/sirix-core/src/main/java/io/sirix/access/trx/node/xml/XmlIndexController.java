@@ -6,6 +6,7 @@ import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.index.IndexBuilder;
+import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.cas.xml.XmlCASIndexImpl;
@@ -14,6 +15,9 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.xml.XmlPCRCollector;
 import io.sirix.index.path.xml.XmlPathIndexImpl;
+import io.sirix.index.projection.ProjectionBulkLoad;
+import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexChangeListener;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
@@ -45,10 +49,94 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        createProjectionIndex(indexDef, nodeWriteTrx);
+      }
+    }
+
     // Create index listeners for upcoming changes.
     createIndexListeners(indexDefs, nodeWriteTrx);
 
     return this;
+  }
+
+  public XmlIndexController createProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
+      final XmlNodeTrx nodeWriteTrx, final long expectedRows) {
+    armProjectionIndexesAtLoadStart(indexDefs, nodeWriteTrx, expectedRows);
+    return this;
+  }
+
+  public ProjectionBulkLoad createProjectionIndexAtLoadStart(final IndexDef indexDef,
+      final XmlNodeTrx nodeWriteTrx, final long expectedRows) {
+    return armProjectionIndexesAtLoadStart(Set.of(indexDef), nodeWriteTrx, expectedRows)[0];
+  }
+
+  private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
+      final XmlNodeTrx nodeWriteTrx, final long expectedRows) {
+    final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
+    for (final IndexDef indexDef : indexDefs) {
+      if (!indexDef.isProjectionIndex()) {
+        throw new IllegalArgumentException(
+            "createProjectionIndexesAtLoadStart accepts PROJECTION definitions only; got " + indexDef.getType());
+      }
+      if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+        throw new IllegalStateException("Projection indexes require a resource created with a path summary");
+      }
+      if (!nodeWriteTrx.getPathSummary().getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
+        throw new IllegalStateException("Projection root path '" + indexDef.getProjectionRootPath()
+            + "' already has records; load-time projection construction requires an empty record set");
+      }
+    }
+    nodeWriteTrx.awaitPendingAsyncCommit();
+    final ProjectionBulkLoad[] ownedLoads = new ProjectionBulkLoad[indexDefs.size()];
+    int ownedCount = 0;
+    try {
+      for (final IndexDef indexDef : indexDefs) {
+        indexes.add(indexDef);
+        final ProjectionBulkLoad ownedLoad = ProjectionBulkLoad.begin(indexDef, resourceKey, nodeWriteTrx,
+            nodeWriteTrx.getPathSummary(), nodeWriteTrx.getStorageEngineWriter(), expectedRows);
+        ownedLoads[ownedCount] = ownedLoad;
+        ownedCount++;
+      }
+      createIndexListeners(indexDefs, nodeWriteTrx);
+      return ownedLoads;
+    } catch (final Throwable armFailure) {
+      for (int index = ownedCount - 1; index >= 0; index--) {
+        try {
+          ownedLoads[index].abort();
+        } catch (final Throwable cleanupFailure) {
+          if (cleanupFailure != armFailure) {
+            armFailure.addSuppressed(cleanupFailure);
+          }
+        }
+      }
+      throw XmlIndexController.<RuntimeException>rethrowUnchecked(armFailure);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T extends Throwable> T rethrowUnchecked(final Throwable failure) throws T {
+    throw (T) failure;
+  }
+
+  private void createProjectionIndex(final IndexDef indexDef, final XmlNodeTrx nodeWriteTrx) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      throw new IllegalStateException("Projection indexes require a resource created with a path summary");
+    }
+    nodeWriteTrx.awaitPendingAsyncCommit();
+    ProjectionIndexBuilder.buildAndPersist(indexDef, nodeWriteTrx.getPathSummary(), nodeWriteTrx,
+        nodeWriteTrx.getStorageEngineWriter(), false);
+  }
+
+  @Override
+  protected ChangeListener createProjectionIndexListener(final XmlNodeTrx nodeWriteTrx,
+      final IndexDef indexDef) {
+    if (!nodeWriteTrx.getResourceSession().getResourceConfig().withPathSummary) {
+      return null;
+    }
+    return new ProjectionIndexChangeListener(nodeWriteTrx.getStorageEngineWriter(),
+        nodeWriteTrx.getPathSummary(), indexDef, nodeWriteTrx);
   }
 
   /**
@@ -73,6 +161,8 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
           break;
         case NAME:
           indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), indexDef));
+          break;
+        case PROJECTION:
           break;
         default:
           break;

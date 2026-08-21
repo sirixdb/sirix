@@ -25,26 +25,18 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.utils.ToStringHelper;
 
 /**
- * The header of one global projection value dictionary namespace — the record that says how many
- * values the namespace holds and where its forward directory lives.
+ * The header of one global projection value dictionary namespace.
  *
  * <p>It sits at local key 0 of the namespace, so a reader that knows only the namespace can find
  * everything else with one read. Everything it carries is derived state that a reader cannot
  * reconstruct without scanning the whole namespace, which is exactly what a header is for.
- *
- * <p>{@link #getDirectoryCoversMaxId()} is the load-bearing field for correctness. The forward
- * directory is produced in one pass at the end of a build; a later revision that appends values
- * without rebuilding it leaves ids above that watermark unreachable by a value probe. A probe must
- * therefore treat "not found" as authoritative only when the directory covers every id, and
- * otherwise decline — the alternative is answering "this value does not exist" about a value that
- * does, which turns a fast path into a wrong answer.
  *
  * @author Johannes Lichtenberger <a href="mailto:lichtenberger.johannes@gmail.com">mail</a>
  */
 public final class ValueDictionaryHeaderNode implements DataRecord {
 
   /** Layout version of the namespace; readers reject anything they do not know. */
-  public static final int VERSION = 1;
+  public static final int VERSION = 0;
 
   private final long nodeKey;
 
@@ -53,17 +45,11 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   /** Ids {@code 1..entryCount} are live; {@code entryCount + 1} is the next id to mint. */
   private final int entryCount;
 
-  /** Node key the id space is anchored at; id {@code i} lives at {@code entryBase + stride * i}. */
-  private final long entryBase;
+  private final long forwardRootKey;
 
-  /** Node key of directory block 0, or {@code 0} when no directory has been written. */
-  private final long directoryBase;
+  private final long reverseRootKey;
 
-  /** How many directory blocks follow {@link #directoryBase}. */
-  private final int directoryBlockCount;
-
-  /** The highest id the directory indexes; a forward probe is only authoritative up to it. */
-  private final int directoryCoversMaxId;
+  private final int generation;
 
   /**
    * Constructor.
@@ -71,28 +57,24 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
    * @param nodeKey the node key, which is the namespace base (local key 0)
    * @param version the layout version
    * @param entryCount how many values the namespace holds
-   * @param entryBase node key the id space is anchored at
-   * @param directoryBase node key of directory block 0, or {@code 0} for "no directory"
-   * @param directoryBlockCount how many directory blocks exist
-   * @param directoryCoversMaxId the highest id the directory indexes
+   * @param forwardRootKey root of the hash-prefix radix directory
+   * @param reverseRootKey root of the id-prefix radix directory
+   * @param generation number of successful append generations
    * @throws IllegalArgumentException if any count is negative
    */
   public ValueDictionaryHeaderNode(final long nodeKey, final int version, final int entryCount,
-      final long entryBase, final long directoryBase, final int directoryBlockCount,
-      final int directoryCoversMaxId) {
-    if (entryCount < 0 || directoryBlockCount < 0 || directoryCoversMaxId < 0 || directoryBase < 0
-        || entryBase < 0) {
-      throw new IllegalArgumentException("value dictionary header counts must not be negative: entryCount="
-          + entryCount + " entryBase=" + entryBase + " directoryBase=" + directoryBase + " directoryBlockCount="
-          + directoryBlockCount + " directoryCoversMaxId=" + directoryCoversMaxId);
+      final long forwardRootKey, final long reverseRootKey, final int generation) {
+    if (nodeKey <= 0 || version != VERSION || entryCount < 0 || forwardRootKey < 0
+        || reverseRootKey < 0 || generation < 0
+        || (entryCount == 0) != (forwardRootKey == 0 && reverseRootKey == 0)) {
+      throw new IllegalArgumentException("invalid value dictionary header");
     }
     this.nodeKey = nodeKey;
     this.version = version;
     this.entryCount = entryCount;
-    this.entryBase = entryBase;
-    this.directoryBase = directoryBase;
-    this.directoryBlockCount = directoryBlockCount;
-    this.directoryCoversMaxId = directoryCoversMaxId;
+    this.forwardRootKey = forwardRootKey;
+    this.reverseRootKey = reverseRootKey;
+    this.generation = generation;
   }
 
   @Override
@@ -108,25 +90,23 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
     return entryCount;
   }
 
-  public long getEntryBase() {
-    return entryBase;
+  public long getForwardRootKey() {
+    return forwardRootKey;
   }
 
-  public long getDirectoryBase() {
-    return directoryBase;
+  public long getReverseRootKey() {
+    return reverseRootKey;
   }
 
-  public int getDirectoryBlockCount() {
-    return directoryBlockCount;
-  }
-
-  public int getDirectoryCoversMaxId() {
-    return directoryCoversMaxId;
+  public int getGeneration() {
+    return generation;
   }
 
   /** Whether a forward probe may report "absent" rather than declining. */
   public boolean isDirectoryComplete() {
-    return directoryBlockCount > 0 && directoryCoversMaxId >= entryCount;
+    return entryCount == 0
+        ? forwardRootKey == 0 && reverseRootKey == 0
+        : forwardRootKey > 0 && reverseRootKey > 0;
   }
 
   @Override
@@ -138,18 +118,16 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
   public int hashCode() {
     int result = version;
     result = 31 * result + entryCount;
-    result = 31 * result + Long.hashCode(entryBase);
-    result = 31 * result + Long.hashCode(directoryBase);
-    result = 31 * result + directoryBlockCount;
-    return 31 * result + directoryCoversMaxId;
+    result = 31 * result + Long.hashCode(forwardRootKey);
+    result = 31 * result + Long.hashCode(reverseRootKey);
+    return 31 * result + generation;
   }
 
   @Override
   public boolean equals(final Object obj) {
     return obj instanceof ValueDictionaryHeaderNode other && version == other.version
-        && entryCount == other.entryCount && entryBase == other.entryBase
-        && directoryBase == other.directoryBase
-        && directoryBlockCount == other.directoryBlockCount && directoryCoversMaxId == other.directoryCoversMaxId;
+        && entryCount == other.entryCount && forwardRootKey == other.forwardRootKey
+        && reverseRootKey == other.reverseRootKey && generation == other.generation;
   }
 
   @Override
@@ -158,10 +136,9 @@ public final class ValueDictionaryHeaderNode implements DataRecord {
                          .add("nodeKey", nodeKey)
                          .add("version", version)
                          .add("entryCount", entryCount)
-                         .add("entryBase", entryBase)
-                         .add("directoryBase", directoryBase)
-                         .add("directoryBlockCount", directoryBlockCount)
-                         .add("directoryCoversMaxId", directoryCoversMaxId)
+                         .add("forwardRootKey", forwardRootKey)
+                         .add("reverseRootKey", reverseRootKey)
+                         .add("generation", generation)
                          .toString();
   }
 

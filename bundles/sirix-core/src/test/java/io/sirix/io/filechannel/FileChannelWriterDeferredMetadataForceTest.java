@@ -16,6 +16,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.IOStorage;
 import io.sirix.io.RevisionIndexHolder;
+import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionRecordDurability;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.node.MemorySegmentBytesOut;
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -120,6 +122,19 @@ final class FileChannelWriterDeferredMetadataForceTest {
 
     assertEquals(List.of(true), dataForces(fixture.events()),
         "close must make a partially used preallocation durable before a pooled channel is reusable");
+  }
+
+  @Test
+  void fullTruncateInvalidatesTheDurableFrontierHandoff(@TempDir final Path tempDir) throws Exception {
+    final Fixture fixture = fixture(tempDir);
+    final RevisionRecordDurability durability = RevisionRecordDurability.forFile(
+        fixture.revisionsFilePath(), 0L, 0L);
+    durability.storeFrontiers(20_000L, 40_000L, 8_192L, 4, 19_000L, 91L);
+
+    fixture.writer().truncate();
+
+    assertEquals(-1L, RevisionRecordDurability.forFile(
+        fixture.revisionsFilePath(), 0L, 0L).cachedFrontiers()[0]);
   }
 
   @Test
@@ -305,6 +320,8 @@ final class FileChannelWriterDeferredMetadataForceTest {
       final Runnable releaseAction) throws IOException {
     final FileChannelReader reader = mock(FileChannelReader.class);
     when(reader.beaconRevisionOrMinusOne(anyLong())).thenReturn(-1);
+    when(reader.getRevisionFileData(0))
+        .thenReturn(new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L));
     when(reader.readBeaconSlot(anyLong()))
         .thenAnswer(invocation -> ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES));
     return new FileChannelWriter(data, revisions, beacon, SerializationType.DATA,

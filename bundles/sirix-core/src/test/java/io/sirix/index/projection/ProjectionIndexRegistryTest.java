@@ -9,9 +9,13 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -135,6 +139,102 @@ final class ProjectionIndexRegistryTest {
     final ProjectionIndexRegistry.Handle h = ProjectionIndexRegistry.lookup("res-empty", new String[0]);
     assertNotNull(h);
     assertEquals(0, h.rowGroupPayloads(null).size());
+  }
+
+  @Test
+  void rejectedSegmentPrefetchCanBeRetriedByAnotherExecutor() {
+    final ProjectionColumnStore store = new ProjectionColumnStore(List.of());
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(
+        "/[]", 1, new String[0], store, 0, 0L);
+    final AtomicInteger openedTransactions = new AtomicInteger();
+
+    handle.kickSegmentPrefetch(command -> {
+      throw new RejectedExecutionException("closed");
+    }, () -> {
+      openedTransactions.incrementAndGet();
+      return () -> { };
+    }, ignored -> null);
+    handle.kickSegmentPrefetch(Runnable::run, () -> {
+      openedTransactions.incrementAndGet();
+      return () -> { };
+    }, ignored -> null);
+
+    assertEquals(1, openedTransactions.get(),
+        "a close-race rejection must reset the one-shot latch for a later live executor");
+  }
+
+  @Test
+  void rejectedPromotionCanBeRetriedByAnotherExecutor() {
+    final ProjectionColumnStore store = new ProjectionColumnStore(List.of());
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(
+        "/[]", 1, new String[0], store, 0, 0L);
+    final AtomicInteger materializations = new AtomicInteger();
+
+    handle.promoteInBackground(command -> {
+      throw new RejectedExecutionException("closed");
+    }, () -> {
+      materializations.incrementAndGet();
+      return List.of();
+    });
+    handle.promoteInBackground(Runnable::run, () -> {
+      materializations.incrementAndGet();
+      return List.of();
+    });
+
+    assertEquals(1, materializations.get(),
+        "a close-race rejection must reset the promotion latch for a later live executor");
+    assertTrue(handle.payloadsMaterialized());
+  }
+
+  @Test
+  void cancelledQueuedSegmentPrefetchCanBeRetriedByAnotherExecutor() {
+    final ProjectionColumnStore store = new ProjectionColumnStore(List.of());
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(
+        "/[]", 1, new String[0], store, 0, 0L);
+    final AtomicReference<Runnable> queued = new AtomicReference<>();
+    final AtomicInteger openedTransactions = new AtomicInteger();
+
+    handle.kickSegmentPrefetch(queued::set, () -> {
+      openedTransactions.incrementAndGet();
+      return () -> { };
+    }, ignored -> null);
+    final ProjectionIndexRegistry.CancellableBackgroundTask task = assertInstanceOf(
+        ProjectionIndexRegistry.CancellableBackgroundTask.class, queued.get());
+    task.cancelBeforeExecution();
+
+    handle.kickSegmentPrefetch(Runnable::run, () -> {
+      openedTransactions.incrementAndGet();
+      return () -> { };
+    }, ignored -> null);
+
+    assertEquals(1, openedTransactions.get(),
+        "shutdown cancellation must release the one-shot latch for a later live executor");
+  }
+
+  @Test
+  void cancelledQueuedPromotionCanBeRetriedByAnotherExecutor() {
+    final ProjectionColumnStore store = new ProjectionColumnStore(List.of());
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(
+        "/[]", 1, new String[0], store, 0, 0L);
+    final AtomicReference<Runnable> queued = new AtomicReference<>();
+    final AtomicInteger materializations = new AtomicInteger();
+
+    handle.promoteInBackground(queued::set, () -> {
+      materializations.incrementAndGet();
+      return List.of();
+    });
+    final ProjectionIndexRegistry.CancellableBackgroundTask task = assertInstanceOf(
+        ProjectionIndexRegistry.CancellableBackgroundTask.class, queued.get());
+    task.cancelBeforeExecution();
+
+    handle.promoteInBackground(Runnable::run, () -> {
+      materializations.incrementAndGet();
+      return List.of();
+    });
+
+    assertEquals(1, materializations.get(),
+        "shutdown cancellation must release the promotion latch for a later live executor");
+    assertTrue(handle.payloadsMaterialized());
   }
 
   /**

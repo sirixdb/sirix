@@ -36,6 +36,7 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.DenseGlobalGroupAggTable;
 import io.sirix.index.projection.GroupDistinctBitmaps;
@@ -127,11 +128,13 @@ import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.function.IntConsumer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -373,6 +376,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
+  /** Serializes pool submission/degraded-inline execution against the close fence. */
+  private final Object workerPoolLifecycleLock = new Object();
+  /**
+   * Executor-owned projection warm-up lane. Keeping advisory I/O off {@link #workerPool} preserves
+   * the configured scan parallelism (especially the one-thread case), while ownership gives
+   * {@link #close()} a completion fence that raw daemon threads cannot provide.
+   */
+  private final ExecutorService projectionWarmupPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
@@ -601,6 +612,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
+    this.projectionWarmupPool = Executors.newSingleThreadExecutor(r -> {
+      final Thread thread = new Thread(r, "sirix-projection-warmup");
+      thread.setDaemon(true);
+      return thread;
+    });
   }
 
   private static String computeProjectionRegistryKey(final JsonResourceSession session) {
@@ -612,49 +628,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Release what this executor OWNS: its record transaction and its worker pool.
+   * Release what this executor owns: its worker pools.
    *
    * <p>
-   * It deliberately does not touch the session's shared read-only transactions. Those are session
+   * It deliberately does not touch any session-owned read-only transaction. Shared cursors are session
    * state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)} for the
    * whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
    * revision, not this executor's. Calling it here closed transactions that a concurrently running
    * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
    * that scan; and closing became routine once executors are retired on a revision advance and
    * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
-   * {@code workerThreads + 1} per revision in the meantime.
+   * {@code workerThreads + 1} per revision in the meantime. Record-materialization cursors are also
+   * session-owned: projection-served {@code JsonDBObject}s retain them and read fields lazily after
+   * this method returns, so closing one on cache eviction would invalidate an already-returned
+   * result. The resource session already tracks and closes every such cursor in its transaction map.
    *
    * <p>
-   * What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans run
-   * on the calling thread, and the record transaction is reopened on demand. A query compiled against
-   * an executor that has since been retired therefore keeps answering.
+   * What remains after this is a DEGRADED executor, not a broken one: the scan pool is gone so scans
+   * run on the calling thread. A query compiled against an executor that has since been retired
+   * therefore keeps answering while its resource session remains open.
    */
   public void close() {
-    // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
-    try {
-      final JsonNodeReadOnlyTrx trx = recordTrx;
-      if (trx != null && !trx.isClosed()) {
-        trx.close();
-      }
-    } catch (Exception ignored) {
-    }
-    final JsonNodeReadOnlyTrx[] lanes = recordTrxLanes;
-    if (lanes != null) {
-      for (final JsonNodeReadOnlyTrx laneTrx : lanes) {
-        try {
-          if (laneTrx != null && !laneTrx.isClosed()) {
-            laneTrx.close();
-          }
-        } catch (Exception ignored) {
+    // First fence every task that can hold a session-bound transaction or touch its mmap. This
+    // includes projection prefetch/promotion jobs as well as scan lanes submitted before a sibling
+    // lane reported a fallback signal. Closing a transaction or arena before this fence races the
+    // Foreign Memory API's scoped accesses and fails with "Session is acquired by ... clients".
+    boolean interrupted = false;
+    synchronized (workerPoolLifecycleLock) {
+      final List<Runnable> cancelledWarmups = projectionWarmupPool.shutdownNow();
+      for (final Runnable cancelled : cancelledWarmups) {
+        if (cancelled instanceof ProjectionIndexRegistry.CancellableBackgroundTask task) {
+          task.cancelBeforeExecution();
         }
       }
+      workerPool.shutdown();
     }
-    workerPool.shutdown();
+    // Never wait while holding workerPoolLifecycleLock. A currently running worker may itself use
+    // a nested parallel helper; after shutdown that helper degrades inline and must be allowed to
+    // acquire the lock so the outer worker can terminate.
+    while (!projectionWarmupPool.isTerminated() || !workerPool.isTerminated()) {
+      try {
+        if (!projectionWarmupPool.isTerminated()) {
+          projectionWarmupPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        }
+        if (!workerPool.isTerminated()) {
+          workerPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        }
+      } catch (final InterruptedException ignored) {
+        // Resource safety wins over an early return: finish the close, then restore the signal.
+        interrupted = true;
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
   }
 
   /**
    * Whether {@link #close()} has run. A closed executor keeps answering — the scan runs on the
-   * calling thread and the record transaction reopens — so this reports resource state, not
+   * calling thread and session-owned record transactions remain valid — so this reports pool state, not
    * usability.
    */
   public boolean isClosed() {
@@ -7250,10 +7282,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath, final String[] requiredFields) {
     final ProjectionIndexRegistry.Handle resolved = lookupProjectionResolved(sourcePath, requiredFields);
-    if (resolved != null && PREFETCH_ALL_SEGMENTS && wtx == null && resolved.columnStoreOrNull() != null) {
+    if (resolved != null && PREFETCH_ALL_SEGMENTS && wtx == null && resolved.columnStoreOrNull() != null
+        && !projectionWarmupPool.isShutdown()) {
       final var s = session;
       final int rev = revision;
-      resolved.kickSegmentPrefetch(() -> s.beginNodeReadOnlyTrx(rev),
+      resolved.kickSegmentPrefetch(projectionWarmupPool, () -> s.beginNodeReadOnlyTrx(rev),
           trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
     }
     return resolved;
@@ -11306,12 +11339,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
       final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
           && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER;
-      if (promoteNow) {
-        // ASYNC promotion: materialize on a background thread and KEEP SERVING SLICED until it
+      if (promoteNow && !projectionWarmupPool.isShutdown()) {
+        // ASYNC promotion: materialize on the owned warm-up lane and KEEP SERVING SLICED until it
         // lands — the synchronous form stalled the promoting query for the whole assembly
         // (~150-250 ms mid-suite). payloadsMaterialized() flips when the future completes;
         // subsequent queries take the byte kernels with zero stall anywhere.
-        handle.promoteInBackground(rowGroupMaterializer(handle));
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
       final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
           && (tree == null
@@ -12415,8 +12448,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // this route was the suite's LAST payload materializer once the keyed arms sliced.
       final ProjectionColumnStore constStore = handle.columnStoreOrNull();
       if (GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
+          && !projectionWarmupPool.isShutdown()
           && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER) {
-        handle.promoteInBackground(rowGroupMaterializer(handle));
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
       final boolean constSliced =
           GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
@@ -13540,7 +13574,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * For every other kind the value IS the cell: emission is a decode, and the cap exists only to
    * bound the heap-resident buffer. A global column's cell is an id, so each emitted row also costs
    * a dictionary lookup. Those lookups batch well — resolved in ascending id order, the ids sharing a
-   * record page ({@code GlobalValueDictionary.ENTRY_STRIDE} puts 256 on one) resolve together, and
+   * reverse-id bucket resolve together, and
    * repeats land on the page just read — but the batching wins on LOCALITY, not on count, so past
    * some size the route is paying roughly one dictionary read per emitted row.
    *
@@ -13959,17 +13993,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Fresh read transaction at the executor's bound revision — backs sorted-scan record
-   * materialization (P5b stage 7b). Session-owned: closes with the session.
+   * Fresh thread-safe read cursor at the executor's bound revision — backs sorted-scan record
+   * materialization (P5b stage 7b). Its owner transaction is session-owned and closes with the
+   * session because returned database objects retain this cursor and read through it lazily.
    */
   public JsonNodeReadOnlyTrx openRecordTrx() {
-    return session.beginNodeReadOnlyTrx(revision);
+    return new ThreadSafeJsonReadOnlyTrx(session.beginNodeReadOnlyTrx(revision));
   }
 
-  /** Cached record-materialization trx (see {@link #recordTrx()}); executor-owned. */
+  /** Cached record-materialization cursor (see {@link #recordTrx()}); session-owned. */
   private volatile JsonNodeReadOnlyTrx recordTrx;
 
-  /** Lane pool for PARALLEL record materialization (see {@link #recordTrxAt}); executor-owned. */
+  /** Lane pool for parallel record materialization (see {@link #recordTrxAt}); session-owned. */
   private volatile JsonNodeReadOnlyTrx[] recordTrxLanes;
 
   /** How many materialization lanes {@link #recordTrxAt} serves. */
@@ -13980,17 +14015,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /**
    * Lane {@code lane}'s record-materialization transaction — the parallel counterpart of
    * {@link #recordTrx()}, with the same lifetime contract: materialized items keep reading fields
-   * through their lane's transaction during serialization, so the pool lives until the executor
-   * closes and reopens after a close for already-compiled queries. Bounded leak:
-   * {@link #recordTrxLaneCount()}.
+   * through their lane's cursor during serialization. The cursors therefore live until the
+   * resource session closes; executor retirement cannot safely infer that every returned item has
+   * been consumed. {@link ThreadSafeJsonReadOnlyTrx} routes later or concurrent consumers through
+   * the session's per-thread cursor, so sharing a compiled query does not share mutable cursor
+   * position between threads. The lane count is bounded by {@link #recordTrxLaneCount()}.
    */
   public JsonNodeReadOnlyTrx recordTrxAt(final int lane) {
+    final int laneCount = recordTrxLaneCount();
+    if (lane < 0 || lane >= laneCount) {
+      throw new IllegalArgumentException("lane must be in [0, " + laneCount + "): " + lane);
+    }
     JsonNodeReadOnlyTrx[] lanes = recordTrxLanes;
     if (lanes == null) {
       synchronized (this) {
         lanes = recordTrxLanes;
         if (lanes == null) {
-          lanes = recordTrxLanes = new JsonNodeReadOnlyTrx[recordTrxLaneCount()];
+          lanes = recordTrxLanes = new JsonNodeReadOnlyTrx[laneCount];
         }
       }
     }
@@ -13999,7 +14040,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       synchronized (this) {
         trx = lanes[lane];
         if (trx == null || trx.isClosed()) {
-          trx = session.beginNodeReadOnlyTrx(revision);
+          trx = openRecordTrx();
           lanes[lane] = trx;
         }
       }
@@ -14008,10 +14049,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * The executor's ONE cached record-materialization transaction — materialized items read fields
-   * through it lazily during serialization, so it lives until the executor closes (a per-query trx
-   * would leak one open transaction per served query).
+   * Run record-materialization lanes on this executor's fenced worker pool. This is intentionally
+   * separate from the JVM common pool: {@link #close()} must be able to prove that no lane still
+   * holds a session-bound cursor before the owning store closes its resource sessions.
    */
+  public void parallelRecordMaterialization(final int lanes, final IntConsumer laneTask) {
+    if (lanes <= 0) {
+      throw new IllegalArgumentException("lanes must be positive");
+    }
+    if (laneTask == null) {
+      throw new IllegalArgumentException("laneTask must not be null");
+    }
+    parallel(lanes, laneTask::accept);
+  }
+
   /**
    * Advisory WILLNEED over the winner record keys' pages BEFORE the materialization loop — the keys
    * are known in full, so the kernel readahead runs at device queue depth instead of one demand fault
@@ -14046,16 +14097,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /**
+   * The executor's one cached record-materialization cursor. Materialized items read fields through
+   * it lazily during serialization, so its owner transaction lives until the resource session
+   * closes (a per-query transaction would leak one open transaction per served query).
+   */
   public JsonNodeReadOnlyTrx recordTrx() {
     JsonNodeReadOnlyTrx trx = recordTrx;
-    // Reopen when closed, not only when absent: an executor that has been closed can still be
-    // reached by an already-compiled query holding a reference to it, and materializing through a
-    // closed transaction would fail that query. Reopening keeps it answering from its revision.
+    // Reopen if the session or an external owner closed the cursor. Executor retirement itself does
+    // not close it because already-returned database objects still retain it.
     if (trx == null || trx.isClosed()) {
       synchronized (this) {
         trx = recordTrx;
         if (trx == null || trx.isClosed()) {
-          trx = session.beginNodeReadOnlyTrx(revision);
+          trx = openRecordTrx();
           recordTrx = trx;
         }
       }
@@ -22706,33 +22761,75 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @FunctionalInterface
-  private interface ChunkTask {
+  interface ChunkTask {
     void run(int threadIndex) throws Exception;
   }
 
-  private void parallel(int n, ChunkTask task) {
+  void parallel(int n, ChunkTask task) {
     try {
       // A closed executor is still reachable from an already-compiled query — the compile chain
       // evicts one when the revision it is pinned to falls out of its cache, and the expression
       // built against it keeps its reference. Submitting to the shut-down pool would reject and
       // fail that query; running the chunks inline degrades it to single-threaded instead, which
       // is the same answer more slowly. One volatile read per scan, not per record.
-      if (workerPool.isShutdown()) {
-        for (int i = 0; i < n; i++) {
-          task.run(i);
+      final Future<?>[] futures = new Future[n];
+      int submitted = 0;
+      Exception submissionFailure = null;
+      synchronized (workerPoolLifecycleLock) {
+        if (workerPool.isShutdown()) {
+          for (int i = 0; i < n; i++) {
+            task.run(i);
+          }
+          return;
         }
-        return;
+        try {
+          for (int i = 0; i < n; i++) {
+            final int idx = i;
+            final Future<?> future = workerPool.submit(() -> {
+              task.run(idx);
+              return null;
+            });
+            // Increment only AFTER submit succeeds: a rejection must not leave a null entry inside
+            // the accepted prefix that the lifecycle drain below joins.
+            futures[submitted++] = future;
+          }
+        } catch (final RuntimeException failure) {
+          // An executor-level failure can happen after earlier lanes were accepted. Preserve it,
+          // but first join those lanes below so none escape the method's lifecycle boundary.
+          submissionFailure = failure;
+        }
       }
-      Future<?>[] futures = new Future[n];
-      for (int i = 0; i < n; i++) {
-        int idx = i;
-        futures[i] = workerPool.submit(() -> {
-          task.run(idx);
-          return null;
-        });
+
+      Exception firstFailure = submissionFailure;
+      boolean interrupted = false;
+      for (int i = 0; i < submitted; i++) {
+        final Future<?> future = futures[i];
+        boolean completed = false;
+        while (!completed) {
+          try {
+            future.get();
+            completed = true;
+          } catch (final InterruptedException failure) {
+            // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
+            // before restoring it so no worker can escape the method's lifecycle boundary.
+            interrupted = true;
+            if (firstFailure == null) {
+              firstFailure = failure;
+            }
+          } catch (final Exception failure) {
+            completed = true;
+            if (firstFailure == null) {
+              firstFailure = failure;
+            }
+          }
+        }
       }
-      for (Future<?> f : futures)
-        f.get();
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+      if (firstFailure != null) {
+        throw firstFailure;
+      }
     } catch (Exception e) {
       // Surface the root cause's message in the RuntimeException so call-site
       // logs ({@code QueryException.getMessage()}) show what actually failed

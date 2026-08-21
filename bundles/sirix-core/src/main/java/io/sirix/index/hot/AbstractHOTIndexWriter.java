@@ -47,6 +47,7 @@ import io.sirix.page.ValidTimeIndexPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,6 +104,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final int CONSOLIDATION_TARGET = (HOTLeafPage.MAX_ENTRIES * 3) / 4;
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
+
+  /** Package-private deterministic fault seam; non-null only inside the atomicity regression test. */
+  private static volatile @Nullable Runnable directionOneFrontierAfterPublicationTestHook;
 
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
@@ -174,6 +178,20 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.indexNumber = indexNumber;
     this.pageKeyAllocator = createPageKeyAllocator(storageEngineWriter, indexType, indexNumber);
     this.trieWriter = new HOTTrieWriter(pageKeyAllocator);
+  }
+
+  protected boolean allowsSubtreeRebuild() {
+    return true;
+  }
+
+  private void requireSubtreeRebuildAllowed() {
+    if (indexType == IndexType.PROJECTION) {
+      PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
+    }
+    if (!allowsSubtreeRebuild()) {
+      throw new IllegalStateException(indexType + " index " + indexNumber
+          + " requires a subtree rebuild; refusing the transaction before publication");
+    }
   }
 
   /**
@@ -393,6 +411,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return navigation result with leaf and path
    */
   protected LeafNavigationResult prepareLeafOfTree(PageReference rootRef, byte[] keyBuf, int keyLen) {
+    storageEngineWriter.assertTransactionWritable();
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
@@ -1688,14 +1707,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     // K < affected.firstKey -> K becomes new firstKey of affected. Check I8 at d*.
-    if (!isI8SafeAtSlot(dStar, affectedIdx, keySlice)) {
+    if (!isRangeStartSafeAtSlot(dStar, affectedIdx, keySlice)) {
       return false;
     }
     // K's firstKey-change propagates upward as long as the current slot is 0 (leftmost).
     int currentSlot = affectedIdx;
     for (int depth = insertDepth - 1; depth >= 0 && currentSlot == 0; depth--) {
       final int parentSlot = childSlots[depth];
-      if (!isI8SafeAtSlot(pathNodes[depth], parentSlot, keySlice)) {
+      if (!isRangeStartSafeAtSlot(pathNodes[depth], parentSlot, keySlice)) {
         return false;
       }
       currentSlot = parentSlot;
@@ -1704,15 +1723,16 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Check I8 around {@code slot} of {@code node} given {@code keySlice} as the slot's new (smaller)
-   * firstKey: {@code prev.firstKey < keySlice < next.firstKey} must hold. Helper for
-   * {@link #isDirectionOneI8Safe}.
+   * Check the ordered-range boundary around {@code slot} of {@code node} given {@code keySlice} as
+   * the slot's new (smaller) first key. The preceding subtree's <em>last</em> key must stay below K
+   * (I12, which strictly implies the first-key-only I8 check) and K must stay below the following
+   * subtree's first key.
    */
-  private boolean isI8SafeAtSlot(HOTIndirectPage node, int slot, byte[] keySlice) {
+  private boolean isRangeStartSafeAtSlot(HOTIndirectPage node, int slot, byte[] keySlice) {
     final int n = node.getNumChildren();
     if (slot > 0) {
-      final byte[] prevFirstKey = firstKeyOfSubtree(node.getChildReference(slot - 1));
-      if (prevFirstKey == null || Arrays.compareUnsigned(keySlice, prevFirstKey) <= 0) {
+      final byte[] previousLastKey = lastKeyOfSubtree(node.getChildReference(slot - 1));
+      if (previousLastKey == null || Arrays.compareUnsigned(previousLastKey, keySlice) >= 0) {
         return false;
       }
     }
@@ -1726,11 +1746,68 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Direction-1 ordering guard for a child of one freshly compressed half produced by
+   * {@link HOTIncrementalInsert#splitIndirect}. The half is not on {@code navResult}'s original
+   * spine, so the regular guard cannot describe the first-key propagation. This method checks the
+   * new boundary inside the half, the boundary between both split halves, and—only when the changed
+   * half is the left half and its first slot changed—the original ancestors above {@code d*}.
+   */
+  private boolean isSplitHalfDirectionOneSafe(final LeafNavigationResult navResult, final int insertDepth,
+      final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half, final boolean rightHalf,
+      final int affectedIdx, final byte[] keySlice) {
+    final byte[] affectedFirstKey = firstKeyOfSubtree(half.getChildReference(affectedIdx));
+    if (affectedFirstKey == null) {
+      return false;
+    }
+    if (Arrays.compareUnsigned(keySlice, affectedFirstKey) >= 0) {
+      return true; // K cannot change any subtree minimum.
+    }
+    if (!isRangeStartSafeAtSlot(half, affectedIdx, keySlice)) {
+      return false;
+    }
+    if (affectedIdx != 0) {
+      return true; // The half's own first key is unchanged.
+    }
+
+    if (rightHalf) {
+      final byte[] leftLastKey = lastKeyOfSubtree(split.left());
+      return leftLastKey != null && Arrays.compareUnsigned(leftLastKey, keySlice) < 0;
+    }
+
+    final byte[] rightFirstKey = firstKeyOfSubtree(split.right());
+    if (rightFirstKey == null || Arrays.compareUnsigned(keySlice, rightFirstKey) >= 0) {
+      return false;
+    }
+
+    // K is the split subtree's new first key. Propagate the boundary check through the original
+    // spine until the first non-leftmost slot, exactly as for the ordinary Direction-1 path.
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final int[] childSlots = navResult.pathChildIndices();
+    int currentSlot = 0;
+    for (int depth = insertDepth - 1; depth >= 0 && currentSlot == 0; depth--) {
+      final int parentSlot = childSlots[depth];
+      if (!isRangeStartSafeAtSlot(pathNodes[depth], parentSlot, keySlice)) {
+        return false;
+      }
+      currentSlot = parentSlot;
+    }
+    return true;
+  }
+
+  /**
    * Direction 1 outcome counter -- how often the C2 catch sub-inserts vs falls back to scoped
    * rebuild. Useful for empirical hit-rate measurement; never read by the writer.
    */
   public static final AtomicLong DIRECTION_ONE_SUBINSERT = new AtomicLong();
   public static final AtomicLong DIRECTION_ONE_FALLBACK = new AtomicLong();
+  /** I8/I12-unsafe C2 collisions resolved by a complete direct-leaf-frontier splice. */
+  public static final AtomicLong DIRECTION_ONE_LEAF_FRONTIER_SPLICE = new AtomicLong();
+  /** Frontier splices whose minimal complete range was exactly one adjacent BiNode pair. */
+  public static final AtomicLong DIRECTION_ONE_LEAF_PAIR_SPLICE = new AtomicLong();
+  /** Frontier splices whose minimal complete range contained three or more direct leaves. */
+  public static final AtomicLong DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE = new AtomicLong();
+  /** C2 continuations performed inside a freshly split full-node half. */
+  public static final AtomicLong FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT = new AtomicLong();
 
   /**
    * Issue B outcome counters -- how often handleOffPathOverflow succeeds vs falls back to the
@@ -1761,6 +1838,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * often Stage 3c's propagation re-encoded at least one ancestor.
    */
   public static final AtomicLong REBUILD_SUBTREE_CALLED = new AtomicLong();
+  public static final AtomicLong PROJECTION_REBUILD_SUBTREE_ATTEMPTED = new AtomicLong();
 
 
   /**
@@ -2253,6 +2331,11 @@ public abstract class AbstractHOTIndexWriter<K> {
           return subInsertAt(node.getChildReference(analysis.affectedChildIndex()), keySlice, keySlice.length,
               valueSlice, valueSlice.length);
         }
+        final int collisionSlot = findChildSlotByPartial(node, comboPartial);
+        if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot,
+            analysis.affectedChildIndex(), keySlice, valueSlice)) {
+          return true;
+        }
         DIRECTION_ONE_FALLBACK.incrementAndGet();
         if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
           dumpDirectionOneFallback("site1", navResult, analysis.affectedChildIndex(), analysis.insertDepth(), beta,
@@ -2354,6 +2437,11 @@ public abstract class AbstractHOTIndexWriter<K> {
             DIRECTION_ONE_SUBINSERT.incrementAndGet();
             return subInsertAt(child.getChildReference(childEntryIndex), keySlice, keySlice.length, valueSlice,
                 valueSlice.length);
+          }
+          final int collisionSlot = findChildSlotByPartial(child, comboPartial);
+          if (tryDirectionOneLeafPairSplice(navResult, child, insertDepth + 1, collisionSlot, childEntryIndex,
+              keySlice, valueSlice)) {
+            return true;
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
           if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
@@ -2681,6 +2769,15 @@ public abstract class AbstractHOTIndexWriter<K> {
         final int comboPartial = halfInfo.subtreePrefix() | (betaValue == 1
             ? 1 << (halfDiscBits.length - 1 - betaCol)
             : 0);
+        if (findChildSlotByPartial(half, comboPartial) >= 0) {
+          // C2: the split did not make K a new combination. K belongs below the child selected by
+          // the half's own descent; finish that descent, then rebuild only the two freshly split
+          // parent pages from their (now updated) child references. This is page-local structural
+          // maintenance—not entry collection or a subtree rebuild.
+          keyLeaf.close();
+          return directionOneIntoSplitHalf(navResult, node, insertDepth, split, half,
+              kMsbBit, childIdx, keySlice, valueSlice, revision);
+        }
         foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef, half.getHeight(),
             revision, pageKeyAllocator);
       } else {
@@ -2716,6 +2813,35 @@ public abstract class AbstractHOTIndexWriter<K> {
         buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, split, revision, pageKeyAllocator);
     lastDispatchHandler = "h:combo-site2-fold";
     registerFreshSubtree(result.touchedRef());
+    return true;
+  }
+
+  /** Complete a full-node C2 collision by descending into the selected child of the split half. */
+  private boolean directionOneIntoSplitHalf(final LeafNavigationResult navResult, final HOTIndirectPage originalNode,
+      final int insertDepth, final HOTIncrementalInsert.BiNode split, final HOTIndirectPage half,
+      final boolean rightHalf, final int affectedIdx, final byte[] keySlice, final byte[] valueSlice,
+      final int revision) {
+    if (!isSplitHalfDirectionOneSafe(navResult, insertDepth, split, half, rightHalf, affectedIdx, keySlice)) {
+      DIRECTION_ONE_FALLBACK.incrementAndGet();
+      return false;
+    }
+
+    if (!subInsertAt(half.getChildReference(affectedIdx), keySlice, keySlice.length, valueSlice, valueSlice.length)) {
+      return false;
+    }
+
+    // subInsertAt may have re-pointed (or grown) the affected child. Re-compress both halves from
+    // the original full node's now-current child references so their heights and masks describe the
+    // post-insert structure exactly. The first speculative split was never published or registered.
+    final HOTIncrementalInsert.BiNode refreshedSplit =
+        HOTIncrementalInsert.splitIndirect(originalNode, revision, pageKeyAllocator);
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(navResult.pathNodes(),
+        buildSpineRefs(navResult), navResult.pathChildIndices(), insertDepth, refreshedSplit, revision,
+        pageKeyAllocator);
+    lastDispatchHandler = "h:combo-site2-d1";
+    registerFreshSubtree(result.touchedRef());
+    DIRECTION_ONE_SUBINSERT.incrementAndGet();
+    FULL_EXISTING_BIT_DIRECTION_ONE_SUBINSERT.incrementAndGet();
     return true;
   }
 
@@ -2802,6 +2928,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * already a valid (strictly ascending, distinct) {@link HOTBulkBuilder} input.
    */
   private void rebuildSubtree(LeafNavigationResult navResult, int depth, byte[] keySlice, byte[] valueSlice) {
+    requireSubtreeRebuildAllowed();
     REBUILD_SUBTREE_CALLED.incrementAndGet();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final int safeDepth = Math.max(0, Math.min(depth, navResult.pathDepth() - 1));
@@ -2928,6 +3055,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * invariant-clean by construction (Theorem 1).
    */
   private void rebuildExistingSubtree(PageReference ref) {
+    requireSubtreeRebuildAllowed();
     final Page page = resolveHOTPageForTraversal(ref);
     if (!(page instanceof HOTIndirectPage subtreeRoot)) {
       return; // a leaf root has no indirect invariant
@@ -3190,6 +3318,192 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Resolve the Direction-1 shape in which {@code keySlice} belongs lexicographically inside the
+   * preceding child even though exact sparse-partial routing selected {@code affectedSlot}. The
+   * smallest complete flattened-BiNode range containing those adjacent slots is derived from the
+   * parent's partial trie. Every member must be a direct leaf. That bounded frontier (plus the new
+   * key) is rebuilt as a canonical mini-HOT, then the complete range is replaced by one mini-root.
+   *
+   * <p>This is a leaf-unit structural splice, not an arbitrary subtree rebuild: it never descends an
+   * indirect child, is hard-capped by one HOT block's fanout, preserves every side-map reference,
+   * and re-encodes only the direct parent plus height-changed ancestors. The retained parent partial
+   * is the complete range's lower partial; all entries are checked against the recompressed
+   * candidate's actual coordinates and router before publication.</p>
+   */
+  private boolean tryDirectionOneLeafPairSplice(LeafNavigationResult navResult, HOTIndirectPage node,
+      int nodeDepth, int collisionSlot, int affectedSlot, byte[] keySlice, byte[] valueSlice) {
+    final int numChildren = node.getNumChildren();
+    if (nodeDepth < 0 || nodeDepth >= navResult.pathDepth() || numChildren < 2 || collisionSlot < 0
+        || affectedSlot != collisionSlot + 1 || affectedSlot >= numChildren) {
+      return false;
+    }
+    final HOTIncrementalInsert.ChildRange frontier =
+        HOTIncrementalInsert.minimalBiNodeRangeContaining(node, collisionSlot, affectedSlot);
+    if (frontier.size() < 2 || frontier.size() > HOTIndirectPage.MAX_NODE_ENTRIES) {
+      return false;
+    }
+    // The recompression primitive derives the replacement parent's exact height without an I/O
+    // callback. Swizzle this one bounded block first; these are cache pointers on writer-private
+    // PageReferences, not a structural publication.
+    for (int i = 0; i < numChildren; i++) {
+      final PageReference childRef = node.getChildReference(i);
+      if (childRef == null) {
+        return false;
+      }
+      if (childRef.getPage() == null) {
+        final Page resolved = resolveHOTPageForTraversal(childRef);
+        if (resolved == null) {
+          return false;
+        }
+        childRef.setPage(resolved);
+      }
+    }
+
+    int entryCapacity = 1;
+    int segmentRefCapacity = 0;
+    final List<PageReference> orphanedLeafRefs = new ArrayList<>(frontier.size());
+    for (int slot = frontier.fromInclusive(); slot < frontier.toExclusive(); slot++) {
+      final PageReference childRef = node.getChildReference(slot);
+      if (!(childRef.getPage() instanceof HOTLeafPage leaf)) {
+        return false; // hard guard: never turn this into an indirect-subtree reconstruction
+      }
+      entryCapacity += leaf.getEntryCount();
+      segmentRefCapacity += leaf.segmentRefCount();
+      orphanedLeafRefs.add(childRef);
+    }
+    final List<HOTBulkBuilder.Entry> collected = new ArrayList<>(entryCapacity);
+    final List<CapturedSegmentRef> segmentRefs = new ArrayList<>(segmentRefCapacity);
+    for (int slot = frontier.fromInclusive(); slot < frontier.toExclusive(); slot++) {
+      collectSubtreeEntries(node.getChildReference(slot).getPage(), collected, segmentRefs);
+    }
+    collected.add(new HOTBulkBuilder.Entry(keySlice, valueSlice));
+    collected.sort((a, b) -> Arrays.compareUnsigned(a.key(), b.key()));
+    final List<HOTBulkBuilder.Entry> entries = dedupMergeEntries(collected);
+
+    final int revision = storageEngineWriter.getRevisionNumber();
+    Page miniRoot = null;
+    boolean published = false;
+    try {
+      miniRoot = HOTBulkBuilder.build(entries, revision, indexType, pageKeyAllocator).rootPage();
+      final PageReference replacementRef = swizzle(miniRoot);
+      final PageReference candidateRef = HOTIncrementalInsert.replaceChildRangeAndCompress(node,
+          frontier.fromInclusive(), frontier.toExclusive(), replacementRef, revision, pageKeyAllocator);
+      final Page candidatePage = candidateRef.getPage();
+      if (candidatePage == null) {
+        closeFreshHOTSubtree(miniRoot);
+        return false;
+      }
+      final boolean retainedParent = candidateRef != replacementRef;
+      if (retainedParent) {
+        if (!(candidatePage instanceof HOTIndirectPage candidate)) {
+          closeFreshHOTSubtree(miniRoot);
+          return false;
+        }
+        final int candidateParentMSB = candidate.getMostSignificantBitIndex();
+        if (miniRoot instanceof HOTIndirectPage miniIndirect && candidateParentMSB >= 0
+            && miniIndirect.getMostSignificantBitIndex() <= candidateParentMSB) {
+          closeFreshHOTSubtree(miniRoot);
+          return false; // I11: replacement must branch strictly below its recompressed parent
+        }
+        final int[] candidatePartials = candidate.getPartialKeysRef();
+        final int replacementSlot = frontier.fromInclusive();
+        if (candidatePartials == null || candidatePartials.length < candidate.getNumChildren()
+            || replacementSlot >= candidate.getNumChildren()) {
+          closeFreshHOTSubtree(miniRoot);
+          return false;
+        }
+        final int replacementPartial = candidatePartials[replacementSlot];
+        for (int i = 0; i < entries.size(); i++) {
+          final byte[] entryKey = entries.get(i).key();
+          final int densePartial = candidate.computeDensePartialKey(entryKey);
+          if ((replacementPartial & ~densePartial) != 0
+              || candidate.findChildIndex(entryKey) != replacementSlot) {
+            closeFreshHOTSubtree(miniRoot);
+            return false; // I5/routing in the candidate's final compressed coordinates
+          }
+        }
+      }
+      if (candidatePage instanceof HOTIndirectPage candidate && nodeStructurallyMalformed(candidate)) {
+        closeFreshHOTSubtree(miniRoot);
+        return false;
+      }
+      if (!canPropagateIncrementalSplice(navResult, nodeDepth, candidateRef)) {
+        closeFreshHOTSubtree(miniRoot);
+        return false;
+      }
+
+      // Reattachment first validates every owner, then publishes every side-map reference into the
+      // fresh mini-HOT. Closing an unpublished mini-root merely clears those shared references; it
+      // never retires their overflow pages. The path reference is the sole publication boundary.
+      reattachSegmentRefs(miniRoot, segmentRefs);
+      navResult.pathRefs()[nodeDepth].setPage(candidatePage);
+      published = true;
+      final Runnable afterPublicationTestHook = directionOneFrontierAfterPublicationTestHook;
+      if (afterPublicationTestHook != null) {
+        afterPublicationTestHook.run();
+      }
+      lastDispatchHandler = "h:d1-leaf-frontier-splice";
+      registerFreshSubtree(navResult.pathRefs()[nodeDepth]);
+      if (nodeDepth > 0) {
+        propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
+      }
+      storageEngineWriter.getLog().releaseOrphanedHOTLeaves(orphanedLeafRefs);
+      DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
+      if (frontier.size() == 2) {
+        DIRECTION_ONE_LEAF_PAIR_SPLICE.incrementAndGet();
+      } else {
+        DIRECTION_ONE_MULTI_LEAF_FRONTIER_SPLICE.incrementAndGet();
+      }
+      return true;
+    } catch (final RuntimeException | Error failure) {
+      if (published) {
+        try {
+          storageEngineWriter.markTransactionRollbackOnly(failure);
+        } catch (final RuntimeException | Error poisonFailure) {
+          addSuppressedSafely(failure, poisonFailure);
+        }
+        // The publication hook deliberately runs before TIL registration. A failure there leaves
+        // the fresh mini leaves reachable from a transaction that can only roll back, but not yet
+        // owned by the log. Release their off-heap frames here. The same cleanup is safe after a
+        // later registration/propagation failure: leaf close is idempotent and the poisoned graph
+        // can never be committed.
+        if (miniRoot != null) {
+          try {
+            closeFreshHOTSubtree(miniRoot);
+          } catch (final RuntimeException | Error cleanupFailure) {
+            addSuppressedSafely(failure, cleanupFailure);
+          }
+        }
+      } else if (miniRoot != null) {
+        try {
+          closeFreshHOTSubtree(miniRoot);
+        } catch (final RuntimeException | Error cleanupFailure) {
+          addSuppressedSafely(failure, cleanupFailure);
+        }
+      }
+      throw failure;
+    }
+  }
+
+  /** Release the off-heap leaves of a disposable tree produced entirely by {@link HOTBulkBuilder}. */
+  private static void closeFreshHOTSubtree(Page page) {
+    if (page instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        if (childRef != null && childRef.getPage() != null) {
+          closeFreshHOTSubtree(childRef.getPage());
+        }
+      }
+      return;
+    }
+    page.close();
+  }
+
+  static void setDirectionOneFrontierAfterPublicationTestHook(final @Nullable Runnable hook) {
+    directionOneFrontierAfterPublicationTestHook = hook;
+  }
+
+  /**
    * Collect strandable keys (route to {@code comboSlot}) under {@code ref}; gate single-source +
    * exact.
    */
@@ -3335,6 +3649,101 @@ public abstract class AbstractHOTIndexWriter<K> {
         strandConfinedRec(indirect.getChildReference(i), newNode, newSlot, excludeKey, leafPageKey, state, depth + 1);
       }
     }
+  }
+
+  /**
+   * Preflight every deterministic condition {@link #propagateRebuildUpSpine} can encounter after an
+   * incremental splice. The live path still points at the old subtree, so this walk substitutes the
+   * candidate's exact key range and height in registers while resolving every unaffected sibling.
+   * No PageReference is changed and no page is allocated.
+   *
+   * <p>A {@code false} result leaves the caller free to discard the unpublished mini-HOT. Once this
+   * returns {@code true}, propagation can fail only through an unexpected allocation/TIL/runtime
+   * fault; the caller therefore poisons the transaction if such a failure occurs after publication.
+   */
+  private boolean canPropagateIncrementalSplice(final LeafNavigationResult navResult,
+      final int rebuiltDepth, final PageReference candidateRef) {
+    final Page candidatePage = resolveHOTPageForTraversal(candidateRef);
+    if (candidatePage == null) {
+      return false;
+    }
+    byte[] propagatedFirst = firstKeyOfSubtree(candidateRef);
+    byte[] propagatedLast = lastKeyOfSubtree(candidateRef);
+    if (propagatedFirst == null || propagatedLast == null) {
+      return false;
+    }
+    int propagatedHeight = candidatePage instanceof HOTIndirectPage indirect
+        ? indirect.getHeight()
+        : 0;
+    boolean boundaryRelevant = true;
+
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final int[] childSlots = navResult.pathChildIndices();
+    if (rebuiltDepth > 0 && candidatePage instanceof HOTIndirectPage candidateIndirect) {
+      final HOTIndirectPage directParent = pathNodes[rebuiltDepth - 1];
+      if (directParent.getMostSignificantBitIndex() >= 0
+          && candidateIndirect.getMostSignificantBitIndex() <= directParent.getMostSignificantBitIndex()) {
+        return false; // I11 must hold before the replacement becomes the parent's live child
+      }
+    }
+    for (int ancestorDepth = rebuiltDepth - 1; ancestorDepth >= 0; ancestorDepth--) {
+      final HOTIndirectPage ancestor = pathNodes[ancestorDepth];
+      final int numChildren = ancestor.getNumChildren();
+      final int rebuiltSlot = childSlots[ancestorDepth];
+      if (rebuiltSlot < 0 || rebuiltSlot >= numChildren) {
+        return false;
+      }
+
+      if (boundaryRelevant) {
+        if (rebuiltSlot > 0) {
+          final byte[] previousLast = lastKeyOfSubtree(ancestor.getChildReference(rebuiltSlot - 1));
+          if (previousLast == null || Arrays.compareUnsigned(previousLast, propagatedFirst) >= 0) {
+            return false;
+          }
+        }
+        if (rebuiltSlot + 1 < numChildren) {
+          final byte[] nextFirst = firstKeyOfSubtree(ancestor.getChildReference(rebuiltSlot + 1));
+          if (nextFirst == null || Arrays.compareUnsigned(propagatedLast, nextFirst) >= 0) {
+            return false;
+          }
+        }
+        if (rebuiltSlot != 0) {
+          propagatedFirst = firstKeyOfSubtree(ancestor.getChildReference(0));
+          if (propagatedFirst == null) {
+            return false;
+          }
+        }
+        if (rebuiltSlot != numChildren - 1) {
+          propagatedLast = lastKeyOfSubtree(ancestor.getChildReference(numChildren - 1));
+          if (propagatedLast == null) {
+            return false;
+          }
+        }
+        boundaryRelevant = rebuiltSlot == 0 || rebuiltSlot == numChildren - 1;
+      }
+
+      int maxChildHeight = 0;
+      for (int i = 0; i < numChildren; i++) {
+        final int childHeight;
+        if (i == rebuiltSlot) {
+          childHeight = propagatedHeight;
+        } else {
+          final Page childPage = resolveHOTPageForTraversal(ancestor.getChildReference(i));
+          if (childPage == null) {
+            return false;
+          }
+          childHeight = childPage instanceof HOTIndirectPage childIndirect
+              ? childIndirect.getHeight()
+              : 0;
+        }
+        maxChildHeight = Math.max(maxChildHeight, childHeight);
+      }
+      propagatedHeight = maxChildHeight + 1;
+      if (!boundaryRelevant && propagatedHeight == ancestor.getHeight()) {
+        return true;
+      }
+    }
+    return true;
   }
 
   /**
@@ -3554,9 +3963,23 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (refs.isEmpty()) {
       return;
     }
+    final HOTLeafPage[] owners = new HOTLeafPage[refs.size()];
+    final LongOpenHashSet uniqueRefKeys = new LongOpenHashSet(refs.size());
     final byte[] ownerKey = new byte[8];
+    // Pass 1 is deliberately side-effect free. A missing owner must be discovered before ANY
+    // captured reference is attached, so an unpublished bulk-built root always remains safely
+    // discardable as one ownership unit.
     for (int i = 0; i < refs.size(); i++) {
       final CapturedSegmentRef captured = refs.get(i);
+      if (captured.reference() == null) {
+        throw new IllegalStateException(
+            "Segment-ref reattach after rebuild: refKey " + captured.refKey() + " has no PageReference");
+      }
+      if (!uniqueRefKeys.add(captured.refKey())) {
+        throw new IllegalStateException(
+            "Segment-ref reattach after rebuild: duplicate refKey " + captured.refKey()
+                + " was captured from more than one source leaf");
+      }
       final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(captured.refKey());
       PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
       Page current = newRoot;
@@ -3573,7 +3996,14 @@ public abstract class AbstractHOTIndexWriter<K> {
             "Segment-ref reattach after rebuild: owning slot " + ownerSlot + " (refKey=" + captured.refKey()
                 + ") not found in the rebuilt subtree" + " — the rebuild dropped an entry it collected.");
       }
-      leaf.setPageReference(captured.refKey(), captured.reference());
+      owners[i] = leaf;
+    }
+    // Pass 2 cannot fail for a fresh active leaf under the single-writer discipline. If an
+    // unexpected lifecycle/runtime fault does occur, the caller closes the still-unpublished root;
+    // HOTLeafPage teardown severs (but does not retire) these shared PageReference objects.
+    for (int i = 0; i < refs.size(); i++) {
+      final CapturedSegmentRef captured = refs.get(i);
+      owners[i].setPageReference(captured.refKey(), captured.reference());
     }
   }
 
@@ -3639,7 +4069,15 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     if (page instanceof HOTIndirectPage indirect) {
       for (int i = 0; i < indirect.getNumChildren(); i++) {
-        registerFreshPage(indirect.getChildReference(i), false);
+        try {
+          registerFreshPage(indirect.getChildReference(i), false);
+        } catch (final RuntimeException | Error failure) {
+          // Registration is post-order. Earlier siblings are already TIL-owned and the failing
+          // child's registered refs are skipped by the cleanup guard; the failing child and later
+          // siblings may still be locally owned. Retire that fresh suffix before unwinding.
+          closeUnregisteredFreshChildren(indirect, i, failure);
+          throw failure;
+        }
       }
     } else if (page instanceof HOTLeafPage freshLeaf) {
       // A freshly created leaf has no on-disk predecessor — mark it a complete dump so commit
@@ -3649,7 +4087,88 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Register a PageContainer so the page is persisted: a fresh page is its own complete and
     // modified view; an indirect carries no version chain, and a fresh leaf is full-emitted at
     // commit because its completePageRef is null (see PageKind.HOT_LEAF_PAGE.serializePage).
-    storageEngineWriter.getLog().put(ref, PageContainer.getInstance(page, page));
+    PageContainer container = null;
+    TransactionIntentLog log = null;
+    boolean putStarted = false;
+    try {
+      container = PageContainer.getInstance(page, page);
+      log = requireNonNull(storageEngineWriter.getLog(), "transaction intent log");
+      putStarted = true;
+      log.put(ref, container);
+    } catch (final RuntimeException | Error failure) {
+      // put() clears ref.page before it publishes a new log slot. Retain the local page so a
+      // failure between those operations cannot strand an off-heap leaf outside both the tree and
+      // the TIL. Before put begins, ownership is known to remain local. Once it begins, exact
+      // container identity is the boundary; if that probe itself fails, retain rather than risk
+      // closing a log-owned page. Any failure here dooms the transaction because descendant pages
+      // may already have crossed their ownership boundary.
+      boolean ownershipKnown = !putStarted;
+      boolean logOwnsContainer = false;
+      if (putStarted) {
+        try {
+          logOwnsContainer = log.get(ref) == container;
+          ownershipKnown = true;
+        } catch (final RuntimeException | Error ownershipFailure) {
+          addSuppressedSafely(failure, ownershipFailure);
+        }
+      }
+      try {
+        storageEngineWriter.markTransactionRollbackOnly(failure);
+      } catch (final RuntimeException | Error poisonFailure) {
+        addSuppressedSafely(failure, poisonFailure);
+      }
+      if (ownershipKnown && !logOwnsContainer && page instanceof HOTLeafPage freshLeaf) {
+        try {
+          freshLeaf.close();
+        } catch (final RuntimeException | Error cleanupFailure) {
+          addSuppressedSafely(failure, cleanupFailure);
+        }
+      }
+      throw failure;
+    }
+  }
+
+  /**
+   * Best-effort, allocation-free cleanup for a fresh subtree that registration has not visited.
+   * A disk key or log key marks a shared/TIL-owned boundary and is never crossed. Each recursive
+   * call absorbs its own cleanup failure so siblings are still examined.
+   */
+  private static void closeUnregisteredFreshSubtree(final @Nullable PageReference ref,
+      final Throwable primaryFailure) {
+    try {
+      if (ref == null || ref.getLogKey() >= 0 || ref.getKey() >= 0) {
+        return;
+      }
+      final Page page = ref.getPage();
+      if (page instanceof HOTIndirectPage indirect) {
+        closeUnregisteredFreshChildren(indirect, 0, primaryFailure);
+      } else if (page instanceof HOTLeafPage leaf) {
+        leaf.close();
+      }
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+    }
+  }
+
+  private static void closeUnregisteredFreshChildren(final HOTIndirectPage indirect,
+      final int fromInclusive, final Throwable primaryFailure) {
+    final int numChildren;
+    try {
+      numChildren = indirect.getNumChildren();
+    } catch (final RuntimeException | Error cleanupFailure) {
+      addSuppressedSafely(primaryFailure, cleanupFailure);
+      return;
+    }
+    for (int i = fromInclusive; i < numChildren; i++) {
+      final PageReference childRef;
+      try {
+        childRef = indirect.getChildReference(i);
+      } catch (final RuntimeException | Error cleanupFailure) {
+        addSuppressedSafely(primaryFailure, cleanupFailure);
+        continue;
+      }
+      closeUnregisteredFreshSubtree(childRef, primaryFailure);
+    }
   }
 
   /**

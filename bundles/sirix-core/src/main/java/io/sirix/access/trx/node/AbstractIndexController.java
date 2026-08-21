@@ -9,7 +9,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
-import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.ResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
@@ -366,6 +366,20 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       return this;
     }
 
+    // A load-time projection owns process-wide state outside the transaction's page log. Dropping its
+    // definition removes the only listener that can finish or abort that state, so retire the exact
+    // listener owner before touching the catalogue. Do not abort the remaining projection listeners:
+    // dropIndexes rebinds those below, and a successful intermediate commit may deliberately keep
+    // their streaming builders alive across listener epochs.
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        final ProjectionIndexChangeListener projectionListener = projectionListenerFor(indexDef.getID());
+        if (projectionListener != null) {
+          projectionListener.transactionAborted();
+        }
+      }
+    }
+
     // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
     //    Match on the FULL IndexDef (id + type) — index ids are only unique within a type, so a
     //    remove-by-id would also drop a same-id index of another type (e.g. a CAS index with id 0).
@@ -434,10 +448,45 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public void notifyTransactionAbort() {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].transactionAborted();
+    }
+    // Wtx-serving handles are tied to the listener's maintenance epoch and may retain decoded
+    // payloads from the lineage that is about to disappear.
+    uncommittedHandles.clear();
+  }
+
+  @Override
   public void notifyStructuralChange() {
     final ChangeListener[] activeListeners = listenerSnapshot;
     for (int i = 0; i < activeListeners.length; i++) {
       activeListeners[i].structuralChange();
+    }
+  }
+
+  @Override
+  public void notifyBeforeStructuralChange(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].beforeStructuralChange(movedNodeKey);
+    }
+  }
+
+  @Override
+  public void notifyAfterStructuralChange(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].afterStructuralChange(movedNodeKey);
+    }
+  }
+
+  @Override
+  public void notifyStructuralChangeAborted(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].structuralChangeAborted(movedNodeKey);
     }
   }
 
@@ -602,11 +651,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
     // Committed reader — the cached catalog front-end (probe + decoded-leaf
     // tiers keyed by resource and revision).
-    if (storageEngineReader.getResourceSession() instanceof final JsonResourceSession jsonSession) {
-      return ProjectionIndexCatalog.lookupCovering(jsonSession,
-          jsonSession.getResourceConfig().getResource().toString(),
-          storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
-    }
-    return null;
+    final ResourceSession<?, ?> session = storageEngineReader.getResourceSession();
+    return ProjectionIndexCatalog.lookupCovering(session,
+        session.getResourceConfig().getResource().toString(),
+        storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
   }
 }

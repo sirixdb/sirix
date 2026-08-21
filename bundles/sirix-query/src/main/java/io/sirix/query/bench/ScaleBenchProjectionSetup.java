@@ -12,12 +12,10 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
-import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexFences;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
-import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
 import io.sirix.index.projection.ProjectionIndexRegistry;
@@ -100,10 +98,14 @@ final class ScaleBenchProjectionSetup {
         if (!probeUnreadable) {
           ProjectionIndexMetadata parsedMetadata = probedMetadata;
           List<byte[]> compact = new ArrayList<>();
+          int[] compactPhysicalOrder = null;
           if (probedMetadata != null) {
             try {
-              compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+              compactPhysicalOrder = ProjectionIndexFences.readPhysicalOrder(
                   probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount());
+              compact = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+                  probeRtx.getStorageEngineReader(), INDEX_NUMBER, probedMetadata.rowGroupCount(),
+                  compactPhysicalOrder);
             } catch (final IllegalStateException corrupt) {
               System.out.println("# Persisted projection unreadable (" + corrupt.getMessage()
                   + ") — rebuilding");
@@ -143,19 +145,38 @@ final class ScaleBenchProjectionSetup {
                     + " — rebuild it with -Dsirix.projection.forceRebuild=true.");
               }
             }
-            final List<byte[]> reencoded = (inMemoryReencode || repersistReencoded)
-                ? reencodeLeaves(persisted)
-                : persisted;
+            final List<byte[]> reencoded;
+            if (inMemoryReencode || repersistReencoded) {
+              if (metadata == null) {
+                throw new IllegalStateException("Cannot re-encode a projection without live metadata");
+              }
+              reencoded = reencodeLeaves(persisted, metadata.columnKinds());
+            } else {
+              reencoded = persisted;
+            }
             if (repersistReencoded) {
               // Repersist the re-encoded leaves back to HOT storage under a
               // single write trx. Next cold run will skip the reencode step
               // because the on-disk bytes will already be in the new format.
+              if (metadata == null || compactPhysicalOrder == null
+                  || compactPhysicalOrder.length != reencoded.size()) {
+                throw new IllegalStateException(
+                    "Cannot repersist a projection without its exact persisted physical row-group order");
+              }
               final long t0 = System.nanoTime();
               try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+                // The exclusive writer is opened only after the read snapshot and the re-encode pass.
+                // Its revision is the revision it will publish, hence `- 1` is the base snapshot it
+                // actually inherited while holding the resource-wide writer lock. Never overlay old
+                // row-group bytes/order onto a projection maintained by an intervening commit.
+                validateWriterBaseRevision(revision, wtx.getRevisionNumber());
                 final ProjectionIndexHOTStorage storage =
                     new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
                 for (int i = 0; i < reencoded.size(); i++) {
-                  storage.putRowGroupAsColumnSegmentSlots(i + 1,
+                  // `persisted` is in DOCUMENT order; physical ids can contain gaps and reuse after
+                  // incremental split/delete. Rewriting i+1 would silently permute row groups under
+                  // unchanged fences, locators and Bloom summaries.
+                  storage.putRowGroupAsColumnSegmentSlots(compactPhysicalOrder[i],
                       ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(reencoded.get(i)));
                 }
                 wtx.commit();
@@ -217,14 +238,6 @@ final class ScaleBenchProjectionSetup {
         INDEX_NUMBER,
         IndexDef.DbType.JSON);
 
-    final List<byte[]> leaves = new ArrayList<>();
-    final ProjectionIndexBuilder builder;
-    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
-         PathSummaryReader pathSummary = session.openPathSummary(revision)) {
-      builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
-      builder.build(rtx);
-    }
-
     // Persist under a single write trx. Putting leaves outside the trx would
     // require setting up a StorageEngineWriter by hand — the node trx gives
     // us one for free plus handles commit.
@@ -237,90 +250,54 @@ final class ScaleBenchProjectionSetup {
     // ProjectionIndexHOTStorageGrowingPayloadTest), so the flag is now just
     // an optional fast-iteration knob.
     if (!Boolean.parseBoolean(System.getProperty("sirix.projection.persist", "true"))) {
+      final List<byte[]> leaves = new ArrayList<>();
+      final ProjectionIndexBuilder builder;
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
+          var pathSummary = session.openPathSummary(revision)) {
+        builder = new ProjectionIndexBuilder(def, pathSummary, leaves::add);
+        builder.build(rtx);
+      }
       ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves,
           builder.numericColumnNonIntegralFlags());
       return leaves.size();
     }
-    long rawBytes = 0;
-    long compactBytes = 0;
+    // Use the production persistence boundary rather than duplicating it here. This is
+    // load-bearing for non-monotone record locators, resource-wide dictionary headers, Bloom
+    // manifests and metadata-last publication. The former hand-written loop published metadata
+    // before its leaves and persisted neither exception locators nor global dictionary anchors.
     try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-      final ProjectionIndexHOTStorage storage =
-          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
-      // Probe what is physically live BEFORE writing anything, so a rebuild that SHRINKS the
-      // projection can reclaim the slots it no longer covers (mirrors
-      // ProjectionIndexBuilder.finishPersist). Without it the sub-tree keeps row groups above the
-      // new leaf count: reads stay correct (the metadata's count bounds them) but the store
-      // permanently carries the high-water mark, and readAllRowGroupsFromColumnSegmentSlots
-      // reports them as leaked orphans.
-      final int priorRowGroupCount = priorLiveRowGroupCount(storage);
-      // Metadata at slot 0, leaves at 1..N — the SAME layout the controller
-      // persists, so slot arithmetic never aliases across rebuilds (a
-      // metadata-less rebuild over a metadata store would leave one stale
-      // leaf remnant even at unchanged leaf count) and hydrate is bounded
-      // by the declared leaf count.
-      final String[] fieldPathStrings = new String[projectedFieldPaths.size()];
-      for (int i = 0; i < fieldPathStrings.length; i++) {
-        fieldPathStrings[i] = projectedFieldPaths.get(i).toString();
-      }
-      // Per-leaf record-key fences — the maintenance zone map, now persisted as
-      // carry-forward chunks (ProjectionIndexFences) rather than inside slot 0.
-      final long[] leafFirstKeys = new long[leaves.size()];
-      final long[] leafLastKeys = new long[leaves.size()];
-      for (int i = 0; i < leaves.size(); i++) {
-        final long[] range = ProjectionIndexRowGroupCodec.recordKeyRange(leaves.get(i));
-        if (range == null) {
-          throw new IllegalStateException("Serialised projection leaf " + i + " carries no header");
-        }
-        leafFirstKeys[i] = range[0];
-        leafLastKeys[i] = range[1];
-      }
-      final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath.toString(),
-          fieldPathStrings, FIELD_NAMES, builder.columnKinds(), leaves.size(),
-          wtx.getRevisionNumber());
-      for (long slot = leaves.size() + 1; slot <= priorRowGroupCount; slot++) {
-        storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
-      }
-      storage.putBlob(0, metadata.serialize());
-      ProjectionIndexFences.write(storage, leaves.size(), leafFirstKeys, leafLastKeys,
-          priorRowGroupCount);
-      for (int i = 0; i < leaves.size(); i++) {
-        // Persist in the segmented compact form (per-column FOR/bit-packed segments behind a
-        // descriptor) — the flat scan form stays in-memory only; hydrate assembles losslessly.
-        final byte[] raw = leaves.get(i);
-        final var encoded = ProjectionIndexColumnSegmentCodec.encode(raw);
-        rawBytes += raw.length;
-        compactBytes += encoded.descriptor().length;
-        for (final byte[] segment : encoded.segments()) {
-          compactBytes += segment.length;
-        }
-        storage.putRowGroupAsColumnSegmentSlots(i + 1, encoded);
-      }
+      ProjectionIndexBuilder.buildAndPersist(def, wtx.getPathSummary(), wtx,
+          wtx.getStorageEngineWriter(), false);
       wtx.commit();
+    }
+
+    final List<byte[]> leaves;
+    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(
+          ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), INDEX_NUMBER, 0L));
+      if (metadata == null || metadata.isStale()) {
+        throw new IllegalStateException("Production projection build did not publish live metadata");
+      }
+      final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(
+          rtx.getStorageEngineReader(), INDEX_NUMBER, metadata.rowGroupCount());
+      leaves = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+          rtx.getStorageEngineReader(), INDEX_NUMBER, metadata.rowGroupCount(), physicalOrder);
+    }
+    long rawBytes = 0L;
+    long compactBytes = 0L;
+    for (final byte[] raw : leaves) {
+      final var encoded = ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
+      rawBytes += raw.length;
+      compactBytes += encoded.descriptor().length;
+      for (final byte[] segment : encoded.segments()) {
+        compactBytes += segment.length;
+      }
     }
     System.out.printf("# Projection persisted: %,d leaves, raw %,d bytes -> compact %,d bytes (%.1f%%)%n",
         leaves.size(), rawBytes, compactBytes, rawBytes == 0 ? 0.0 : 100.0 * compactBytes / rawBytes);
 
-    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves, builder.numericColumnNonIntegralFlags());
+    ProjectionIndexRegistry.installWildcard(resourceKey, FIELD_NAMES, leaves);
     return leaves.size();
-  }
-
-  /**
-   * Leaf count of the snapshot this rebuild replaces, for orphan tombstoning. Live metadata gives
-   * a floor rather than the answer: an incremental patch can have written fresh row groups and
-   * then failed before updating slot 0, so the declared count can under-report what is physically
-   * there. A stale tombstone no longer carries the pre-invalidation count at all, and an
-   * unreadable slot 0 says nothing — both fall back to probing the sub-tree from slot 1.
-   */
-  private static int priorLiveRowGroupCount(final ProjectionIndexHOTStorage storage) {
-    ProjectionIndexMetadata priorMetadata;
-    try {
-      priorMetadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
-    } catch (final RuntimeException corrupt) {
-      priorMetadata = null;
-    }
-    return priorMetadata != null && !priorMetadata.isStale()
-        ? storage.probeLiveRowGroupCountFrom(priorMetadata.rowGroupCount())
-        : storage.probeLiveRowGroupCount();
   }
 
   /**
@@ -334,16 +311,203 @@ final class ScaleBenchProjectionSetup {
    * right-sized {@code ArrayList} to avoid growth copies — matches the
    * HFT discipline of the rest of this class.
    */
-  private static List<byte[]> reencodeLeaves(final List<byte[]> persisted) {
+  static List<byte[]> reencodeLeaves(final List<byte[]> persisted, final byte[] metadataKinds) {
     final List<byte[]> out = new ArrayList<>(persisted.size());
-    for (final byte[] payload : persisted) {
+    for (int documentPosition = 0; documentPosition < persisted.size(); documentPosition++) {
+      final byte[] payload = persisted.get(documentPosition);
       if (payload == null) {
-        out.add(null);
-        continue;
+        throw new IllegalStateException("Persisted projection row group is null at document position "
+            + documentPosition);
       }
-      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(payload);
-      out.add(leaf.serialize());
+      final ProjectionIndexRowGroupPage before = ProjectionIndexRowGroupPage.deserialize(payload);
+      final byte[] reencoded = before.serialize();
+      // Decode the candidate once because the persisted meaning, not merely serializer scratch, is
+      // the contract. Reuse `before` from the re-encode above: two decodes per leaf, not the former
+      // three-decode reencode + validation sequence.
+      final ProjectionIndexRowGroupPage after = ProjectionIndexRowGroupPage.deserialize(reencoded);
+      validateWireRewrite(before, after, metadataKinds, documentPosition);
+      out.add(reencoded);
     }
     return out;
+  }
+
+  static void validateWriterBaseRevision(final int probedRevision, final int writerRevision) {
+    final int writerBaseRevision = writerRevision - 1;
+    if (writerBaseRevision != probedRevision) {
+      throw new IllegalStateException("Projection changed while its wire rewrite was prepared: read revision "
+          + probedRevision + " but the writer is based on revision " + writerBaseRevision);
+    }
+  }
+
+  /**
+   * A wire-only rewrite may change bytes, but it may not change any logical fact consumed by the
+   * unchanged fences, sparse locators, Bloom chunks, summaries, dictionaries, or slot-0 metadata.
+   * Comparisons stay on borrowed primitive arrays and dictionary byte ranges: no bitmap copies or
+   * per-cell strings are allocated during the 100M-row migration pass.
+   */
+  static void validateWireRewrite(final ProjectionIndexRowGroupPage before,
+      final ProjectionIndexRowGroupPage after,
+      final byte[] metadataKinds, final int documentPosition) {
+    if (before.getRowCount() != after.getRowCount()
+        || before.getColumnCount() != after.getColumnCount()
+        || before.getColumnCount() != metadataKinds.length) {
+      throw wireRewriteMismatch(documentPosition, "row-group shape");
+    }
+    if (before.firstRecordKey() != after.firstRecordKey()
+        || before.lastRecordKey() != after.lastRecordKey()
+        || before.hasOrderExceptions() != after.hasOrderExceptions()) {
+      throw wireRewriteMismatch(documentPosition, "record-key fence/order metadata");
+    }
+    for (int column = 0; column < metadataKinds.length; column++) {
+      if (before.columnKind(column) != metadataKinds[column]
+          || after.columnKind(column) != metadataKinds[column]) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " kind");
+      }
+    }
+    final long[] beforeKeys = before.recordKeys();
+    final long[] afterKeys = after.recordKeys();
+    for (int row = 0; row < before.getRowCount(); row++) {
+      if (beforeKeys[row] != afterKeys[row]
+          || before.orderExceptionAt(row) != after.orderExceptionAt(row)) {
+        throw wireRewriteMismatch(documentPosition, "record identity/order at row " + row);
+      }
+    }
+
+    final int rowCount = before.getRowCount();
+    for (int column = 0; column < metadataKinds.length; column++) {
+      if (before.columnMin(column) != after.columnMin(column)
+          || before.columnMax(column) != after.columnMax(column)) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " zone map");
+      }
+      if (before.columnUnrepresentable(column) != after.columnUnrepresentable(column)
+          || before.columnNumericNonIntegral(column) != after.columnNumericNonIntegral(column)
+          || before.columnPureDoubleSource(column) != after.columnPureDoubleSource(column)) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " provenance");
+      }
+      if (!liveBitsEqual(before.presenceColumnBits(column), after.presenceColumnBits(column), rowCount)) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " presence");
+      }
+
+      switch (metadataKinds[column]) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+             ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+             ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+            validateLongValues(before, after, column, rowCount, documentPosition);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> {
+          if (!liveBitsEqual(before.booleanColumnBits(column), after.booleanColumnBits(column), rowCount)) {
+            throw wireRewriteMismatch(documentPosition, "column " + column + " boolean values");
+          }
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+            validateScalarStrings(before, after, column, rowCount, documentPosition);
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET ->
+            validateStringSets(before, after, column, rowCount, documentPosition);
+        default -> throw wireRewriteMismatch(documentPosition,
+            "column " + column + " unknown kind " + metadataKinds[column]);
+      }
+    }
+  }
+
+  private static void validateLongValues(final ProjectionIndexRowGroupPage before,
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
+      final int documentPosition) {
+    final long[] beforeValues = before.numericColumn(column);
+    final long[] afterValues = after.numericColumn(column);
+    for (int row = 0; row < rowCount; row++) {
+      if (beforeValues[row] != afterValues[row]) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " value at row " + row);
+      }
+    }
+  }
+
+  private static void validateScalarStrings(final ProjectionIndexRowGroupPage before,
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
+      final int documentPosition) {
+    validateLocalDictionary(before, after, column, documentPosition, "string");
+    final int[] beforeIds = before.stringDictIdColumn(column);
+    final int[] afterIds = after.stringDictIdColumn(column);
+    for (int row = 0; row < rowCount; row++) {
+      if (beforeIds[row] != afterIds[row]) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " string id at row " + row);
+      }
+    }
+  }
+
+  private static void validateStringSets(final ProjectionIndexRowGroupPage before,
+      final ProjectionIndexRowGroupPage after, final int column, final int rowCount,
+      final int documentPosition) {
+    validateLocalDictionary(before, after, column, documentPosition, "set");
+    if (before.stringSetLength(column) != after.stringSetLength(column)) {
+      throw wireRewriteMismatch(documentPosition, "column " + column + " set cardinality");
+    }
+    final int[] beforeCounts = before.stringSetCountColumn(column);
+    final int[] afterCounts = after.stringSetCountColumn(column);
+    for (int row = 0; row < rowCount; row++) {
+      if (beforeCounts[row] != afterCounts[row]) {
+        throw wireRewriteMismatch(documentPosition, "column " + column + " set count at row " + row);
+      }
+    }
+    final int[] beforeIds = before.stringSetIdColumn(column);
+    final int[] afterIds = after.stringSetIdColumn(column);
+    for (int element = 0; element < before.stringSetLength(column); element++) {
+      if (beforeIds[element] != afterIds[element]) {
+        throw wireRewriteMismatch(documentPosition,
+            "column " + column + " set id at element " + element);
+      }
+    }
+  }
+
+  private static void validateLocalDictionary(final ProjectionIndexRowGroupPage before,
+      final ProjectionIndexRowGroupPage after, final int column, final int documentPosition,
+      final String description) {
+    final int beforeSize = before.stringDictionarySize(column);
+    if (beforeSize != after.stringDictionarySize(column)) {
+      throw wireRewriteMismatch(documentPosition, "column " + column + ' ' + description + " dictionary size");
+    }
+    for (int id = 0; id < beforeSize; id++) {
+      if (!dictionaryEntryEquals(before, after, column, id)) {
+        throw wireRewriteMismatch(documentPosition,
+            "column " + column + ' ' + description + " dictionary entry " + id);
+      }
+    }
+  }
+
+  private static boolean dictionaryEntryEquals(final ProjectionIndexRowGroupPage left,
+      final ProjectionIndexRowGroupPage right, final int column, final int id) {
+    final int leftLength = left.stringDictionaryEntryLength(column, id);
+    if (leftLength != right.stringDictionaryEntryLength(column, id)) {
+      return false;
+    }
+    final byte[] leftBytes = left.stringDictionaryEntryBacking(column, id);
+    final byte[] rightBytes = right.stringDictionaryEntryBacking(column, id);
+    int leftOffset = left.stringDictionaryEntryOffset(column, id);
+    int rightOffset = right.stringDictionaryEntryOffset(column, id);
+    final int leftEnd = leftOffset + leftLength;
+    while (leftOffset < leftEnd) {
+      if (leftBytes[leftOffset++] != rightBytes[rightOffset++]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private static boolean liveBitsEqual(final long[] left, final long[] right, final int bitCount) {
+    final int fullWords = bitCount >>> 6;
+    for (int word = 0; word < fullWords; word++) {
+      if (left[word] != right[word]) {
+        return false;
+      }
+    }
+    final int remaining = bitCount & 63;
+    if (remaining == 0) {
+      return true;
+    }
+    final long mask = (1L << remaining) - 1L;
+    return (left[fullWords] & mask) == (right[fullWords] & mask);
+  }
+
+  private static IllegalStateException wireRewriteMismatch(final int documentPosition, final String detail) {
+    return new IllegalStateException("Wire rewrite changed projection " + detail
+        + " at document position " + documentPosition);
   }
 }

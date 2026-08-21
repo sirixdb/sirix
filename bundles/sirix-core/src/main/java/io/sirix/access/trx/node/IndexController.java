@@ -320,13 +320,31 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
+   * Abort listener-owned maintenance state whose validity depends on the current write-transaction
+   * lineage. Called before rollback/revert replaces the page writer and before a clean close releases
+   * the transaction. It is deliberately not part of {@link #clearChangeListeners()}: successful
+   * intermediate commits rebind listeners while a load-time projection build remains valid.
+   */
+  default void notifyTransactionAbort() {
+  }
+
+  /**
    * Notify all change listeners of structural subtree surgery (currently a
    * MOVE) that per-node change notifications cannot express completely.
-   * Listeners that need complete change attribution (projection)
-   * conservatively invalidate their index; eagerly-maintained listeners
-   * ignore it. Called by the transaction's move operations.
+   * Listeners that need complete change attribution may reject before mutation; eagerly-maintained
+   * listeners ignore it. Called by the transaction's move operations.
    */
   default void notifyStructuralChange() {
+  }
+
+  default void notifyBeforeStructuralChange(final long movedNodeKey) {
+    notifyStructuralChange();
+  }
+
+  default void notifyAfterStructuralChange(final long movedNodeKey) {
+  }
+
+  default void notifyStructuralChangeAborted(final long movedNodeKey) {
   }
 
   NameFilter createNameFilter(Set<String> names);

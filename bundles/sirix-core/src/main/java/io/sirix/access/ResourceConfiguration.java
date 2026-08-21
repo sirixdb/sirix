@@ -34,7 +34,6 @@ import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.exception.SirixIOException;
-import io.sirix.exception.SirixUsageException;
 import io.sirix.io.HashAlgorithm;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -209,7 +208,7 @@ public final class ResourceConfiguration {
    * byte to reserve room for future bumps, but there are no alternative encodings to select at
    * runtime.
    */
-  public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V1;
+  public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 
   /**
    * Stable identifier of the node-hash function baked into the on-disk format (XXH3-64 via
@@ -760,16 +759,6 @@ public final class ResourceConfiguration {
       // Binary encoding version.
       expectField(jsonReader, JSONNAMES[0], configFile);
       final BinaryEncodingVersion binaryEncodingVersion = BinaryEncodingVersion.valueOf(jsonReader.nextString());
-      // The version byte was written to reserve room for exactly this. It is only useful if
-      // somebody reads it: an older resource opened by a newer reader must SAY so, because the
-      // failure it otherwise produces is misparsed path statistics answering aggregates with
-      // plausible wrong numbers rather than anything that looks like a fault.
-      if (binaryEncodingVersion.byteVersion() < BINARY_ENCODING_VERSION.byteVersion()) {
-        throw new SirixUsageException("Resource at " + file + " was written with binary encoding "
-            + binaryEncodingVersion + ", but this build reads " + BINARY_ENCODING_VERSION
-            + ". The path-statistics record layout changed incompatibly and is not bridged; re-create the "
-            + "resource from its source data.");
-      }
       // Versioning.
       expectField(jsonReader, JSONNAMES[1], configFile);
       jsonReader.beginObject();

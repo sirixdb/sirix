@@ -16,13 +16,19 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -73,6 +79,13 @@ final class PreallocatedCommitTest {
         .resolve(resourceName)
         .resolve(ResourceConfiguration.ResourcePaths.TRANSACTION_INTENT_LOG.getPath())
         .resolve(".commit");
+  }
+
+  private static Path revisionsFilePath(final Path databasePath, final String resourceName) {
+    return databasePath.resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
+                       .resolve(resourceName)
+                       .resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
+                       .resolve(io.sirix.io.IOStorage.REVISIONS_FILENAME);
   }
 
   /** Build a JSON array literal {@code [0,1,...,n-1]}. */
@@ -260,6 +273,54 @@ final class PreallocatedCommitTest {
       assertTrue(afterMany <= 2 * chunk,
           "preallocated file must stay bounded to ~1 chunk for a tiny resource; was " + afterMany);
     }
+  }
+
+  @Test
+  @DisplayName("warm preallocated frontier rejects a corrupted revision-root frame")
+  void warmPreallocatedFrontierRejectsCorruptedRevisionRootFrame() throws Exception {
+    System.setProperty(PREALLOC_PROP, "true");
+    final Path dbPath = PATHS.PATH1.getFile();
+    Databases.createJsonDatabase(new DatabaseConfiguration(dbPath));
+    int revision;
+    UUID resourceUuid;
+    try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+      db.createResource(fileChannelResource(RESOURCE).build());
+      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+          final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        resourceUuid = Objects.requireNonNull(session.getResourceConfig().resourceUuid);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonArray(100)));
+        wtx.commit();
+        revision = session.getMostRecentRevisionNumber();
+      }
+    }
+    assertTrue(io.sirix.io.RevisionRecordDurability.forFile(revisionsFilePath(dbPath, RESOURCE),
+        resourceUuid.getMostSignificantBits(), resourceUuid.getLeastSignificantBits()).cachedFrontiers()[0] > 0L,
+        "the fixture must retain the predecessor writer's warm frontier");
+
+    final ByteBuffer revisionRecord = ByteBuffer.allocate(io.sirix.io.IOStorage.REVISIONS_FILE_RECORD_SIZE)
+                                                .order(ByteOrder.LITTLE_ENDIAN);
+    try (final var revisions = java.nio.channels.FileChannel.open(revisionsFilePath(dbPath, RESOURCE),
+        StandardOpenOption.READ)) {
+      final long offset = io.sirix.io.IOStorage.REVISIONS_RECORDS_START
+          + (long) revision * io.sirix.io.IOStorage.REVISIONS_FILE_RECORD_SIZE;
+      while (revisionRecord.hasRemaining()) {
+        final int read = revisions.read(revisionRecord, offset + revisionRecord.position());
+        if (read <= 0) throw new IOException("short revision record read");
+      }
+    }
+    revisionRecord.flip();
+    final long revisionRootOffset = revisionRecord.getLong();
+    try (final var data = java.nio.channels.FileChannel.open(dataFilePath(dbPath, RESOURCE),
+        StandardOpenOption.WRITE)) {
+      data.write(ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.LITTLE_ENDIAN).putInt(1).flip(),
+          revisionRootOffset);
+    }
+    assertThrows(RuntimeException.class, () -> {
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+          final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+          final JsonNodeTrx ignored = session.beginNodeTrx()) {
+      }
+    });
   }
 
   @Test

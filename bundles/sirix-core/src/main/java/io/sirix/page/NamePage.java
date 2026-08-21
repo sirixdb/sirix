@@ -1117,8 +1117,9 @@ public final class NamePage extends AbstractForwardingPage {
       throw new IllegalArgumentException("must reserve a positive number of keys, got " + count);
     }
     final int indexNumber = projectionValueDictionaryOffset(databaseType);
-    final long first = maxNodeKeys.getOrDefault(indexNumber, 0L) + 1;
-    maxNodeKeys.put(indexNumber, first + count - 1);
+    final long first = Math.addExact(maxNodeKeys.getOrDefault(indexNumber, 0L), 1L);
+    final long last = Math.addExact(first, Math.subtractExact(count, 1L));
+    maxNodeKeys.put(indexNumber, last);
     return first;
   }
 

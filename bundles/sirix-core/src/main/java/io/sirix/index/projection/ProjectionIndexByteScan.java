@@ -60,6 +60,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  *   16:  long lastRecordKey
  *   24:  byte[columnCount] kinds
  *   24+columnCount: long[rowCount] recordKeys    (if rowCount > 0)
+ *   then byte orderExceptionKind and, only for DENSE, ceil(rowCount/64) bitmap words
  *   then per column in order:
  *     long min, long max
  *     NUMERIC_LONG:  long[rowCount] values
@@ -319,7 +320,7 @@ public final class ProjectionIndexByteScan {
     if (groupColumn < 0 || groupColumn >= columnCount)
       return -1;
     final int kindsOff = 24;
-    int cursor = kindsOff + columnCount + rowCount * 8; // recordKeysOff + rowCount*8
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16; // per-column min/max
       if (c == groupColumn)
@@ -1611,7 +1612,7 @@ public final class ProjectionIndexByteScan {
     if (rowCount == 0) {
       return 0;
     }
-    int cursor = kindsOff + columnCount + rowCount * 8;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       out[c] = cursor;
       cursor += 16;
@@ -3250,7 +3251,7 @@ public final class ProjectionIndexByteScan {
     final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
     final int[] result = new int[columnCount + 1];
-    int cursor = kindsOff + columnCount + rowCount * 8;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16;
       result[c] = cursor;
@@ -3923,7 +3924,7 @@ public final class ProjectionIndexByteScan {
     final int rowCount = getIntLE(payload, 0);
     final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
-    int cursor = kindsOff + columnCount + rowCount * 8;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16;
       if (c == column) {
@@ -4547,6 +4548,27 @@ public final class ProjectionIndexByteScan {
     return getIntLE(payload, 4);
   }
 
+  /** End of KEYS in the raw V0 leaf; NONE is the allocation-free one-byte common case. */
+  private static int columnStreamStart(final byte[] payload, final int rowCount, final int columnCount) {
+    final long markerOffsetLong = 24L + columnCount + (long) rowCount * Long.BYTES;
+    if (rowCount < 0 || columnCount < 0 || markerOffsetLong < 0 || markerOffsetLong >= payload.length) {
+      throw new IllegalStateException("truncated projection KEYS stream");
+    }
+    final int markerOffset = (int) markerOffsetLong;
+    final byte kind = payload[markerOffset];
+    if (kind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE) {
+      return markerOffset + 1;
+    }
+    if (kind != ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE || rowCount == 0) {
+      throw new IllegalStateException("unknown projection order-exception kind " + kind);
+    }
+    final long end = markerOffsetLong + 1L + ((rowCount + 63L) >>> 6) * Long.BYTES;
+    if (end > payload.length) {
+      throw new IllegalStateException("truncated projection order-exception bitmap");
+    }
+    return (int) end;
+  }
+
   // ------------------------------------------------------------------
   // Presence tail (sparse-field correctness). Layout appended AFTER the
   // column stream — see ProjectionIndexRowGroupPage's class javadoc:
@@ -4600,8 +4622,8 @@ public final class ProjectionIndexByteScan {
     final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
     if (rowCount == 0)
-      return kindsOff + columnCount;
-    int cursor = kindsOff + columnCount + rowCount * 8;
+      return columnStreamStart(payload, rowCount, columnCount);
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16;
       final byte kind = payload[kindsOff + c];
@@ -4944,13 +4966,13 @@ public final class ProjectionIndexByteScan {
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
     if (rowCount == 0) {
-      s.leafDataEnd = recordKeysOff;
+      s.leafDataEnd = columnStreamStart(payload, rowCount, columnCount);
       return 0;
     }
 
     // Compute column offsets in one pass. Each column starts with
     // (min, max) 16 bytes, then its kind-specific data.
-    int cursor = recordKeysOff + rowCount * 8;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       columnMinMaxOff[c] = cursor;
       cursor += 16;

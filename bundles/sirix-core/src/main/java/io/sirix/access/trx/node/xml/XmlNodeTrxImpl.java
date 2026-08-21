@@ -172,6 +172,8 @@ final class XmlNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean structuralSurgeryStarted = false;
     try {
       checkArgument(fromKey >= 0 && fromKey <= getMaxNodeKey(), "Argument must be a valid node key!");
 
@@ -193,6 +195,10 @@ final class XmlNodeTrxImpl extends
         // Check that it's not already the first child.
         if (nodeAnchor.getFirstChildKey() != nodeToMove.getNodeKey()) {
           final StructNode toMove = (StructNode) nodeToMove;
+          final long movedNodeKey = toMove.getNodeKey();
+          pendingStructuralChange = movedNodeKey;
+          indexController.notifyBeforeStructuralChange(movedNodeKey);
+          structuralSurgeryStarted = true;
 
           // Compound operation: adaptForMove internally calls remove()/setValue(), whose
           // checkAccessAndCommit() must not fire an auto-commit while the moved subtree is
@@ -226,12 +232,22 @@ final class XmlNodeTrxImpl extends
           } finally {
             endCompoundOperation();
           }
+          indexController.notifyAfterStructuralChange(movedNodeKey);
+          pendingStructuralChange = -1L;
         }
         return this;
       } else {
         throw new SirixUsageException(
             "Move is not allowed if moved node is not an ElementNode and the node isn't inserted at an element node!");
       }
+    } catch (final RuntimeException | Error failure) {
+      if (structuralSurgeryStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -345,6 +361,8 @@ final class XmlNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean structuralSurgeryStarted = false;
     try {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
         throw new IllegalArgumentException("Argument must be a valid node key!");
@@ -368,6 +386,10 @@ final class XmlNodeTrxImpl extends
         checkAccessAndCommit();
 
         if (nodeAnchor.getRightSiblingKey() != nodeToMove.getNodeKey()) {
+          final long movedNodeKey = toMove.getNodeKey();
+          pendingStructuralChange = movedNodeKey;
+          indexController.notifyBeforeStructuralChange(movedNodeKey);
+          structuralSurgeryStarted = true;
           final long parentKey = nodeAnchor.getParentKey();
 
           // Compound operation: adaptForMove internally calls remove()/setValue(), whose
@@ -375,6 +397,11 @@ final class XmlNodeTrxImpl extends
           // detached from its old position but not yet re-attached (#1062).
           beginCompoundOperation();
           try {
+            // Notify every index under the subtree's OLD ancestry before pointer surgery. Primitive
+            // notifications alone are not enough for projection membership: a moved record still
+            // exists after the move and must be explicitly attributed to its old record set.
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+
             // Adapt hashes.
             adaptHashesForMove(toMove);
 
@@ -395,6 +422,10 @@ final class XmlNodeTrxImpl extends
               }
             }
 
+            // Re-attribute the complete subtree under its NEW ancestry after path-summary
+            // adaptation, mirroring the first-child and JSON move contracts.
+            adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+
             // Recompute DeweyIDs if they are used.
             if (storeDeweyIDs()) {
               deweyIDManager.computeNewDeweyIDs();
@@ -402,12 +433,22 @@ final class XmlNodeTrxImpl extends
           } finally {
             endCompoundOperation();
           }
+          indexController.notifyAfterStructuralChange(movedNodeKey);
+          pendingStructuralChange = -1L;
         }
         return this;
       } else {
         throw new SirixUsageException(
             "Move is not allowed if moved node is not an ElementNode or TextNode and the node isn't inserted at an ElementNode or TextNode!");
       }
+    } catch (final RuntimeException | Error failure) {
+      if (structuralSurgeryStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -1593,12 +1634,20 @@ final class XmlNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean renameStarted = false;
     try {
       final NodeKind currentKind = getKind();
       if (currentKind == NodeKind.ELEMENT || currentKind == NodeKind.ATTRIBUTE || currentKind == NodeKind.NAMESPACE
           || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
         if (!getName().equals(name)) {
           checkAccessAndCommit();
+
+          if (currentKind == NodeKind.ELEMENT) {
+            pendingStructuralChange = getNodeKey();
+            indexController.notifyBeforeStructuralChange(pendingStructuralChange);
+          }
+          renameStarted = true;
 
           // Get a TIL-owned copy via prepareRecordForModification (proper COW).
           final NameNode node =
@@ -1661,12 +1710,24 @@ final class XmlNodeTrxImpl extends
           // Re-index under the NEW name/path (see the DELETE above).
           notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node2,
               node2.getPathNodeKey());
+          if (pendingStructuralChange >= 0) {
+            indexController.notifyAfterStructuralChange(pendingStructuralChange);
+            pendingStructuralChange = -1L;
+          }
         }
 
         return this;
       } else {
         throw new SirixUsageException("setName is not allowed if current node is not an INameNode implementation!");
       }
+    } catch (final RuntimeException | Error failure) {
+      if (renameStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();

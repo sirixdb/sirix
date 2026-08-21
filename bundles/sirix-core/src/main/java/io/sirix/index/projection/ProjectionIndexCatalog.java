@@ -7,11 +7,11 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
-import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.IndexController;
 import io.sirix.api.StorageEngineReader;
 import org.jspecify.annotations.Nullable;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.Indexes;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -184,7 +184,7 @@ public final class ProjectionIndexCatalog {
    * @return the record count, or {@code -1} to fall back (no usable definition — includes
    *         wtx/uncommitted contexts, which must keep using their epoch-scoped handles)
    */
-  public static long countRowsFromDescriptors(final JsonResourceSession session, final String resourceKey,
+  public static long countRowsFromDescriptors(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision, final String[] sourcePath) {
     final DefEntry[] entries = defEntries(session, resourceKey, revision);
     if (entries.length == 0) {
@@ -226,9 +226,9 @@ public final class ProjectionIndexCatalog {
   private static final String[] NO_FIELDS = new String[0];
 
   /** Descriptor walk behind {@link #countRowsFromDescriptors}; corruption → negative entry. */
-  private static DescriptorStats readDescriptorStats(final JsonResourceSession session, final int revision,
+  private static DescriptorStats readDescriptorStats(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
-    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+    try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final StorageEngineReader reader = rtx.getStorageEngineReader();
       final byte[] slot0 = ProjectionIndexHOTStorage.readBlob(reader, def.getID(), 0L);
       final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(slot0);
@@ -251,13 +251,13 @@ public final class ProjectionIndexCatalog {
   }
 
   /** Whether the catalog of {@code revision} holds any projection definition. */
-  public static boolean hasProjections(final JsonResourceSession session, final String resourceKey,
+  public static boolean hasProjections(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision) {
     return defEntries(session, resourceKey, revision).length > 0;
   }
 
   /** Whether any catalogued projection of {@code revision} carries {@code field} as a column. */
-  public static boolean anyDefCoversField(final JsonResourceSession session, final String resourceKey,
+  public static boolean anyDefCoversField(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision, final String field) {
     for (final DefEntry entry : defEntries(session, resourceKey, revision)) {
       for (final String name : entry.fieldNames) {
@@ -278,7 +278,7 @@ public final class ProjectionIndexCatalog {
    *        {@code $doc.b[]}); {@code null} or empty fails closed
    * @return a usable handle, or {@code null}
    */
-  public static ProjectionIndexRegistry.Handle lookupCovering(final JsonResourceSession session,
+  public static ProjectionIndexRegistry.Handle lookupCovering(final ResourceSession<?, ?> session,
       final String resourceKey, final int revision, final String[] sourcePath, final String[] requiredFields) {
     final DefEntry[] entries = defEntries(session, resourceKey, revision);
     if (entries.length == 0) {
@@ -429,13 +429,13 @@ public final class ProjectionIndexCatalog {
    * Fail-soft: unusable stores yield {@code null} and the caller falls back (or rebuilds, on the
    * creation path).
    */
-  public static ProjectionIndexRegistry.Handle load(final JsonResourceSession session, final int revision,
+  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
     return load(session, session.getResourceConfig().getResource().toString(), revision, def);
   }
 
-  /** {@link #load(JsonResourceSession, int, IndexDef)} with a precomputed resource key. */
-  public static ProjectionIndexRegistry.Handle load(final JsonResourceSession session, final String resourceKey,
+  /** {@link #load(ResourceSession, int, IndexDef)} with a precomputed resource key. */
+  public static ProjectionIndexRegistry.Handle load(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision, final IndexDef def) {
     try {
       final Probe probe =
@@ -475,8 +475,8 @@ public final class ProjectionIndexCatalog {
    * against the catalogued definition. Corruption is logged and cached as unusable; transient
    * failures propagate to {@link #load}'s no-cache handler.
    */
-  private static Probe probeMetadata(final JsonResourceSession session, final int revision, final IndexDef def) {
-    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+  private static Probe probeMetadata(final ResourceSession<?, ?> session, final int revision, final IndexDef def) {
+    try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       return probeMetadata(rtx.getStorageEngineReader(), def, revision);
     }
   }
@@ -525,9 +525,9 @@ public final class ProjectionIndexCatalog {
    * corruption discovered here (truncated leaf list, codec failures) is logged and cached as unusable
    * for this build.
    */
-  private static ProjectionIndexRegistry.Handle decodeRowGroups(final JsonResourceSession session, final int revision,
+  private static ProjectionIndexRegistry.Handle decodeRowGroups(final ResourceSession<?, ?> session, final int revision,
       final IndexDef def) {
-    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+    try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
       final ProjectionIndexRegistry.Handle lazy =
           tryBuildColumnLazyHandle(session, revision, def, rtx.getStorageEngineReader());
       if (lazy != null) {
@@ -545,10 +545,11 @@ public final class ProjectionIndexCatalog {
    * eager path re-surfaces the corruption through the established fail-soft flow), or
    * {@link #NOT_USABLE} for stale/truncated.
    */
-  private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(final JsonResourceSession session,
+  private static ProjectionIndexRegistry.@Nullable Handle tryBuildColumnLazyHandle(final ResourceSession<?, ?> session,
       final int revision, final IndexDef def, final StorageEngineReader reader) {
     final ProjectionIndexMetadata metadata;
     final List<ProjectionIndexHOTStorage.RowGroupDirectory> directories;
+    final int[] physicalOrder;
     final long tParse;
     final long t0 = DIAG
         ? System.nanoTime()
@@ -558,6 +559,7 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
+      physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(), metadata.rowGroupCount());
       tParse = DIAG
           ? System.nanoTime()
           : 0L;
@@ -571,8 +573,8 @@ public final class ProjectionIndexCatalog {
       // pages. The writer-facing decode path keeps the serial cursor walk (its reader consults a
       // transaction intent log, whose read path mutates shared state).
       directories = ProjectionIndexHOTStorage.readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, def.getID(),
-          metadata.rowGroupCount(), worker -> {
-            try (JsonNodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
+          metadata.rowGroupCount(), physicalOrder, worker -> {
+            try (NodeReadOnlyTrx laneRtx = session.beginNodeReadOnlyTrx(revision)) {
               worker.accept(laneRtx.getStorageEngineReader());
             }
           });
@@ -617,7 +619,7 @@ public final class ProjectionIndexCatalog {
     // owned reader. Payload pages remain deferred to the caller-scoped fetcher, so hydration is a
     // small, resource-free range walk and there is no daemon transaction to leak on an early return.
     final ProjectionBloomChunks.ColumnEvidence[] bloomBlocks =
-        readBloomBlocks(reader, def, metadata.columnKinds(), metadata.rowGroupCount());
+        readBloomBlocks(reader, def, metadata.columnKinds(), metadata.rowGroupCount(), physicalOrder);
     projectedBytes += ProjectionBloomChunks.retainedBytes(bloomBlocks);
     if (DIAG) {
       final long tBloom = System.nanoTime();
@@ -632,8 +634,9 @@ public final class ProjectionIndexCatalog {
     }
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.Handle.columnLazy(metadata.rootPath(),
         metadata.buildRevision(), metadata.fieldNames(), store, def.getID(), projectedBytes);
-    // The metadata blob has already been read to get here, so the summary rides along for free.
-    handle.setSetValueRowCounts(metadata.setValueRowCounts());
+    // Metadata identifies bounded summary chunks; hydrate them before the handle can serve counts.
+    handle.setSetValueRowCounts(
+        ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
     // …as do the per-column value dictionary anchors, without which a global string column can
     // only be scanned, never probed: resolving a predicate literal to an id needs the anchor.
     handle.setValueDictionaryHeaderKeys(metadata.valueDictionaryHeaderKeys());
@@ -678,8 +681,9 @@ public final class ProjectionIndexCatalog {
    */
   private static ProjectionBloomChunks.ColumnEvidence @Nullable [] readBloomBlocks(final StorageEngineReader reader,
       final IndexDef def,
-      final byte[] columnKinds, final int rowGroupCount) {
-    return ProjectionBloomChunks.read(reader, def.getID(), columnKinds, rowGroupCount);
+      final byte[] columnKinds, final int rowGroupCount, final int[] physicalOrder) {
+    return ProjectionBloomChunks.reorder(
+        ProjectionBloomChunks.read(reader, def.getID(), columnKinds, rowGroupCount), physicalOrder);
   }
 
   /**
@@ -687,12 +691,12 @@ public final class ProjectionIndexCatalog {
    * (batched). Built by a CALLER from its OWN live session and threaded into the shared handle's fill
    * calls — the handle never stores it.
    */
-  public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(final JsonResourceSession session,
+  public static ProjectionColumnStore.ColumnSegmentFetcher columnSegmentFetcher(final ResourceSession<?, ?> session,
       final int revision) {
     return new ProjectionColumnStore.ColumnSegmentFetcher() {
       @Override
       public byte @Nullable [] @Nullable [] fetchAll(final long[] offsets) {
-        try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
           // Batched + backend-coalesced (P5b stage 4b): runs of near-adjacent segment offsets
           // become single ranged reads instead of a pread pair per segment.
           return ProjectionIndexHOTStorage.readSegmentBytesBatch(fetchRtx.getStorageEngineReader(), offsets);
@@ -705,7 +709,7 @@ public final class ProjectionIndexCatalog {
         // A transaction PER RANGE: concurrent read transactions are supported (the parallel
         // materialize walk already relies on it), a single one is not thread-safe, and the offsets
         // ascend with the leaf index — so a contiguous range still coalesces into ranged reads.
-        try (JsonNodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
+        try (NodeReadOnlyTrx fetchRtx = session.beginNodeReadOnlyTrx(revision)) {
           final long[] requested = from == 0 && to == offsets.length
               ? offsets
               : Arrays.copyOfRange(offsets, from, to);
@@ -732,7 +736,7 @@ public final class ProjectionIndexCatalog {
    * session and threaded into {@link ProjectionIndexRegistry.Handle#rowGroupPayloads} on demand; the
    * handle never stores it.
    */
-  public static Supplier<List<byte[]>> rowGroupMaterializer(final JsonResourceSession session, final int revision,
+  public static Supplier<List<byte[]>> rowGroupMaterializer(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount) {
     return () -> {
       final List<byte[]> persisted = materializeRowGroups(session, revision, defId, rowGroupCount);
@@ -757,23 +761,30 @@ public final class ProjectionIndexCatalog {
    * pages decoded twice cost duplicate work, never correctness). Batch resolution and assembly
    * (phases 3-5) then run exactly as the serial path does.
    */
-  private static List<byte[]> materializeRowGroups(final JsonResourceSession session, final int revision,
+  private static List<byte[]> materializeRowGroups(final ResourceSession<?, ?> session, final int revision,
       final int defId, final int rowGroupCount) {
-    final int workers = Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, rowGroupCount / 64));
+    final int[] physicalOrder;
+    try (NodeReadOnlyTrx orderRtx = session.beginNodeReadOnlyTrx(revision)) {
+      physicalOrder = ProjectionIndexFences.readPhysicalOrder(orderRtx.getStorageEngineReader(), defId,
+          rowGroupCount);
+    }
+    final int physicalUpperBound = ProjectionIndexHOTStorage.physicalSlotUpperBound(physicalOrder);
+    final int workers = Math.min(Runtime.getRuntime().availableProcessors(),
+        Math.max(1, physicalUpperBound / 64));
     final long t0 = DIAG
         ? System.nanoTime()
         : 0L;
     if (rowGroupCount < PARALLEL_MATERIALIZE_MIN || workers <= 1) {
-      try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
+      try (NodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
         return ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(matRtx.getStorageEngineReader(), defId,
-            rowGroupCount);
+            rowGroupCount, physicalOrder);
       }
     }
     @SuppressWarnings("unchecked")
     final Long2ObjectRBTreeMap<ProjectionIndexHOTStorage.RawBlobSlot>[] descParts = new Long2ObjectRBTreeMap[workers];
     @SuppressWarnings("unchecked")
     final ArrayList<ProjectionIndexHOTStorage.RawBlobSlot>[] segParts = new ArrayList[workers];
-    final int chunk = (rowGroupCount + workers - 1) / workers;
+    final int chunk = (physicalUpperBound + workers - 1) / workers;
     ForkJoinPool.commonPool().invoke(new RecursiveAction() {
       @Override
       protected void compute() {
@@ -781,13 +792,13 @@ public final class ProjectionIndexCatalog {
         for (int w = 0; w < workers; w++) {
           final int idx = w;
           final long lo = 1L + (long) w * chunk;
-          final long hi = Math.min(lo + chunk - 1, rowGroupCount);
+          final long hi = Math.min(lo + chunk - 1, physicalUpperBound);
           subs[w] = new RecursiveAction() {
             @Override
             protected void compute() {
               final Long2ObjectRBTreeMap<ProjectionIndexHOTStorage.RawBlobSlot> desc = new Long2ObjectRBTreeMap<>();
               final ArrayList<ProjectionIndexHOTStorage.RawBlobSlot> segs = new ArrayList<>();
-              try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+              try (NodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
                 ProjectionIndexHOTStorage.collectSlotsRange(rtx.getStorageEngineReader(), defId, rowGroupCount, lo, hi,
                     desc, segs);
               }
@@ -813,17 +824,17 @@ public final class ProjectionIndexCatalog {
         ? System.nanoTime()
         : 0L;
     final ProjectionIndexHOTStorage.RawBlobSlot[] descArr =
-        ProjectionIndexHOTStorage.drainOrderedDescriptors(descriptors, rowGroupCount, defId);
-    final JsonNodeReadOnlyTrx[] laneTrxs = new JsonNodeReadOnlyTrx[workers];
+        ProjectionIndexHOTStorage.drainOrderedDescriptors(descriptors, rowGroupCount, defId, physicalOrder);
+    final NodeReadOnlyTrx[] laneTrxs = new NodeReadOnlyTrx[workers];
     final StorageEngineReader[] laneReaders = new StorageEngineReader[workers];
-    try (JsonNodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
+    try (NodeReadOnlyTrx matRtx = session.beginNodeReadOnlyTrx(revision)) {
       try {
         for (int w = 0; w < workers; w++) {
           laneTrxs[w] = session.beginNodeReadOnlyTrx(revision);
           laneReaders[w] = laneTrxs[w].getStorageEngineReader();
         }
       } catch (final RuntimeException openFailed) {
-        for (final JsonNodeReadOnlyTrx t : laneTrxs) {
+        for (final NodeReadOnlyTrx t : laneTrxs) {
           if (t != null) {
             t.close();
           }
@@ -833,9 +844,9 @@ public final class ProjectionIndexCatalog {
       final List<byte[]> out;
       try {
         out = ProjectionIndexHOTStorage.assembleRowGroupsFromSlots(matRtx.getStorageEngineReader(), defId,
-            rowGroupCount, descArr, segmentSlots, laneReaders);
+            rowGroupCount, descArr, segmentSlots, physicalOrder, laneReaders);
       } finally {
-        for (final JsonNodeReadOnlyTrx t : laneTrxs) {
+        for (final NodeReadOnlyTrx t : laneTrxs) {
           if (t != null) {
             t.close();
           }
@@ -865,8 +876,10 @@ public final class ProjectionIndexCatalog {
       if (metadata == null || metadata.isStale()) {
         return NOT_USABLE;
       }
-      persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, def.getID(),
+      final int[] physicalOrder = ProjectionIndexFences.readPhysicalOrder(reader, def.getID(),
           metadata.rowGroupCount());
+      persisted = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(reader, def.getID(),
+          metadata.rowGroupCount(), physicalOrder);
     } catch (final IllegalStateException corrupt) {
       LOGGER.warn("Projection definition #" + def.getID() + ": corrupt persisted state during " + "decode ("
           + corrupt.getMessage() + ")");
@@ -895,6 +908,8 @@ public final class ProjectionIndexCatalog {
     }
     final ProjectionIndexRegistry.Handle handle = new ProjectionIndexRegistry.Handle(metadata.rootPath(),
         metadata.buildRevision(), metadata.fieldNames(), decoded, null);
+    handle.setSetValueRowCounts(
+        ProjectionSetSummaryChunks.readAll(reader, def.getID(), metadata.setValueRowCounts()));
     handle.setFieldChains(metadata.fieldChains());
     // The eager path needs the value dictionary anchors as much as the column-lazy one does: without
     // them a global column's ids have nothing to resolve against, and every route that would consume
@@ -903,10 +918,10 @@ public final class ProjectionIndexCatalog {
     return handle;
   }
 
-  private static DefEntry[] defEntries(final JsonResourceSession session, final String resourceKey,
+  private static DefEntry[] defEntries(final ResourceSession<?, ?> session, final String resourceKey,
       final int revision) {
     return DEFS.get(new DefsKey(resourceKey, revision), key -> {
-      final JsonIndexController controller = session.getRtxIndexController(revision);
+      final IndexController<?, ?> controller = session.getRtxIndexController(revision);
       return resolveDescendantRoots(session, revision, defEntriesFrom(controller.getIndexes()));
     });
   }
@@ -920,7 +935,7 @@ public final class ProjectionIndexCatalog {
    * fail closed. Resolved per (resource, revision) and cached with the entries, so the summary walk
    * happens once, not per query.
    */
-  private static DefEntry[] resolveDescendantRoots(final JsonResourceSession session, final int revision,
+  private static DefEntry[] resolveDescendantRoots(final ResourceSession<?, ?> session, final int revision,
       final DefEntry[] entries) {
     PathSummaryReader summary = null;
     try {

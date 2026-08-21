@@ -10,11 +10,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Self-describing metadata payload persisted alongside projection leaves (slot 0 of the HOT
- * sub-tree, leaves at slots 1..{@link #rowGroupCount()}): the projection's root path, per-column
- * field paths, column names, and column kinds. Hydration reads the projection's shape from HERE
+ * sub-tree): the projection's root path, per-column field paths, column names, and column kinds.
+ * {@link #rowGroupCount()} is the live logical leaf cardinality; physical leaf ids and their
+ * document order live in {@link ProjectionIndexFences} and need not be contiguous after local
+ * split/recycle maintenance. Hydration reads the projection's shape from HERE
  * instead of trusting the caller's argument list — without it, a re-create with a same-arity but
  * different field list would silently install the persisted columns under the wrong names (the
  * exact corruption the column-count guard alone cannot catch).
@@ -35,11 +38,10 @@ import java.util.Map;
  * only) and a commit rewrites only the fence chunks it actually changed.
  *
  * <p>
- * The <b>stale</b> flag is the update-time invalidation hook: the projection change listener
- * overwrites slot 0 with {@link #staleTombstone()} when a write transaction modifies the indexed
- * record set, so a later hydrate refuses the outdated columns and rebuilds instead. The leaf count
- * bounds the hydrate read — a rebuild that shrinks the projection may leave stale payloads at
- * higher slots, which hydration must ignore.
+ * The <b>stale</b> flag is the fail-closed marker used by abandoned builds and legacy listeners that
+ * cannot maintain a live snapshot. Ordinary update-time maintenance never installs it. The live
+ * leaf count is cross-checked with the fence/order header, whose explicit physical order prevents
+ * recycled holes or unrelated higher physical ids from being interpreted as live.
  *
  * <p>
  * {@link #parse} returns {@code null} for payloads without the magic, so hydrate paths can probe
@@ -55,22 +57,10 @@ public final class ProjectionIndexMetadata {
   public static final byte FLAG_STALE = 0x01;
 
   /**
-   * Wire-format version, and there is exactly ONE — the current one, like
-   * {@link io.sirix.BinaryEncodingVersion}. The byte exists so that a future format change can be
-   * REJECTED rather than misread, not so two formats can coexist: {@link #parse} returns {@code null}
-   * for any other value, which every caller treats as "no metadata" and rebuilds.
-   *
-   * <p>
-   * It starts at 0 rather than carrying a history. Earlier values existed only within this codebase's
-   * own development — the fences moving out of this blob, the descriptor layout being retired — and
-   * no resource written with them exists, so numbering as though a migration path had to be preserved
-   * would document a compatibility guarantee this project does not make.
-   *
-   * <p>
-   * Bump it when the payload's shape changes. That is what makes such a change safe: an old blob
-   * fails to parse and its store is rebuilt, instead of its bytes being read at shifted offsets.
+   * Wire-format version. Version zero stores set-summary capabilities separately from bounded chunks.
+   * Unknown versions are declined rather than interpreted with shifted fields.
    */
-  private static final byte VERSION = 1;
+  private static final byte VERSION = 0;
 
   private final String rootPath;
   private final String[] fieldPaths;
@@ -82,19 +72,15 @@ public final class ProjectionIndexMetadata {
   private final byte flags;
 
   /**
-   * Per set column, the number of ROWS in the WHOLE index whose set contains each value.
+   * Per set column, either hydrated row counts or an empty persisted capability marker.
    *
    * <p>
-   * Indexed by column, {@code null} for columns without one. This is what lets a bare
-   * {@code count(... satisfies $g eq lit)} be answered by a map probe: the metadata blob is read on
-   * every covering lookup already, so the answer costs no segment fetch and no leaf read.
+   * Indexed by column, {@code null} for columns without one. The current format serializes only the column keys; the
+   * counts live in bounded per-column chunks and are hydrated by the catalog before serving.
    *
    * <p>
-   * ONE map for the index, not one per leaf. The per-leaf form is what the row-group descriptors
-   * carry, and replicating a summary thousands of times is what overflowed the HOT leaves when it was
-   * tried there; a query that counts over the whole index needs a single number, so it is stored
-   * once. The corollary is the limit: this cannot serve a count restricted to a subset of rows, and
-   * the caller's gate is what keeps it from being asked to.
+   * ONE bounded chunk per summarized column, not one per leaf. This cannot serve a count restricted
+   * to a subset of rows, and the caller's gate keeps it from being asked to.
    *
    * <p>
    * Summing per-leaf counts is exact because a record lives in exactly one leaf, and the per-leaf
@@ -113,10 +99,8 @@ public final class ProjectionIndexMetadata {
    * function of which column it is. See {@code GlobalValueDictionary} for why a computed namespace
    * is not an option.
    *
-   * <p>Written as a TRAILING section so a payload from before the section existed still parses —
-   * it simply reports no dictionaries, and a store holding no global columns cannot need any. That
-   * keeps already-ingested resources readable without a re-ingest, which a version bump (the
-   * project's normal answer to a shape change) would not.
+   * <p>Written as a trailing section so every current metadata record carries an explicit stable
+   * anchor for each global column.
    */
   private final long[] valueDictionaryHeaderKeys;
 
@@ -144,10 +128,45 @@ public final class ProjectionIndexMetadata {
   private ProjectionIndexMetadata(final String rootPath, final String[] fieldPaths, final String[] fieldNames,
       final byte[] columnKinds, final int rowGroupCount, final int buildRevision, final byte flags,
       final Map<Integer, Map<String, Long>> setValueRowCounts, final long[] valueDictionaryHeaderKeys) {
+    Objects.requireNonNull(rootPath);
+    Objects.requireNonNull(fieldPaths);
+    Objects.requireNonNull(fieldNames);
+    Objects.requireNonNull(columnKinds);
     this.setValueRowCounts = setValueRowCounts;
-    this.valueDictionaryHeaderKeys = valueDictionaryHeaderKeys;
+    this.valueDictionaryHeaderKeys = valueDictionaryHeaderKeys == null
+        ? null
+        : valueDictionaryHeaderKeys.clone();
     if (fieldPaths.length != fieldNames.length || fieldPaths.length != columnKinds.length) {
       throw new IllegalArgumentException("paths/names/kinds must be index-aligned");
+    }
+    if (columnKinds.length > RowGroupDescriptor.MAX_COLUMNS) {
+      throw new IllegalArgumentException("column count exceeds " + RowGroupDescriptor.MAX_COLUMNS);
+    }
+    if (valueDictionaryHeaderKeys != null && valueDictionaryHeaderKeys.length != columnKinds.length) {
+      throw new IllegalArgumentException("value dictionary anchors must be index-aligned with columns");
+    }
+    if (valueDictionaryHeaderKeys != null) {
+      for (int column = 0; column < valueDictionaryHeaderKeys.length; column++) {
+        final long key = valueDictionaryHeaderKeys[column];
+        if (key < 0 || (key > 0
+            && columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL)) {
+          throw new IllegalArgumentException("invalid value dictionary anchor " + key + " at column " + column);
+        }
+      }
+    }
+    for (int column = 0; column < columnKinds.length; column++) {
+      if (columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+          && (valueDictionaryHeaderKeys == null || valueDictionaryHeaderKeys[column] == 0)) {
+        throw new IllegalArgumentException("global string column " + column + " requires a dictionary anchor");
+      }
+    }
+    if (setValueRowCounts != null) {
+      for (final int column : setValueRowCounts.keySet()) {
+        if (column < 0 || column >= columnKinds.length
+            || columnKinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+          throw new IllegalArgumentException("set-summary capability names non-set column " + column);
+        }
+      }
     }
     if (rowGroupCount < 0 || rowGroupCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
       throw new IllegalArgumentException("rowGroupCount out of range [0, "
@@ -232,7 +251,10 @@ public final class ProjectionIndexMetadata {
     return columnKinds.clone();
   }
 
-  /** Number of leaf payloads at slots 1..rowGroupCount; higher slots are stale remnants. */
+  /**
+   * Number of live logical row-group leaves. Physical ids/order are persisted separately and may
+   * contain recycled holes or live ids greater than this cardinality.
+   */
   public int rowGroupCount() {
     return rowGroupCount;
   }
@@ -303,29 +325,6 @@ public final class ProjectionIndexMetadata {
   }
 
   /**
-   * Largest the whole counts section may become, and the distinct values per column it may hold.
-   *
-   * <p>
-   * Bounded by what the summary COSTS on the COMMON path, not by what the slot could hold. This blob
-   * is read on every covering lookup, and {@code ProjectionIndexHOTStorage.BLOB_INLINE_MAX} is 512
-   * bytes: at or below that the blob rides inline in the slot, above it spills to an
-   * {@link io.sirix.page.OverflowPage} and every lookup pays one extra page read — including the
-   * queries that never ask for a membership count.
-   *
-   * <p>
-   * The shape metadata alone is a few hundred bytes, and 41 genres add ~533, so a summarised column
-   * DOES cross that line. That is the accepted trade: one page read per lookup against a membership
-   * count that would otherwise scan. 1 KB caps how large the spilled page gets; a column that does
-   * not fit is not summarised at all and the reader falls back — the same viability discipline the
-   * scheme selector applies before estimating an encoding, and the reason {@code title}'s 33,254
-   * distinct values (~400 KB) must never be attempted.
-   */
-  private static final int MAX_SET_COUNTS_SECTION_BYTES =
-      Integer.getInteger("sirix.projection.metadataSetCountsBytes", 1024);
-
-  private static final int MAX_SET_COUNTS_VALUES = Integer.getInteger("sirix.projection.metadataSetCountsValues", 256);
-
-  /**
    * Rows in the index whose set at {@code column} contains {@code value}.
    *
    * @return the count, {@code 0} for a value the index does not hold, or {@code null} when the column
@@ -336,7 +335,7 @@ public final class ProjectionIndexMetadata {
       return null;
     }
     final Map<String, Long> forColumn = setValueRowCounts.get(column);
-    if (forColumn == null) {
+    if (forColumn == null || forColumn.isEmpty()) {
       return null;
     }
     // The map lists every value the index holds for this column, so a miss is a real zero rather
@@ -347,41 +346,25 @@ public final class ProjectionIndexMetadata {
         : count;
   }
 
-  /** The index-wide summary, or {@code null} when none was written. */
+  /**
+   * Set-summary capability columns. Persisted metadata carries empty maps; hydrated in-memory
+   * metadata may carry their counts.
+   */
   public Map<Integer, Map<String, Long>> setValueRowCounts() {
     return setValueRowCounts;
   }
 
-  /** Append the counts section, omitting any column that would breach the bounds. */
+  /** Append the set-summary capability columns. */
   private void writeSetValueRowCounts(final ByteArrayOutputStream out) {
     if (setValueRowCounts == null || setValueRowCounts.isEmpty()) {
       putShortLE(out, 0);
       return;
     }
-    final ByteArrayOutputStream section = new ByteArrayOutputStream(1024);
-    int columns = 0;
-    for (final var entry : setValueRowCounts.entrySet()) {
-      final Map<String, Long> values = entry.getValue();
-      if (values == null || values.isEmpty() || values.size() > MAX_SET_COUNTS_VALUES) {
-        continue;
-      }
-      final ByteArrayOutputStream one = new ByteArrayOutputStream(256);
-      putShortLE(one, entry.getKey());
-      putShortLE(one, values.size());
-      for (final var v : values.entrySet()) {
-        final byte[] bytes = v.getKey().getBytes(StandardCharsets.UTF_8);
-        putShortLE(one, bytes.length);
-        one.write(bytes, 0, bytes.length);
-        putIntLE(one, (int) Math.min(v.getValue(), Integer.MAX_VALUE));
-      }
-      if (section.size() + one.size() > MAX_SET_COUNTS_SECTION_BYTES) {
-        continue;
-      }
-      section.write(one.toByteArray(), 0, one.size());
-      columns++;
+    putShortLE(out, setValueRowCounts.size());
+    for (final int column : setValueRowCounts.keySet()) {
+      putShortLE(out, column);
+      putShortLE(out, 0);
     }
-    putShortLE(out, columns);
-    out.write(section.toByteArray(), 0, section.size());
   }
 
   private static void putShortLE(final ByteArrayOutputStream out, final int v) {
@@ -403,8 +386,8 @@ public final class ProjectionIndexMetadata {
       final int[] pos = {4};
       final byte version = payload[pos[0]++];
       if (version != VERSION) {
-        // Older/newer wire format — treated like "no metadata": hydrate
-        // paths rebuild instead of misparsing bytes at shifted offsets.
+        // Older/newer wire format — treated like "no metadata" so callers decline instead of
+        // misparsing bytes at shifted offsets.
         return null;
       }
       final byte flags = payload[pos[0]++];
@@ -441,57 +424,56 @@ public final class ProjectionIndexMetadata {
       // version byte, which parse() has already checked — a payload from before it existed fails
       // the version test above and is treated as no metadata, so there is no shifted-offset read.
       final int setCountColumns = getShortU(payload, pos);
+      if (setCountColumns > n) {
+        throw new IllegalStateException("Projection metadata declares " + setCountColumns
+            + " set-summary capabilities for " + n + " columns");
+      }
       Map<Integer, Map<String, Long>> counts = null;
       for (int c = 0; c < setCountColumns; c++) {
         final int column = getShortU(payload, pos);
         final int values = getShortU(payload, pos);
-        final Map<String, Long> forColumn = new LinkedHashMap<>(Math.max(4, values * 2));
-        for (int v = 0; v < values; v++) {
-          final int len = getShortU(payload, pos);
-          final String value = new String(payload, pos[0], len, StandardCharsets.UTF_8);
-          pos[0] += len;
-          final int rows = getIntLE(payload, pos[0]);
-          pos[0] += 4;
-          forColumn.put(value, (long) rows);
+        if (column >= n || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET
+            || values != 0) {
+          throw new IllegalStateException("Projection metadata names an invalid set-summary capability at column "
+              + column);
         }
         if (counts == null) {
           counts = new LinkedHashMap<>(4);
         }
-        counts.put(column, forColumn);
+        if (counts.put(column, new LinkedHashMap<>()) != null) {
+          throw new IllegalStateException("Projection metadata repeats set-summary column " + column);
+        }
       }
-      // The dictionary section is OPTIONAL by ABSENCE, and absence means exactly zero bytes left:
-      // a payload written before the section existed ends here. Anything else — a partial section,
-      // or bytes this parse does not account for — is truncation or corruption and must be loud,
-      // which is why "some bytes remain" is not treated as "close enough to none".
+      // Every current payload carries the dictionary section, including an explicit zero count.
       long[] dictionaryKeys = null;
       final int remaining = payload.length - pos[0];
-      if (remaining > 0) {
-        if (remaining < 2) {
-          throw new IllegalStateException(
-              "Projection metadata has " + remaining + " trailing byte(s), too few for a value dictionary section");
+      if (remaining < 2) {
+        throw new IllegalStateException(
+            "Projection metadata has " + remaining + " byte(s), too few for a value dictionary section");
+      }
+      final int dictionaryColumns = getShortU(payload, pos);
+      if (dictionaryColumns > 0) {
+        if (dictionaryColumns > n) {
+          throw new IllegalStateException("Projection metadata declares " + dictionaryColumns
+              + " value dictionaries for " + n + " columns");
         }
-        final int dictionaryColumns = getShortU(payload, pos);
-        if (dictionaryColumns > 0) {
-          if (dictionaryColumns > n) {
-            throw new IllegalStateException("Projection metadata declares " + dictionaryColumns
-                + " value dictionaries for " + n + " columns");
+        dictionaryKeys = new long[n];
+        for (int i = 0; i < dictionaryColumns; i++) {
+          final int column = getShortU(payload, pos);
+          final long headerKey = getLongLE(payload, pos[0]);
+          pos[0] += 8;
+          if (column >= n || headerKey <= 0
+              || kinds[column] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL
+              || dictionaryKeys[column] != 0) {
+            throw new IllegalStateException(
+                "Projection metadata names value dictionary " + headerKey + " for column " + column);
           }
-          dictionaryKeys = new long[n];
-          for (int i = 0; i < dictionaryColumns; i++) {
-            final int column = getShortU(payload, pos);
-            final long headerKey = getLongLE(payload, pos[0]);
-            pos[0] += 8;
-            if (column >= n || headerKey < 0) {
-              throw new IllegalStateException(
-                  "Projection metadata names value dictionary " + headerKey + " for column " + column);
-            }
-            dictionaryKeys[column] = headerKey;
-          }
+          dictionaryKeys[column] = headerKey;
         }
-        if (pos[0] != payload.length) {
-          throw new IllegalStateException("Projection metadata has " + (payload.length - pos[0])
-              + " byte(s) past the value dictionary section");
-        }
+      }
+      if (pos[0] != payload.length) {
+        throw new IllegalStateException("Projection metadata has " + (payload.length - pos[0])
+            + " byte(s) past the value dictionary section");
       }
       return new ProjectionIndexMetadata(rootPath, paths, names, kinds, rowGroupCount, buildRevision, flags, counts,
           dictionaryKeys);
@@ -502,8 +484,8 @@ public final class ProjectionIndexMetadata {
 
   /**
    * The node key of column {@code column}'s value dictionary header, or {@code 0} when the column
-   * has none — which is every column of a store written before global dictionaries existed, and
-   * every column that is not {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}.
+   * has none, which is every column that is not
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL}.
    *
    * @param column the column ordinal
    * @return the header node key, or {@code 0}
@@ -516,12 +498,11 @@ public final class ProjectionIndexMetadata {
 
   /**
    * Every column's value dictionary anchor, index-aligned with the columns; {@code null} when the
-   * index carries none at all. The array is the metadata's own — callers hold it read-only, exactly
-   * as they do the field names.
+   * index carries none at all.
    */
   public long @Nullable [] valueDictionaryHeaderKeys() {
     return hasValueDictionaries()
-        ? valueDictionaryHeaderKeys
+        ? valueDictionaryHeaderKeys.clone()
         : null;
   }
 

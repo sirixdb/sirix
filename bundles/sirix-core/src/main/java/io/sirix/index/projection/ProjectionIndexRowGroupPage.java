@@ -29,10 +29,13 @@ import java.util.Arrays;
  * <pre>
  *   int    rowCount              // number of active rows (0..MAX_ROWS)
  *   int    columnCount           // index-aligned with the owning IndexDef
- *   long   firstRecordKey        // zone-map lower bound across recordKeys
- *   long   lastRecordKey         //   upper bound — enables HOT range skip
+ *   long   firstRecordKey        // first non-exception routing-backbone key
+ *   long   lastRecordKey         // last non-exception key; MAX/MIN when none
  *   byte[columnCount] kinds      // 0=NUMERIC_LONG, 1=BOOLEAN, 2=STRING_DICT
- *   long[rowCount] recordKeys    // nodeKey of each record projected here
+ *   long[rowCount] recordKeys    // stable identity, in document order
+ *   byte orderExceptionKind      // 0=NONE; 1=DENSE
+ *   [kind=DENSE] long[ceil(rowCount/64)] orderExceptionBits
+ *                                // bit i = row i is outside the monotone routing backbone
  *
  *   for each column c in [0, columnCount):
  *     long min, max              // per-column zone map
@@ -49,7 +52,7 @@ import java.util.Arrays;
  *       byte[]    concatenatedUtf8
  *       int[rowCount] dictIds    // raw 4-byte ids (fixed stride)
  *
- *   // ---- presence tail (v1, mandatory — appended after the column stream):
+ *   // ---- presence tail (version 0, mandatory — appended after the column stream):
  *   byte[columnCount] columnFlags     // bit0 = present-but-unrepresentable value seen
  *                                     //        (JSON null, object/array, kind mismatch)
  *                                     // bit1 = non-integral value truncated into a
@@ -57,7 +60,7 @@ import java.util.Arrays;
  *   for each column c (only when rowCount &gt; 0):
  *     long[ceil(rowCount/64)] presenceBits  // bit i = field exists on row i
  *   int  tailLength                   // bytes from tail start to before this field
- *   byte version = 1                  // tail-layout version, bumped on change
+ *   byte version = 0                  // tail-layout version, bumped on change
  *   int  magic = 0x50495831 ("PIX1")
  * </pre>
  *
@@ -149,6 +152,9 @@ import java.util.Arrays;
  * in.
  */
 public final class ProjectionIndexRowGroupPage {
+
+  static final byte ORDER_EXCEPTIONS_NONE = 0;
+  static final byte ORDER_EXCEPTIONS_DENSE = 1;
 
   /**
    * Row capacity per leaf. Sized to match the existing {@code
@@ -273,7 +279,7 @@ public final class ProjectionIndexRowGroupPage {
    * Version byte stored between the tail length and the footer magic. Future tail-layout changes bump
    * this instead of minting a new magic; readers reject unknown values as corrupt.
    */
-  public static final byte PRESENCE_TAIL_VERSION = 1;
+  public static final byte PRESENCE_TAIL_VERSION = 0;
 
   /**
    * Column flag bit: a present-but-unrepresentable value (null / object / array / kind mismatch) was
@@ -311,6 +317,16 @@ public final class ProjectionIndexRowGroupPage {
    * {@code long[rowCount]} — record nodeKey per row. {@code null} until {@link #ensureCapacity} runs.
    */
   private long[] recordKeys;
+
+  /**
+   * Per-row document-order exception flags.  Stable node keys identify records but do not order
+   * them: rows marked here are located through the sparse exact locator, while unmarked rows form
+   * the strictly-increasing key backbone addressed by the leaf fences.
+   */
+  private long[] orderExceptionBits;
+
+  /** Logical presence is separate from retained builder scratch after page reuse. */
+  private boolean hasOrderExceptions;
 
   /** Per-column kind byte from {@link #COLUMN_KIND_NUMERIC_LONG} / …. */
   private final byte[] columnKinds;
@@ -383,7 +399,7 @@ public final class ProjectionIndexRowGroupPage {
    * writers and shares one per column across every leaf, which is the whole point — a value
    * interned in leaf 1 keeps its id in leaf 10000.
    */
-  private GlobalValueDictionaryWriter[] globalDicts;
+  private GlobalValueDictionaryEncoder[] globalDicts;
 
   /**
    * Per-column element counts for {@link #COLUMN_KIND_STRING_SET}: how many dict ids row {@code r}
@@ -410,7 +426,7 @@ public final class ProjectionIndexRowGroupPage {
   private final long[] columnMin;
   private final long[] columnMax;
 
-  /** Record-key zone map across all rows. Enables whole-leaf skip at query time. */
+  /** Normal routing-backbone bounds; exception-only and rowless leaves carry MAX/MIN sentinels. */
   private long firstRecordKey;
   private long lastRecordKey;
 
@@ -518,6 +534,21 @@ public final class ProjectionIndexRowGroupPage {
 
   public long[] recordKeys() {
     return recordKeys;
+  }
+
+  public long[] orderExceptionBits() {
+    return hasOrderExceptions ? orderExceptionBits : null;
+  }
+
+  public boolean hasOrderExceptions() {
+    return hasOrderExceptions;
+  }
+
+  public boolean orderExceptionAt(final int row) {
+    if (row < 0 || row >= rowCount) {
+      throw new IndexOutOfBoundsException("projection row out of range: " + row);
+    }
+    return hasOrderExceptions && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0;
   }
 
   public long[] numericColumn(final int column) {
@@ -716,8 +747,9 @@ public final class ProjectionIndexRowGroupPage {
       final long lastRecordKey, final long[] recordKeys, final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final long[][] presenceCols, final byte[] columnFlags) {
-    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax, numericCols,
-        booleanCols, stringDictIdCols, stringDicts, null, null, presenceCols, columnFlags);
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
+        stringDicts, null, null, presenceCols, columnFlags);
   }
 
   /** As above, carrying {@link #COLUMN_KIND_STRING_SET} columns' counts and flat element runs. */
@@ -726,11 +758,25 @@ public final class ProjectionIndexRowGroupPage {
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final int[][] setCountCols, final int[][] setElemCols, final long[][] presenceCols,
       final byte[] columnFlags) {
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
+        stringDicts, setCountCols, setElemCols, presenceCols, columnFlags);
+  }
+
+  /** Reassembly form carrying the persisted document-order exception bitmap from KEYS. */
+  static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
+      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits,
+      final long[] columnMin, final long[] columnMax, final long[][] numericCols, final long[][] booleanCols,
+      final int[][] stringDictIdCols, final byte[][][] stringDicts, final int[][] setCountCols,
+      final int[][] setElemCols, final long[][] presenceCols, final byte[] columnFlags) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;
     page.recordKeys = recordKeys;
+    page.orderExceptionBits = orderExceptionBits;
+    page.hasOrderExceptions = orderExceptionBits != null;
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys, orderExceptionBits);
     for (int c = 0; c < page.columnCount; c++) {
       page.columnMin[c] = columnMin[c];
       page.columnMax[c] = columnMax[c];
@@ -756,6 +802,55 @@ public final class ProjectionIndexRowGroupPage {
           kinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (flags & COLUMN_FLAG_PURE_DOUBLE_SOURCE) == 0;
     }
     return page;
+  }
+
+  /** Fail-closed validation shared by raw and segmented V0 decoders. */
+  static void validateOrderMetadata(final int rowCount, final long firstRecordKey, final long lastRecordKey,
+      final long[] recordKeys, final long[] orderExceptionBits) {
+    if (rowCount < 0 || rowCount > MAX_ROWS
+        || (rowCount > 0 && (recordKeys == null || recordKeys.length < rowCount))) {
+      throw new IllegalStateException("invalid projection KEYS row shape");
+    }
+    final int words = (rowCount + 63) >>> 6;
+    if (orderExceptionBits != null) {
+      if (orderExceptionBits.length < words) {
+        throw new IllegalStateException("truncated projection order-exception bitmap");
+      }
+      if (words > 0 && (rowCount & 63) != 0
+          && (orderExceptionBits[words - 1] & (-1L << (rowCount & 63))) != 0L) {
+        throw new IllegalStateException("projection order-exception bitmap sets bits beyond rowCount");
+      }
+    }
+    long expectedFirst = Long.MAX_VALUE;
+    long expectedLast = Long.MIN_VALUE;
+    long previousNormal = Long.MIN_VALUE;
+    boolean sawException = false;
+    for (int row = 0; row < rowCount; row++) {
+      final long recordKey = recordKeys[row];
+      if (recordKey < 0) {
+        throw new IllegalStateException("projection KEYS contains a negative document node key");
+      }
+      final boolean exception = orderExceptionBits != null
+          && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0L;
+      if (exception) {
+        sawException = true;
+        continue;
+      }
+      if (recordKey <= previousNormal) {
+        throw new IllegalStateException("projection normal routing backbone is not strictly increasing");
+      }
+      if (expectedFirst == Long.MAX_VALUE) {
+        expectedFirst = recordKey;
+      }
+      expectedLast = recordKey;
+      previousNormal = recordKey;
+    }
+    if (orderExceptionBits != null && !sawException) {
+      throw new IllegalStateException("dense projection order bitmap contains no exceptions");
+    }
+    if (firstRecordKey != expectedFirst || lastRecordKey != expectedLast) {
+      throw new IllegalStateException("projection normal fence does not match its KEYS rows");
+    }
   }
 
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
@@ -815,8 +910,14 @@ public final class ProjectionIndexRowGroupPage {
    * <p>Package-private by design: callers outside {@link ProjectionIndexBuilder} do not own the
    * page exclusively and cannot prove that no borrowed accessor escaped.
    */
-  void resetForBuilderReuse(final GlobalValueDictionaryWriter[] dictionaries) {
+  void resetForBuilderReuse(final GlobalValueDictionaryEncoder[] dictionaries) {
     final int liveWordCount = (rowCount + 63) >>> 6;
+    if (orderExceptionBits != null) {
+      for (int word = 0; word < liveWordCount; word++) {
+        orderExceptionBits[word] = 0L;
+      }
+    }
+    hasOrderExceptions = false;
     for (int c = 0; c < columnCount; c++) {
       final long[] presence = presenceCols[c];
       if (presence != null) {
@@ -923,9 +1024,11 @@ public final class ProjectionIndexRowGroupPage {
    * Variant additionally carrying double-source provenance: {@code nonDoubleSource[c]} marks that
    * this row's NUMERIC_DOUBLE cell {@code c} was converted from a source other than {@code Double}.
    * Passing {@code null} (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column
-   * touched by a clean present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion
-   * only the extractor may make. Missing and unrepresentable cells never affect purity (they
-   * contribute no value; unrepresentable already blocks value serving on its own).
+   * touched by a present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion only
+   * the extractor may make. Missing cells do not affect purity. An unrepresentable cell still carries
+   * source provenance when extraction established it; retaining that negative evidence keeps the
+   * persisted flag truthful even if a future serving gate reasons about provenance independently of
+   * the unrepresentable flag.
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final boolean[] present, final boolean[] unrepresentable,
@@ -943,7 +1046,7 @@ public final class ProjectionIndexRowGroupPage {
       final String[] stringValues, final String[][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
     return appendRowInternal(recordKey, longValues, boolValues, stringValues, null, null, stringSetValues, present,
-        unrepresentable, nonIntegral, nonDoubleSource);
+        unrepresentable, nonIntegral, nonDoubleSource, false);
   }
 
   /**
@@ -973,6 +1076,15 @@ public final class ProjectionIndexRowGroupPage {
       final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
       final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
       final boolean[] nonDoubleSource) {
+    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, false);
+  }
+
+  /** Extractor append carrying the row's persisted sparse-order classification. */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource, final boolean orderException) {
     if (rowCount == MAX_ROWS) {
       return false;
     }
@@ -982,7 +1094,96 @@ public final class ProjectionIndexRowGroupPage {
     validateExtractedUtf8Row(longValues, boolValues, stringUtf8Values, stringUtf8Lengths, stringSetValues, present,
         unrepresentable, nonIntegral, nonDoubleSource);
     return appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths,
-        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource);
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException);
+  }
+
+  /**
+   * Append one extracted value to a one-column maintenance page.
+   *
+   * <p>This is deliberately scalar-shaped instead of accepting the extractor's projection-width
+   * arrays.  A narrow update constructs one such page per dirty column, so {@link #ensureCapacity()}
+   * allocates exactly one value lane and one presence lane rather than allocating {@code MAX_ROWS}
+   * cells for every untouched projection column.</p>
+   */
+  boolean appendExtractedSingleColumnRow(final long recordKey, final long longValue, final boolean boolValue,
+      final byte[] stringUtf8Value, final int stringUtf8Length,
+      final String[] stringSetValues, final int stringSetLength, final boolean present,
+      final boolean unrepresentable, final boolean nonIntegral, final boolean nonDoubleSource) {
+    if (columnCount != 1) {
+      throw new IllegalStateException("single-column append requires a one-column page, got " + columnCount);
+    }
+    if (rowCount == MAX_ROWS) {
+      return false;
+    }
+    if (stringSetLength < 0 || (stringSetValues != null && stringSetLength > stringSetValues.length)) {
+      throw new IllegalArgumentException("invalid extracted string-set length " + stringSetLength);
+    }
+    final byte kind = columnKinds[0];
+    final boolean clean = present && !unrepresentable;
+    if ((kind == COLUMN_KIND_STRING_DICT || kind == COLUMN_KIND_STRING_GLOBAL) && clean
+        && (stringUtf8Value == null || stringUtf8Length < 0 || stringUtf8Length > stringUtf8Value.length)) {
+      throw new IllegalArgumentException("clean extracted string cell has no valid UTF-8 slice");
+    }
+    if (kind == COLUMN_KIND_STRING_GLOBAL && clean
+        && (globalDicts == null || globalDicts.length == 0 || globalDicts[0] == null)) {
+      throw new IllegalStateException("single STRING_GLOBAL column has no value dictionary attached");
+    }
+
+    ensureCapacity();
+    final int row = rowCount;
+    recordKeys[row] = recordKey;
+    firstRecordKey = Math.min(firstRecordKey, recordKey);
+    lastRecordKey = Math.max(lastRecordKey, recordKey);
+    if (present) {
+      presenceCols[0][row >>> 6] |= 1L << (row & 63);
+    }
+    columnUnrepresentable[0] |= unrepresentable;
+    columnNonIntegral[0] |= nonIntegral;
+    if (present && kind == COLUMN_KIND_NUMERIC_DOUBLE && nonDoubleSource) {
+      columnSawNonDoubleSource[0] = true;
+    }
+
+    switch (kind) {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+        numericCols[0][row] = longValue;
+        if (clean) {
+          columnMin[0] = Math.min(columnMin[0], longValue);
+          columnMax[0] = Math.max(columnMax[0], longValue);
+        }
+      }
+      case COLUMN_KIND_STRING_GLOBAL -> {
+        final long id = clean ? internGlobalUtf8(0, stringUtf8Value, stringUtf8Length) : 0L;
+        numericCols[0][row] = id;
+        if (clean) {
+          columnMin[0] = Math.min(columnMin[0], id);
+          columnMax[0] = Math.max(columnMax[0], id);
+        }
+      }
+      case COLUMN_KIND_BOOLEAN -> {
+        if (boolValue) {
+          booleanCols[0][row >>> 6] |= 1L << (row & 63);
+        }
+      }
+      case COLUMN_KIND_STRING_DICT -> stringDictIdCols[0][row] = clean
+          ? appendBorrowedStringUtf8(0, stringUtf8Value, stringUtf8Length)
+          : appendBorrowedStringUtf8(0, EMPTY_UTF8, 0);
+      case COLUMN_KIND_STRING_SET -> {
+        int appended = 0;
+        if (clean && stringSetValues != null) {
+          for (int i = 0; i < stringSetLength; i++) {
+            final String value = stringSetValues[i];
+            if (value != null) {
+              appendSetElement(0, appendString(0, value));
+              appended++;
+            }
+          }
+        }
+        stringSetCountCols[0][row] = appended;
+      }
+      default -> throw new IllegalStateException("Unknown column kind " + kind);
+    }
+    rowCount++;
+    return true;
   }
 
   /** Validate the complete extractor row before {@link #ensureCapacity} or any page/dictionary mutation. */
@@ -1036,7 +1237,7 @@ public final class ProjectionIndexRowGroupPage {
   private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
       final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
-      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
     if (rowCount == MAX_ROWS)
       return false;
     if (stringUtf8Values == null) {
@@ -1046,10 +1247,18 @@ public final class ProjectionIndexRowGroupPage {
     ensureCapacity();
     final int row = rowCount;
     recordKeys[row] = recordKey;
-    if (recordKey < firstRecordKey)
-      firstRecordKey = recordKey;
-    if (recordKey > lastRecordKey)
-      lastRecordKey = recordKey;
+    if (orderException) {
+      if (orderExceptionBits == null) {
+        orderExceptionBits = new long[(MAX_ROWS + 63) >>> 6];
+      }
+      hasOrderExceptions = true;
+      orderExceptionBits[row >>> 6] |= 1L << (row & 63);
+    } else {
+      if (recordKey < firstRecordKey)
+        firstRecordKey = recordKey;
+      if (recordKey > lastRecordKey)
+        lastRecordKey = recordKey;
+    }
     for (int c = 0; c < columnCount; c++) {
       final boolean isPresent = present == null || present[c];
       final boolean isUnrepresentable = unrepresentable != null && unrepresentable[c];
@@ -1063,7 +1272,8 @@ public final class ProjectionIndexRowGroupPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
-      if (clean && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (nonDoubleSource == null || nonDoubleSource[c])) {
+      if (isPresent && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (nonDoubleSource == null || nonDoubleSource[c])) {
         columnSawNonDoubleSource[c] = true;
       }
       switch (columnKinds[c]) {
@@ -1206,21 +1416,24 @@ public final class ProjectionIndexRowGroupPage {
    *
    * @param dictionaries per-column writers, index-aligned with the column kinds
    */
-  void setGlobalDictionaries(final GlobalValueDictionaryWriter[] dictionaries) {
+  void setGlobalDictionaries(final GlobalValueDictionaryEncoder[] dictionaries) {
     this.globalDicts = dictionaries;
   }
 
   /** Intern one value into column {@code c}'s resource-wide dictionary and return its id. */
   private long internGlobal(final int c, final String value) {
-    final byte[] bytes = (value == null
-        ? ""
-        : value).getBytes(StandardCharsets.UTF_8);
-    return internGlobalUtf8(c, bytes, bytes.length);
+    final GlobalValueDictionaryEncoder dictionary = globalDicts == null
+        ? null
+        : globalDicts[c];
+    if (dictionary == null) {
+      throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+    }
+    return dictionary.intern(value == null ? "" : value);
   }
 
   /** Intern semantic UTF-8 bytes without manufacturing an intermediate {@link String}. */
   private long internGlobalUtf8(final int c, final byte[] bytes, final int length) {
-    final GlobalValueDictionaryWriter dictionary = globalDicts == null
+    final GlobalValueDictionaryEncoder dictionary = globalDicts == null
         ? null
         : globalDicts[c];
     if (dictionary == null) {
@@ -1587,6 +1800,22 @@ public final class ProjectionIndexRowGroupPage {
       page.ensureCapacity(false);
       for (int i = 0; i < rowCount; i++)
         page.recordKeys[i] = bb.getLong();
+    }
+    final byte orderKind = bb.get();
+    if (orderKind == ORDER_EXCEPTIONS_DENSE) {
+      final int orderWords = (rowCount + 63) >>> 6;
+      if (orderWords == 0) {
+        throw new IllegalStateException("empty projection leaf cannot carry a dense order bitmap");
+      }
+      page.orderExceptionBits = new long[orderWords];
+      page.hasOrderExceptions = true;
+      for (int i = 0; i < orderWords; i++)
+        page.orderExceptionBits[i] = bb.getLong();
+    } else if (orderKind != ORDER_EXCEPTIONS_NONE) {
+      throw new IllegalStateException("unknown projection order-exception kind " + orderKind);
+    }
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, page.recordKeys, page.orderExceptionBits);
+    if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
@@ -1696,6 +1925,8 @@ public final class ProjectionIndexRowGroupPage {
    * used only during commit.
    */
   public byte[] serialize() {
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        hasOrderExceptions ? orderExceptionBits : null);
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
     header.putInt(rowCount);
@@ -1706,7 +1937,7 @@ public final class ProjectionIndexRowGroupPage {
       header.put(columnKinds[c]);
     baos.write(header.array(), 0, header.position());
     if (rowCount == 0) {
-      // Empty page — only the presence tail (if tracked) follows the header.
+      baos.write(ORDER_EXCEPTIONS_NONE);
       writePresenceTail(baos);
       return baos.toByteArray();
     }
@@ -1715,6 +1946,16 @@ public final class ProjectionIndexRowGroupPage {
     for (int i = 0; i < rowCount; i++)
       recBuf.putLong(recordKeys[i]);
     baos.write(recBuf.array(), 0, recBuf.position());
+    if (!hasOrderExceptions) {
+      baos.write(ORDER_EXCEPTIONS_NONE);
+    } else {
+      baos.write(ORDER_EXCEPTIONS_DENSE);
+      final int orderWords = (rowCount + 63) >>> 6;
+      final ByteBuffer orderBuf = ByteBuffer.allocate(orderWords * Long.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+      for (int i = 0; i < orderWords; i++)
+        orderBuf.putLong(orderExceptionBits[i]);
+      baos.write(orderBuf.array(), 0, orderBuf.position());
+    }
     // per-column
     for (int c = 0; c < columnCount; c++) {
       final ByteBuffer colHdr = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);

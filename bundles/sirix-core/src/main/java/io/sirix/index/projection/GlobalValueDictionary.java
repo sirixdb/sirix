@@ -6,16 +6,16 @@ package io.sirix.index.projection;
 import io.sirix.access.DatabaseType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.node.ValueDictionaryDirectoryNode;
-import io.sirix.node.ValueDictionaryEntryNode;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.NamePage;
 import io.sirix.settings.Constants;
+import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Read access to the global projection value dictionary — the {@code id <-> value} mapping that
@@ -40,14 +40,16 @@ import java.util.Arrays;
  *
  * One sub-trie holds every column's dictionary (see
  * {@link NamePage#JSON_PROJECTION_VALUE_DICTIONARY_REFERENCE_OFFSET} for why it cannot be one
- * sub-trie per column). Each column's dictionary occupies one contiguous run of node keys reserved
- * from the offset's own counter, anchored by a {@link ValueDictionaryHeaderNode} whose key the
- * projection's metadata records:
+ * sub-trie per column). Each column starts with one contiguous base run reserved from the offset's
+ * own counter, anchored by a stable {@link ValueDictionaryHeaderNode} whose key the projection's
+ * metadata records. Maintenance copy-on-writes only affected paths in immutable forward-hash and
+ * reverse-id radix directories while retaining the original header anchor:
  *
  * <pre>
  *   headerKey                                  the {@link ValueDictionaryHeaderNode}
- *   header.entryBase + {@value #ENTRY_STRIDE} * (id - 1)      the value for id, id &gt;= 1
- *   header.directoryBase + {@value #DIRECTORY_STRIDE} * block one {@link ValueDictionaryDirectoryNode}
+ *   header.forwardRootKey                    hash-prefix radix root
+ *   header.reverseRootKey                    id-prefix radix root
+ *   radix leaf                               immutable hash or value bucket
  * </pre>
  *
  * <h2>Why a run, and not a namespace computed from the column</h2>
@@ -62,15 +64,12 @@ import java.util.Arrays;
  * silently. Reserving a dense run is the shape the trie actually supports, and it costs nothing:
  * the run's start is one long in the projection metadata, which already travels with the column.
  *
- * <h2>Why ids do not sit at consecutive record keys</h2>
+ * <h2>Persistent record packing</h2>
  *
- * A record page holds {@link io.sirix.settings.Constants#INP_REFERENCE_COUNT} records and its
- * slotted buffer has a hard capacity ceiling; a page whose records do not fit is a loud failure at
- * commit, not a slow path. Packing 1024 values of a few hundred bytes each into one page would
- * reach it. The {@value #ENTRY_STRIDE} stride puts {@value #ENTRIES_PER_PAGE} values on a page
- * instead, which keeps ids DENSE (so they stay a good dense group-by key) while bounding a page's
- * bytes with four times the headroom. Reserved-but-unused keys cost nothing; they are simply empty
- * slots, and the page keys they occupy still advance densely, which is what the trie needs.
+ * Every dictionary append occupies the smallest possible persistent units: its record keys are a
+ * dense, stride-one interval.  Large individual values already use the key-value page's overflow
+ * mechanism; leaving 63 empty slots between ordinary dictionary records would instead multiply
+ * indirect-page and leaf-page churn without providing an ownership or versioning guarantee.
  *
  * <h2>Cost model</h2>
  *
@@ -80,20 +79,14 @@ import java.util.Arrays;
  */
 public final class GlobalValueDictionary {
 
-  /**
-   * Node keys reserved per value. See the class javadoc: it is what bounds a record page's bytes
-   * while leaving ids dense.
-   */
-  public static final int ENTRY_STRIDE = 4;
+  private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+  private static final AtomicInteger HFT_MAX_PROBE_UNITS = new AtomicInteger();
+  private static final LongHashFunction SECONDARY_HASH = LongHashFunction.xx3();
 
-  /** Values that therefore share one record page. */
-  public static final int ENTRIES_PER_PAGE = Constants.INP_REFERENCE_COUNT / ENTRY_STRIDE;
+  public static final int PERSISTENT_RECORD_STRIDE = 1;
 
-  /** Node keys reserved per directory block; a block is far bigger than a value. */
-  public static final int DIRECTORY_STRIDE = 16;
-
-  /** Directory blocks that therefore share one record page — about 100 KiB of them. */
-  public static final int DIRECTORY_BLOCKS_PER_PAGE = Constants.INP_REFERENCE_COUNT / DIRECTORY_STRIDE;
+  public static final int PERSISTENT_RECORDS_PER_PAGE =
+      Constants.INP_REFERENCE_COUNT / PERSISTENT_RECORD_STRIDE;
 
   /** Answer of {@link #probe} when the dictionary provably does not hold the value. */
   public static final int ID_ABSENT = 0;
@@ -108,19 +101,11 @@ public final class GlobalValueDictionary {
     throw new AssertionError("no instances");
   }
 
-  /** How many node keys a dictionary of {@code entryCount} values and {@code blockCount} blocks needs. */
-  public static long keysToReserve(final int entryCount, final int blockCount) {
-    return 1L + (long) ENTRY_STRIDE * entryCount + (long) DIRECTORY_STRIDE * blockCount;
-  }
-
-  /** The node key holding the value for {@code id}. */
-  public static long entryKey(final ValueDictionaryHeaderNode header, final int id) {
-    return header.getEntryBase() + (long) ENTRY_STRIDE * (id - 1);
-  }
-
-  /** The node key holding directory block {@code block}. */
-  public static long directoryKey(final ValueDictionaryHeaderNode header, final int block) {
-    return header.getDirectoryBase() + (long) DIRECTORY_STRIDE * block;
+  public static long maximumKeysToReserve(final int entryCount) {
+    if (entryCount < 0) throw new IllegalArgumentException("entryCount must not be negative");
+    final long reverseBuckets = (entryCount + 255L) >>> 8;
+    final long maximumRecords = 13L * entryCount + 4L * reverseBuckets;
+    return 1L + Math.multiplyExact(maximumRecords, PERSISTENT_RECORD_STRIDE);
   }
 
   /**
@@ -133,6 +118,10 @@ public final class GlobalValueDictionary {
    */
   public static long valueHash(final byte[] utf8, final int off, final int len) {
     return ProjectionIndexByteScan.fnv1a64(utf8, off, len);
+  }
+
+  static long secondaryValueHash(final byte[] utf8, final int off, final int len) {
+    return SECONDARY_HASH.hashBytes(utf8, off, len);
   }
 
   /**
@@ -208,16 +197,8 @@ public final class GlobalValueDictionary {
     if (id < 1 || id > header.getEntryCount()) {
       return null;
     }
-    final DataRecord record =
-        namePage.getProjectionValueDictionaryRecord(entryKey(header, id), databaseType, reader);
-    if (record == null) {
-      return null;
-    }
-    if (!(record instanceof ValueDictionaryEntryNode entry)) {
-      throw new IllegalStateException(
-          "record for value dictionary id " + id + " is a " + record.getKind() + ", not a value entry");
-    }
-    return entry.getValue();
+    return GlobalValueDictionaryRadix.value(header.getReverseRootKey(), id, namePage,
+        databaseType, reader);
   }
 
   /**
@@ -310,86 +291,42 @@ public final class GlobalValueDictionary {
    * @return the id, {@link #ID_ABSENT}, or {@link #ID_UNKNOWN}
    */
   public static int probe(final long headerNodeKey, final byte[] utf8, final StorageEngineReader reader) {
+    return probe(headerNodeKey, utf8, 0, utf8.length, reader);
+  }
+
+  static int probe(final long headerNodeKey, final byte[] utf8, final int offset, final int length,
+      final StorageEngineReader reader) {
+    Objects.checkFromIndexSize(offset, length, utf8.length);
     final ValueDictionaryHeaderNode header = header(headerNodeKey, reader);
     if (header == null || !header.isDirectoryComplete()) {
       return ID_UNKNOWN;
     }
     final DatabaseType databaseType = databaseTypeOf(reader);
     final NamePage namePage = reader.getNamePage(reader.getActualRevisionRootPage());
-    final long wanted = valueHash(utf8, 0, utf8.length);
-    final int blockCount = header.getDirectoryBlockCount();
-
-    // Binary search for the LAST block whose first hash is <= wanted: blocks are sorted and
-    // contiguous, so the run holding the value can only start there.
-    int lo = 0;
-    int hi = blockCount - 1;
-    int candidate = 0;
-    while (lo <= hi) {
-      final int mid = (lo + hi) >>> 1;
-      final ValueDictionaryDirectoryNode block = directoryBlock(header, mid, namePage, databaseType, reader);
-      if (block == null) {
-        return ID_UNKNOWN;
-      }
-      if (Long.compareUnsigned(block.getHashes()[0], wanted) <= 0) {
-        candidate = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
-
-    // A run of equal hashes can straddle a block boundary, so keep walking while a following
-    // block still opens on the wanted hash.
-    for (int b = candidate; b < blockCount; b++) {
-      final ValueDictionaryDirectoryNode block = directoryBlock(header, b, namePage, databaseType, reader);
-      if (block == null) {
-        return ID_UNKNOWN;
-      }
-      final long[] hashes = block.getHashes();
-      if (b > candidate && Long.compareUnsigned(hashes[0], wanted) != 0) {
-        break;
-      }
-      final int[] ids = block.getIds();
-      for (int i = lowerBound(hashes, wanted); i < hashes.length; i++) {
-        if (Long.compareUnsigned(hashes[i], wanted) != 0) {
-          return ID_ABSENT;
-        }
-        final byte[] stored = valueBytes(header, ids[i], namePage, databaseType, reader);
-        if (stored != null && Arrays.equals(stored, utf8)) {
-          return ids[i];
-        }
-      }
-    }
-    return ID_ABSENT;
+    final long wanted = valueHash(utf8, offset, length);
+    final long secondary = secondaryValueHash(utf8, offset, length);
+    final GlobalValueDictionaryRadix.ProbeResult result = GlobalValueDictionaryRadix.probe(
+        header.getForwardRootKey(), header.getReverseRootKey(), header.getEntryCount(), wanted,
+        secondary, utf8, offset, length, namePage, databaseType, reader);
+    return recordProbeResult(result.id(), result.units());
   }
 
-  /** Index of the first entry in {@code hashes} not unsigned-less-than {@code wanted}. */
-  private static int lowerBound(final long[] hashes, final long wanted) {
-    int lo = 0;
-    int hi = hashes.length;
-    while (lo < hi) {
-      final int mid = (lo + hi) >>> 1;
-      if (Long.compareUnsigned(hashes[mid], wanted) < 0) {
-        lo = mid + 1;
-      } else {
-        hi = mid;
+  private static int recordProbeResult(final int result, final int probeUnits) {
+    if (HFT_TELEMETRY_ENABLED) {
+      int maximum = HFT_MAX_PROBE_UNITS.get();
+      while (probeUnits > maximum && !HFT_MAX_PROBE_UNITS.compareAndSet(maximum, probeUnits)) {
+        maximum = HFT_MAX_PROBE_UNITS.get();
       }
     }
-    return lo;
+    return result;
   }
 
-  private static @Nullable ValueDictionaryDirectoryNode directoryBlock(final ValueDictionaryHeaderNode header,
-      final int block, final NamePage namePage, final DatabaseType databaseType,
-      final StorageEngineReader reader) {
-    final DataRecord record =
-        namePage.getProjectionValueDictionaryRecord(directoryKey(header, block), databaseType, reader);
-    if (record == null) {
-      return null;
-    }
-    if (!(record instanceof ValueDictionaryDirectoryNode directory)) {
-      throw new IllegalStateException("record for value dictionary directory block " + block + " is a "
-          + record.getKind() + ", not a directory block");
-    }
-    return directory;
+  public static void resetProbeTelemetry() {
+    HFT_MAX_PROBE_UNITS.set(0);
   }
+
+  public static int maxProbeUnits() {
+    return HFT_MAX_PROBE_UNITS.get();
+  }
+
 }

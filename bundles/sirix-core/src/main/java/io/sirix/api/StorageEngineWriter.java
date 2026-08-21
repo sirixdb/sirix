@@ -289,6 +289,24 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
+   * Permanently mark this page transaction rollback-only after an already-published structural
+   * mutation fails. The first cause is authoritative; later failures must not replace it.
+   *
+   * <p>This is distinct from an asynchronous-flush failure: the page graph may already contain a
+   * partially propagated in-memory splice, so no commit or later mutation may continue on this
+   * writer. Rollback closes it and creates a fresh writer with a clear state.</p>
+   *
+   * @param cause the failure that made the transaction unsafe to commit
+   */
+  void markTransactionRollbackOnly(Throwable cause);
+
+  /**
+   * Reject work on a writer previously marked by {@link #markTransactionRollbackOnly(Throwable)}.
+   * Implementations must report the original structural cause.
+   */
+  void assertTransactionWritable();
+
+  /**
    * Allocate a record key and resolve the KVL page for direct-to-heap creation.
    * After this call, read results from {@link #getAllocKvl()}, {@link #getAllocSlotOffset()},
    * {@link #getAllocNodeKey()}.

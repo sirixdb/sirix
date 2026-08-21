@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -160,6 +161,24 @@ final class ProjectionIndexColumnSegmentCodecTest {
     RowGroupDescriptor.validate(encoded.descriptor());
     assertArrayEquals(raw, ProjectionIndexColumnSegmentCodec.assembleRaw(encoded.descriptor(), resolverOf(encoded)),
         "assembleRaw(encode(raw)) must be byte-identical");
+  }
+
+  private static boolean appendNumericRow(final ProjectionIndexRowGroupPage page, final long recordKey,
+      final long value, final boolean orderException) {
+    return page.appendExtractedUtf8Row(recordKey, new long[] {value}, new boolean[1], new byte[1][], new int[1],
+        new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], orderException);
+  }
+
+  private static ProjectionIndexRowGroupPage orderMetadataLeaf(final boolean dense) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(
+        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    assertTrue(appendNumericRow(page, 2L, 10L, false));
+    if (dense) {
+      assertTrue(appendNumericRow(page, 100L, 20L, true));
+    }
+    assertTrue(appendNumericRow(page, 5L, 30L, false));
+    assertTrue(appendNumericRow(page, 8L, 40L, false));
+    return page;
   }
 
   // ==================== dict-entry hashes ====================
@@ -311,22 +330,65 @@ final class ProjectionIndexColumnSegmentCodecTest {
   }
 
   @Test
-  void nonAscendingKeysAndExtremeValuesRoundTrip() {
+  void nonAscendingDocumentKeysRoundTripWhenExceptionsAreMarked() {
     final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     final long[] keys = {Long.MAX_VALUE - 1, 5L, Long.MAX_VALUE, 0L};
     final long[] extremes = {Long.MIN_VALUE, Long.MAX_VALUE, -1L, 0L};
-    final long[] longs = new long[1];
-    final boolean[] bools = new boolean[1];
-    final String[] strings = new String[1];
-    final boolean[] present = {true};
-    final boolean[] unrep = new boolean[1];
-    final boolean[] nonIntegral = new boolean[1];
     for (int i = 0; i < keys.length; i++) {
-      longs[0] = extremes[i];
-      assertTrue(page.appendRow(keys[i], longs, bools, strings, present, unrep, nonIntegral));
+      assertTrue(appendNumericRow(page, keys[i], extremes[i], i == 1 || i == 3));
     }
     assertRoundTrip(page);
+  }
+
+  @Test
+  void keysViewReadsV0NoneAndDenseMetadataWithoutMaterializingTheBitmap() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup none =
+        ProjectionIndexColumnSegmentCodec.encode(orderMetadataLeaf(false).serialize());
+    final ProjectionIndexColumnSegmentCodec.KeysView noneView = ProjectionIndexColumnSegmentCodec.decodeKeysView(
+        none.descriptor(), segmentOf(none, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
+    assertFalse(noneView.dense());
+    assertArrayEquals(new long[] {2L, 5L, 8L}, noneView.recordKeys());
+    assertEquals(2L, noneView.firstRecordKey());
+    assertEquals(8L, noneView.lastRecordKey());
+    for (int row = 0; row < noneView.recordKeys().length; row++) {
+      assertFalse(noneView.orderExceptionAt(row));
+    }
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup dense =
+        ProjectionIndexColumnSegmentCodec.encode(orderMetadataLeaf(true).serialize());
+    final byte[] denseKeys = segmentOf(dense, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId());
+    final ProjectionIndexColumnSegmentCodec.KeysView denseView =
+        ProjectionIndexColumnSegmentCodec.decodeKeysView(dense.descriptor(), denseKeys);
+    assertTrue(denseView.dense());
+    assertArrayEquals(new long[] {2L, 100L, 5L, 8L}, denseView.recordKeys());
+    assertEquals(2L, denseView.firstRecordKey());
+    assertEquals(8L, denseView.lastRecordKey());
+    assertFalse(denseView.orderExceptionAt(0));
+    assertTrue(denseView.orderExceptionAt(1));
+    assertFalse(denseView.orderExceptionAt(2));
+    assertFalse(denseView.orderExceptionAt(3));
+  }
+
+  @Test
+  void keysSliceMaterializesOnlyV0DenseOrderMetadata() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup none =
+        ProjectionIndexColumnSegmentCodec.encode(orderMetadataLeaf(false).serialize());
+    final ProjectionIndexColumnSegmentCodec.KeysSlice noneSlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(none.descriptor(),
+            segmentOf(none, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
+    assertNull(noneSlice.orderExceptionBits());
+    assertFalse(noneSlice.orderExceptionAt(0));
+
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup dense =
+        ProjectionIndexColumnSegmentCodec.encode(orderMetadataLeaf(true).serialize());
+    final ProjectionIndexColumnSegmentCodec.KeysSlice denseSlice =
+        ProjectionIndexColumnSegmentCodec.decodeKeysAndOrderSlice(dense.descriptor(),
+            segmentOf(dense, ProjectionIndexColumnSegmentCodec.keysColumnSegmentId()));
+    assertNotNull(denseSlice.orderExceptionBits());
+    assertEquals(1, denseSlice.orderExceptionBits().length);
+    assertEquals(1L << 1, denseSlice.orderExceptionBits()[0]);
+    assertTrue(denseSlice.orderExceptionAt(1));
   }
 
   /** Ported width sweep: every FOR width 1..64 must survive segmentation. */

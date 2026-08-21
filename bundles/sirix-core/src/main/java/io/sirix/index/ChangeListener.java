@@ -53,15 +53,36 @@ public interface ChangeListener {
   }
 
   /**
+   * The owning write transaction is discarding its current lineage rather than committing it.
+   *
+   * <p>Ordinary entry-at-a-time listeners keep no state beyond the transaction's page log and use
+   * this no-op. A listener whose work deliberately spans successful intermediate commits must retire
+   * that external state here: rollback, revert and a clean close all sever the lineage that made the
+   * accumulated state valid. This hook is intentionally separate from listener rebinding because a
+   * successful intermediate commit also rebinds listeners and must preserve that state.</p>
+   */
+  default void transactionAborted() {
+  }
+
+  /**
    * Structural lifecycle hook: the transaction performed subtree surgery —
    * currently a MOVE — whose per-node notifications cannot express the
    * change completely (moved plain containers and value elements fire no
    * per-node events, and a moved record continues to exist outside its old
    * record set). Entry-level indexes (PATH/CAS/NAME/valid-time) are
    * maintained by the move's per-node DELETE/INSERT pairs where those exist
-   * and keep the default no-op; listeners whose correctness depends on
-   * COMPLETE change attribution (projection) conservatively invalidate.
+   * and keep the default no-op.
    */
   default void structuralChange() {
+  }
+
+  default void beforeStructuralChange(final long movedNodeKey) {
+    structuralChange();
+  }
+
+  default void afterStructuralChange(final long movedNodeKey) {
+  }
+
+  default void structuralChangeAborted(final long movedNodeKey) {
   }
 }

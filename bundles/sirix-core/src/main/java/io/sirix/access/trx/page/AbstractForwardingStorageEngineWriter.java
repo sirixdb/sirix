@@ -115,5 +115,15 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public void markTransactionRollbackOnly(final Throwable cause) {
+    delegate().markTransactionRollbackOnly(cause);
+  }
+
+  @Override
+  public void assertTransactionWritable() {
+    delegate().assertTransactionWritable();
+  }
+
+  @Override
   protected abstract StorageEngineWriter delegate();
 }

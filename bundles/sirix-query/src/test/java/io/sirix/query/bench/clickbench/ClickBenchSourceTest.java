@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,5 +59,30 @@ final class ClickBenchSourceTest {
       assertFalse(source.ldjson());
       assertEquals(JsonToken.START_ARRAY, source.parser().nextToken());
     }
+  }
+
+  @Test
+  void arrayDetectionConsumesUnboundedLeadingWhitespace() throws IOException {
+    final String body = " ".repeat(8_192) + "[{\"id\":1}]";
+    final Path array = temporaryDirectory.resolve("long-leading-whitespace.json");
+    Files.writeString(array, body, StandardCharsets.UTF_8);
+
+    try (ClickBenchSource.JacksonSource source = ClickBenchSource.openJackson(array.toString())) {
+      assertFalse(source.ldjson());
+      assertEquals(JsonToken.START_ARRAY, source.parser().nextToken());
+    }
+    try (Reader source = ClickBenchSource.open(array.toString())) {
+      assertEquals("[{\"id\":1}]", sourceToString(source));
+    }
+  }
+
+  private static String sourceToString(final Reader source) throws IOException {
+    final StringBuilder value = new StringBuilder();
+    final char[] buffer = new char[256];
+    int read;
+    while ((read = source.read(buffer)) != -1) {
+      value.append(buffer, 0, read);
+    }
+    return value.toString();
   }
 }

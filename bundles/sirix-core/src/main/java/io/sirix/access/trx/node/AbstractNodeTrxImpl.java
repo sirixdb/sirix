@@ -47,6 +47,7 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 
 import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
@@ -74,7 +75,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   static final int MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT = 1 << 20;
 
   /**
-   * Maximum number of node modifications before auto commit.
+   * Maximum number of completed node modifications in one count-based auto-commit epoch.  The
+   * following mutation rotates the exact-size predecessor before it runs.
    */
   private final int maxNodeCount;
 
@@ -146,6 +148,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Transaction state.
    */
   private volatile State state;
+
+  private volatile @Nullable Throwable rollbackOnlyCause;
 
   /**
    * After commit state: keep open or close.
@@ -283,6 +287,19 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (state != State.RUNNING) {
       throw new IllegalStateException("Transaction state is not running: " + state);
     }
+    assertNotRollbackOnly();
+  }
+
+  @Override
+  public final void markRollbackOnly(final Throwable cause) {
+    rollbackOnlyCause = requireNonNull(cause);
+  }
+
+  private void assertNotRollbackOnly() {
+    if (rollbackOnlyCause != null) {
+      throw new SirixUsageException(
+          "Transaction is rollback-only after a failed atomic operation; rollback is required");
+    }
   }
 
   @Override
@@ -368,6 +385,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   @Override
   public W commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp) {
     nodeReadOnlyTrx.assertNotClosed();
+    assertNotRollbackOnly();
     if (commitTimestamp != null && !resourceSession.getResourceConfig().customCommitTimestamps()) {
       throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
     }
@@ -398,11 +416,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /** Permanent failure latch — a lost hardening invalidates every successor epoch. */
   private volatile boolean asyncCommitTerminalFailure;
 
+  static volatile Consumer<String> asyncCommitTestHook;
+
+  private static void notifyAsyncCommitTestHook(final String stage) {
+    final Consumer<String> hook = asyncCommitTestHook;
+    if (hook != null) {
+      hook.accept(stage);
+    }
+  }
+
   /**
    * Drain the async-commit pipeline: wait for a pending background hardening and surface its
    * failure. Called before any synchronous commit, rollback, or close.
    */
-  private void awaitPendingAsyncCommit() {
+  @Override
+  public final void awaitPendingAsyncCommit() {
     asyncCommitPermit.acquireUninterruptibly();
     asyncCommitPermit.release();
     final Throwable failure = asyncCommitFailure;
@@ -428,6 +456,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       state = State.COMMITTING;
 
       try {
+        notifyAsyncCommitTestHook("attempt");
+        notifyAsyncCommitTestHook("predecessor-wait");
+        awaitPendingAsyncCommit();
         if (pathSummaryWriter != null) {
           pathSummaryWriter.flushPendingStats();
         }
@@ -439,9 +470,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         // updates) while index writes can still ride this commit.
         indexController.applyPendingIndexMaintenance();
 
-        // Depth-1: wait for the previous epoch's hardening (and surface its failure), and drain
-        // any pending async flush of THIS writer before serializing.
-        awaitPendingAsyncCommit();
+        // Drain any pending async flush of THIS writer before serializing.
         storageEngineWriter.awaitPendingAsyncFlush();
       } catch (final RuntimeException | Error e) {
         state = State.RUNNING;
@@ -522,6 +551,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * superseded page transaction (releasing its writer channels).
    */
   private void hardenAndPublish(final StorageEngineWriter committingWriter, final UberPage pendingUberPage) {
+    notifyAsyncCommitTestHook("before-harden");
     committingWriter.hardenCommit(pendingUberPage, true);
     resourceSession.setLastCommittedUberPage(pendingUberPage);
     // Publish-then-clear: there is no window in which the revision resolves through neither path.
@@ -663,9 +693,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected void checkAccessAndCommit() {
     nodeReadOnlyTrx.assertNotClosed();
     assertRunning();
+    // Rotate the completed epoch before accounting for the mutation that is about to run.  Doing
+    // this after incrementing loses that mutation when commit/reset clears modificationCount and
+    // lets every successor epoch contain maxNodeCount + 1 actual mutations.
+    intermediateCommitIfRequired();
     mutationSequence++;
     modificationCount++;
-    intermediateCommitIfRequired();
   }
 
   /**
@@ -673,9 +706,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * keeps mod count + auto-commit logic. Uses intermediate commit to skip redundant I/O.
    */
   protected final void checkAccessAndCommitBulk() {
-    mutationSequence++;
-    modificationCount++;
-    if (maxNodeCount > 0 && modificationCount > autoCommitNodeCountThreshold && compoundOperationDepth == 0) {
+    assertNotRollbackOnly();
+    if (maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold
+        && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
@@ -684,6 +717,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         commitInternal("autoCommit", null, true);
       }
     }
+    mutationSequence++;
+    modificationCount++;
   }
 
   /**
@@ -767,13 +802,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   /**
-   * Making an intermediate commit based on set attributes.
+   * Rotate a completed count-based epoch before the caller accounts for its next mutation.
    *
    * @throws SirixException if commit fails
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
-    if (maxNodeCount > 0 && modificationCount > autoCommitNodeCountThreshold && compoundOperationDepth == 0) {
+    if (maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold
+        && compoundOperationDepth == 0) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
@@ -916,6 +952,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // predecessor epoch is unsound.
       awaitPendingAsyncCommit();
 
+      // Retire maintenance state that intentionally spans successful intermediate commits before
+      // the writer/TIL carrying its already-published units is discarded. Listener rebinding alone
+      // must not do this, because it also happens after a successful intermediate commit.
+      indexController.notifyTransactionAbort();
+
       // Save the current cursor position before closing the old page transaction.
       final long rollbackNodeKey = nodeReadOnlyTrx.getNodeKey();
 
@@ -955,6 +996,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       reInstantiateIndexes();
 
+      rollbackOnlyCause = null;
+
       // Discard update-operation tuples recorded before the rollback: their node keys belong to the
       // aborted revision and must not leak into the next commit's diff (a later commit would
       // otherwise serialize phantom operations that were never committed).
@@ -989,6 +1032,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceSession.assertAccess(revision);
+
+      // Revert severs the current write lineage just like rollback; a load-time builder may not
+      // resume against the replacement writer with counters from discarded row groups.
+      indexController.notifyTransactionAbort();
 
       // Save the current cursor position before closing the old page transaction.
       final long revertNodeKey = nodeReadOnlyTrx.getNodeKey();
@@ -1077,6 +1124,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     checkArgument(revision >= 0 && revision < currentRevision,
                   "revision %s must be in [0, current revision %s).", revision, currentRevision);
 
+    indexController.notifyTransactionAbort();
     storageEngineWriter.truncateTo(revision);
 
     return self();
@@ -1126,6 +1174,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         if (modificationCount > 0) {
           throw new SirixUsageException("Must commit/rollback transaction first!");
         }
+
+        // A load-time build can have no modifications in the current epoch after a successful
+        // intermediate commit while still owning cross-epoch builder state. Closing is a lineage
+        // abort for that state and must retire it before cached listeners or caller-held handles can
+        // let another transaction attach to it.
+        indexController.notifyTransactionAbort();
 
         // Release all state immediately.
         final int trxId = getId();

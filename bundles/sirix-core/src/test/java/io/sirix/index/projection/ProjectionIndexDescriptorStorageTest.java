@@ -388,18 +388,23 @@ final class ProjectionIndexDescriptorStorageTest {
     try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
          JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
-            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(v1));
+        assertTrue(new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(v1)));
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) { // rev2: identical re-put → no-op share
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
-            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(v1));
+        assertFalse(new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(v1)));
         wtx.commit();
       }
       try (JsonNodeTrx wtx = session.beginNodeTrx()) { // rev3: column 0 changed → BODY(0) rewritten
-        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
-            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(v2));
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+            ProjectionIndexColumnSegmentCodec.encode(v2);
+        assertThrows(IllegalStateException.class,
+            () -> storage.putRowGroupAsColumnSegmentSlots(1, encoded, new long[] {1L << 1}, false));
+        assertTrue(storage.putRowGroupAsColumnSegmentSlots(1, encoded, new long[] {1L}, false));
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -416,6 +421,49 @@ final class ProjectionIndexDescriptorStorageTest {
         assertTrue(off1 >= 0, "BODY(0) is a referenced (large) segment with a page");
         assertEquals(off1, off2, "identical re-put shares the unchanged BODY(0) page (carry-forward)");
         assertNotEquals(off2, off3, "column-0 change rewrites the BODY(0) segment page");
+      }
+    }
+  }
+
+  @Test
+  void columnPatchCarriesUntouchedDescriptorEntriesWithoutTheirBytes() {
+    final byte[] before = rawLeaf(900, 60_000L, 0);
+    final byte[] after = rawLeaf(900, 60_000L, 1);
+    final ProjectionIndexRowGroupPage source = ProjectionIndexRowGroupPage.deserialize(after);
+    final ProjectionIndexRowGroupPage ageOnly = new ProjectionIndexRowGroupPage(
+        new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG});
+    for (int row = 0; row < source.getRowCount(); row++) {
+      assertTrue(ageOnly.appendRow(source.recordKeys()[row], new long[] {source.numericColumn(0)[row]},
+          new boolean[1], new String[1]));
+    }
+
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER)
+            .putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(before));
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        final byte[] priorDescriptor = storage.getVerifiedRowGroupDescriptor(1);
+        assertNotNull(priorDescriptor);
+        final ProjectionIndexColumnSegmentCodec.EncodedColumn age =
+            ProjectionIndexColumnSegmentCodec.encodeColumnReferencedOnly(ageOnly, 0,
+                new ProjectionIndexColumnSegmentCodec.EncodeWorkspace());
+        final byte[] patched = ProjectionIndexColumnSegmentCodec.spliceReferencedColumn(priorDescriptor, age);
+        final ProjectionIndexHOTStorage.ColumnPatchResult result =
+            storage.putColumnPatch(1, priorDescriptor, patched, age);
+        assertTrue(result.changed());
+        assertEquals(1, result.segmentsWritten(), "only BODY(0) is supplied and rewritten");
+        assertEquals(0, result.segmentsTombstoned());
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        assertArrayEquals(after, ProjectionIndexHOTStorage.readRowGroupFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 1));
       }
     }
   }
@@ -530,10 +578,11 @@ final class ProjectionIndexDescriptorStorageTest {
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(l1));
         storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(l2));
-        storage.putBlob(0, meta.serialize());
         // Fence chunks over the two leaves' record-key zones — exactly what finishPersist writes.
         ProjectionIndexFences.write(storage, 2, new long[] {10_001L, 40_001L},
             new long[] {39_999L, 60_000L}, 0);
+        // Live slot 0 is the publication record and is always written after the units it describes.
+        storage.putBlob(0, meta.serialize());
         wtx.commit();
       }
       Databases.getGlobalBufferManager().clearAllCaches();
@@ -543,6 +592,32 @@ final class ProjectionIndexDescriptorStorageTest {
         assertEquals(2, all.size(), "fence + metadata blobs must not be counted as leaves");
         assertArrayEquals(l1, all.get(0), "leaf 1 byte-identical despite fence/metadata companions");
         assertArrayEquals(l2, all.get(1), "leaf 2 byte-identical despite fence/metadata companions");
+      }
+    }
+  }
+
+  @Test
+  void segmentSlotEnumerationHonorsLinkedPhysicalOrder() {
+    final byte[] first = rawLeaf(3, 10_000L, 0);
+    final byte[] second = rawLeaf(4, 20_000L, 0);
+    final byte[] inserted = rawLeaf(5, 15_000L, 0);
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putRowGroupAsColumnSegmentSlots(1, ProjectionIndexColumnSegmentCodec.encode(first));
+        storage.putRowGroupAsColumnSegmentSlots(2, ProjectionIndexColumnSegmentCodec.encode(second));
+        storage.putRowGroupAsColumnSegmentSlots(3, ProjectionIndexColumnSegmentCodec.encode(inserted));
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+        final List<byte[]> ordered = ProjectionIndexHOTStorage.readAllRowGroupsFromColumnSegmentSlots(
+            rtx.getStorageEngineReader(), INDEX_NUMBER, 3, new int[] {1, 3, 2});
+        assertArrayEquals(first, ordered.get(0));
+        assertArrayEquals(inserted, ordered.get(1));
+        assertArrayEquals(second, ordered.get(2));
       }
     }
   }

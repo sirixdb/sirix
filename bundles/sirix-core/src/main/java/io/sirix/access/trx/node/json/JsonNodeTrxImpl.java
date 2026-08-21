@@ -2673,6 +2673,8 @@ final class JsonNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean structuralSurgeryStarted = false;
     try {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
         throw new IllegalArgumentException("Argument must be a valid node key!");
@@ -2703,6 +2705,9 @@ final class JsonNodeTrxImpl extends
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
         if (nodeAnchor.getFirstChildKey() != toMove.getNodeKey()) {
+          pendingStructuralChange = toMove.getNodeKey();
+          indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
+          structuralSurgeryStarted = true;
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2718,9 +2723,7 @@ final class JsonNodeTrxImpl extends
           // Structural surgery: per-node move notifications are incomplete
           // (plain containers and value elements fire none, and a moved-out
           // record keeps existing) — listeners needing complete attribution
-          // (projection) conservatively invalidate.
-          indexController.notifyStructuralChange();
-
+          // can reject before the surgery starts.
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
@@ -2762,11 +2765,21 @@ final class JsonNodeTrxImpl extends
           // an empty diff.
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
+          indexController.notifyAfterStructuralChange(movedNodeKey);
+          pendingStructuralChange = -1L;
         }
         return this;
       } else {
         throw new SirixUsageException("Node to move must be a StructNode!");
       }
+    } catch (final RuntimeException | Error failure) {
+      if (structuralSurgeryStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();
@@ -2780,6 +2793,8 @@ final class JsonNodeTrxImpl extends
       lock.lock();
     }
 
+    long pendingStructuralChange = -1L;
+    boolean structuralSurgeryStarted = false;
     try {
       if (fromKey < 0 || fromKey > getMaxNodeKey()) {
         throw new IllegalArgumentException("Argument must be a valid node key!");
@@ -2800,6 +2815,9 @@ final class JsonNodeTrxImpl extends
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
+          pendingStructuralChange = toMove.getNodeKey();
+          indexController.notifyBeforeStructuralChange(toMove.getNodeKey());
+          structuralSurgeryStarted = true;
           // Past every validation and the no-op guard, so only a move that REALLY happens touches
           // the statistics -- a rejected or no-op move used to permanently disable summary-served
           // aggregates for whole path subtrees. This pass subtracts the subtree from the paths it
@@ -2814,9 +2832,7 @@ final class JsonNodeTrxImpl extends
           // Structural surgery: per-node move notifications are incomplete
           // (plain containers and value elements fire none, and a moved-out
           // record keeps existing) — listeners needing complete attribution
-          // (projection) conservatively invalidate.
-          indexController.notifyStructuralChange();
-
+          // can reject before the surgery starts.
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
@@ -2863,11 +2879,21 @@ final class JsonNodeTrxImpl extends
           // an empty diff.
           nodeReadOnlyTrx.moveTo(movedNodeKey);
           adaptUpdateOperationsForMove(oldDeweyID, storeDeweyIDs() ? getDeweyID() : null, movedNodeKey);
+          indexController.notifyAfterStructuralChange(movedNodeKey);
+          pendingStructuralChange = -1L;
         }
         return this;
       } else {
         throw new SirixUsageException("Node to move must be a StructNode!");
       }
+    } catch (final RuntimeException | Error failure) {
+      if (structuralSurgeryStarted) {
+        markRollbackOnly(failure);
+      }
+      if (pendingStructuralChange >= 0) {
+        indexController.notifyStructuralChangeAborted(pendingStructuralChange);
+      }
+      throw failure;
     } finally {
       if (lock != null) {
         lock.unlock();

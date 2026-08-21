@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.WrongThreadException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -22,9 +23,11 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -68,6 +71,95 @@ class FrameSlotAllocatorTest {
     final long after = allocator.acquireVersion(slot.classIndex(), slot.slotIndex());
     assertTrue(after > version, "version must strictly increase across a release");
     assertEquals(0L, after & 1L, "post-release version must be even (quiescent)");
+  }
+
+  @Test
+  void slotVersionsUseNonHumongousChunksWithAtomicBoundaryAccess() {
+    final int length = 100_000;
+    final FrameSlotAllocator.ChunkedAtomicLongArray versions =
+        new FrameSlotAllocator.ChunkedAtomicLongArray(length);
+
+    assertEquals(length, versions.length());
+    assertTrue(versions.chunkCount() > 1, "the regression must cross a backing-array boundary");
+    for (int chunkIndex = 0; chunkIndex < versions.chunkCount(); chunkIndex++) {
+      final long backingBytes = (long) versions.chunkLength(chunkIndex) * Long.BYTES + 16L;
+      assertTrue(backingBytes < 512L * 1024L,
+          "every backing array must remain below G1's smallest humongous-object threshold");
+    }
+
+    final int boundary = versions.chunkLength(0);
+    versions.setRelease(boundary - 1, 10L);
+    versions.setRelease(boundary, 20L);
+    assertEquals(10L, versions.getAcquire(boundary - 1));
+    assertEquals(20L, versions.get(boundary));
+    assertTrue(versions.compareAndSet(boundary, 20L, 22L));
+    assertFalse(versions.compareAndSet(boundary, 20L, 24L));
+    assertEquals(22L, versions.getAcquire(boundary));
+    assertEquals(10L, versions.getAcquire(boundary - 1),
+        "an atomic update in the next chunk must not disturb the preceding chunk");
+
+    assertThrows(IndexOutOfBoundsException.class, () -> versions.getAcquire(-1));
+    assertThrows(IndexOutOfBoundsException.class, () -> versions.getAcquire(length));
+  }
+
+  @Test
+  void oversizedAllocationRetainsOwnershipUntilOwnerReleases() throws Exception {
+    final long size = FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1] + 1L;
+    final MemorySegment segment = allocator.allocate(size);
+    assertEquals(size, allocator.getPhysicalMemoryBytes());
+    assertEquals(size, allocator.getActiveMemoryBytes());
+
+    final ExecutorService releaser = Executors.newSingleThreadExecutor();
+    try {
+      final Throwable wrongThreadFailure = releaser.submit(() -> {
+        try {
+          allocator.release(segment);
+          return null;
+        } catch (final Throwable failure) {
+          return failure;
+        }
+      }).get(10, TimeUnit.SECONDS);
+      assertInstanceOf(WrongThreadException.class, wrongThreadFailure);
+      assertEquals(size, allocator.getPhysicalMemoryBytes());
+      assertEquals(size, allocator.getActiveMemoryBytes());
+    } finally {
+      releaser.shutdownNow();
+    }
+
+    allocator.release(segment);
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+  }
+
+  @Test
+  void oversizedAllocationCannotBypassPhysicalBudget() {
+    allocator.shutdown();
+    final long budget = FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
+    allocator = new FrameSlotAllocator(budget);
+
+    assertThrows(OutOfMemoryError.class, () -> allocator.allocate(budget + 1L));
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+  }
+
+  @Test
+  void releasedSlotsRemainCommittedAndCannotBypassTheGlobalBudgetAcrossClasses() {
+    allocator.shutdown();
+    final long budget = FrameSlotAllocator.SIZE_CLASSES[FrameSlotAllocator.SIZE_CLASSES.length - 1];
+    allocator = new FrameSlotAllocator(budget);
+
+    final FrameSlot smaller = allocator.allocateSlot(128L * 1024L);
+    assertNotNull(smaller);
+    smaller.close();
+    assertEquals(128L * 1024L, allocator.getPhysicalMemoryBytes(),
+        "recycling must not pretend retained physical pages were decommitted");
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+
+    assertNull(allocator.allocateSlot(budget),
+        "a fresh class must not consume a second budget on top of retained commitment");
+    final FrameSlot recycled = allocator.allocateSlot(128L * 1024L);
+    assertNotNull(recycled, "already-committed capacity must remain reusable at the budget limit");
+    recycled.close();
   }
 
   @Test
@@ -115,6 +207,82 @@ class FrameSlotAllocatorTest {
         "release of an oversized segment must close its confined arena deterministically");
     // Idempotent: a second release of the same (now dead) segment is a no-op.
     allocator.release(segment);
+  }
+
+  @Test
+  void shutdownClosesOutstandingOwnedOversizedArenasAndBecomesTerminal() {
+    final MemorySegment oversized = allocator.allocate(512L * 1024L);
+    assertTrue(oversized.scope().isAlive());
+
+    allocator.shutdown();
+
+    assertFalse(oversized.scope().isAlive());
+    assertFalse(allocator.isInitialized());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertThrows(IllegalStateException.class, () -> allocator.allocate(4096L));
+    allocator.shutdown(); // terminal shutdown is idempotent
+  }
+
+  @Test
+  void shutdownFailsAtomicallyUntilForeignOversizedOwnerReleases() throws Exception {
+    final long size = 512L * 1024L;
+    final CountDownLatch allocated = new CountDownLatch(1);
+    final CountDownLatch releaseRequested = new CountDownLatch(1);
+    final ExecutorService owner = Executors.newSingleThreadExecutor();
+    final Future<?> ownership = owner.submit(() -> {
+      final MemorySegment segment = allocator.allocate(size);
+      allocated.countDown();
+      if (!releaseRequested.await(10, TimeUnit.SECONDS)) {
+        throw new AssertionError("timed out waiting to release the foreign-owned oversized arena");
+      }
+      allocator.release(segment);
+      return null;
+    });
+
+    try {
+      assertTrue(allocated.await(10, TimeUnit.SECONDS));
+      assertEquals(size, allocator.getActiveMemoryBytes());
+      assertEquals(size, allocator.getPhysicalMemoryBytes());
+
+      final IllegalStateException failure = assertThrows(IllegalStateException.class, allocator::shutdown);
+      assertTrue(failure.getMessage().contains("owned by"));
+      assertTrue(allocator.isInitialized(), "a rejected shutdown must leave the allocator usable");
+      assertEquals(size, allocator.getActiveMemoryBytes());
+      assertEquals(size, allocator.getPhysicalMemoryBytes());
+
+      final FrameSlot probe = allocator.allocateSlot(4096L);
+      assertNotNull(probe, "foreign ownership rejection must reopen normal allocation admission");
+      probe.close();
+    } finally {
+      releaseRequested.countDown();
+      try {
+        ownership.get(10, TimeUnit.SECONDS);
+      } finally {
+        owner.shutdownNow();
+      }
+    }
+
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(4096L, allocator.getPhysicalMemoryBytes(),
+        "the probe slot stays committed until the successful terminal shutdown");
+    allocator.shutdown();
+    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertThrows(IllegalStateException.class, () -> allocator.allocate(4096L));
+  }
+
+  @Test
+  void shutdownRejectsLiveFrameOwnersBeforeUnmapping() {
+    final FrameSlot live = allocator.allocateSlot(4096L);
+    assertNotNull(live);
+
+    assertThrows(IllegalStateException.class, allocator::shutdown);
+    assertTrue(allocator.isInitialized());
+    assertTrue(allocator.validateVersion(live.classIndex(), live.slotIndex(), live.versionAtAlloc()));
+
+    live.close();
+    allocator.shutdown();
+    assertThrows(IllegalStateException.class, () -> allocator.allocateSlot(4096L));
   }
 
   @Test
@@ -343,7 +511,8 @@ class FrameSlotAllocatorTest {
     assertEquals(releasesBefore + 4L, allocator.releaseCount(classIdx),
         "the stale A-era release must not increment the release counter");
     assertEquals(0, allocator.liveSlotCount(classIdx));
-    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(2L * 4096L, allocator.getPhysicalMemoryBytes());
   }
 
   /**
@@ -415,7 +584,8 @@ class FrameSlotAllocatorTest {
 
     assertEquals(releasesBefore + 1L, allocator.releaseCount(classIdx));
     assertEquals(0, allocator.liveSlotCount(classIdx));
-    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(4096L, allocator.getPhysicalMemoryBytes());
     final MemorySegment recycled = allocator.allocate(4096);
     assertEquals(address, recycled.address());
     allocator.release(recycled);
@@ -473,7 +643,8 @@ class FrameSlotAllocatorTest {
     assertEquals(1, allocator.recycledSlotCount(classIdx));
     assertEquals(allocator.recycledSlotCount(classIdx), allocator.recycledSlotBitCount(classIdx));
     assertEquals(0, allocator.liveSlotCount(classIdx));
-    assertEquals(0L, allocator.getPhysicalMemoryBytes());
+    assertEquals(0L, allocator.getActiveMemoryBytes());
+    assertEquals(slotSize, allocator.getPhysicalMemoryBytes());
   }
 
 }

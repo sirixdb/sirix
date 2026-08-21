@@ -1,8 +1,14 @@
 package io.sirix.format;
 
 import io.sirix.JsonTestHelper;
+import io.sirix.BinaryEncodingVersion;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexColumnSegmentCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupCodec;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.index.projection.RowGroupDescriptor;
 import io.sirix.io.Superblock;
 import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.bytepipe.JavaLz4BlockDecoder;
@@ -11,6 +17,7 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.RevisionReferencesNode;
+import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.page.PageKind;
 import io.sirix.page.PagePersister;
 import io.sirix.page.SerializationType;
@@ -37,7 +44,7 @@ import static org.junit.Assert.assertEquals;
  * Golden-file tests: pin the EXACT bytes of representative serialized structures so that any
  * accidental change to the binary format fails CI instead of silently breaking every existing
  * resource. A legitimate format change must update these constants consciously — together with a
- * {@code BinaryEncodingVersion}/superblock-version bump and a migration note in
+ * {@code BinaryEncodingVersion}/superblock-version decision and a migration note in
  * {@code docs/DISK_FORMAT.md}.
  */
 public final class GoldenFormatTest {
@@ -194,6 +201,18 @@ public final class GoldenFormatTest {
   }
 
   @Test
+  public void emittedVersionIdentityIsPinnedToZero() {
+    assertArrayEquals(new BinaryEncodingVersion[] {BinaryEncodingVersion.V0}, BinaryEncodingVersion.values());
+    assertEquals(0, BinaryEncodingVersion.V0.byteVersion());
+    assertEquals(BinaryEncodingVersion.V0, ResourceConfiguration.BINARY_ENCODING_VERSION);
+    assertEquals(0, ValueDictionaryHeaderNode.VERSION);
+    assertEquals(0, RowGroupDescriptor.VERSION);
+    assertEquals(0, ProjectionIndexColumnSegmentCodec.SEGMENT_VERSION);
+    assertEquals(0, ProjectionIndexRowGroupCodec.COMPACT_VERSION);
+    assertEquals(0, ProjectionIndexRowGroupPage.PRESENCE_TAIL_VERSION);
+  }
+
+  @Test
   public void nodeKindIdsArePinned() {
     final StringJoiner joiner = new StringJoiner(",");
     for (final NodeKind kind : NodeKind.values()) {
@@ -213,17 +232,18 @@ public final class GoldenFormatTest {
           // dictionary's trie. A new id, appended to the free range — no existing id moved, so no
           // database written before it can contain one and every one of them still reads.
           //
-          // VALUE_DICTIONARY_ENTRY=37 / _DIRECTORY=38 / _HEADER=39 are the resource-wide value
+          // VALUE_DICTIONARY_ENTRY=37 / _DIRECTORY=38 / _HEADER=39 / _SEGMENT=40 are the resource-wide value
           // dictionary's record family (the reverse entry addressed by its id, the sorted
           // (hash, id) directory blocks, and the header that counts both). Same case as 36 and
-          // deliberately so: three ids taken from the free range 37-39, NO existing id moved, and
+          // deliberately so: four ids taken from the free range 37-40, NO existing id moved, and
           // the kinds only ever appear inside a projection index built by a version that knows
           // them. A database written before they existed cannot contain one, so every such
-          // database still reads unchanged — which is why this needs no BinaryEncodingVersion or
-          // superblock bump, and why docs/DISK_FORMAT.md (which documents pages and files, not the
-          // node-kind roster) is unaffected. Renumbering any of them later WOULD be a format break.
+          // database still reads unchanged. The header's version-zero field is independently
+          // pinned. Renumbering any kind later WOULD be another format break.
           + "REVISION_REFERENCES_NODE=35,FSST_SYMBOL_TABLE=36,VALUE_DICTIONARY_ENTRY=37,"
-          + "VALUE_DICTIONARY_DIRECTORY=38,VALUE_DICTIONARY_HEADER=39,PROJECTION_INDEX_LEAF=44,"
+          + "VALUE_DICTIONARY_DIRECTORY=38,VALUE_DICTIONARY_HEADER=39,VALUE_DICTIONARY_SEGMENT=40,"
+          + "VALUE_DICTIONARY_RADIX=41,VALUE_DICTIONARY_HASH_BUCKET=42,VALUE_DICTIONARY_VALUE_BUCKET=43,"
+          + "PROJECTION_INDEX_LEAF=44,VALUE_DICTIONARY_COLLISION=45,"
           + "VECTOR_NODE=56,VECTOR_INDEX_METADATA=58,UNKNOWN=22";
 
   @Test

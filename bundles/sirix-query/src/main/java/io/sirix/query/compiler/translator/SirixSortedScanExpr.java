@@ -19,8 +19,6 @@ import io.sirix.query.json.JsonItemFactory;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 import java.util.ArrayList;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.RecursiveAction;
 
 /**
  * Projection-served SORTED SCAN (P5b stage 7b; gap 1b generalized to N keys): {@code for
@@ -107,36 +105,23 @@ public final class SirixSortedScanExpr implements Expr {
             if (keys.length >= PARALLEL_MATERIALIZE_MIN) {
               // Each record materialization decodes the record's WHOLE slotted page on first
               // touch (~ms each, and point-lookup winners scatter across pages), so a large
-              // result serially was the cold-path whale. Lanes get their own executor-owned
-              // transactions — same lifetime contract as the single cached trx below.
+              // result serially was the cold-path whale. Lanes get their own session-owned,
+              // thread-safe cursors — same lazy-result lifetime contract as the single cursor below.
               final int lanes = Math.min(executor.recordTrxLaneCount(), keys.length);
               final int chunk = (keys.length + lanes - 1) / lanes;
-              ForkJoinPool.commonPool().invoke(new RecursiveAction() {
-                @Override
-                protected void compute() {
-                  final RecursiveAction[] subs = new RecursiveAction[lanes];
-                  for (int l = 0; l < lanes; l++) {
-                    final int lane = l;
-                    subs[l] = new RecursiveAction() {
-                      @Override
-                      protected void compute() {
-                        final JsonNodeReadOnlyTrx laneRtx = executor.recordTrxAt(lane);
-                        final JsonItemFactory laneFactory = new JsonItemFactory();
-                        final int from = lane * chunk;
-                        final int to = Math.min(from + chunk, keys.length);
-                        for (int i = from; i < to; i++) {
-                          slots[i] = materializeOne(laneRtx, laneFactory, keys[i], collection);
-                        }
-                      }
-                    };
-                  }
-                  invokeAll(subs);
+              executor.parallelRecordMaterialization(lanes, lane -> {
+                final JsonNodeReadOnlyTrx laneRtx = executor.recordTrxAt(lane);
+                final JsonItemFactory laneFactory = new JsonItemFactory();
+                final int from = lane * chunk;
+                final int to = Math.min(from + chunk, keys.length);
+                for (int i = from; i < to; i++) {
+                  slots[i] = materializeOne(laneRtx, laneFactory, keys[i], collection);
                 }
               });
             } else {
-              // ONE cached read trx per executor (not per query): materialized items keep
+              // One cached session-owned cursor per executor (not per query): materialized items keep
               // reading fields through it lazily during serialization, so it cannot close
-              // per-evaluate — the executor owns and closes it. Bounded leak: 1.
+              // per-evaluate or on executor eviction. The resource session owns the cursor.
               final JsonNodeReadOnlyTrx rtx = executor.recordTrx();
               final JsonItemFactory factory = new JsonItemFactory();
               for (int i = 0; i < keys.length; i++) {

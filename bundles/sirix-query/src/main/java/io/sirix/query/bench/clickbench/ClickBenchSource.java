@@ -36,8 +36,11 @@ import java.util.zip.GZIPInputStream;
  */
 public final class ClickBenchSource {
 
-  /** Read buffer for file sources; large because the shredder pulls small chunks. */
-  private static final int BUFFER_BYTES = 1 << 20;
+  /**
+   * Read buffer for file sources. Keep both the byte-stream buffer and the legacy reader's
+   * two-byte {@code char[]} representation below G1's smallest humongous-object threshold.
+   */
+  private static final int BUFFER_BYTES = 128 * 1024;
 
   private ClickBenchSource() {
     throw new AssertionError("no instances");
@@ -80,8 +83,7 @@ public final class ClickBenchSource {
       final InputStream decoded = spec.toLowerCase(Locale.ROOT).endsWith(".gz")
           ? new GZIPInputStream(file, BUFFER_BYTES)
           : file;
-      final PushbackInputStream input = new PushbackInputStream(new BufferedInputStream(decoded, BUFFER_BYTES),
-          PEEK_BYTES);
+      final PushbackInputStream input = new PushbackInputStream(new BufferedInputStream(decoded, BUFFER_BYTES), 3);
       final boolean ldjson = !isJsonArray(input);
       return new JacksonSource(JacksonJsonShredder.createInputStreamParser(input), ldjson);
     } catch (final IOException | RuntimeException exception) {
@@ -109,16 +111,11 @@ public final class ClickBenchSource {
         ? new GZIPInputStream(in, BUFFER_BYTES)
         : in;
     final PushbackReader reader = new PushbackReader(
-        new BufferedReader(new InputStreamReader(decoded, StandardCharsets.UTF_8), BUFFER_BYTES), PEEK_CHARS);
+        new BufferedReader(new InputStreamReader(decoded, StandardCharsets.UTF_8), BUFFER_BYTES), 1);
     return isJsonArray(reader)
         ? reader
         : new JsonLinesAsArrayReader(reader);
   }
-
-  /** How far {@link #isJsonArray} may look ahead for the first non-whitespace character. */
-  private static final int PEEK_CHARS = 16;
-
-  private static final int PEEK_BYTES = 64;
 
   private static void validateSpec(final String spec) {
     if (spec == null || spec.isBlank()) {
@@ -141,55 +138,46 @@ public final class ClickBenchSource {
     return new ClickBenchHitsGenerator(0L, rows, seed);
   }
 
-  /** Byte-stream equivalent of {@link #isJsonArray(PushbackReader)}; preserves every peeked byte. */
+  /** Byte-stream equivalent of {@link #isJsonArray(PushbackReader)}. */
   private static boolean isJsonArray(final PushbackInputStream pushback) throws IOException {
-    final byte[] seen = new byte[PEEK_BYTES];
-    int consumed = 0;
-    int value = -1;
-    while (consumed < seen.length && (value = pushback.read()) != -1) {
-      seen[consumed++] = (byte) value;
-      if (consumed == 1 && value == 0xEF) {
-        final int second = pushback.read();
-        final int third = pushback.read();
-        if (second != -1) {
-          seen[consumed++] = (byte) second;
-        }
+    int value = pushback.read();
+    if (value == 0xEF) {
+      final int second = pushback.read();
+      final int third = pushback.read();
+      if (second == 0xBB && third == 0xBF) {
+        value = pushback.read();
+      } else {
         if (third != -1) {
-          seen[consumed++] = (byte) third;
+          pushback.unread(third);
         }
-        if (second == 0xBB && third == 0xBF) {
-          // UTF-8 BOM: Jackson consumes it, and framing detection must look past it.
-          continue;
+        if (second != -1) {
+          pushback.unread(second);
         }
-        break;
-      }
-      if (value != ' ' && value != '\t' && value != '\r' && value != '\n') {
-        break;
       }
     }
-    if (consumed > 0) {
-      pushback.unread(seen, 0, consumed);
+    while (value == ' ' || value == '\t' || value == '\r' || value == '\n') {
+      value = pushback.read();
+    }
+    if (value != -1) {
+      pushback.unread(value);
     }
     return value == '[';
   }
 
   /**
    * Peeks past leading whitespace for the {@code '['} that distinguishes a JSON array file from a
-   * JSON-lines file, pushing everything it consumed back so the returned reader is positioned at the
-   * start of the stream either way.
+   * JSON-lines file, retaining the first significant character for the returned reader.
    */
   private static boolean isJsonArray(final PushbackReader pushback) throws IOException {
-    final char[] seen = new char[PEEK_CHARS];
-    int consumed = 0;
-    int c = -1;
-    while (consumed < seen.length && (c = pushback.read()) != -1) {
-      seen[consumed++] = (char) c;
-      if (!Character.isWhitespace(c)) {
-        break;
-      }
+    int c = pushback.read();
+    if (c == '\uFEFF') {
+      c = pushback.read();
     }
-    if (consumed > 0) {
-      pushback.unread(seen, 0, consumed);
+    while (c != -1 && Character.isWhitespace(c)) {
+      c = pushback.read();
+    }
+    if (c != -1) {
+      pushback.unread(c);
     }
     return c == '[';
   }

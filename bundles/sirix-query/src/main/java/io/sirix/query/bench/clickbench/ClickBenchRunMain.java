@@ -129,7 +129,7 @@ public final class ClickBenchRunMain {
           ProjectionIndexCatalog.lookupCovering(session, session.getResourceConfig().getResource().toString(), revision,
               new String[] {"[]"}, new String[] {"AdvEngineID"});
       if (warmHandle != null && warmHandle.columnStoreOrNull() != null) {
-        warmHandle.kickSegmentPrefetch(() -> session.beginNodeReadOnlyTrx(revision),
+        warmHandle.kickSegmentPrefetch(Runnable::run, () -> session.beginNodeReadOnlyTrx(revision),
             trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
       }
 

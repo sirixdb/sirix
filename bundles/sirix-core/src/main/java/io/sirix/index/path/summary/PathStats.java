@@ -110,11 +110,9 @@ public final class PathStats {
    * Serialize this record to {@code sink}. Mirrors the legacy inline encoding
    * previously embedded in {@link io.sirix.node.NodeKind#PATH}.
    *
-   * <p>NOT compatible with {@link io.sirix.BinaryEncodingVersion#V0}: {@code sumFraction} and the
-   * three flags below sit BETWEEN {@code maxDirty} and the page-key trailer, so a V0 record read
-   * here consumes that trailer's {@code int} as part of the {@code double}. The break is caught at
-   * resource-open time by the encoding-version check in {@code ResourceConfiguration.deserialize},
-   * which is what keeps it from surfacing as plausible wrong aggregates instead of an error.
+   * <p>This is the frozen V0 layout. {@code sumFraction} and the three flags below sit between
+   * {@code maxDirty} and the page-key trailer; any future rearrangement requires a new resource
+   * encoding version before resources using that layout are written.
    */
   public void writeTo(final BytesOut<?> sink) {
     sink.writeLong(count);
@@ -170,10 +168,7 @@ public final class PathStats {
    * Read a record produced by {@link #writeTo(BytesOut)} from {@code source}.
    *
    * <p>Tolerates a record that stops before the optional trailing presence-bitmap field, which is
-   * the only shape variation within one encoding version. It does NOT tolerate a
-   * {@link io.sirix.BinaryEncodingVersion#V0} record — those cannot be recognised here at all,
-   * because the layout diverges at a fixed-width field rather than at a length prefix. Rejecting
-   * them is the resource-open version check's job.
+   * the only shape variation within V0.
    */
   public static PathStats readFrom(final BytesIn<?> source) {
     final PathStats s = new PathStats();

@@ -4,6 +4,7 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -148,14 +149,9 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
   }
 
   @Test
-  public void moveOutOfRecordSetRebuildsAndKeepsServing() throws IOException {
-    // A subtree MOVE cannot be attributed incrementally (the moved record
-    // keeps existing outside the record set) — the listener degrades to a
-    // commit-time full rebuild, so BOTH wtx-visible and committed serving
-    // continue with the exact post-move rows: no phantom row, no tombstone,
-    // no re-creation call.
+  public void recordRootMovesSpliceProjectionRowsInDocumentOrder() throws IOException {
     query("""
-          jn:store('json-path1','mv.jn','{"records":[{"age":1},{"age":2}],"archive":[]}')
+          jn:store('json-path1','mv.jn','{"records":[{"age":1},{"age":2}],"archive":[{"age":9}]}')
         """);
     query("""
           let $doc := jn:doc('json-path1','mv.jn')
@@ -165,54 +161,182 @@ public final class ProjectionIndexWtxServingTest extends AbstractJsonTest {
     final String[] recordsPath = { "records", "[]" };
     try (final Database<JsonResourceSession> database = openDatabase();
          final JsonResourceSession session = database.beginResourceSession("mv.jn")) {
+      final int baselineRevision = session.getMostRecentRevisionNumber();
+      final long recordsArrayKey;
+      final long record0Key;
+      final long record1Key;
+      final long archiveArrayKey;
+      final long archivedRecordKey;
+      try (final var rtx = session.beginNodeReadOnlyTrx(baselineRevision)) {
+        Assertions.assertTrue(rtx.moveToDocumentRoot());
+        Assertions.assertTrue(rtx.moveToFirstChild());       // top-level OBJECT
+        Assertions.assertTrue(rtx.moveToFirstChild());       // records
+        recordsArrayKey = rtx.getNodeKey();
+        Assertions.assertTrue(rtx.moveToFirstChild());       // age 1
+        record0Key = rtx.getNodeKey();
+        Assertions.assertTrue(rtx.moveToRightSibling());     // age 2
+        record1Key = rtx.getNodeKey();
+        Assertions.assertTrue(rtx.moveTo(recordsArrayKey));
+        Assertions.assertTrue(rtx.moveToRightSibling());     // archive
+        archiveArrayKey = rtx.getNodeKey();
+        Assertions.assertTrue(rtx.moveToFirstChild());       // age 9
+        archivedRecordKey = rtx.getNodeKey();
+      }
+
+      // Existing projected root leaves the record set: remove exactly its source leaf row.
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveTo(archiveArrayKey));
+        wtx.moveSubtreeToFirstChild(record0Key);
+        wtx.commit();
+      }
+      assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 2L);
+
+      // Outside→inside entry has no prior persisted row and is inserted at the explicit first position.
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
+        wtx.moveSubtreeToFirstChild(archivedRecordKey);
+        wtx.commit();
+      }
+      assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 9L, 2L);
+
+      // Same-root reorder preserves identity but changes its physical document position.
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
+        wtx.moveSubtreeToFirstChild(record1Key);
+        wtx.commit();
+      }
+      final int movedRevision = session.getMostRecentRevisionNumber();
+      assertRecordProjectionOrder(session, recordsPath, movedRevision, 2L, 9L);
+      assertRecordProjectionOrder(session, recordsPath, baselineRevision, 1L, 2L);
+    }
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> reopened = openDatabase();
+         final JsonResourceSession reopenedSession = reopened.beginResourceSession("mv.jn")) {
+      assertRecordProjectionOrder(reopenedSession, recordsPath,
+          reopenedSession.getMostRecentRevisionNumber(), 2L, 9L);
+    }
+  }
+
+  @Test
+  public void firstMiddleAndTailRecordInsertionsStayInDocumentOrder() throws IOException {
+    query("""
+          jn:store('json-path1','insert-order.jn','{"records":[{"age":1},{"age":2}]}')
+        """);
+    query("""
+          let $doc := jn:doc('json-path1','insert-order.jn')
+          let $stats := jn:create-projection-index($doc, '/records/[]', ('/records/[]/age'), ('long'))
+          return {"revision": sdb:commit($doc)}
+        """);
+    final String[] recordsPath = { "records", "[]" };
+    try (final Database<JsonResourceSession> database = openDatabase();
+         final JsonResourceSession session = database.beginResourceSession("insert-order.jn")) {
       try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
         Assertions.assertTrue(wtx.moveToDocumentRoot());
         Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
         Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
-        Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
-        final long recordsArrayKey = wtx.getNodeKey();
-        Assertions.assertTrue(wtx.moveToFirstChild());       // record 0
-        final long record0Key = wtx.getNodeKey();
-        Assertions.assertTrue(wtx.moveTo(recordsArrayKey));
-        Assertions.assertTrue(wtx.moveToRightSibling());     // "archive" fused array
-        Assertions.assertEquals(NodeKind.OBJECT_NAMED_ARRAY, wtx.getKind());
-
-        final SirixVectorizedExecutor wtxExecutor = new SirixVectorizedExecutor(wtx, 2);
-        try {
-          // Sanity: served before the move.
-          final Sequence before = wtxExecutor.executeAggregate(null, recordsPath, "sum", "age");
-          Assertions.assertNotNull(before);
-          Assertions.assertEquals(3L, ((Int64) before).longValue());
-
-          // Move record 0 out of the record set into "archive".
-          wtx.moveSubtreeToFirstChild(record0Key);
-
-          // The wtx-visible read applies the pending REBUILD: the moved
-          // record's row is gone, serving continues.
-          final Sequence after = wtxExecutor.executeAggregate(null, recordsPath, "sum", "age");
-          Assertions.assertNotNull(after,
-              "a move must degrade to a rebuild that keeps the projection servable");
-          Assertions.assertEquals(2L, ((Int64) after).longValue(),
-              "the moved-out record must not survive as a phantom row");
-        } finally {
-          wtxExecutor.close();
-        }
+        wtx.insertObjectAsFirstChild()
+            .insertObjectRecordAsFirstChild("age", new NumberValue(0));
         wtx.commit();
       }
-      // Committed serving keeps working over the rebuilt snapshot too.
-      final int mostRecent = session.getMostRecentRevisionNumber();
-      try (final var rtx = session.beginNodeReadOnlyTrx(mostRecent)) {
-        final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(mostRecent)
-            .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" });
-        Assertions.assertNotNull(handle,
-            "the rebuilt projection must serve committed readers — no tombstone");
+      assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 0L, 1L, 2L);
+
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild());       // records
+        Assertions.assertTrue(wtx.moveToFirstChild());       // age 0
+        wtx.insertObjectAsRightSibling()
+            .insertObjectRecordAsFirstChild("age", new NumberValue(10));
+        wtx.commit();
+      }
+      assertRecordProjectionOrder(session, recordsPath, session.getMostRecentRevisionNumber(), 0L, 10L, 1L, 2L);
+
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level OBJECT
+        Assertions.assertTrue(wtx.moveToFirstChild());       // "records" fused array
+        wtx.insertObjectAsLastChild()
+            .insertObjectRecordAsFirstChild("age", new NumberValue(3));
+        wtx.commit();
+      }
+      final int appendedRevision = session.getMostRecentRevisionNumber();
+      assertRecordProjectionOrder(session, recordsPath, appendedRevision, 0L, 10L, 1L, 2L, 3L);
+    }
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> reopened = openDatabase();
+         final JsonResourceSession reopenedSession = reopened.beginResourceSession("insert-order.jn")) {
+      assertRecordProjectionOrder(reopenedSession, recordsPath,
+          reopenedSession.getMostRecentRevisionNumber(), 0L, 10L, 1L, 2L, 3L);
+    }
+  }
+
+  @Test
+  public void moveWhollyWithinOneRecordRemainsIncrementallyMaintainable() throws IOException {
+    storeAndCreateProjection();
+    try (final Database<JsonResourceSession> database = openDatabase();
+         final JsonResourceSession session = database.beginResourceSession("sales.jn")) {
+      try (final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        Assertions.assertTrue(wtx.moveToDocumentRoot());
+        Assertions.assertTrue(wtx.moveToFirstChild());       // top-level ARRAY
+        Assertions.assertTrue(wtx.moveToFirstChild());       // first record
+        Assertions.assertTrue(wtx.moveToFirstChild());       // age
+        final long ageKey = wtx.getNodeKey();
+        Assertions.assertTrue(wtx.moveToRightSibling());     // active
+        Assertions.assertTrue(wtx.moveToRightSibling());     // dept
+        final long deptKey = wtx.getNodeKey();
+        Assertions.assertTrue(wtx.moveTo(ageKey));
+        wtx.moveSubtreeToRightSibling(deptKey);
+        wtx.commit();
+      }
+      final int revision = session.getMostRecentRevisionNumber();
+      try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        Assertions.assertTrue(rtx.moveToDocumentRoot());
+        Assertions.assertTrue(rtx.moveToFirstChild());
+        Assertions.assertTrue(rtx.moveToFirstChild());
+        Assertions.assertTrue(rtx.moveToFirstChild());
+        Assertions.assertEquals("age", rtx.getName().getLocalName());
+        Assertions.assertTrue(rtx.moveToRightSibling());
+        Assertions.assertEquals("dept", rtx.getName().getLocalName(),
+            "the within-record structural move must be committed in the tree");
+      }
+      final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(session, revision, 2);
+      try {
+        Assertions.assertEquals(211L, sumAges(executor),
+            "a within-record move must leave the incrementally maintained projection servable");
+      } finally {
+        executor.close();
       }
     }
-    // The generic pipeline stays correct: only record 1 remains under records.
-    test("""
-          let $doc := jn:doc('json-path1','mv.jn')
-          return sum(for $r in $doc.records[] return $r.age)
-        """, "2");
+  }
+
+  private static void assertRecordProjectionOrder(final JsonResourceSession session,
+      final String[] recordsPath, final int revision, final long... expectedValues) {
+    try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final ProjectionIndexRegistry.Handle handle = session.getRtxIndexController(revision)
+          .openProjectionIndex(rtx.getStorageEngineReader(), recordsPath, new String[] { "age" });
+      Assertions.assertNotNull(handle, "the committed projection must remain servable");
+      final long[] actualValues = new long[expectedValues.length];
+      int offset = 0;
+      for (final byte[] leafBytes : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          session, revision, handle.defId(), handle.rowGroupCount()))) {
+        final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leafBytes);
+        final int rowCount = leaf.getRowCount();
+        Assertions.assertTrue(offset + rowCount <= actualValues.length,
+            "the projection contains more rows than expected");
+        System.arraycopy(leaf.numericColumn(0), 0, actualValues, offset, rowCount);
+        offset += rowCount;
+      }
+      Assertions.assertEquals(expectedValues.length, offset,
+          "the projection contains fewer rows than expected");
+      Assertions.assertArrayEquals(expectedValues, actualValues,
+          "projection rows must remain in document order");
+    }
   }
 
   @Test

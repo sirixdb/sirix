@@ -11,6 +11,7 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,11 +65,18 @@ final class ProjectionBloomChunksTest {
         ProjectionIndexHOTStorage.MAX_ROW_GROUPS, 0xFFFE);
     final long firstChunk = ProjectionBloomChunks.chunkSlotKey(0, 0);
     final long lastChunk = ProjectionBloomChunks.chunkSlotKey(RowGroupDescriptor.MAX_COLUMNS - 1, 0xFFFF);
+    final long firstSetSummary = ProjectionSetSummaryChunks.slotKey(0);
+    final long lastSetSummary = ProjectionSetSummaryChunks.slotKey(RowGroupDescriptor.MAX_COLUMNS - 1);
     assertTrue(largestRowGroupSlot < ProjectionIndexFences.CHUNK_SLOT_BASE,
         "row-group namespace must end before fences");
     assertTrue(ProjectionIndexFences.CHUNK_SLOT_BASE < firstChunk,
         "Bloom chunks must start after fences");
+    assertTrue(ProjectionIndexFences.CHUNK_SLOT_BASE < ProjectionIndexFences.ORDER_HEADER_SLOT
+        && ProjectionIndexFences.ORDER_HEADER_SLOT < firstChunk,
+        "row-group order header must stay between fence and Bloom namespaces");
     assertTrue(lastChunk < 1L << 44, "Bloom chunk namespace must stay below 2^44");
+    assertTrue(lastChunk < firstSetSummary, "set-summary chunks must start after Bloom chunks");
+    assertTrue(lastSetSummary < 1L << 45, "set-summary chunk namespace must stay below 2^45");
     assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0xFFFF,
         ProjectionBloomChunks.chunkSlotKey(0, 0xFFFF));
     assertEquals(ProjectionBloomChunks.CHUNK_SLOT_BASE + 0x1_0000,
@@ -85,9 +94,12 @@ final class ProjectionBloomChunksTest {
     familyBoundaries.add(ProjectionIndexFences.CHUNK_SLOT_BASE);
     familyBoundaries.add(ProjectionIndexFences.CHUNK_SLOT_BASE
         + ProjectionIndexFences.chunkCount(ProjectionIndexHOTStorage.MAX_ROW_GROUPS) - 1L);
+    familyBoundaries.add(ProjectionIndexFences.ORDER_HEADER_SLOT);
     familyBoundaries.add(firstChunk);
     familyBoundaries.add(lastChunk);
-    assertEquals(9, familyBoundaries.size(), "reserved key-family boundaries must be pairwise distinct");
+    familyBoundaries.add(firstSetSummary);
+    familyBoundaries.add(lastSetSummary);
+    assertEquals(12, familyBoundaries.size(), "reserved key-family boundaries must be pairwise distinct");
 
     assertThrows(IllegalArgumentException.class, () -> ProjectionBloomChunks.chunkSlotKey(-1, 0));
     assertThrows(IllegalArgumentException.class,
@@ -369,6 +381,28 @@ final class ProjectionBloomChunksTest {
   }
 
   @Test
+  void reorderedEvidencePrunesLogicalRatherThanPhysicalLeafPositions() {
+    final byte[][] perLeaf = {
+        bloomSegment(encodedRowGroup("first")),
+        bloomSegment(encodedRowGroup("second")),
+        bloomSegment(encodedRowGroup("inserted")),
+    };
+    final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(perLeaf, perLeaf.length);
+    final ProjectionBloomChunks.ColumnEvidence[] physical =
+        ProjectionBloomChunks.fromLegacyBlocks(new byte[][] {block}, perLeaf.length);
+    assertNotNull(physical);
+    final ProjectionBloomChunks.ColumnEvidence[] logical =
+        ProjectionBloomChunks.reorder(physical, new int[] {1, 3, 2});
+    final long hash = ProjectionIndexColumnSegmentCodec.bloomHash(
+        "second".getBytes(StandardCharsets.UTF_8));
+    final long[] keep = prune(logical[0], perLeaf.length, hash, (offsets) -> new byte[offsets.length][]);
+
+    assertDropped(keep, 0, "the physical first leaf is logical first");
+    assertDropped(keep, 1, "the inserted physical third leaf is logical second");
+    assertKept(keep, 2, "physical leaf two must map to logical leaf three");
+  }
+
+  @Test
   void malformedManifestDisablesChunkAcceleration() {
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
@@ -485,6 +519,80 @@ final class ProjectionBloomChunksTest {
     } finally {
       large.release();
       small.release();
+    }
+  }
+
+  @Test
+  void maintenanceRewritesOnlyTheTouchedBloomChunk() {
+    final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES + 1;
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup before = encodedRowGroup("before");
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup after = encodedRowGroup("after");
+    final ProjectionBloomChunks.Writer bloomWriter = new ProjectionBloomChunks.Writer();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
+          storage.putRowGroupAsColumnSegmentSlots(rowGroupId, before);
+          bloomWriter.append(before, rowGroupId, storage);
+        }
+        bloomWriter.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+        storage.removeBloomBlocks(1);
+        bloomWriter.publishManifests(storage, rowGroupCount);
+        wtx.commit();
+      }
+
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        storage.putRowGroupAsColumnSegmentSlots(1, after);
+        final LongOpenHashSet changed = new LongOpenHashSet();
+        changed.add(1L);
+        final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(
+            storage, COLUMN_KINDS, rowGroupCount, changed);
+        assertEquals(1, stats.rowGroupsRead());
+        assertEquals(1, stats.chunksWritten());
+        wtx.commit();
+      }
+
+      Databases.clearGlobalCaches();
+      try (JsonNodeReadOnlyTrx revisionOne = session.beginNodeReadOnlyTrx(1);
+           JsonNodeReadOnlyTrx revisionTwo = session.beginNodeReadOnlyTrx(2)) {
+        final long changedBefore = ProjectionIndexHOTStorage.segmentPageOffset(
+            revisionOne.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
+        final long changedAfter = ProjectionIndexHOTStorage.segmentPageOffset(
+            revisionTwo.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 0), 0);
+        final long untouchedBefore = ProjectionIndexHOTStorage.segmentPageOffset(
+            revisionOne.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
+        final long untouchedAfter = ProjectionIndexHOTStorage.segmentPageOffset(
+            revisionTwo.getStorageEngineReader(), INDEX_NUMBER, ProjectionBloomChunks.chunkSlotKey(0, 1), 0);
+        assertNotEquals(changedBefore, changedAfter);
+        assertEquals(untouchedBefore, untouchedAfter);
+      }
+    } finally {
+      bloomWriter.release();
+    }
+  }
+
+  @Test
+  void numericMaintenanceDoesNotReadBloomChunks() {
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      final LongOpenHashSet changed = new LongOpenHashSet();
+      changed.add(1L);
+
+      final ProjectionBloomChunks.RewriteStats stats = ProjectionBloomChunks.rewriteTouchedChunks(
+          storage, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed);
+
+      assertEquals(new ProjectionBloomChunks.RewriteStats(0, 0, 0L, 0L), stats);
+
+      changed.add(2L);
+      assertThrows(IllegalArgumentException.class, () -> ProjectionBloomChunks.rewriteTouchedChunks(
+          storage, new byte[] {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG}, 1, changed));
     }
   }
 

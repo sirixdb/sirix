@@ -76,13 +76,13 @@ public final class ProjectionIndexMetadataTest {
   @Test
   public void aBlobCarryingAnyOtherVersionParsesToNull() {
     // Exactly one version is supported, so anything else must be rejected rather than read at
-    // shifted offsets. This is what makes a future format bump safe: the old blob degrades to
-    // "no metadata" and its store rebuilds.
+    // shifted offsets. This is what makes a future format bump safe: the old blob is declined.
     final byte[] serialized = new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, 1, 1).serialize();
     // Derived from the byte the writer actually emitted rather than hard-coded: pinning a literal
     // here makes the test fail the moment the version is bumped, for the wrong reason — it stops
     // testing "an unknown version is rejected" and starts asserting which number is current.
     final byte current = serialized[4];
+    assertEquals(0, current, "the current PIXM version byte is part of the persisted contract");
     for (final byte other : new byte[] {(byte) (current + 1), (byte) (current + 7), (byte) 0xFF}) {
       serialized[4] = other;
       assertNull(ProjectionIndexMetadata.parse(serialized), "version " + other + " parsed instead of being rejected");
@@ -110,5 +110,19 @@ public final class ProjectionIndexMetadataTest {
     assertThrows(IllegalArgumentException.class,
         () -> new ProjectionIndexMetadata(ROOT, PATHS, new String[] {"age"}, KINDS, 1, 1));
     assertThrows(IllegalArgumentException.class, () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, KINDS, -1, 1));
+  }
+
+  @Test
+  public void globalColumnsRequireExplicitStableAnchors() {
+    final byte[] globalKinds = KINDS.clone();
+    globalKinds[2] = ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    assertThrows(IllegalArgumentException.class,
+        () -> new ProjectionIndexMetadata(ROOT, PATHS, NAMES, globalKinds, 1, 1));
+
+    final ProjectionIndexMetadata parsed = ProjectionIndexMetadata.parse(
+        new ProjectionIndexMetadata(ROOT, PATHS, NAMES, globalKinds, 1, 1, null,
+            new long[] {0L, 0L, 17L}).serialize());
+    assertNotNull(parsed);
+    assertEquals(17L, parsed.valueDictionaryHeaderKey(2));
   }
 }

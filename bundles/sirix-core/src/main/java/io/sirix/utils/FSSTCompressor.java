@@ -534,16 +534,26 @@ public final class FSSTCompressor {
           + offsets.length + "/" + lengths.length + ")");
     }
     for (int i = 0; i < sampleCount; i++) {
-      validateRange(backing, offsets[i], lengths[i], "entry " + i);
+      final int offset = offsets[i];
+      final int length = lengths[i];
+      if (rangeOutsideBacking(backing.length, offset, length)) {
+        throw new IllegalArgumentException("entry " + i + " range [" + offset + ", "
+            + ((long) offset + length) + ") outside a " + backing.length + "-byte backing");
+      }
     }
   }
 
   private static void validateRange(final byte[] backing, final int offset, final int length, final String label) {
     Objects.requireNonNull(backing, "backing must not be null");
-    if (offset < 0 || length < 0 || offset > backing.length - length) {
+    if (rangeOutsideBacking(backing.length, offset, length)) {
       throw new IllegalArgumentException(label + " range [" + offset + ", " + ((long) offset + length)
           + ") outside a " + backing.length + "-byte backing");
     }
+  }
+
+  /** Validate a range without overflowing {@code offset + length}. */
+  private static boolean rangeOutsideBacking(final int backingLength, final int offset, final int length) {
+    return offset < 0 || length < 0 || offset > backingLength - length;
   }
 
   /**
