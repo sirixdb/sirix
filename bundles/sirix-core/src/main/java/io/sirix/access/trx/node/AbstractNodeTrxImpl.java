@@ -834,10 +834,10 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Keep failure semantics unchanged: the dirty counter is not reset if index maintenance or the
       // async rotation throws.
       modificationCount = 0;
-      // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false. Without this,
-      // rollingAdd() walks the full ancestor chain on every insert; bulk insertion skips hashing during
-      // intermediate epochs in the same way as the synchronous path.
-      nodeHashing.setAutoCommit(false);
+      // This is a storage-only epoch: the logical transaction and its bulk-insert maintenance mode
+      // continue unchanged. Disabling incremental hashing here freezes ancestor hashes and
+      // descendant counts at the first epoch boundary because no re-instantiation or postorder
+      // repair follows an async flush.
     } finally {
       if (HFT_TELEMETRY_ENABLED) {
         storageEngineWriter.recordAsyncFlushForegroundNanos(
