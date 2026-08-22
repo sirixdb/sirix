@@ -10,18 +10,21 @@ import java.lang.foreign.ValueLayout;
 /**
  * Extracts string-type and number-type node columns directly from slotted page MemorySegments.
  *
- * <p>Scans the page bitmap, filters for STRING_VALUE (kindId=30),
- * OBJECT_NAMED_STRING (fused, kindId=50), NUMBER_VALUE (kindId=28), and OBJECT_NAMED_NUMBER
- * (fused, kindId=49) nodes, and extracts their metadata into caller-provided primitive arrays
- * — zero allocation on the hot path.</p>
+ * <p>
+ * Scans the page bitmap, filters for STRING_VALUE (kindId=30), OBJECT_NAMED_STRING (fused,
+ * kindId=50), NUMBER_VALUE (kindId=28), and OBJECT_NAMED_NUMBER (fused, kindId=49) nodes, and
+ * extracts their metadata into caller-provided primitive arrays — zero allocation on the hot path.
+ * </p>
  *
- * <p>This enables page-at-a-time columnar extraction: instead of
- * per-node moveTo + flyweight bind + field extract, we scan the page
- * MemorySegment directly with sequential memory access patterns.</p>
+ * <p>
+ * This enables page-at-a-time columnar extraction: instead of per-node moveTo + flyweight bind +
+ * field extract, we scan the page MemorySegment directly with sequential memory access patterns.
+ * </p>
  *
- * <p>The extractor does NOT own the output arrays. The caller (e.g.,
- * ColumnarScanAxis) owns them and passes them in, enabling multi-page
- * accumulation without intermediate copies.</p>
+ * <p>
+ * The extractor does NOT own the output arrays. The caller (e.g., ColumnarScanAxis) owns them and
+ * passes them in, enabling multi-page accumulation without intermediate copies.
+ * </p>
  */
 public final class ColumnarPageExtractor {
 
@@ -44,8 +47,8 @@ public final class ColumnarPageExtractor {
   private static final int OBJNAMEDSTR_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDSTR_PAYLOAD; // 8
 
   /**
-   * Parent key field index — same for every extractable kind (always 0 in the field-order
-   * contract; asserted below).
+   * Parent key field index — same for every extractable kind (always 0 in the field-order contract;
+   * asserted below).
    */
   private static final int PARENT_KEY_IDX = NodeFieldLayout.STRVAL_PARENT_KEY;
 
@@ -84,31 +87,32 @@ public final class ColumnarPageExtractor {
   }
 
   /**
-   * Extract all string-type slots from a page, appending to the given arrays
-   * starting at writePos. Returns the new write position.
+   * Extract all string-type slots from a page, appending to the given arrays starting at writePos.
+   * Returns the new write position.
    *
-   * @param kvlPage     the page to extract from
-   * @param nodeKeys    output: absolute node keys
-   * @param parentKeys  output: delta-decoded parent keys
+   * @param kvlPage the page to extract from
+   * @param nodeKeys output: absolute node keys
+   * @param parentKeys output: delta-decoded parent keys
    * @param payloadOffs output: absolute byte offset of value bytes in page
-   * @param valueLens   output: byte length of value (compressed or raw)
-   * @param compressed  output: per-row compression flag
-   * @param deweyOffs   output: absolute byte offset of DeweyID (or -1)
-   * @param deweyLens   output: byte length of DeweyID (or 0)
-   * @param writePos    starting index in output arrays
+   * @param valueLens output: byte length of value (compressed or raw)
+   * @param compressed output: per-row compression flag
+   * @param deweyOffs output: absolute byte offset of DeweyID (or -1)
+   * @param deweyLens output: byte length of DeweyID (or 0)
+   * @param writePos starting index in output arrays
    * @return new write position (writePos + number of extracted rows)
    */
-  public int extractStringsFromPage(
-      final KeyValueLeafPage kvlPage,
-      final long[] nodeKeys, final long[] parentKeys,
-      final int[] payloadOffs, final int[] valueLens, final boolean[] compressed,
-      final int[] deweyOffs, final int[] deweyLens,
-      int writePos) {
+  public int extractStringsFromPage(final KeyValueLeafPage kvlPage, final long[] nodeKeys, final long[] parentKeys,
+      final int[] payloadOffs, final int[] valueLens, final boolean[] compressed, final int[] deweyOffs,
+      final int[] deweyLens, int writePos) {
 
     final MemorySegment page = kvlPage.getSlottedPage();
     if (page == null) {
       return writePos;
     }
+    // Reads every populated slot straight off the heap, so it is only ever handed pages the load
+    // policy decoded whole. An assertion, not a gate: see VersioningType#noFragmentIsLazy.
+    assert kvlPage.isFullyMaterialized()
+        : "columnar extraction from a page with " + kvlPage.chunkCount() + " chunks still unexpanded";
 
     final int populatedCount = PageLayout.getPopulatedCount(page);
     if (populatedCount == 0) {
@@ -164,8 +168,7 @@ public final class ColumnarPageExtractor {
         final long nodeKey = pageBaseNodeKey | slot;
 
         // Delta-decode parent key
-        parentKeys[writePos] = DeltaVarIntCodec.decodeDeltaFromSegment(
-            page, dataStart + parentOff, nodeKey);
+        parentKeys[writePos] = DeltaVarIntCodec.decodeDeltaFromSegment(page, dataStart + parentOff, nodeKey);
 
         // Read payload header: [isCompressed:1][valueLength:varint][valueBytes...]
         final long payloadAbs = dataStart + payloadOff;
@@ -193,11 +196,11 @@ public final class ColumnarPageExtractor {
   }
 
   /**
-   * Write DeweyID offset and length for a slot into output arrays.
-   * Sets offset=-1 and length=0 when no DeweyID is available.
+   * Write DeweyID offset and length for a slot into output arrays. Sets offset=-1 and length=0 when
+   * no DeweyID is available.
    */
-  private static void writeDeweyId(MemorySegment page, boolean hasDewey, int slot,
-      long recordBase, int[] deweyOffs, int[] deweyLens, int writePos) {
+  private static void writeDeweyId(MemorySegment page, boolean hasDewey, int slot, long recordBase, int[] deweyOffs,
+      int[] deweyLens, int writePos) {
     if (hasDewey) {
       final int deweyLen = PageLayout.getDeweyIdLength(page, slot);
       if (deweyLen > 0) {
@@ -215,35 +218,37 @@ public final class ColumnarPageExtractor {
   }
 
   /**
-   * Extract all number-type slots from a page, parsing their numeric payload
-   * into doubles for SIMD-friendly columnar storage.
+   * Extract all number-type slots from a page, parsing their numeric payload into doubles for
+   * SIMD-friendly columnar storage.
    *
-   * <p>Handles NUMBER_VALUE (kindId=28) and fused OBJECT_NAMED_NUMBER (kindId=49).
-   * The number payload format is: {@code [numberType:1][numberData:variable]}.
-   * For the hot path, only Double, Float, Integer, and Long types are decoded.
-   * BigInteger and BigDecimal are skipped (they'd require allocation).</p>
+   * <p>
+   * Handles NUMBER_VALUE (kindId=28) and fused OBJECT_NAMED_NUMBER (kindId=49). The number payload
+   * format is: {@code [numberType:1][numberData:variable]}. For the hot path, only Double, Float,
+   * Integer, and Long types are decoded. BigInteger and BigDecimal are skipped (they'd require
+   * allocation).
+   * </p>
    *
-   * @param kvlPage    the page to extract from
-   * @param nodeKeys   output: absolute node keys
+   * @param kvlPage the page to extract from
+   * @param nodeKeys output: absolute node keys
    * @param parentKeys output: delta-decoded parent keys
-   * @param numValues  output: numeric values decoded as doubles
-   * @param numNulls   output: true if value could not be decoded (BigInteger/BigDecimal)
-   * @param deweyOffs  output: absolute byte offset of DeweyID (or -1)
-   * @param deweyLens  output: byte length of DeweyID (or 0)
-   * @param writePos   starting index in output arrays
+   * @param numValues output: numeric values decoded as doubles
+   * @param numNulls output: true if value could not be decoded (BigInteger/BigDecimal)
+   * @param deweyOffs output: absolute byte offset of DeweyID (or -1)
+   * @param deweyLens output: byte length of DeweyID (or 0)
+   * @param writePos starting index in output arrays
    * @return new write position (writePos + number of extracted rows)
    */
-  public int extractNumbersFromPage(
-      final KeyValueLeafPage kvlPage,
-      final long[] nodeKeys, final long[] parentKeys,
-      final double[] numValues, final boolean[] numNulls,
-      final int[] deweyOffs, final int[] deweyLens,
-      int writePos) {
+  public int extractNumbersFromPage(final KeyValueLeafPage kvlPage, final long[] nodeKeys, final long[] parentKeys,
+      final double[] numValues, final boolean[] numNulls, final int[] deweyOffs, final int[] deweyLens, int writePos) {
 
     final MemorySegment page = kvlPage.getSlottedPage();
     if (page == null) {
       return writePos;
     }
+    // Reads every populated slot straight off the heap, so it is only ever handed pages the load
+    // policy decoded whole. An assertion, not a gate: see VersioningType#noFragmentIsLazy.
+    assert kvlPage.isFullyMaterialized()
+        : "columnar extraction from a page with " + kvlPage.chunkCount() + " chunks still unexpanded";
 
     final int populatedCount = PageLayout.getPopulatedCount(page);
     if (populatedCount == 0) {
@@ -290,8 +295,7 @@ public final class ColumnarPageExtractor {
 
         final long nodeKey = pageBaseNodeKey | slot;
 
-        parentKeys[writePos] = DeltaVarIntCodec.decodeDeltaFromSegment(
-            page, dataStart + parentOff, nodeKey);
+        parentKeys[writePos] = DeltaVarIntCodec.decodeDeltaFromSegment(page, dataStart + parentOff, nodeKey);
 
         // Parse number payload: [numberType:1][numberData:variable]
         final long payloadAbs = dataStart + payloadOff;

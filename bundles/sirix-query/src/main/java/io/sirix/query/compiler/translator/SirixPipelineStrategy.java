@@ -19,22 +19,22 @@ import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 /**
- * Sirix-aware pipeline strategy that extends Brackit's sequential strategy
- * with support for optimizer annotations.
+ * Sirix-aware pipeline strategy that extends Brackit's sequential strategy with support for
+ * optimizer annotations.
  *
- * <p>When the optimizer marks a join as an intersection join
- * ({@code INTERSECTION_JOIN=true}), this strategy forces hash-based
- * execution ({@code skipSort=true}) to avoid unnecessary post-probe
- * sorting. Index intersection results are already unique by nodeKey,
- * so sort+dedup is wasted work.</p>
+ * <p>
+ * When the optimizer marks a join as an intersection join ({@code INTERSECTION_JOIN=true}), this
+ * strategy forces hash-based execution ({@code skipSort=true}) to avoid unnecessary post-probe
+ * sorting. Index intersection results are already unique by nodeKey, so sort+dedup is wasted work.
+ * </p>
  */
 public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
 
   /**
    * P5b stage 7a: consume the {@code SIRIX_GROUP_AGG_*} annotations from
-   * {@link io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage}. The generic
-   * pipeline is ALWAYS compiled (via {@code super}) and rides along as the runtime
-   * fallback, so serving declines can never change an answer — only its cost.
+   * {@link io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage}. The generic pipeline is
+   * ALWAYS compiled (via {@code super}) and rides along as the runtime fallback, so serving declines
+   * can never change an answer — only its cost.
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
@@ -45,61 +45,91 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // predicate included — and keeps supportsSortedScan false.
     if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.SORTED_SCAN))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor()
-            instanceof SirixVectorizedExecutor sortExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor sortExecutor) {
       final String[] sortSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
-      final String[] orderFields =
-          (String[]) node.getProperty(SortedScanDetectionStage.SORTED_FIELDS);
-      final boolean[] descending =
-          (boolean[]) node.getProperty(SortedScanDetectionStage.SORTED_DESC);
+      final String[] orderFields = (String[]) node.getProperty(SortedScanDetectionStage.SORTED_FIELDS);
+      final boolean[] descending = (boolean[]) node.getProperty(SortedScanDetectionStage.SORTED_DESC);
       final SourceRef sortSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
       // Gap 3: a sole-consumer fn:subsequence over this pipe caps how many sorted rows
       // can ever be pulled — the executor then heap-selects top-K instead of full-sorting.
       final Long topK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
-      if (sortSourcePath != null && orderFields != null && descending != null
-          && orderFields.length == descending.length
+      final String returnField = (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
+      if (sortSourcePath != null && orderFields != null && descending != null && orderFields.length == descending.length
           && acceptsOrRuntimeCheckable(sortExecutor, sortSourceRef)) {
         return new SirixSortedScanExpr(sortExecutor, sortSourcePath,
-            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields,
-            descending, topK == null ? -1L : topK, sortExecutor.boundDatabaseName(),
-            runtimeRef(sortSourceRef), generic);
+            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields, descending, topK == null
+                ? -1L
+                : topK,
+            returnField, sortExecutor.boundDatabaseName(), runtimeRef(sortSourceRef), generic);
+      }
+    }
+    // P5b stage 7d: predicate scan — filtered rows (or one field of them) in document order,
+    // record keys straight from the projection's predicate mask. Null orderFields selects the
+    // scan-without-sort branch inside the shared expr.
+    if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.PREDICATE_SCAN))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor predExecutor) {
+      final String[] predSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+      final PredicateNode predTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
+      final SourceRef predSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
+      final Long predTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+      final String predReturnField = (String) node.getProperty(SortedScanDetectionStage.SORTED_RETURN_FIELD);
+      if (predSourcePath != null && predTree != null && acceptsOrRuntimeCheckable(predExecutor, predSourceRef)) {
+        return new SirixSortedScanExpr(predExecutor, predSourcePath, predTree, null, null, predTopK == null
+            ? -1L
+            : predTopK, predReturnField, predExecutor.boundDatabaseName(), runtimeRef(predSourceRef), generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
     if (Boolean.TRUE.equals(node.getProperty(RowMaterializeDetectionStage.ROW_MAT))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor()
-            instanceof SirixVectorizedExecutor rowExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor rowExecutor) {
       final String[] rowSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
-      final String[] rowFields =
-          (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_FIELDS);
-      final String[] rowOutNames =
-          (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_OUT_NAMES);
+      final String[] rowFields = (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_FIELDS);
+      final String[] rowOutNames = (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_OUT_NAMES);
       final int[] rowDirect = (int[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_DIRECT);
-      final int[][] rowCodes =
-          (int[][]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_CODES);
-      final long[][] rowConsts =
-          (long[][]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_CONSTS);
+      final int[][] rowCodes = (int[][]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_CODES);
+      final long[][] rowConsts = (long[][]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_CONSTS);
       final SourceRef rowSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
-      if (rowSourcePath != null && rowFields != null && rowOutNames != null && rowDirect != null
-          && rowCodes != null && rowConsts != null
-          && acceptsOrRuntimeCheckable(rowExecutor, rowSourceRef)) {
+      if (rowSourcePath != null && rowFields != null && rowOutNames != null && rowDirect != null && rowCodes != null
+          && rowConsts != null && acceptsOrRuntimeCheckable(rowExecutor, rowSourceRef)) {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
-            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields,
-            rowOutNames, rowDirect, rowCodes, rowConsts, runtimeRef(rowSourceRef), generic);
+            (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields, rowOutNames, rowDirect, rowCodes,
+            rowConsts, runtimeRef(rowSourceRef), generic);
       }
+    }
+    // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
+    if (Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
+        && !(generic instanceof VectorizedGroupByExpr)
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor constExecutor) {
+      final SourceRef constRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
+      final String[] constSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
+      final String[] constFuncs = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
+      final String[] constFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FIELDS);
+      final String[] constOutNames = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OUT_NAMES);
+      final long[] constOffsets = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OFFSETS);
+      if (constSourcePath != null && constFuncs != null && constFields != null && constOutNames != null
+          && constOffsets != null && constOffsets.length == constFuncs.length
+          && acceptsOrRuntimeCheckable(constExecutor, constRef)) {
+        return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath, servedPredicate(node), constFuncs,
+            constFields, constOffsets, constOutNames, runtimeRef(constRef), generic);
+      }
+      return generic;
     }
     if (!Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG))) {
       return generic;
     }
-    if (generic instanceof VectorizedGroupByExpr) {
+    final Long groupCap = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+    if (generic instanceof VectorizedGroupByExpr && groupCap == null) {
       // Overlap shape (canonical count return matches BOTH detections): brackit's expr
       // THROWS on decline instead of falling back, so it must not become our "generic
-      // fallback" — leave it as-is (pre-stage-7a behavior for that shape).
+      // fallback" — leave it as-is (pre-stage-7a behavior for that shape). With a
+      // subsequence CAP the flat top-K route claims first: brackit's expr stays the
+      // fallback, and on our decline it serves exactly as it does today (it claimed the
+      // shape at compile time, so its own runtime path exists).
       return generic;
     }
-    if (!(SequentialPipelineStrategy.getVectorizedExecutor()
-        instanceof SirixVectorizedExecutor sirixExecutor)) {
+    if (!(SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor sirixExecutor)) {
       return generic;
     }
     // Source identity/revision gate — the same check brackit's own vectorized dispatch
@@ -113,48 +143,126 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       return generic;
     }
     final String[] sourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
-    final PredicateNode predicate = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
-    final String[] groupFields =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_GROUP_FIELDS);
-    final String[] keyNames =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_NAMES);
-    final String[] funcs =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
-    final String[] aggFields =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FIELDS);
-    final String[] outNames =
-        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OUT_NAMES);
-    if (sourcePath == null || groupFields == null || keyNames == null || funcs == null
-        || aggFields == null || outNames == null) {
+    final PredicateNode predicate = servedPredicate(node);
+    final String[] groupFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_GROUP_FIELDS);
+    final String[] keyNames = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_NAMES);
+    final String[] funcs = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
+    final String[] aggFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FIELDS);
+    final String[] outNames = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_OUT_NAMES);
+    if (sourcePath == null || groupFields == null || keyNames == null || funcs == null || aggFields == null
+        || outNames == null) {
       return generic;
     }
-    return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames,
-        funcs, aggFields, outNames, runtimeRef(sourceRef), generic);
+    // Order-by is optional; when present all three descriptors must agree in length, or the
+    // annotation is not one this strategy wrote and must not be acted on.
+    final int[] orderIndexes = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_ORDER_INDEXES);
+    final boolean[] orderAsc = (boolean[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_ORDER_ASC);
+    final boolean[] orderEmptyLeast =
+        (boolean[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_ORDER_EMPTY_LEAST);
+    if (orderIndexes != null && (orderAsc == null || orderEmptyLeast == null || orderAsc.length != orderIndexes.length
+        || orderEmptyLeast.length != orderIndexes.length)) {
+      return generic;
+    }
+    // Same sole-consumer fn:subsequence cap the sorted-scan route uses (gap 3): an ordered
+    // group-by whose only consumer slices the first K records never needs more than K groups
+    // materialized — the executor then heap-selects top-K instead of sort-all + emit-all.
+    final Long groupTopK = (Long) node.getProperty(SortedScanDetectionStage.SORTED_LIMIT);
+    final long[] keyOffsets = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_OFFSETS);
+    final int[] keySubstr = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_SUBSTR);
+    if (keyOffsets != null && (keySubstr == null || keyOffsets.length != groupFields.length
+        || keySubstr.length != 2 * groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
+    final String[] keyRegexPattern =
+        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_REGEX_PATTERN);
+    final String[] keyRegexRepl = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_REGEX_REPL);
+    if (keyRegexPattern != null && (keyRegexRepl == null || keyRegexPattern.length != groupFields.length
+        || keyRegexRepl.length != groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
+    final long[] keyDivMod = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DIVMOD);
+    if (keyDivMod != null && (keyOffsets == null || keyDivMod.length != 2 * groupFields.length)) {
+      // A divmod key is a key TRANSFORM: without the offsets/substr pair the executor never takes
+      // the transform-carrying arm, and the divisor would silently vanish.
+      return generic;
+    }
+    final boolean[] keyStringify = (boolean[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_STRINGIFY);
+    if (keyStringify != null && (keyOffsets == null || keyStringify.length != groupFields.length)) {
+      return generic;
+    }
+    final long[] having = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_HAVING);
+    if (having != null && having.length != 2) {
+      return generic; // not an annotation this strategy wrote
+    }
+    final String[] keyCondFields = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_FIELDS);
+    final long[] keyCondLits = (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_LITS);
+    final String[] keyCondElse = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_COND_ELSE);
+    if (keyCondElse != null && (keyCondFields == null || keyCondLits == null || keyCondElse.length != groupFields.length
+        || keyCondFields.length != 2 * groupFields.length || keyCondLits.length != 2 * groupFields.length)) {
+      return generic; // not an annotation this strategy wrote
+    }
+    final int[] decorPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_POS);
+    final String[] decorPrefix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_PREFIX);
+    final String[] decorSuffix = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_KEY_DECOR_SUFFIX);
+    if (decorPos != null && (decorPrefix == null || decorSuffix == null || decorPrefix.length != decorPos.length
+        || decorSuffix.length != decorPos.length)) {
+      return generic;
+    }
+    final int[] constEntryPos = (int[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_POS);
+    final String[] constEntryNames =
+        (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_NAMES);
+    final long[] constEntryValues =
+        (long[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST_ENTRY_VALUES);
+    if (constEntryPos != null && (constEntryNames == null || constEntryValues == null
+        || constEntryNames.length != constEntryPos.length || constEntryValues.length != constEntryPos.length)) {
+      return generic;
+    }
+    return new SirixGroupAggregateExpr(sirixExecutor, sourcePath, predicate, groupFields, keyNames, funcs, aggFields,
+        outNames, orderIndexes, orderAsc, orderEmptyLeast, groupTopK != null
+            ? groupTopK
+            : -1L,
+        keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
+        keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
+        runtimeRef(sourceRef), generic);
+  }
+
+  /**
+   * The predicate a group-aggregate serving expr applies: Brackit's own tree when it represented the
+   * {@code where}, else the chain-aware tree {@link GroupAggregateDetectionStage} built for a
+   * nested-deref filter Brackit's direct-deref leaves cannot name. Never both — the detection stage
+   * writes its own only when Brackit's is absent — and never neither when the pipeline HAS a
+   * selection: the stage declines instead, so a served pipeline always carries the filter.
+   */
+  private static PredicateNode servedPredicate(final AST node) {
+    final PredicateNode brackitTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
+    return brackitTree != null
+        ? brackitTree
+        : (PredicateNode) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_PREDICATE);
   }
 
   /**
    * Compile-time admission for a serving expr: no ref (older brackit / unannotated), a ref the
-   * executor accepts outright, or a {@link SourceRef.Kind#VARIABLE} ref — which cannot be judged
-   * at compile time but IS verifiable at evaluation time via
-   * {@code VectorizedExecutor#acceptsSource(SourceRef, QueryContext)}; the expr carries the ref
-   * and declines to its generic fallback when the runtime binding is foreign.
+   * executor accepts outright, or a {@link SourceRef.Kind#VARIABLE} ref — which cannot be judged at
+   * compile time but IS verifiable at evaluation time via
+   * {@code VectorizedExecutor#acceptsSource(SourceRef, QueryContext)}; the expr carries the ref and
+   * declines to its generic fallback when the runtime binding is foreign.
    */
-  static boolean acceptsOrRuntimeCheckable(final SirixVectorizedExecutor executor,
-      final SourceRef ref) {
+  static boolean acceptsOrRuntimeCheckable(final SirixVectorizedExecutor executor, final SourceRef ref) {
     return ref == null || ref.kind() == SourceRef.Kind.VARIABLE || executor.acceptsSource(ref);
   }
 
   /** The ref an expr must re-check at runtime: only VARIABLE refs; others are settled at compile. */
   static SourceRef runtimeRef(final SourceRef ref) {
-    return ref != null && ref.kind() == SourceRef.Kind.VARIABLE ? ref : null;
+    return ref != null && ref.kind() == SourceRef.Kind.VARIABLE
+        ? ref
+        : null;
   }
 
   @SuppressWarnings("unchecked")
   @Override
   protected Operator join(Operator in, AST node, Compiler compiler) throws QueryException {
     // Check for intersection join annotation from IndexDecompositionStage
-    final boolean isIntersectionJoin = Boolean.TRUE.equals(
-        node.getProperty(CostProperties.INTERSECTION_JOIN));
+    final boolean isIntersectionJoin = Boolean.TRUE.equals(node.getProperty(CostProperties.INTERSECTION_JOIN));
 
     if (isIntersectionJoin) {
       // Force skipSort=true for hash-based intersection

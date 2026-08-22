@@ -1,22 +1,29 @@
 package io.sirix.cache;
 
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.exception.SirixIOException;
+import io.sirix.index.IndexType;
 import org.jspecify.annotations.Nullable;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 
 /**
  * Transaction intent log (TIL) for caching all changes made by a read/write transaction.
@@ -115,25 +122,50 @@ public final class TransactionIntentLog implements AutoCloseable {
   /** Disk offsets written by background thread. Initialized to NULL_ID_LONG sentinel. */
   private long[] snapshotDiskOffsets;
 
-  /** Page hashes computed by background thread. */
-  private byte[][] snapshotHashes;
+  /** Primitive page hashes computed by the background thread. */
+  private long[] snapshotHashes;
 
-  // ==================== COMPLETED DISK OFFSETS (stale-reference fix) ====================
-  // When cleanupSnapshot() writes KVL disk offsets to the original references, copies of
-  // those references (in CoW'd IndirectPages) don't get updated. This map stores
-  // (generation << 32 | logKey) → diskOffset so that stale copies can be transparently
-  // resolved in get(). Entries are retained until clear() (#1077).
+  /** Presence bits for {@link #snapshotHashes}; zero is a valid present XXH3 checksum. */
+  private boolean[] snapshotHashPresent;
+
+  /**
+   * Reachability-scoped identities captured with the frozen references. The reference objects may
+   * be rebound while the snapshot is in flight, so cleanup must complete the identity that was
+   * frozen rather than whichever identity the mutable reference carries by then.
+   */
+  private PageReference.TransactionLogReference[] snapshotLogReferences;
+
+  // ==================== LEGACY STALE-REFERENCE FALLBACK ====================
+  // Current PageReference copies share a reachability-scoped transaction-log handle, which is
+  // completed by cleanupSnapshot() and then discarded as each copy resolves. These maps preserve
+  // compatibility for a manually constructed reference that omitted that handle. They should stay
+  // empty in current code; the scale gate asserts that invariant.
 
   /** Completed disk offsets indexed by packed (generation << 32 | logKey). No autoboxing. */
   private final Long2LongOpenHashMap completedDiskOffsets;
 
-  /** Completed page hashes indexed by the same packed key. No autoboxing on key. */
-  private final Long2ObjectOpenHashMap<byte[]> completedDiskHashes = new Long2ObjectOpenHashMap<>();
+  /** Completed primitive page hashes indexed by the same packed key; map membership is presence. */
+  private final Long2LongOpenHashMap completedDiskHashes = new Long2LongOpenHashMap();
 
   /** Counter: Layer 3 hits (stale references resolved from completed disk offsets). */
   private long layer3Hits;
 
-  // ==================== FORWARDED ENTRIES (superseded-flush fix, #1077) ====================
+  // ==================== SNAPSHOT BOOKKEEPING DIAGNOSTIC ====================
+  // A bulk import is one long transaction with tens of thousands of flushes. The census verifies
+  // that the compatibility maps above remain empty and that the pinned structural region grows only
+  // with the reachable trie, rather than with every page written during the transaction.
+  // -Dsirix.til.diag=<n> prints the census every n-th cleanupSnapshot (0 = off).
+
+  /** Print the snapshot census every n-th {@link #cleanupSnapshot()}; 0 disables it. */
+  private static final int DIAG_EVERY = Integer.getInteger("sirix.til.diag", 0);
+
+  /** Number of completed {@link #cleanupSnapshot()} calls. */
+  private long cleanupCount;
+
+  /** Structural (non-{@link KeyValueLeafPage}) containers promoted back into the live TIL, total. */
+  private long promotedStructuralTotal;
+
+  // ==================== LEGACY FORWARDING FALLBACK (superseded-flush fix, #1077) ====================
   // When a frozen page is CoW'd into the current generation (put() with a prior-generation
   // reference), the old (generation, logKey) identity is SUPERSEDED: the frozen page's flush —
   // whose offset lands in completedDiskOffsets at cleanupSnapshot() — describes an OUTDATED
@@ -144,12 +176,298 @@ public final class TransactionIntentLog implements AutoCloseable {
   // added after the boundary silently vanishes. This map stores packed(oldGen, oldLogKey) →
   // packed(newGen, newLogKey); get() follows the chain to the terminal identity before
   // consulting the TIL layers. Entries are retained until clear().
+  //
+  // READERS OF THIS MAP — audited in full when the pinned region below was introduced, because
+  // the retention here is deliberate and a pinned page MUST stay reachable through every one of
+  // them by references that still carry its old identity:
+  //
+  //  1. get(), the chain walk — the only reader with semantics. It follows the chain to a
+  //     terminal identity and then resolves a PINNED terminal against the pinned region before
+  //     trying the generation-scoped layers, rebinding the stale copy so it never walks again.
+  //     This is precisely what keeps an old reference working: the single link written at pin()
+  //     time targets (PINNED_GENERATION, slot), and that target never moves again, so the chain
+  //     is at most one hop where it used to gain a hop per flush.
+  //  2. cleanupSnapshot(), the superseded guard `forwardedEntries.get(packedKey) < 0` that
+  //     decides whether a completed disk offset may be published. It is keyed on
+  //     (snapshotGeneration, i) of a KeyValueLeafPage slot. A pinned page never enters a
+  //     snapshot, so this reader never sees a pinned key — and a key WRITTEN by pin() cannot
+  //     collide with one either, because a structural page and a record page cannot occupy the
+  //     same index of the same generation's array.
+  //  3. forwardedEntryCount() and the diag estimate — diagnostics, no semantics.
+  //  4. clear() / close() — teardown.
 
   /** Forwarding chain for superseded (generation << 32 | logKey) identities. */
   private final Long2LongOpenHashMap forwardedEntries = new Long2LongOpenHashMap();
 
   {
     forwardedEntries.defaultReturnValue(-1L);
+  }
+
+  // ==================== PINNED ENTRIES (unflushable pages, stable identity) ====================
+  // Only KeyValueLeafPages are attempted by a background snapshot flush. Everything else — the
+  // IndirectPages of every trie, the per-index root pages, HOT pages — has to survive in memory
+  // until the final commit serializes it. A KVL whose disposable serialization discovers an
+  // unresolved OverflowPage joins this region dynamically for the same reason: only recursive
+  // final commit can write its children before the leaf. Those pages used to ride the epoch
+  // machinery anyway:
+  // snapshot() froze them, cleanupSnapshot() promoted them back into the fresh log under a NEW
+  // (generation, logKey), and each promotion recorded a permanent forwarding link so that stale
+  // reference copies could still find them.
+  //
+  // That made the log's bookkeeping QUADRATIC in the number of flushes. The resident structural
+  // set grows with the corpus (it is the trie spine of an uncommitted transaction) and ALL of it
+  // was re-promoted on EVERY flush, so the forwarding map grew by the whole resident set each
+  // time. Measured on a ClickBench one-pass load: ~3.4 resident pages added per flush, and
+  // forwardedEntries(F) = 1.70 * F^2 — 17.4 million entries after 4M rows, and an extrapolated
+  // 160 million by 12M rows, which is exactly where a 16 GB heap died inside a rehash of it.
+  //
+  // A pinned entry lives outside the generation-scoped arrays and its identity NEVER changes
+  // again: snapshot() does not freeze it, cleanupSnapshot() does not promote it, and a reference
+  // to it needs no forwarding link after the single one recorded when it was pinned. The
+  // bookkeeping is therefore one map entry per structural page for the life of the transaction
+  // instead of one per structural page per flush, and the per-flush re-put churn — two buffer
+  // cache operations per resident page per flush — disappears with it.
+  //
+  // The index space is separate on purpose. A pinned reference is marked by a sentinel
+  // generation no real generation can take, so it can never be confused with a live-array slot;
+  // that is the same hazard the cross-generation guard in put() exists for (a stale record-page
+  // copy resolving to a structural page and back, which surfaced as a ClassCastException).
+
+  /**
+   * The {@code activeTilGeneration} of a reference whose container lives in the pinned region.
+   *
+   * <p>
+   * <b>Positive on purpose.</b> {@link #forwardedEntries} encodes "absent" as a negative value and
+   * {@code get()} tests a hit with {@code forwarded >= 0}, so a forwarding target packed from a
+   * NEGATIVE generation would read as a miss and a stale reference would silently lose its
+   * container. Real generations count one per flush from zero and cannot reach this value.
+   * </p>
+   *
+   * <p>
+   * <b>Why the pinned region needs its own index space, and what goes wrong without it.</b> A log
+   * key alone does not identify an entry — it is an index into an array, and there are now two
+   * arrays. If pinned entries shared the generation-scoped index space, a log key would address a
+   * different container in each, and the two page populations are not interchangeable: a record
+   * page resolving to a structural page (or the reverse) is the exact hazard the cross-generation
+   * guard in {@link #put} was written for, whose visible symptom was a {@code ClassCastException}
+   * in {@code KeyedTrieWriter.prepareIndirectPage} when trie navigation walked a structural page's
+   * reference and got a foreign container back. Its invisible symptom is worse: a container
+   * swapped at an index is a page committed from the wrong data.
+   * </p>
+   *
+   * <p>
+   * The sentinel closes that off by construction rather than by discipline. A stale record-page
+   * copy can only ever carry a real generation, never this value, so it can never enter the pinned
+   * region; and a pinned reference always carries this value, so it can never be indexed into the
+   * generation-scoped arrays. Every site that resolves a log key therefore branches on the
+   * generation first — see {@link #get}, {@link #getOriginalRef} and
+   * {@link #releaseOrphanedHOTLeaves}.
+   * </p>
+   */
+  public static final int PINNED_GENERATION = Integer.MAX_VALUE;
+
+  /**
+   * Escape hatch that restores the pre-fix behaviour — every unflushable page rides the epoch
+   * machinery and is re-promoted per flush. Its only purpose is to let
+   * {@code AsyncFlushLogBookkeepingTest} prove it is not vacuous by watching its assertions fail;
+   * a {@code static final} read once at class initialisation, so the check folds away.
+   */
+  private static final boolean PINNING_ENABLED = !Boolean.getBoolean("sirix.til.disablePinning");
+
+  /** Containers that no background flush can write, indexed by their pinned log key. */
+  private PageContainer[] pinnedEntries = new PageContainer[64];
+
+  /** The reference that owns each pinned slot — the canonical one when copies share it. */
+  private PageReference[] pinnedRefs = new PageReference[64];
+
+  /**
+   * Next never-before-used pinned slot in the current identity epoch. A tombstoned slot is never
+   * reused while any shared handle can still be unresolved. Teardown may reset the epoch only when
+   * every surviving handle is proven durable and no prior teardown on this TIL ever retired an
+   * unresolved identity; see {@link #clearPinnedEntries()}.
+   */
+  private int pinnedHighWater;
+
+  /**
+   * Fail-closed identity-retirement latch. Once teardown observes even one unresolved pinned
+   * handle, no later (possibly empty) clear may reset {@link #pinnedHighWater} for this TIL
+   * instance. The unresolved handle can outlive its canonical slot indefinitely; a later durable
+   * epoch therefore cannot prove that the old numeric identity became unreachable.
+   */
+  private boolean pinnedSlotReusePermanentlyDisabled;
+
+  /** Number of non-tombstoned entries in the pinned region. */
+  private int pinnedLiveCount;
+
+  /** Dense live-position to append-only pinned-slot mapping. */
+  private int[] livePinnedSlots = new int[64];
+
+  /** Append-only pinned-slot to dense live-position mapping; {@code -1} means tombstoned/unused. */
+  private int[] livePinnedPositionBySlot = new int[64];
+
+  /** Persistent dense scan position used by bounded trie-spill capture. */
+  private int pinnedSpillScanCursor;
+
+  /**
+   * Pinned slot per page instance (identity-keyed), so a second reference to an already pinned page
+   * rebinds to the existing slot instead of pinning the same page twice.
+   */
+  private final Reference2IntMap<Page> pinnedSlotByPage = new Reference2IntOpenHashMap<>();
+
+  {
+    pinnedSlotByPage.defaultReturnValue(-1);
+  }
+
+  /**
+   * Fixed-capacity, owner-reused capture buffer for bounded pinned-page spilling.
+   *
+   * <p>The buffer never grows. A production writer allocates one at construction and reuses it for
+   * every epoch; tests may choose a smaller capacity to make scan/candidate bounds observable. The
+   * captured tuple is deliberately redundant: publication must prove that the exact slot,
+   * reference, container, modified page and reachability handle still agree after the bytes have
+   * been flushed and before any durable identity is exposed.</p>
+   */
+  public static final class PinnedSpillBatch {
+    private final int[] slots;
+    private final PageReference[] references;
+    private final PageContainer[] containers;
+    private final Page[] pages;
+    private final PageReference.TransactionLogReference[] handles;
+    private final long[] diskOffsets;
+    private final long[] hashes;
+    private final boolean[] hashPresent;
+    private int size;
+
+    public PinnedSpillBatch(final int capacity) {
+      if (capacity <= 0) {
+        throw new IllegalArgumentException("Pinned spill batch capacity must be > 0, got " + capacity);
+      }
+      slots = new int[capacity];
+      references = new PageReference[capacity];
+      containers = new PageContainer[capacity];
+      pages = new Page[capacity];
+      handles = new PageReference.TransactionLogReference[capacity];
+      diskOffsets = new long[capacity];
+      Arrays.fill(diskOffsets, Constants.NULL_ID_LONG);
+      hashes = new long[capacity];
+      hashPresent = new boolean[capacity];
+    }
+
+    public int capacity() {
+      return slots.length;
+    }
+
+    public int size() {
+      return size;
+    }
+
+    public int slotAt(final int index) {
+      checkIndex(index);
+      return slots[index];
+    }
+
+    public PageReference referenceAt(final int index) {
+      checkIndex(index);
+      return references[index];
+    }
+
+    public PageContainer containerAt(final int index) {
+      checkIndex(index);
+      return containers[index];
+    }
+
+    public Page pageAt(final int index) {
+      checkIndex(index);
+      return pages[index];
+    }
+
+    public PageReference.TransactionLogReference handleAt(final int index) {
+      checkIndex(index);
+      return handles[index];
+    }
+
+    public long diskOffsetAt(final int index) {
+      checkIndex(index);
+      return diskOffsets[index];
+    }
+
+    public long hashAt(final int index) {
+      checkIndex(index);
+      return hashes[index];
+    }
+
+    public boolean hashPresentAt(final int index) {
+      checkIndex(index);
+      return hashPresent[index];
+    }
+
+    public void setWriteResult(final int index, final long diskOffset, final long hash,
+        final boolean hashIsPresent) {
+      checkIndex(index);
+      if (diskOffset == Constants.NULL_ID_LONG) {
+        throw new IllegalArgumentException("A pinned spill write requires a durable offset");
+      }
+      diskOffsets[index] = diskOffset;
+      hashes[index] = hash;
+      hashPresent[index] = hashIsPresent;
+    }
+
+    /** Remove one rejected candidate without allocating or preserving order. */
+    public void removeAtSwap(final int index) {
+      checkIndex(index);
+      final int last = --size;
+      if (index != last) {
+        slots[index] = slots[last];
+        references[index] = references[last];
+        containers[index] = containers[last];
+        pages[index] = pages[last];
+        handles[index] = handles[last];
+        diskOffsets[index] = diskOffsets[last];
+        hashes[index] = hashes[last];
+        hashPresent[index] = hashPresent[last];
+      }
+      clearSlot(last);
+    }
+
+    /** Sever every captured object after success or failure; the buffer itself remains reusable. */
+    public void clear() {
+      while (size > 0) {
+        clearSlot(--size);
+      }
+    }
+
+    private void add(final int slot, final PageReference reference, final PageContainer container,
+        final Page page, final PageReference.TransactionLogReference handle) {
+      if (size == slots.length) {
+        throw new IllegalStateException("Pinned spill batch capacity was exceeded");
+      }
+      slots[size] = slot;
+      references[size] = reference;
+      containers[size] = container;
+      pages[size] = page;
+      handles[size] = handle;
+      diskOffsets[size] = Constants.NULL_ID_LONG;
+      hashes[size] = 0L;
+      hashPresent[size] = false;
+      size++;
+    }
+
+    private void clearSlot(final int index) {
+      slots[index] = 0;
+      references[index] = null;
+      containers[index] = null;
+      pages[index] = null;
+      handles[index] = null;
+      diskOffsets[index] = Constants.NULL_ID_LONG;
+      hashes[index] = 0L;
+      hashPresent[index] = false;
+    }
+
+    private void checkIndex(final int index) {
+      if (index < 0 || index >= size) {
+        throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + size);
+      }
+    }
   }
 
   // ==================== BUFFER MANAGER ====================
@@ -170,6 +488,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     entryRefs = new PageReference[initialCapacity];
     size = 0;
     currentGeneration = 0;
+    Arrays.fill(livePinnedSlots, -1);
+    Arrays.fill(livePinnedPositionBySlot, -1);
     completedDiskOffsets = new Long2LongOpenHashMap();
     completedDiskOffsets.defaultReturnValue(Constants.NULL_ID_LONG);
   }
@@ -185,12 +505,25 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return the page container, or {@code null} if not in any TIL layer
    */
   public PageContainer get(final PageReference ref) {
+    HftBoundaryTelemetry.tilRead();
+    // A copied reference may still carry the generation/log-key fields it had when it was copied.
+    // Refreshing follows its reachability-scoped handle to either the newest TIL identity or the
+    // durable offset, without consulting transaction-wide historical maps.
+    ref.refreshTransactionLogReference();
     int logKey = ref.getLogKey();
     if (logKey < 0) {
       return null;
     }
 
     int generation = ref.getActiveTilGeneration();
+
+    // Layer 0: Pinned region. A pinned entry is outside the epoch machinery and its identity is
+    // final, so this resolves for the rest of the transaction with no generation comparison.
+    if (generation == PINNED_GENERATION) {
+      return isLivePinnedSlot(logKey)
+          ? pinnedEntries[logKey]
+          : null;
+    }
 
     // Layer 1: Current TIL (fast path)
     if (generation == currentGeneration && logKey < size) {
@@ -220,6 +553,12 @@ public final class TransactionIntentLog implements AutoCloseable {
         generation = (int) (forwarded >> 32);
         logKey = (int) forwarded;
 
+        if (generation == PINNED_GENERATION && isLivePinnedSlot(logKey)) {
+          // Terminal identity is a pinned slot — rebind so this copy never walks the chain again.
+          ref.setLogKey(logKey);
+          ref.setActiveTilGeneration(PINNED_GENERATION);
+          return pinnedEntries[logKey];
+        }
         if (generation == currentGeneration && logKey < size) {
           // Rebind the stale copy to its terminal identity so later lookups take the fast path.
           ref.setLogKey(logKey);
@@ -250,9 +589,10 @@ public final class TransactionIntentLog implements AutoCloseable {
       final long diskOffset = completedDiskOffsets.get(packedKey);
       if (diskOffset != Constants.NULL_ID_LONG) {
         ref.setKey(diskOffset);
-        final byte[] hash = completedDiskHashes.get(packedKey);
-        if (hash != null) {
-          ref.setHash(hash);
+        if (completedDiskHashes.containsKey(packedKey)) {
+          ref.setHash(completedDiskHashes.get(packedKey));
+        } else {
+          ref.clearHash();
         }
         // Reset logKey/generation so this ref is recognized as a "disk" reference
         ref.setLogKey(Constants.NULL_ID_INT);
@@ -262,6 +602,46 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
 
+    return null;
+  }
+
+  /**
+   * Resolve an exact transaction-log identity to the authoritative mutable document page.
+   *
+   * <p>This deliberately does not follow frozen snapshot identities: a document page in the
+   * snapshot must first pass through the ordinary key-based write path so copy-on-write can install
+   * a current container. Dynamically pinned document pages are mutable transaction-owned pages and
+   * remain eligible. Reading the container from the addressed slot, instead of trusting a cached
+   * page reference, also makes same-generation container replacement safe.</p>
+   *
+   * @param identity packed {@code (generation, logKey)} assigned to a {@link PageContainer}
+   * @return the current modified DOCUMENT page, or {@code null} when the identity is stale or invalid
+   */
+  public @Nullable KeyValueLeafPage getAuthoritativeDocumentPage(final long identity) {
+    final int generation = (int) (identity >> 32);
+    final int logKey = (int) identity;
+
+    final PageContainer container;
+    final PageReference reference;
+    if (generation == currentGeneration && logKey >= 0 && logKey < size) {
+      container = entries[logKey];
+      reference = entryRefs[logKey];
+    } else if (generation == PINNED_GENERATION && isLivePinnedSlot(logKey)) {
+      container = pinnedEntries[logKey];
+      reference = pinnedRefs[logKey];
+    } else {
+      return null;
+    }
+
+    if (container == null || reference == null || container.getTransactionLogIdentity() != identity
+        || reference.getActiveTilGeneration() != generation || reference.getLogKey() != logKey) {
+      return null;
+    }
+
+    if (container.getModified() instanceof KeyValueLeafPage page && page.getIndexType() == IndexType.DOCUMENT
+        && !page.isClosed() && !page.isOrphaned()) {
+      return page;
+    }
     return null;
   }
 
@@ -279,6 +659,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param value the page container with complete and modified versions
    */
   public void put(final PageReference ref, final PageContainer value) {
+    HftBoundaryTelemetry.tilWrite();
     // Clear cached hash before modifying key properties
     ref.clearCachedHash();
 
@@ -309,6 +690,16 @@ public final class TransactionIntentLog implements AutoCloseable {
     ref.setPage(null);
 
     final int existingKey = ref.getLogKey();
+
+    // A pinned reference keeps its slot for the life of the transaction: replace the container in
+    // place. Falling through to the cross-generation branch below would mint a fresh identity and
+    // a forwarding link on every write to a structural page — the churn pinning exists to remove.
+    if (ref.getActiveTilGeneration() == PINNED_GENERATION && isLivePinnedSlot(existingKey)) {
+      replacePinnedContainer(existingKey, ref, value);
+      releaseContainerGuards(value);
+      return;
+    }
+
     // Cross-generation guard: a reference whose activeTilGeneration belongs to a
     // PRIOR (snapshot) generation must NOT reuse its old logKey in the new TIL.
     // Without this check, a CoW of a frozen IndirectPage after
@@ -334,6 +725,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       // the same logKey will resolve to the latest container.
       entries[existingKey] = value;
       entryRefs[existingKey] = ref;
+      value.setTransactionLogIdentity(currentGeneration, existingKey);
       noteHOTLeafEntry(existingKey, value);
       ref.setActiveTilGeneration(currentGeneration);
     } else {
@@ -348,13 +740,17 @@ public final class TransactionIntentLog implements AutoCloseable {
 
       // New entry
       ensureCapacity();
-      ref.setLogKey(size);
-      ref.setActiveTilGeneration(currentGeneration);
+      final boolean forwardedByReference =
+          ref.bindToTransactionLog(size, currentGeneration, supersedesPriorEntry);
       entries[size] = value;
       entryRefs[size] = ref;
+      value.setTransactionLogIdentity(currentGeneration, size);
       noteHOTLeafEntry(size, value);
 
-      if (supersedesPriorEntry) {
+      // Legacy fallback for a reference constructed by old/manual field copying without sharing
+      // its resolution handle. Every in-tree copy path shares the handle; retaining this fallback
+      // makes an omitted integration path fail safe rather than lose a page.
+      if (supersedesPriorEntry && !forwardedByReference) {
         final long oldPacked = ((long) priorGeneration << 32) | (existingKey & 0xFFFFFFFFL);
         final long newPacked = ((long) currentGeneration << 32) | (size & 0xFFFFFFFFL);
         forwardedEntries.put(oldPacked, newPacked);
@@ -363,6 +759,11 @@ public final class TransactionIntentLog implements AutoCloseable {
       size++;
     }
 
+    releaseContainerGuards(value);
+  }
+
+  /** Release the guards of a container the log has just taken ownership of. */
+  private static void releaseContainerGuards(final PageContainer value) {
     // Release guards - TIL pages are transaction-private
     if (value.getComplete() instanceof KeyValueLeafPage completePage && completePage.getGuardCount() > 0) {
       completePage.releaseGuard();
@@ -447,14 +848,32 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Get the original PageReference stored at a given logKey. Used to copy disk offsets when a
+   * Get the reference that owns the entry {@code ref} resolves to. Used to copy disk offsets when a
    * duplicate reference (from HOTIndirectPage COW) resolves to the same TIL entry.
    *
-   * @param logKey the log key
-   * @return the original PageReference, or null if not found
+   * <p>
+   * Takes the reference rather than a bare log key because a log key alone no longer names an
+   * entry: pinned entries have their own index space, so the same integer addresses a different
+   * container in each region and the generation is what tells them apart.
+   * </p>
+   *
+   * @param ref the reference whose owning entry is wanted
+   * @return the owning PageReference, or null if the reference names no entry
    */
-  public @Nullable PageReference getOriginalRef(final int logKey) {
-    if (logKey >= 0 && logKey < size) {
+  public @Nullable PageReference getOriginalRef(final PageReference ref) {
+    ref.refreshTransactionLogReference();
+    final int logKey = ref.getLogKey();
+    if (logKey < 0) {
+      return null;
+    }
+    if (ref.getActiveTilGeneration() == PINNED_GENERATION) {
+      return isLivePinnedSlot(logKey)
+          ? pinnedRefs[logKey]
+          : null;
+    }
+    // Unchanged for the generation-scoped region: the log key indexes it directly, exactly as
+    // before pinning existed.
+    if (logKey < size) {
       return entryRefs[logKey];
     }
     return null;
@@ -465,10 +884,11 @@ public final class TransactionIntentLog implements AutoCloseable {
   /**
    * Side-channel disk-offset sentinel: the background flush DECLINED to write this KVL entry (its
    * serialization left unresolved overflow references — the encoded bytes are only valid once the
-   * recursive final commit writes the OverflowPages, #1076). {@link #cleanupSnapshot()} promotes such
-   * entries back into the live TIL instead of applying an offset and closing them, so the final
-   * commit serializes them with real overflow keys. Distinct from the {@code NULL_ID_LONG} init
-   * value, which still means "background write incomplete" and fails the cleanup loudly.
+   * recursive final commit writes the OverflowPages, #1076). {@link #cleanupSnapshot()} pins such
+   * an authoritative entry outside later snapshot rotations instead of applying an offset and
+   * closing it, so the final commit serializes it with real overflow keys. Distinct from the
+   * {@code NULL_ID_LONG} init value, which still means "background write incomplete" and fails the
+   * cleanup loudly.
    */
   public static final long SNAPSHOT_PROMOTE_TO_TIL = Long.MIN_VALUE;
 
@@ -481,6 +901,12 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return snapshotSize (0 = nothing to flush)
    */
   public int snapshot() {
+    // Move everything the background flush cannot write out of the epoch machinery FIRST, so the
+    // frozen arrays hold record pages only and nothing has to be promoted back afterwards.
+    if (PINNING_ENABLED) {
+      pinUnflushableEntries();
+    }
+
     // Capture current state
     snapshotEntries = entries;
     snapshotRefs = entryRefs;
@@ -493,7 +919,15 @@ public final class TransactionIntentLog implements AutoCloseable {
     // each KVL entry got a valid offset before applying.
     snapshotDiskOffsets = new long[size];
     Arrays.fill(snapshotDiskOffsets, Constants.NULL_ID_LONG);
-    snapshotHashes = new byte[size][];
+    snapshotHashes = new long[size];
+    snapshotHashPresent = new boolean[size];
+    snapshotLogReferences = new PageReference.TransactionLogReference[size];
+    for (int i = 0; i < size; i++) {
+      final PageReference ref = entryRefs[i];
+      if (ref != null) {
+        snapshotLogReferences[i] = ref.transactionLogReference();
+      }
+    }
 
     // Increment generation AFTER capturing snapshot generation
     currentGeneration++;
@@ -505,6 +939,361 @@ public final class TransactionIntentLog implements AutoCloseable {
     resetHOTLeafIndex();
 
     return snapshotSize;
+  }
+
+  /**
+   * Move every container the background flush cannot write into the pinned region, clearing its
+   * slot so the snapshot about to be taken never sees it.
+   *
+   * <p>
+   * "Cannot write" is exactly "is not a {@link KeyValueLeafPage}": that is the only page class
+   * {@code serializeSnapshotWindowAsync} serializes, so before this existed every other page was
+   * frozen for one epoch and then handed straight back by {@link #cleanupSnapshot()} under a new
+   * identity — the quadratic bookkeeping described at {@link #PINNED_GENERATION}.
+   * </p>
+   *
+   * <p>
+   * A slot whose reference no longer identifies it is left alone. Such a container is an outdated
+   * version whose successor (a CoW made during the epoch) already owns the page, and the snapshot
+   * cleanup drops it — pinning it would resurrect the stale version, which is the failure mode the
+   * {@code refStillIdentifiesSlot} guard was written for (#1077).
+   * </p>
+   */
+  private void pinUnflushableEntries() {
+    for (int i = 0; i < size; i++) {
+      final PageContainer container = entries[i];
+      if (container == null || container.getModified() instanceof KeyValueLeafPage
+          || container.getComplete() instanceof KeyValueLeafPage) {
+        continue;
+      }
+      final PageReference ref = entryRefs[i];
+      if (ref == null || ref.getLogKey() != i || ref.getActiveTilGeneration() != currentGeneration) {
+        continue;
+      }
+      pin(ref, container, i);
+      entries[i] = null;
+      entryRefs[i] = null;
+    }
+  }
+
+  /**
+   * Give {@code container} a pinned slot and rebind {@code ref} to it.
+   *
+   * @param ref the reference that identifies the container
+   * @param container the container to pin
+   * @param priorKey the log key the reference held in the current generation
+   */
+  private void pin(final PageReference ref, final PageContainer container, final int priorKey) {
+    final int priorGeneration = ref.getActiveTilGeneration();
+    final Page keyPage = pinKeyPage(container);
+    final int existing = keyPage == null
+        ? -1
+        : pinnedSlotByPage.getInt(keyPage);
+
+    final int slot;
+    if (existing >= 0) {
+      if (!isLivePinnedSlot(existing)) {
+        throw new IllegalStateException("Pinned page identity index points at tombstoned slot " + existing);
+      }
+      // A second reference to a page that is already pinned — a CoW copy of the parent's child
+      // reference. Both must resolve to one entry, which is the same contract the log has always
+      // had for duplicate references sharing a log key. Routed through the replace path so the
+      // identity index is rebuilt for the container that wins: a page left out of it would read as
+      // unshared and could have its frame freed while still live.
+      slot = existing;
+      replacePinnedContainer(slot, ref, container);
+    } else {
+      ensurePinnedCapacity();
+      slot = pinnedHighWater++;
+      pinnedEntries[slot] = container;
+      pinnedRefs[slot] = ref;
+      livePinnedSlots[pinnedLiveCount] = slot;
+      livePinnedPositionBySlot[slot] = pinnedLiveCount;
+      pinnedLiveCount++;
+      notePinnedPages(container, slot);
+    }
+
+    final boolean forwardedByReference = ref.bindToTransactionLog(slot, PINNED_GENERATION, true);
+    container.setTransactionLogIdentity(PINNED_GENERATION, slot);
+
+    // The single forwarding link this page will ever need: copies of the reference taken while it
+    // lived in the generation-scoped arrays still carry the old identity, and the commit traversal
+    // fails loudly rather than silently on an unresolvable one.
+    if (!forwardedByReference && priorKey >= 0 && priorGeneration >= 0 && priorGeneration != PINNED_GENERATION) {
+      forwardedEntries.put(((long) priorGeneration << 32) | (priorKey & 0xFFFFFFFFL),
+          ((long) PINNED_GENERATION << 32) | (slot & 0xFFFFFFFFL));
+    }
+  }
+
+  /** Replace the container held by a pinned slot, retiring the pages the new one does not reuse. */
+  private void replacePinnedContainer(final int slot, final PageReference ref, final PageContainer value) {
+    if (!isLivePinnedSlot(slot)) {
+      throw new IllegalStateException("Cannot replace tombstoned pinned slot " + slot);
+    }
+    final PageContainer oldContainer = pinnedEntries[slot];
+    if (oldContainer != value) {
+      if (oldContainer != null) {
+        // Drop the old pages from the identity index FIRST, so the sharing checks below do not
+        // see this very slot and refuse to retire them.
+        forgetPinnedPages(oldContainer, slot);
+        closeOrphanedHOTLeafPages(oldContainer, value, NO_ENTRY_INDEX);
+        closeOrphanedRecordPages(oldContainer, value, NO_ENTRY_INDEX);
+      }
+      pinnedEntries[slot] = value;
+      notePinnedPages(value, slot);
+    }
+    pinnedRefs[slot] = ref;
+    value.setTransactionLogIdentity(PINNED_GENERATION, slot);
+  }
+
+  /** Sentinel for "no generation-scoped entry is exempt from the sharing check". */
+  private static final int NO_ENTRY_INDEX = -1;
+
+  /** The page a pinned container is identified by — the modified one, or the complete one. */
+  private static @Nullable Page pinKeyPage(final PageContainer container) {
+    final Page modified = container.getModified();
+    return modified != null
+        ? modified
+        : container.getComplete();
+  }
+
+  /** Record both of a container's pages as living at {@code slot}. */
+  private void notePinnedPages(final PageContainer container, final int slot) {
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    if (complete != null) {
+      pinnedSlotByPage.put(complete, slot);
+    }
+    if (modified != null && modified != complete) {
+      pinnedSlotByPage.put(modified, slot);
+    }
+  }
+
+  /** Drop a replaced container's pages from the identity index, but only where they still name it. */
+  private void forgetPinnedPages(final PageContainer container, final int slot) {
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    if (complete != null && pinnedSlotByPage.getInt(complete) == slot) {
+      pinnedSlotByPage.removeInt(complete);
+    }
+    if (modified != null && modified != complete && pinnedSlotByPage.getInt(modified) == slot) {
+      pinnedSlotByPage.removeInt(modified);
+    }
+  }
+
+  /** Ensure the pinned arrays have room for one more entry. Doubles capacity when full. */
+  private void ensurePinnedCapacity() {
+    if (pinnedHighWater == pinnedEntries.length) {
+      final int oldCap = pinnedEntries.length;
+      final int newCap = pinnedEntries.length << 1;
+      if (newCap <= 0) {
+        throw new IllegalStateException("Pinned transaction-log slot space exhausted");
+      }
+      pinnedEntries = Arrays.copyOf(pinnedEntries, newCap);
+      pinnedRefs = Arrays.copyOf(pinnedRefs, newCap);
+      livePinnedSlots = Arrays.copyOf(livePinnedSlots, newCap);
+      Arrays.fill(livePinnedSlots, oldCap, newCap, -1);
+      livePinnedPositionBySlot = Arrays.copyOf(livePinnedPositionBySlot, newCap);
+      Arrays.fill(livePinnedPositionBySlot, oldCap, newCap, -1);
+    }
+  }
+
+  /** Whether {@code slot} currently names a live pinned tuple rather than a tombstone. */
+  private boolean isLivePinnedSlot(final int slot) {
+    if (slot < 0 || slot >= pinnedHighWater) {
+      return false;
+    }
+    final int position = livePinnedPositionBySlot[slot];
+    return position >= 0 && position < pinnedLiveCount && livePinnedSlots[position] == slot
+        && pinnedEntries[slot] != null && pinnedRefs[slot] != null;
+  }
+
+  /** Number of live pinned entries, for diagnostics and tests. */
+  public int pinnedSize() {
+    return pinnedLiveCount;
+  }
+
+  /** Next never-before-used slot in the current append-only pinned identity epoch. */
+  public int pinnedHighWater() {
+    return pinnedHighWater;
+  }
+
+  /**
+   * Capture at most {@code batch.capacity()} exact trie pages while examining at most
+   * {@code scanBudget} live pinned entries.
+   *
+   * <p>The dense scan cursor persists across calls. Rejecting a page later (because one child is
+   * still live, for example) therefore cannot turn each epoch into a fresh O(N) walk from slot zero,
+   * while the fixed scan and candidate limits cap both CPU and retained references. Unsupported page
+   * types are scanned past but never captured: top-level structural anchors are mutated directly and
+   * must remain pinned until the ordinary final commit.</p>
+   *
+   * @return the number of captured candidates
+   */
+  public int capturePinnedSpillCandidates(final int scanBudget, final PinnedSpillBatch batch) {
+    if (scanBudget <= 0) {
+      throw new IllegalArgumentException("Pinned spill scan budget must be > 0, got " + scanBudget);
+    }
+    if (batch == null) {
+      throw new IllegalArgumentException("Pinned spill batch must not be null");
+    }
+    batch.clear();
+    final int liveAtStart = pinnedLiveCount;
+    if (liveAtStart == 0) {
+      pinnedSpillScanCursor = 0;
+      return 0;
+    }
+
+    int cursor = pinnedSpillScanCursor;
+    if (cursor < 0 || cursor >= liveAtStart) {
+      cursor = 0;
+    }
+    final int scanLimit = Math.min(scanBudget, liveAtStart);
+    int scanned = 0;
+    while (scanned < scanLimit && batch.size < batch.capacity()) {
+      final int slot = livePinnedSlots[cursor];
+      cursor++;
+      if (cursor == liveAtStart) {
+        cursor = 0;
+      }
+      scanned++;
+
+      if (!isLivePinnedSlot(slot)) {
+        throw new IllegalStateException("Dense pinned index contains tombstoned slot " + slot);
+      }
+      final PageReference reference = pinnedRefs[slot];
+      final PageContainer container = pinnedEntries[slot];
+      final Page page = container.getModified();
+      if (page == null) {
+        // A complete-only container is valid log state, but direct spill may serialize only the
+        // exact modified page whose identity is captured and revalidated after the flush.
+        continue;
+      }
+      final Class<?> pageClass = page.getClass();
+      if ((pageClass != IndirectPage.class && pageClass != HOTIndirectPage.class && pageClass != HOTLeafPage.class)
+          || page.isClosed()) {
+        continue;
+      }
+      final PageReference.TransactionLogReference handle = reference.transactionLogReference();
+      if (reference.getActiveTilGeneration() != PINNED_GENERATION || reference.getLogKey() != slot
+          || handle == null) {
+        continue;
+      }
+      batch.add(slot, reference, container, page, handle);
+    }
+    pinnedSpillScanCursor = cursor;
+    return batch.size;
+  }
+
+  /**
+   * Prove that a captured spill tuple still names the exact live pinned entry.
+   *
+   * <p>Call this only after the candidate bytes have been flushed and before publishing any handle
+   * from that batch. Validation is deliberately side-effect free, so a caller can validate the whole
+   * batch before the first durable identity becomes visible.</p>
+   */
+  public void validatePinnedSpillCandidate(final PinnedSpillBatch batch, final int index) {
+    final int slot = batch.slotAt(index);
+    final PageReference reference = batch.referenceAt(index);
+    final PageContainer container = batch.containerAt(index);
+    final Page page = batch.pageAt(index);
+    final PageReference.TransactionLogReference handle = batch.handleAt(index);
+    if (!isLivePinnedSlot(slot) || pinnedEntries[slot] != container || pinnedRefs[slot] != reference
+        || container.getModified() != page || page.isClosed()
+        || reference.getActiveTilGeneration() != PINNED_GENERATION || reference.getLogKey() != slot
+        || reference.transactionLogReference() != handle
+        || batch.diskOffsetAt(index) == Constants.NULL_ID_LONG) {
+      throw new IllegalStateException("Pinned spill candidate changed before publication (slot=" + slot + ")");
+    }
+  }
+
+  /**
+   * Publish one already-flushed spill result, close its exact container and tombstone its pinned slot.
+   *
+   * <p>The caller must validate the entire batch first. This method validates again immediately before
+   * mutation, then publishes through the reachability-scoped handle. A forwarded/superseded handle is
+   * a hard identity fault, never permission to publish an outdated page.</p>
+   */
+  public void publishPinnedSpillCandidate(final PinnedSpillBatch batch, final int index) {
+    validatePinnedSpillCandidate(batch, index);
+    final long diskOffset = batch.diskOffsetAt(index);
+    if (diskOffset == Constants.NULL_ID_LONG) {
+      throw new IllegalStateException("Pinned spill candidate has no flushed disk offset");
+    }
+    final PageReference reference = batch.referenceAt(index);
+    final PageReference.TransactionLogReference handle = batch.handleAt(index);
+    if (!PageReference.completeTransactionLogReference(handle, diskOffset, batch.hashAt(index),
+        batch.hashPresentAt(index))) {
+      throw new IllegalStateException("Pinned spill handle was superseded before publication (slot="
+          + batch.slotAt(index) + ")");
+    }
+    if (!reference.refreshTransactionLogReference() || reference.getKey() != diskOffset
+        || reference.getLogKey() != Constants.NULL_ID_INT) {
+      throw new IllegalStateException("Pinned spill handle did not publish its durable identity (slot="
+          + batch.slotAt(index) + ")");
+    }
+
+    final int slot = batch.slotAt(index);
+    final PageContainer container = batch.containerAt(index);
+    // Keep the slot live until close succeeds. If close itself faults, rollback can still find and
+    // retry the container; the writer is poisoned because its canonical reference is already durable.
+    closePageContainer(container);
+    forgetPinnedPages(container, slot);
+    tombstonePinnedSlot(slot);
+  }
+
+  /** Swap-remove a closed pinned entry from the dense live view without reusing its numeric slot. */
+  private void tombstonePinnedSlot(final int slot) {
+    if (!isLivePinnedSlot(slot)) {
+      throw new IllegalStateException("Cannot tombstone non-live pinned slot " + slot);
+    }
+    final int position = livePinnedPositionBySlot[slot];
+    final int lastPosition = --pinnedLiveCount;
+    final int movedSlot = livePinnedSlots[lastPosition];
+    if (position != lastPosition) {
+      livePinnedSlots[position] = movedSlot;
+      livePinnedPositionBySlot[movedSlot] = position;
+    }
+    livePinnedSlots[lastPosition] = -1;
+    livePinnedPositionBySlot[slot] = -1;
+    pinnedEntries[slot] = null;
+    pinnedRefs[slot] = null;
+    if (pinnedLiveCount == 0) {
+      pinnedSpillScanCursor = 0;
+    } else if (pinnedSpillScanCursor >= pinnedLiveCount) {
+      pinnedSpillScanCursor %= pinnedLiveCount;
+    }
+  }
+
+  /**
+   * Number of entries in the generation-scoped region alone — the ones a snapshot freezes.
+   *
+   * <p>
+   * Distinct from {@link #size()}, which counts the whole log. This is what must stay bounded as a
+   * bulk import runs: it holds one epoch's record pages, and nothing that survives across epochs.
+   * </p>
+   */
+  public int liveEntryCount() {
+    return size;
+  }
+
+  /** Number of forwarding links currently held, for diagnostics and tests. */
+  public int forwardedEntryCount() {
+    return forwardedEntries.size();
+  }
+
+  /**
+   * How many containers {@link #cleanupSnapshot()} has promoted back into the generation-scoped
+   * region over this transaction's life.
+   *
+   * <p>
+   * This is the defect's own counter. Every promotion mints a fresh identity for a page that has
+   * not changed and leaves a permanent forwarding link behind, and the whole resident structural
+   * set used to be promoted on every single flush. With unflushable pages pinned it stays at zero.
+   * </p>
+   */
+  public long structuralPromotionCount() {
+    return promotedStructuralTotal;
   }
 
   /**
@@ -568,17 +1357,30 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
+   * Read one background-serialization outcome after its window-completion fence.
+   *
+   * <p>The append coordinator uses this only after joining the window task. Each serializer writes a
+   * distinct slot, and the join supplies the happens-before edge, so the plain array access needs no
+   * per-page atomic or lock. {@link #SNAPSHOT_PROMOTE_TO_TIL} identifies a KVL page deliberately
+   * declined by the disposable-frame path; {@link Constants#NULL_ID_LONG} still means no outcome.
+   */
+  public long getSnapshotDiskOffset(final int index) {
+    return snapshotDiskOffsets[index];
+  }
+
+  /**
    * Store a page hash from the background thread into the side-channel.
    */
-  public void setSnapshotHash(final int index, final byte[] hash) {
+  public void setSnapshotHash(final int index, final long hash, final boolean hashIsPresent) {
     snapshotHashes[index] = hash;
+    snapshotHashPresent[index] = hashIsPresent;
   }
 
   // ==================== SNAPSHOT CLEANUP ====================
 
   /**
    * Clean up a completed snapshot: apply disk offsets to KVL page refs, close written KVL pages, and
-   * promote IndirectPages to the current TIL.
+   * retain pages that only recursive final commit can write.
    * <p>
    * MUST be called from the insert thread after the background thread has completed (after semaphore
    * acquire provides happens-before).
@@ -590,6 +1392,7 @@ public final class TransactionIntentLog implements AutoCloseable {
       return;
     }
 
+    int promotedStructural = 0;
     try {
       for (int i = 0; i < snapshotSize; i++) {
         final PageContainer container = snapshotEntries[i];
@@ -598,16 +1401,24 @@ public final class TransactionIntentLog implements AutoCloseable {
         }
         final Page modified = container.getModified();
         final PageReference ref = snapshotRefs[i];
+        final PageReference.TransactionLogReference snapshotLogReference = snapshotLogReferences[i];
+        final long packedSnapshotIdentity = ((long) snapshotGeneration << 32) | (i & 0xFFFFFFFFL);
 
-        // A snapshot slot is SUPERSEDED when its reference object no longer identifies it: page
-        // references are shared and mutated in place, so a CoW during the just-finished epoch
-        // re-bound this very object to a NEWER container (a fresh clone of the same logical
-        // page). Applying this slot's (outdated) state to the re-bound reference would hijack
-        // the live trie back to the stale version — the observed symptom was a leaf page that
-        // straddled an epoch boundary being committed from its first, nearly-empty flush, with
-        // every record added after the boundary silently lost (#1077).
+        // A snapshot slot is authoritative only while BOTH its mutable reference fields and its
+        // captured reachability handle still identify it. A CoW through this exact reference
+        // changes the raw fields. A CoW through a copied PageReference changes only the copy's raw
+        // fields but forwards the shared captured handle. Testing the raw fields alone therefore
+        // let cleanup rebind the captured original to its stale container, append a forwarding
+        // edge from the live copy back to that stale identity, and hijack every reachable copy.
+        // The visible failure was an overlong page 0 losing its cross-page sibling pointer: JSON
+        // rows 0..145 plus the outer array are exactly its 1,024 nodes, so output stopped at row 145.
+        // A legacy/manual copy can omit the shared handle; put() records that supersession in the
+        // primitive forwarding map instead, so consult it only when non-empty. The ordinary shared-
+        // handle path remains one volatile read plus primitive field comparisons, with no map probe.
         final boolean refStillIdentifiesSlot =
-            ref.getActiveTilGeneration() == snapshotGeneration && ref.getLogKey() == i;
+            ref.getActiveTilGeneration() == snapshotGeneration && ref.getLogKey() == i
+                && !PageReference.isSupersededTransactionLogReference(snapshotLogReference)
+                && (forwardedEntries.isEmpty() || forwardedEntries.get(packedSnapshotIdentity) < 0);
 
         if (modified instanceof KeyValueLeafPage) {
           final long diskOffset = snapshotDiskOffsets[i];
@@ -615,12 +1426,16 @@ public final class TransactionIntentLog implements AutoCloseable {
             // The background flush declined this page (unresolved overflow references,
             // #1076): only the recursive final commit can produce its durable image,
             // because the OverflowPages must be written first. Keep the ORIGINAL
-            // container alive and promote it into the live TIL exactly like a
-            // structural page. A superseded slot (see refStillIdentifiesSlot above)
-            // is an outdated version whose successor already owns the data — close it
-            // like the flushed path would.
+            // container alive. With pinning enabled, give the authoritative page a stable
+            // unflushable identity so it never cycles through this decline/promotion path again.
+            // A superseded slot (see refStillIdentifiesSlot above) is an outdated version whose
+            // successor already owns the data — close it like the flushed path would.
             if (refStillIdentifiesSlot && ref.getActiveTilGeneration() != currentGeneration) {
-              put(ref, container);
+              if (PINNING_ENABLED) {
+                pin(ref, container, i);
+              } else {
+                put(ref, container);
+              }
             } else {
               closePageContainer(container);
             }
@@ -634,28 +1449,38 @@ public final class TransactionIntentLog implements AutoCloseable {
             throw new SirixIOException(
                 "Snapshot entry " + i + " has no disk offset — background write incomplete or failed");
           }
-          // Apply disk offset from side-channel — but ONLY if the reference still identifies
-          // this slot (see above; a re-bound reference identifies a newer version).
+          final boolean completedByReference = PageReference.completeTransactionLogReference(snapshotLogReference,
+              diskOffset, snapshotHashes[i], snapshotHashPresent[i]);
+
+          // Apply the completed handle to the original reference, but ONLY if it still identifies
+          // this slot. This copies the durable fields into the ordinary PageReference and drops the
+          // handle, so pages without a genuinely reachable stale copy retain no side object.
           if (refStillIdentifiesSlot) {
-            ref.setKey(diskOffset);
-            if (snapshotHashes[i] != null) {
-              ref.setHash(snapshotHashes[i]);
+            if (completedByReference) {
+              ref.refreshTransactionLogReference();
+            } else if (snapshotLogReference == null) {
+              // Compatibility path for a reference that did not carry a shared handle.
+              ref.setKey(diskOffset);
+              if (snapshotHashPresent[i]) {
+                ref.setHash(snapshotHashes[i]);
+              } else {
+                ref.clearHash();
+              }
             }
           }
-          // Store in completed map for stale-reference resolution (Layer 3 in get()).
-          // When IndirectPages are CoW'd, their child references are COPIES that don't get
-          // this disk offset update. The map allows get() to resolve stale copies.
+
+          // Legacy completed-map fallback. New references resolve through their shared handle;
+          // only a manually copied reference that omitted the handle needs a historical map entry.
           //
           // Superseded entries excluded (#1077): if this frozen page was CoW'd into a newer
           // generation while the snapshot was active (forwarding entry present), the flush we
           // just completed is an OUTDATED version — storing its offset would let stale copies
           // resolve to it and silently drop every record added after the epoch boundary. The
           // forwarding chain in get() routes such copies to the newer entry instead.
-          final long packedKey = ((long) snapshotGeneration << 32) | (i & 0xFFFFFFFFL);
-          if (forwardedEntries.get(packedKey) < 0) {
-            completedDiskOffsets.put(packedKey, diskOffset);
-            if (snapshotHashes[i] != null) {
-              completedDiskHashes.put(packedKey, snapshotHashes[i]);
+          if (snapshotLogReference == null && forwardedEntries.get(packedSnapshotIdentity) < 0) {
+            completedDiskOffsets.put(packedSnapshotIdentity, diskOffset);
+            if (snapshotHashPresent[i]) {
+              completedDiskHashes.put(packedSnapshotIdentity, snapshotHashes[i]);
             }
           }
           // Close both complete and modified pages (release MemorySegment)
@@ -674,28 +1499,92 @@ public final class TransactionIntentLog implements AutoCloseable {
           // rebind the live trie to the STALE frozen page (#1077, see refStillIdentifiesSlot).
           if (refStillIdentifiesSlot && ref.getActiveTilGeneration() != currentGeneration) {
             put(ref, container);
+            promotedStructural++;
           }
           snapshotEntries[i] = null;
           snapshotRefs[i] = null;
         }
       }
 
-      // NO generation-age pruning of completedDiskOffsets/completedDiskHashes (#1077). A stale
-      // reference copy inside a CoW'd IndirectPage can legitimately stay untouched for many
-      // epochs and only be dereferenced by the final commit traversal — the former
-      // "currentGeneration - 2" prune deleted exactly the entry that traversal needed, so the
-      // parent was serialized with child key -1 and the flushed subtree silently vanished from
-      // the committed revision. Entries are retained until clear() (final commit or rollback);
-      // the memory bound is one primitive long->long pair (plus an 8-byte hash) per leaf page
-      // flushed by an async intermediate commit during this transaction's lifetime.
+      // Legacy map entries cannot be age-pruned: an old manual copy may remain untouched until the
+      // final traversal. Current copies resolve through their shared handle and add no map entry.
     } finally {
       // Release snapshot arrays for GC even if processing fails
       snapshotEntries = null;
       snapshotRefs = null;
       snapshotDiskOffsets = null;
       snapshotHashes = null;
+      snapshotHashPresent = null;
+      snapshotLogReferences = null;
       snapshotSize = 0;
+      promotedStructuralTotal += promotedStructural;
+      cleanupCount++;
+      if (DIAG_EVERY > 0 && cleanupCount % DIAG_EVERY == 0) {
+        System.out.printf(
+            "[til] flush=%d gen=%d tilSize=%d pinned=%d promotedStructural=%d (total %d) "
+                + "completedOffsets=%d completedHashes=%d forwarded=%d ~mapMiB=%d residents=%s%n",
+            cleanupCount, currentGeneration, size, pinnedLiveCount, promotedStructural, promotedStructuralTotal,
+            completedDiskOffsets.size(), completedDiskHashes.size(), forwardedEntries.size(),
+            estimatedSideMapBytes() >> 20, residentCensus());
+      }
     }
+  }
+
+  /**
+   * Rough retained size of the three transaction-lifetime side maps, for the
+   * {@code -Dsirix.til.diag} census. Open-addressed fastutil maps hold power-of-two arrays sized
+   * {@code size/0.75} rounded up, so the estimate is per-entry rather than per-slot and reads low by
+   * up to 2×; it is meant to show the growth CURVE, not to bill bytes exactly.
+   */
+  /**
+   * Page-class histogram of the live TIL, for the {@code -Dsirix.til.diag} census: which pages are
+   * the ones that survive every epoch. Walks {@code size} entries and allocates a map, so it runs
+   * only on a census tick.
+   */
+  private String residentCensus() {
+    final Map<String, Integer> byClass = new TreeMap<>();
+    // Identity sets: an entry count above the distinct-page count means the log holds several
+    // entries for the SAME page instance — a duplicate, not a bigger trie.
+    final Set<Page> distinctPages = Collections.newSetFromMap(new IdentityHashMap<>());
+    final Set<PageReference> distinctRefs = Collections.newSetFromMap(new IdentityHashMap<>());
+    int indirect = 0;
+    for (final PageContainer container : getList()) {
+      if (container == null) {
+        continue;
+      }
+      final Page modified = container.getModified();
+      byClass.merge(modified == null
+          ? "null"
+          : modified.getClass().getSimpleName(), 1, Integer::sum);
+      if (modified instanceof IndirectPage) {
+        indirect++;
+        distinctPages.add(modified);
+      }
+    }
+    for (int i = 0; i < size; i++) {
+      if (entryRefs[i] != null && entries[i] != null && entries[i].getModified() instanceof IndirectPage) {
+        distinctRefs.add(entryRefs[i]);
+      }
+    }
+    return byClass + " indirect=" + indirect + " distinctIndirectPages=" + distinctPages.size()
+        + " distinctIndirectRefs=" + distinctRefs.size();
+  }
+
+  private long estimatedSideMapBytes() {
+    final long offsets = (long) completedDiskOffsets.size() * (Long.BYTES + Long.BYTES);
+    final long forwarded = (long) forwardedEntries.size() * (Long.BYTES + Long.BYTES);
+    final long hashes = (long) completedDiskHashes.size() * (Long.BYTES + Long.BYTES);
+    return offsets + forwarded + hashes;
+  }
+
+  /** Number of legacy completed-offset entries retained; expected to stay zero for current code. */
+  public int completedDiskOffsetCount() {
+    return completedDiskOffsets.size();
+  }
+
+  /** Number of legacy completed-hash entries retained; expected to stay zero for current code. */
+  public int completedDiskHashCount() {
+    return completedDiskHashes.size();
   }
 
   // ==================== CLEAR / CLOSE ====================
@@ -707,31 +1596,109 @@ public final class TransactionIntentLog implements AutoCloseable {
    * memory is released. Also clears any active snapshot (best-effort, no offset validation).
    */
   public void clear() {
-    // Ensure pending cache operations are complete before closing pages
-    bufferManager.getRecordPageCache().cleanUp();
-    bufferManager.getRecordPageFragmentCache().cleanUp();
-    bufferManager.getPageCache().cleanUp();
+    Throwable closeFailure = null;
+    try {
+      bufferManager.getRecordPageCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
+    try {
+      bufferManager.getRecordPageFragmentCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
+    try {
+      bufferManager.getPageCache().cleanUp();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Close all current TIL pages
     for (int i = 0; i < size; i++) {
       final PageContainer container = entries[i];
-      if (container != null) {
-        closePageContainer(container);
+      try {
+        if (container != null) {
+          closePageContainer(container);
+        }
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      } finally {
         entries[i] = null;
         entryRefs[i] = null;
       }
     }
     size = 0;
     resetHOTLeafIndex();
+    try {
+      clearPinnedEntries();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Close snapshot pages unconditionally (best-effort — no offset validation).
-    // This handles the error/rollback path where bg thread may have failed mid-write.
-    clearSnapshotPages();
+    try {
+      clearSnapshotPages();
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = retainFailure(closeFailure, failure);
+    }
 
-    // Clear completed disk offsets map
     completedDiskOffsets.clear();
     forwardedEntries.clear();
     completedDiskHashes.clear();
+    rethrowFailure(closeFailure);
+  }
+
+  /**
+   * Close and forget the pinned region. Pinned containers are owned by the log exactly like the
+   * generation-scoped ones, so the transaction's end is the only thing that releases them.
+   */
+  private void clearPinnedEntries() {
+    // A successful harden completed every shared handle before clearing the TIL. Refresh the
+    // canonical copies to prove that fact before allowing the next identity epoch to reuse slot
+    // zero. Rollback reaches this method with unresolved handles; in that case the high-water mark
+    // stays append-only so an accidentally retained stale reference can never alias a later page.
+    boolean allSurvivingHandlesDurable = true;
+    Throwable closeFailure = null;
+    for (int position = 0; position < pinnedLiveCount; position++) {
+      final PageReference reference = pinnedRefs[livePinnedSlots[position]];
+      try {
+        if (reference == null || !reference.refreshesToUnclaimedDurableReference()) {
+          allSurvivingHandlesDurable = false;
+        }
+      } catch (final RuntimeException | Error failure) {
+        allSurvivingHandlesDurable = false;
+        closeFailure = retainFailure(closeFailure, failure);
+      }
+    }
+    if (!allSurvivingHandlesDurable) {
+      // Latch before closing anything: closePageContainer may itself fail, and even that failure
+      // must not let a retry forget that an unresolved identity escaped this epoch.
+      pinnedSlotReusePermanentlyDisabled = true;
+    }
+
+    for (int position = 0; position < pinnedLiveCount; position++) {
+      final int slot = livePinnedSlots[position];
+      final PageContainer container = pinnedEntries[slot];
+      try {
+        if (container != null) {
+          closePageContainer(container);
+        }
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      } finally {
+        pinnedEntries[slot] = null;
+        pinnedRefs[slot] = null;
+        livePinnedPositionBySlot[slot] = -1;
+        livePinnedSlots[position] = -1;
+      }
+    }
+    pinnedLiveCount = 0;
+    pinnedSpillScanCursor = 0;
+    pinnedSlotByPage.clear();
+    if (allSurvivingHandlesDurable && !pinnedSlotReusePermanentlyDisabled) {
+      // Every tombstoned slot was retired only by publishPinnedSpillCandidate, which first completed
+      // its handle. Together with the live pre-pass above this covers the whole [0, highWater) epoch.
+      pinnedHighWater = 0;
+    }
+    rethrowFailure(closeFailure);
   }
 
   /**
@@ -739,30 +1706,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   @Override
   public void close() {
-    // Ensure pending cache operations are complete
-    bufferManager.getRecordPageCache().cleanUp();
-    bufferManager.getRecordPageFragmentCache().cleanUp();
-    bufferManager.getPageCache().cleanUp();
-
-    // Close all current TIL pages
-    for (int i = 0; i < size; i++) {
-      final PageContainer container = entries[i];
-      if (container != null) {
-        closePageContainer(container);
-        entries[i] = null;
-        entryRefs[i] = null;
-      }
-    }
-    size = 0;
-    resetHOTLeafIndex();
-
-    // Close snapshot pages unconditionally
-    clearSnapshotPages();
-
-    // Clear completed disk offsets map
-    completedDiskOffsets.clear();
-    completedDiskHashes.clear();
-    forwardedEntries.clear();
+    clear();
   }
 
   /**
@@ -771,17 +1715,46 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   private void clearSnapshotPages() {
     if (snapshotEntries != null) {
+      Throwable closeFailure = null;
       for (int i = 0; i < snapshotSize; i++) {
         final PageContainer container = snapshotEntries[i];
-        if (container != null) {
-          closePageContainer(container);
+        try {
+          if (container != null) {
+            closePageContainer(container);
+          }
+        } catch (final RuntimeException | Error failure) {
+          closeFailure = retainFailure(closeFailure, failure);
+        } finally {
+          snapshotEntries[i] = null;
         }
       }
       snapshotEntries = null;
       snapshotRefs = null;
       snapshotDiskOffsets = null;
       snapshotHashes = null;
+      snapshotHashPresent = null;
+      snapshotLogReferences = null;
       snapshotSize = 0;
+      rethrowFailure(closeFailure);
+    }
+  }
+
+  private static Throwable retainFailure(final Throwable retained, final Throwable failure) {
+    if (retained == null) {
+      return failure;
+    }
+    if (retained != failure) {
+      retained.addSuppressed(failure);
+    }
+    return retained;
+  }
+
+  private static void rethrowFailure(final Throwable failure) {
+    if (failure instanceof RuntimeException runtimeFailure) {
+      throw runtimeFailure;
+    }
+    if (failure instanceof Error error) {
+      throw error;
     }
   }
 
@@ -789,10 +1762,22 @@ public final class TransactionIntentLog implements AutoCloseable {
    * Close both pages in a container, handling identity (complete == modified).
    */
   private void closePageContainer(final PageContainer container) {
-    closePage(container.getComplete());
-    if (container.getModified() != container.getComplete()) {
-      closePage(container.getModified());
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    Throwable closeFailure = null;
+    try {
+      closePage(complete);
+    } catch (final RuntimeException | Error failure) {
+      closeFailure = failure;
     }
+    if (modified != complete) {
+      try {
+        closePage(modified);
+      } catch (final RuntimeException | Error failure) {
+        closeFailure = retainFailure(closeFailure, failure);
+      }
+    }
+    rethrowFailure(closeFailure);
   }
 
   /**
@@ -859,6 +1844,9 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   private boolean isRecordPageInOtherEntry(final KeyValueLeafPage page, final int excludeIndex) {
+    if (isPinnedElsewhere(page, NO_PINNED_SLOT)) {
+      return true;
+    }
     for (int i = 0; i < size; i++) {
       if (i == excludeIndex) {
         continue;
@@ -871,6 +1859,27 @@ public final class TransactionIntentLog implements AutoCloseable {
     return false;
   }
 
+  /** Sentinel for "no pinned slot is exempt from the sharing check". */
+  private static final int NO_PINNED_SLOT = -1;
+
+  /**
+   * Whether {@code page} is held by a pinned entry other than {@code excludePinnedSlot}.
+   *
+   * <p>
+   * The pinned region has to take part in every sharing check for the same reason the
+   * generation-scoped one does: a page still held by another entry must never have its off-heap
+   * frame freed. This answers in O(1) from the identity index rather than walking the region, which
+   * matters because the region grows with the corpus and the check runs per replaced container.
+   * </p>
+   */
+  private boolean isPinnedElsewhere(final Page page, final int excludePinnedSlot) {
+    if (pinnedSlotByPage.isEmpty()) {
+      return false;
+    }
+    final int slot = pinnedSlotByPage.getInt(page);
+    return slot >= 0 && slot != excludePinnedSlot;
+  }
+
   /**
    * Whether {@code page} is also held by a log entry other than {@code excludeIndex}. Walks only the
    * entries that can hold a HOT leaf — {@link #hotLeafIndices}, a superset re-checked against
@@ -878,6 +1887,9 @@ public final class TransactionIntentLog implements AutoCloseable {
    * container, and a full walk made that quadratic in the log size.
    */
   private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {
+    if (isPinnedElsewhere(page, NO_PINNED_SLOT)) {
+      return true;
+    }
     for (int k = 0; k < hotLeafIndexCount; k++) {
       final int i = hotLeafIndices[k];
       if (i == excludeIndex || i >= size) {
@@ -908,6 +1920,26 @@ public final class TransactionIntentLog implements AutoCloseable {
    * A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never freed, so
    * no concurrent reader loses its segment.
    *
+   * <p>
+   * <b>Hazard, and the riskiest of the log-key conversions the pinned region forced.</b> This method
+   * used to resolve each orphan with {@code entries[ref.getLogKey()]} behind a bare
+   * {@code logKey < size} bound. A pinned reference's log key indexes the OTHER array, so that read
+   * would have picked an unrelated container and closed a page that is still live — a
+   * use-after-free on a 64 KB off-heap frame, silent until a reader touched it. HOT leaves really do
+   * get pinned (a ClickBench load pins several hundred of them), so this is not hypothetical. Two
+   * things keep it correct now: resolution branches on {@link #PINNED_GENERATION} before indexing,
+   * and the owner recorded per candidate is REGION-ENCODED
+   * ({@link #encodePinnedOwner}) so that the sharing walk below — which visits generation-scoped
+   * entries only — can never mistake a pinned slot for one of its own indices and exempt the wrong
+   * entry from the check. Anything not positively proven unshared keeps its frame; the failure
+   * direction here is a leak, never a free.
+   *
+   * <p>
+   * Coverage note: this path is exercised end to end by a projection-building bulk load (the HOT
+   * writer merges leaves while the log pins them) and by the record read-back in
+   * {@code AsyncFlushLogBookkeepingTest}, not by a targeted unit test — driving a HOT leaf merge
+   * against a pinned leaf directly would need a HOT-index fixture this class has none of.
+   *
    * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
    */
   public void releaseOrphanedHOTLeaves(final List<PageReference> orphanRefs) {
@@ -925,18 +1957,36 @@ public final class TransactionIntentLog implements AutoCloseable {
         continue;
       }
       final int logKey = ref.getLogKey();
-      if (logKey < 0 || logKey >= size) {
+      if (logKey < 0) {
         continue;
       }
-      final PageContainer container = entries[logKey];
+      // Resolve through the region the reference names. A pinned log key indexes a DIFFERENT
+      // array, so reading entries[logKey] for one would pick an unrelated container and close a
+      // live page — the log key alone stopped naming an entry when the pinned region appeared.
+      final PageContainer container;
+      if (ref.getActiveTilGeneration() == PINNED_GENERATION) {
+        container = isLivePinnedSlot(logKey)
+            ? pinnedEntries[logKey]
+            : null;
+      } else {
+        container = logKey < size
+            ? entries[logKey]
+            : null;
+      }
       if (container == null) {
         continue;
       }
+      // Encode which region the owning entry lives in: a bare log key no longer identifies one,
+      // and an unencoded pinned slot would collide with a generation-scoped index and exempt the
+      // wrong entry from the sharing check below.
+      final int owner = ref.getActiveTilGeneration() == PINNED_GENERATION
+          ? encodePinnedOwner(logKey)
+          : logKey;
       if (container.getModified() instanceof HOTLeafPage leaf) {
-        closeable.putIfAbsent(leaf, logKey);
+        closeable.putIfAbsent(leaf, owner);
       }
       if (container.getComplete() instanceof HOTLeafPage leaf) {
-        closeable.putIfAbsent(leaf, logKey);
+        closeable.putIfAbsent(leaf, owner);
       }
       // (putIfAbsent, not put: a leaf reachable twice keeps the first index it was seen at, which
       // is the index the sharing check below must exclude.)
@@ -963,7 +2013,9 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
     for (final HOTLeafPage leaf : closeable.keySet()) {
-      if (!leaf.isClosed() && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
+      // A leaf held by a pinned entry other than its own is shared and must keep its frame.
+      if (!leaf.isClosed() && !isPinnedElsewhere(leaf, decodePinnedOwner(closeable.getInt(leaf)))
+          && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
         leaf.close();
       }
     }
@@ -975,10 +2027,31 @@ public final class TransactionIntentLog implements AutoCloseable {
       final Reference2IntMap<HOTLeafPage> closeable) {
     if (page instanceof HOTLeafPage leaf) {
       final int ownIndex = closeable.getInt(leaf);
-      if (ownIndex >= 0 && ownIndex != entryIndex) {
+      // ABSENT_OWNER is the map's default, so it means "not a candidate". Everything else that is
+      // not this very entry means the leaf is held somewhere else and must not be freed —
+      // including a pinned owner, whose encoding is negative and can never equal entryIndex.
+      if (ownIndex != ABSENT_OWNER && ownIndex != entryIndex) {
         closeable.removeInt(leaf);
       }
     }
+  }
+
+  /** The {@link #orphanCloseable} default return value: this leaf is not a close candidate. */
+  private static final int ABSENT_OWNER = -1;
+
+  /**
+   * Encode a pinned slot as an owner id that cannot be confused with a generation-scoped entry
+   * index (non-negative) or with {@link #ABSENT_OWNER}. Slot 0 maps to -2.
+   */
+  private static int encodePinnedOwner(final int pinnedSlot) {
+    return -(pinnedSlot + 2);
+  }
+
+  /** The pinned slot an owner id names, or {@link #NO_PINNED_SLOT} if it names the other region. */
+  private static int decodePinnedOwner(final int owner) {
+    return owner <= -2
+        ? -owner - 2
+        : NO_PINNED_SLOT;
   }
 
   /**
@@ -1021,14 +2094,20 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return an unmodifiable list view over current TIL entries
    */
   public List<PageContainer> getList() {
-    return Collections.unmodifiableList(new ArraySliceList<>(entries, size));
+    if (pinnedLiveCount == 0) {
+      return Collections.unmodifiableList(new ArraySliceList<>(entries, size));
+    }
+    // Pinned entries are part of the log — they are simply the part no background flush can
+    // write — so every consumer that asks for "the containers in this log" must see them.
+    return Collections.unmodifiableList(
+        new IndexedConcatSliceList<>(pinnedEntries, livePinnedSlots, pinnedLiveCount, entries, size));
   }
 
   /**
    * Get the number of containers in the current TIL (not counting snapshot).
    */
   public int size() {
-    return size;
+    return size + pinnedLiveCount;
   }
 
   /**
@@ -1045,6 +2124,42 @@ public final class TransactionIntentLog implements AutoCloseable {
    */
   public int getSnapshotGeneration() {
     return snapshotGeneration;
+  }
+
+  /**
+   * Lightweight fixed-size list view over two array prefixes in sequence, so {@link #getList()} can
+   * present the pinned region and the generation-scoped region as one log without copying either.
+   */
+  private static final class IndexedConcatSliceList<T> extends AbstractList<T> {
+    private final T[] first;
+    private final int[] firstSlots;
+    private final int firstLen;
+    private final T[] second;
+    private final int secondLen;
+
+    IndexedConcatSliceList(final T[] first, final int[] firstSlots, final int firstLen, final T[] second,
+        final int secondLen) {
+      this.first = first;
+      this.firstSlots = firstSlots;
+      this.firstLen = firstLen;
+      this.second = second;
+      this.secondLen = secondLen;
+    }
+
+    @Override
+    public T get(final int index) {
+      if (index < 0 || index >= firstLen + secondLen) {
+        throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + (firstLen + secondLen));
+      }
+      return index < firstLen
+          ? first[firstSlots[index]]
+          : second[index - firstLen];
+    }
+
+    @Override
+    public int size() {
+      return firstLen + secondLen;
+    }
   }
 
   /**

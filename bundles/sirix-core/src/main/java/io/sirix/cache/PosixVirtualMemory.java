@@ -84,8 +84,8 @@ final class PosixVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public void commitFresh(final MemorySegment slot) {
-    // POSIX overcommits: the first write faults in a zero page. No syscall needed.
+  public boolean commitFresh(final MemorySegment slot) {
+    return false;
   }
 
   @Override
@@ -105,17 +105,19 @@ final class PosixVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public void release(final MemorySegment region) {
+  public boolean release(final MemorySegment region) {
     if (MUNMAP == null) {
-      return;
+      return false;
     }
     try {
       final int rc = (int) MUNMAP.invokeExact(region, region.byteSize());
       if (rc != 0) {
         LOGGER.warn("munmap returned {} for region size {}", rc, region.byteSize());
       }
+      return rc == 0;
     } catch (final Throwable t) {
       LOGGER.warn("munmap failed on shutdown: {}", t.getMessage());
+      return false;
     }
   }
 }

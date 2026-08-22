@@ -60,10 +60,26 @@ public enum HashAlgorithm {
       if (segment.isNative()) {
         // Zero-copy: hash directly from native memory address
         return HASHER.hashMemory(segment.address(), segment.byteSize());
-      } else {
-        // Heap-backed segment
-        return HASHER.hashBytes(segment.toArray(ValueLayout.JAVA_BYTE));
       }
+
+      // MemorySegment.address() is the byte offset into heapBase() for heap segments, including
+      // slices and MemorySegment.ofBuffer(heapByteBuffer). Page serialization uses byte[]-backed
+      // segments, so hash that exact range directly instead of allocating and copying the entire
+      // compressed page through MemorySegment.toArray(). Retain the generic fallback for segments
+      // backed by another primitive array type.
+      final Object heapBase = segment.heapBase().orElse(null);
+      if (heapBase instanceof byte[] bytes) {
+        final long offset = segment.address();
+        final long length = segment.byteSize();
+        if (offset >= 0 && length <= bytes.length && offset <= bytes.length - length) {
+          return HASHER.hashBytes(bytes, (int) offset, (int) length);
+        }
+        throw new IllegalArgumentException(
+            "Heap MemorySegment range exceeds its byte-array backing: offset=" + offset + ", length=" + length
+                + ", capacity=" + bytes.length);
+      }
+
+      return HASHER.hashBytes(segment.toArray(ValueLayout.JAVA_BYTE));
     }
 
     @Override

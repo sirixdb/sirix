@@ -3,14 +3,25 @@
  */
 package io.sirix.index.projection;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+
+import io.sirix.api.StorageEngineReader;
+
+import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -43,6 +54,20 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public final class ProjectionIndexRegistry {
 
+  private static final Logger LOGGER = LoggerFactory.getLogger(ProjectionIndexRegistry.class);
+
+  /**
+   * Executor-owned advisory work that can be abandoned before it starts.
+   *
+   * <p>{@link java.util.concurrent.ExecutorService#shutdownNow()} returns commands that never
+   * started. The executor owner calls {@link #cancelBeforeExecution()} for those commands so a
+   * handle's one-shot latch is not stranded by cache eviction and a later live executor can issue
+   * the hint. A command already running is fenced by executor termination instead.</p>
+   */
+  public interface CancellableBackgroundTask extends Runnable {
+    void cancelBeforeExecution();
+  }
+
   /**
    * Immutable handle published into the registry. Column order in {@link #fieldNames} defines the
    * column order that {@link ProjectionIndexByteScan#conjunctiveCount} expects: the query path
@@ -51,6 +76,13 @@ public final class ProjectionIndexRegistry {
    */
   public static final class Handle {
     private final String[] fieldNames;
+    /**
+     * Per column, its declared path RELATIVE to the record root ({@code "commit/collection"} for
+     * {@code /[]/commit/collection} under {@code /[]}), or {@code null} for handles installed without
+     * declared paths (the bench/test registry route). Attached at construction by the catalog; see
+     * {@link #columnOf(String)} for what it changes.
+     */
+    private volatile String[] fieldChains;
     /** Eagerly-hydrated raw leaves, or the lazily-materialized cache of a column-lazy handle. */
     private volatile List<byte[]> rowGroupPayloads;
     /**
@@ -105,6 +137,57 @@ public final class ProjectionIndexRegistry {
     /** Attach the metadata's summary; called once, at construction time, by the catalog. */
     public void setSetValueRowCounts(final Map<Integer, Map<String, Long>> counts) {
       this.setValueRowCounts = counts;
+    }
+
+    /**
+     * Per {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column, the node key of its
+     * resource-wide value dictionary's header; {@code 0} for every other column. Read from the same
+     * metadata blob the handle is built from, so carrying it costs nothing.
+     */
+    private long[] valueDictionaryHeaderKeys;
+
+    /** Attach the per-column dictionary anchors; called once, at construction, by the catalog. */
+    public void setValueDictionaryHeaderKeys(final long @Nullable [] keys) {
+      this.valueDictionaryHeaderKeys = keys;
+    }
+
+    /**
+     * The value dictionary anchor for {@code col}, or {@code 0} when the column has none — which is
+     * every column of a store built before the kind existed, and every column that is not global.
+     */
+    public long valueDictionaryHeaderKey(final int col) {
+      final long[] keys = valueDictionaryHeaderKeys;
+      return keys == null || col < 0 || col >= keys.length
+          ? 0L
+          : keys[col];
+    }
+
+    /**
+     * Resolve a string literal to its id in {@code col}'s resource-wide dictionary.
+     *
+     * <p>
+     * The whole reason a global column can serve a predicate at all: this runs ONCE per literal, and
+     * every row afterwards is an integer compare. The three answers are deliberately distinct —
+     * {@link GlobalValueDictionary#ID_ABSENT} is an exact "no row can match" and
+     * {@link GlobalValueDictionary#ID_UNKNOWN} is "I cannot say", which must decline rather than be
+     * read as absence.
+     *
+     * @param col the column
+     * @param literalUtf8 the literal's UTF-8 bytes
+     * @param reader a reader positioned at this handle's revision
+     * @return the id, {@code ID_ABSENT}, or {@code ID_UNKNOWN}
+     */
+    public int globalDictionaryId(final int col, final byte[] literalUtf8, final StorageEngineReader reader) {
+      final long headerKey = valueDictionaryHeaderKey(col);
+      if (headerKey <= 0L || literalUtf8 == null || reader == null) {
+        return GlobalValueDictionary.ID_UNKNOWN;
+      }
+      try {
+        return GlobalValueDictionary.probe(headerKey, literalUtf8, reader);
+      } catch (final RuntimeException unreadable) {
+        // A dictionary this revision cannot read is "I cannot say", never "not there".
+        return GlobalValueDictionary.ID_UNKNOWN;
+      }
     }
 
     /**
@@ -495,6 +578,118 @@ public final class ProjectionIndexRegistry {
       return col < status.length && status[col] == ProjectionIndexByteScan.SPARSE_STATUS_CLEAN;
     }
 
+    /**
+     * Sentinel for "the numeric range was resolved and is UNKNOWN" — see {@link #numericGroupRange}.
+     */
+    private static final long[] RANGE_UNKNOWN = new long[0];
+
+    /**
+     * Per-column memo of {@link #numericGroupRange}; {@code null} slot = not yet resolved.
+     */
+    private volatile long[][] numericRanges;
+
+    /**
+     * Index-wide zone-map union of NUMERIC_LONG column {@code col}: {@code {min, max, totalRows}}, or
+     * {@code null} when the range is UNKNOWN and the caller must not size an index-by-subtraction
+     * accumulator from it.
+     *
+     * <p>
+     * Metadata only on BOTH arms — a column-lazy handle reads the leaf DESCRIPTORS it already holds
+     * ({@link ProjectionColumnStore#columnZoneRange}, zero I/O and no segment fetch, hence no
+     * {@code ColumnSegmentFetcher} parameter), an eager handle walks leaf HEADERS
+     * ({@link ProjectionIndexByteScan#numericZoneUnion}). Neither touches a row.
+     *
+     * <p>
+     * Resolved values are memoized under the same double-checked publish the other gate caches use. A
+     * TRANSIENT materialize failure declines WITHOUT caching, so the next query retries with re-bound
+     * sources.
+     */
+    public long[] numericGroupRange(final int col, final Supplier<List<byte[]>> materializer) {
+      if (col < 0) {
+        return null;
+      }
+      long[][] cache = numericRanges;
+      if (cache != null && col < cache.length && cache[col] != null) {
+        return cache[col] == RANGE_UNKNOWN
+            ? null
+            : cache[col];
+      }
+      final long[] probe = new long[3];
+      final boolean known;
+      if (columnStore != null) {
+        known = descriptorZoneUnion(col, probe);
+      } else {
+        final List<byte[]> leaves;
+        try {
+          leaves = rowGroupPayloads(materializer);
+        } catch (final IllegalStateException materializeFailed) {
+          return null;
+        }
+        known = ProjectionIndexByteScan.numericZoneUnion(leaves, col, probe);
+      }
+      final long[] resolved = known
+          ? probe
+          : RANGE_UNKNOWN;
+      synchronized (this) {
+        cache = numericRanges;
+        if (cache == null || cache.length <= col) {
+          final long[][] grown = new long[Math.max(col + 1, fieldNames.length)][];
+          if (cache != null) {
+            System.arraycopy(cache, 0, grown, 0, cache.length);
+          }
+          cache = grown;
+          numericRanges = cache;
+        }
+        if (cache[col] == null) {
+          cache[col] = resolved;
+        }
+        return cache[col] == RANGE_UNKNOWN
+            ? null
+            : cache[col];
+      }
+    }
+
+    /**
+     * Column-lazy arm of {@link #numericGroupRange}: fold the per-leaf descriptor zone pairs. Mirrors
+     * {@link ProjectionIndexByteScan#numericZoneUnion}'s rules exactly — {@code min > max} leaves
+     * contribute rows but no range; a leaf whose entry is ABSENT makes the whole union unknown.
+     */
+    private boolean descriptorZoneUnion(final int col, final long[] out3) {
+      if (col >= columnStore.columnCount()
+          || columnStore.columnKind(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+      final int leaves = columnStore.rowGroupCount();
+      final long[] pair = new long[2];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      long rows = 0;
+      boolean anyRange = false;
+      for (int leaf = 0; leaf < leaves; leaf++) {
+        if (!columnStore.columnZoneRange(leaf, col, pair)) {
+          return false;
+        }
+        rows += columnStore.rowCount(leaf);
+        if (pair[0] > pair[1]) {
+          continue;
+        }
+        if (pair[0] < min) {
+          min = pair[0];
+        }
+        if (pair[1] > max) {
+          max = pair[1];
+        }
+        anyRange = true;
+      }
+      if (!anyRange) {
+        return false;
+      }
+      out3[0] = min;
+      out3[1] = max;
+      out3[2] = rows;
+      return true;
+    }
+
     public String[] fieldNames() {
       return fieldNames.clone();
     }
@@ -528,6 +723,134 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
+     * Whether whole-leaf payloads are ALREADY in memory (eager handle, or a prior consumer hydrated the
+     * lazy handle). Regime probe for slice-vs-payload route choices: once the leaves are cached, a
+     * contiguous byte-kernel scan beats scattered slice reads — the sliced routes exist to avoid the
+     * materialization, not to replace the warm scan. Racy by design (a stale {@code null} just serves
+     * one more query from slices).
+     */
+    public boolean payloadsMaterialized() {
+      return rowGroupPayloads != null;
+    }
+
+    /**
+     * Sliced group serves so far — the PROMOTION signal: a handle that keeps serving sliced is in a hot
+     * loop, where the contiguous byte-kernel scan over materialized leaves wins (~2x on 1M-row string
+     * groupings). Racy increments are benign (a promotion one serve late).
+     */
+    private final java.util.concurrent.atomic.AtomicInteger slicedServes =
+        new java.util.concurrent.atomic.AtomicInteger();
+
+    /** Count one sliced serve attempt; returns the count BEFORE the increment. */
+    public int slicedServeTick() {
+      return slicedServes.getAndIncrement();
+    }
+
+    /** One-shot latch for the background whole-projection segment readahead. */
+    private final AtomicBoolean segmentPrefetchKicked = new AtomicBoolean();
+
+    /**
+     * Background advisory readahead of every projection segment — a fresh process's first queries
+     * otherwise demand-fault the segments column by column. One executor-owned sweep through
+     * {@link ProjectionColumnStore#prefetchAllSegments}; failures stay silent (pure hint).
+     */
+    public void kickSegmentPrefetch(final Executor executor, final Supplier<AutoCloseable> trxFactory,
+        final Function<AutoCloseable, StorageEngineReader> readerOf) {
+      final ProjectionColumnStore store = columnStore;
+      if (store == null || !segmentPrefetchKicked.compareAndSet(false, true)) {
+        return;
+      }
+      final CancellableBackgroundTask task = new CancellableBackgroundTask() {
+        @Override
+        public void run() {
+          try (AutoCloseable trx = trxFactory.get()) {
+            store.prefetchAllSegments(readerOf.apply(trx));
+          } catch (final Exception ignored) {
+            // Advisory only.
+          }
+        }
+
+        @Override
+        public void cancelBeforeExecution() {
+          segmentPrefetchKicked.set(false);
+        }
+      };
+      try {
+        executor.execute(task);
+      } catch (final RejectedExecutionException rejected) {
+        // The owning executor raced close. Let a later live executor issue the one-shot hint.
+        task.cancelBeforeExecution();
+      }
+    }
+
+    /** One-shot latch so background promotion is kicked exactly once per handle. */
+    private final AtomicBoolean promotionKicked = new AtomicBoolean();
+
+    /**
+     * Largest whole-leaf payload {@link #promoteInBackground} will materialize, in bytes. The
+     * payload is a {@code List<byte[]>} on the Java heap, so the default is a quarter of the heap,
+     * itself capped so a huge heap does not authorise a huge speculative materialization.
+     */
+    private static long promoteMaxBytes() {
+      final String configured = System.getProperty("sirix.projection.promoteMaxBytes");
+      if (configured != null && !configured.isEmpty()) {
+        try {
+          return Long.parseLong(configured.trim());
+        } catch (final NumberFormatException ignored) {
+          // fall through to the derived default
+        }
+      }
+      return Math.min(DEFAULT_PROMOTE_MAX_BYTES, Runtime.getRuntime().maxMemory() / 4);
+    }
+
+    /** Ceiling on the derived promotion budget — see {@link #promoteMaxBytes()}. */
+    private static final long DEFAULT_PROMOTE_MAX_BYTES = 4L << 30;
+
+    /**
+     * HOT promotion without the stall: materialize the whole-leaf payloads on an executor-owned task while
+     * callers keep serving from slices; {@link #payloadsMaterialized()} flips when the work lands and
+     * the byte kernels take over on the NEXT query. Failures are swallowed — a failed promotion just
+     * means staying on the (correct) sliced path; the next synchronous consumer re-surfaces the error
+     * attributably through {@link #rowGroupPayloads(Supplier)}.
+     */
+    public void promoteInBackground(final Executor executor, final Supplier<List<byte[]>> materializer) {
+      if (materializer == null || !promotionKicked.compareAndSet(false, true)) {
+        return;
+      }
+      // Promotion is an OPTIMISATION — it trades heap for a faster kernel on a handle that keeps
+      // serving sliced. At large row-group counts the whole-leaf payload is tens of GB, so an
+      // ungated promotion turns a working sliced route into an OOM. Declining is free: the sliced
+      // kernels are the correct route and already answer every query. The decision is latched, so a
+      // handle too big to promote is never re-probed.
+      if (projectedWeightBytes > promoteMaxBytes()) {
+        LOGGER.debug("Projection promotion declined: {} bytes exceeds the {} byte promotion budget",
+            projectedWeightBytes, promoteMaxBytes());
+        return;
+      }
+      final CancellableBackgroundTask task = new CancellableBackgroundTask() {
+        @Override
+        public void run() {
+          try {
+            rowGroupPayloads(materializer);
+          } catch (final RuntimeException ignored) {
+            // Stay sliced; the sync path reports real corruption attributably.
+          }
+        }
+
+        @Override
+        public void cancelBeforeExecution() {
+          promotionKicked.set(false);
+        }
+      };
+      try {
+        executor.execute(task);
+      } catch (final RejectedExecutionException rejected) {
+        // The owning executor raced close. A later live executor may retry the promotion.
+        task.cancelBeforeExecution();
+      }
+    }
+
+    /**
      * Whole raw leaves of an ALREADY-materialized handle (eager handles, or a lazy handle a prior
      * consumer already hydrated). Does NO I/O and never needs a session-bound source.
      *
@@ -541,10 +864,40 @@ public final class ProjectionIndexRegistry {
       return leaves;
     }
 
-    /** @return index of {@code name} in {@link #fieldNames}, or {@code -1}. */
+    /**
+     * Attach the declared per-column paths relative to the record root — called once, at construction
+     * time, by the catalog (the same discipline as {@link #setSetValueRowCounts(Map)}). A {@code null}
+     * argument leaves the handle name-matched.
+     */
+    public void setFieldChains(final String[] chains) {
+      this.fieldChains = chains != null && chains.length == fieldNames.length
+          ? chains.clone()
+          : null;
+    }
+
+    /**
+     * Resolve the column a query field token names, or {@code -1}.
+     *
+     * <p>
+     * The token is a deref CHAIN relative to the record root: {@code "dept"} for {@code $r.dept},
+     * {@code "commit/collection"} for {@code $r.commit.collection}. When the handle carries declared
+     * paths ({@link #setFieldChains}) the match is against those, so a nested column never answers a
+     * top-level deref of the same trailing name and a nested deref never lands on a same-named
+     * top-level column — both would be silent wrong answers, and both now miss (the caller declines to
+     * the generic pipeline). A top-level column's chain IS its trailing name, so single-step derefs
+     * resolve exactly as they always did. Columns without a relativizable declared path, and handles
+     * installed without paths at all (bench/test registry installs), fall back to trailing name
+     * matching.
+     */
     public int columnOf(final String name) {
+      final String[] chains = fieldChains;
       for (int i = 0; i < fieldNames.length; i++) {
-        if (fieldNames[i].equals(name))
+        final String chain = chains == null
+            ? null
+            : chains[i];
+        if (chain == null
+            ? fieldNames[i].equals(name)
+            : chain.equals(name))
           return i;
       }
       return -1;
@@ -672,6 +1025,13 @@ public final class ProjectionIndexRegistry {
    */
   private static final boolean PREWARM_DENSE_GROUPBY_ENABLED =
       Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
+
+  /**
+   * Accumulator-cell ceiling for the NUMERIC_LONG dense pre-warm. Unlike the string dense arm this is
+   * ON by default (the numeric dense arm is the driver's default choice), so the bound only exists to
+   * keep the install-time allocation trivial: 64 K cells = 512 KB, one array, freed immediately.
+   */
+  private static final int PREWARM_DENSE_CELLS = 1 << 16;
 
   private ProjectionIndexRegistry() {}
 
@@ -1012,6 +1372,47 @@ public final class ProjectionIndexRegistry {
               ProjectionIndexScan.ColumnPredicate.booleanEq(booleanCol, true)};
       for (int i = 0; i < PREWARM_ITERS; i++) {
         ProjectionIndexByteScan.conjunctiveCount(sub, mix);
+      }
+    }
+
+    // NUMERIC_LONG group-by shapes. Separate kernels from the dict ones below (no
+    // canonical dict, no intern, primitive-keyed accumulators), so they need their own
+    // tier-up drive — without it the first real numeric group-by runs interpreted and
+    // every cold measurement of it is wrong.
+    //
+    // Contained in its OWN try/catch: both numeric arms throw IllegalStateException by design on a
+    // leaf they cannot serve (no presence tail, an unaddressable range), where the dict kernels
+    // below simply tolerate. The single catch around the whole driver plus the already-latched
+    // PREWARMED flag would turn one such leaf into a permanent skip of every shape declared after
+    // this block — the dict group-by tier-up killed as collateral by a column it never reads.
+    if (numericCol >= 0) {
+      try {
+        final ProjectionIndexScan.ColumnPredicate[] noPreds = new ProjectionIndexScan.ColumnPredicate[0];
+        final Long2LongOpenHashMap numericSink = new Long2LongOpenHashMap(64);
+        numericSink.defaultReturnValue(0L);
+        final long[] missing = new long[1];
+        for (int i = 0; i < PREWARM_ITERS; i++) {
+          numericSink.clear();
+          missing[0] = 0;
+          ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(sub, noPreds, numericCol, numericSink, missing);
+        }
+        // Dense arm over the SAME leaves: only reachable when the sub-list's zone map yields a
+        // range small enough to address, which is exactly the regime the driver picks it in.
+        final long[] range = new long[3];
+        if (ProjectionIndexByteScan.numericZoneUnion(sub, numericCol, range)) {
+          final long span = range[1] - range[0];
+          if (span >= 0 && span < PREWARM_DENSE_CELLS) {
+            final long[] denseCounts = new long[(int) span + 1];
+            for (int i = 0; i < PREWARM_ITERS; i++) {
+              Arrays.fill(denseCounts, 0L);
+              missing[0] = 0;
+              ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(sub, noPreds, numericCol, range[0],
+                  denseCounts, missing);
+            }
+          }
+        }
+      } catch (final RuntimeException numericNotServable) {
+        // Pre-warm only — a leaf these kernels decline costs a tier-up, never an answer.
       }
     }
 

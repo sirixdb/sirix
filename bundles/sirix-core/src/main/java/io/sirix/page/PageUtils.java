@@ -139,9 +139,8 @@ public final class PageUtils {
     // getReferences() path pays per call. Profile showed fixupPageReferenceIds
     // at ~1% of the cold-scan worker time; the List alloc was most of it.
     if (page instanceof io.sirix.page.delegates.FullReferencesPage frp) {
-      final PageReference[] refs = frp.getReferencesArray();
-      for (int i = 0, n = refs.length; i < n; i++) {
-        final PageReference ref = refs[i];
+      for (int i = 0, n = frp.getReferencesCount(); i < n; i++) {
+        final PageReference ref = frp.referenceAt(i);
         if (ref != null) {
           ref.setDatabaseId(databaseId);
           ref.setResourceId(resourceId);

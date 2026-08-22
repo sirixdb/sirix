@@ -42,6 +42,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   /** Cached null node key constant — avoids enum method call in hot path. */
   private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
 
+  private static final byte BOXED_NUMBER = 0;
+  private static final byte INT_NUMBER = 1;
+  private static final byte LONG_NUMBER = 2;
+
   /**
    * Hash function used to hash nodes.
    */
@@ -130,8 +134,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public PathNode createPathNode(final long parentKey, final long leftSibKey, final long rightSibKey,
-      final QNm name, final NodeKind kind, final int level) {
+  public PathNode createPathNode(final long parentKey, final long leftSibKey, final long rightSibKey, final QNm name,
+      final NodeKind kind, final int level) {
     final int uriKey = -1;
     final int prefixKey = -1;
     // Resolve through the name dictionary, NOT NamePageHash.generateHashForString: the dictionary
@@ -149,15 +153,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     // CRITICAL FIX: Use accessor method instead of direct .getPage() call
     // After TIL.put(), PageReference.getPage() returns null
     // Must use storageEngineWriter.getPathSummaryPage() which handles TIL lookups
-    final PathSummaryPage pathSummaryPage = storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
+    final PathSummaryPage pathSummaryPage =
+        storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
     final long nodeKey = pathSummaryPage.getMaxNodeKey(0) + 1;
     final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
 
     return storageEngineWriter.createRecord(
-        new PathNode(name, kind, 1, level, nodeKey, parentKey,
-            Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null,
-            nullKey, nullKey, rightSibKey, leftSibKey, 0L, 0L,
-            uriKey, prefixKey, localName, 0L),
+        new PathNode(name, kind, 1, level, nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+            (SirixDeweyID) null, nullKey, nullKey, rightSibKey, leftSibKey, 0L, 0L, uriKey, prefixKey, localName, 0L),
         IndexType.PATH_SUMMARY, 0);
   }
 
@@ -168,14 +171,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableArrayNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(reusableArrayNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        NULL_KEY, NULL_KEY, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
+        reusableArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
+        pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
     kvl.completeDirectWrite(NodeKind.ARRAY.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableArrayNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableArrayNode.setOwnerPage(kvl);
@@ -189,13 +194,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(reusableObjectNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        NULL_KEY, NULL_KEY,
+        reusableObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
     kvl.completeDirectWrite(NodeKind.OBJECT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
@@ -210,13 +217,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableNullNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes = NullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableNullNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(reusableNullNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = NullNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableNullNode.getHeapOffsets(),
+        nodeKey, parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber);
     kvl.completeDirectWrite(NodeKind.NULL_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableNullNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableNullNode.setOwnerPage(kvl);
@@ -231,26 +240,34 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey,
-      byte[] value, int valueOff, int valueLen, boolean doCompress, SirixDeweyID id) {
+  public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value, int valueOff,
+      int valueLen, boolean doCompress, SirixDeweyID id) {
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
     // Insert-time FSST: this direct-to-heap path is where JSON string bytes actually land, so
     // this is where the encode must ride — the value is in hand and the record is being
     // serialized anyway. Null means "store raw" for any reason (disabled, no table yet, too
     // small, not smaller, page bound to a different table); the commit-time pass remains the
     // bootstrap and fallback.
-    final byte[] encodedValue =
-        storageEngineWriter.encodeStringValueForInsert(kvl, value, valueOff, valueLen);
-    final byte[] effValue = encodedValue != null ? encodedValue : value;
-    final int effOff = encodedValue != null ? 0 : valueOff;
-    final int effLen = encodedValue != null ? encodedValue.length : valueLen;
-    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
-        55 + effLen, deweyIdLen);
+    final byte[] encodedValue = storageEngineWriter.encodeStringValueForInsert(kvl, value, valueOff, valueLen);
+    final byte[] effValue = encodedValue != null
+        ? encodedValue
+        : value;
+    final int effOff = encodedValue != null
+        ? 0
+        : valueOff;
+    final int effLen = encodedValue != null
+        ? encodedValue.length
+        : valueLen;
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(55 + effLen, deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       // Large value (#1076): does not fit into the slotted page — store as a heap node so the
       // page diverts it to an OverflowPage at commit time. Stored raw: overflow payloads are
@@ -264,8 +281,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     }
     final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, effValue, effOff, effLen,
-        encodedValue != null);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, effValue, effOff, effLen, encodedValue != null);
     kvl.completeDirectWrite(NodeKind.STRING_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableStringNode.setOwnerPage(kvl);
@@ -283,13 +299,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableBooleanNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes = BooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableBooleanNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, boolValue);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(reusableBooleanNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes =
+        BooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableBooleanNode.getHeapOffsets(), nodeKey,
+            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, boolValue);
     kvl.completeDirectWrite(NodeKind.BOOLEAN_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableBooleanNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableBooleanNode.setOwnerPage(kvl);
@@ -304,13 +323,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableNumberNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes = NumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, value);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(reusableNumberNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes =
+        NumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset, reusableNumberNode.getHeapOffsets(), nodeKey,
+            parentKey, rightSibKey, leftSibKey, Constants.NULL_REVISION_NUMBER, revisionNumber, value);
     kvl.completeDirectWrite(NodeKind.NUMBER_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableNumberNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableNumberNode.setOwnerPage(kvl);
@@ -319,23 +341,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedBooleanNode createJsonObjectNamedBooleanNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, boolean value, SirixDeweyID id) {
+  public ObjectNamedBooleanNode createJsonObjectNamedBooleanNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, boolean value, SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNamedBooleanNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset =
+        kvl.prepareHeapForDirectWrite(reusableObjectNamedBooleanNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ObjectNamedBooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedBooleanNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_BOOLEAN.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+        reusableObjectNamedBooleanNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+        pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_BOOLEAN.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedBooleanNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedBooleanNode.setOwnerPage(kvl);
     reusableObjectNamedBooleanNode.setDeweyIDAfterCreation(id, deweyIdBytes);
@@ -343,23 +367,55 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, Number value, SirixDeweyID id) {
+  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, Number value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        requireNonNull(value), BOXED_NUMBER, 0L, id);
+  }
+
+  @Override
+  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, int value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        null, INT_NUMBER, value, id);
+  }
+
+  @Override
+  public ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, long value, SirixDeweyID id) {
+    return createJsonObjectNamedNumberNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
+        null, LONG_NUMBER, value, id);
+  }
+
+  private ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, Number fallbackValue, byte primitiveType, long primitiveValue,
+      SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNamedNumberNode.estimateSerializedSize(), deweyIdLen);
-    final int recordBytes = ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_NUMBER.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset =
+        kvl.prepareHeapForDirectWrite(reusableObjectNamedNumberNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = switch (primitiveType) {
+      case BOXED_NUMBER -> ObjectNamedNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, fallbackValue);
+      case INT_NUMBER -> ObjectNamedNumberNode.writeNewIntRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, (int) primitiveValue);
+      case LONG_NUMBER -> ObjectNamedNumberNode.writeNewLongRecord(kvl.getSlottedPage(), absOffset,
+          reusableObjectNamedNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+          pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, primitiveValue);
+      default -> throw new IllegalArgumentException("Unknown primitive number type: " + primitiveType);
+    };
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_NUMBER.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedNumberNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedNumberNode.setOwnerPage(kvl);
     reusableObjectNamedNumberNode.setDeweyIDAfterCreation(id, deweyIdBytes);
@@ -367,34 +423,45 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, byte[] value, SirixDeweyID id) {
-    final int valueLen = value != null ? value.length : 0;
-    return createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name,
-        value, 0, valueLen, id);
+  public ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, byte[] value, SirixDeweyID id) {
+    final int valueLen = value != null
+        ? value.length
+        : 0;
+    return createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, name, value, 0, valueLen,
+        id);
   }
 
   @Override
-  public ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, byte[] value, int off, int len,
-      SirixDeweyID id) {
+  public ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, byte[] value, int off, int len, SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final int valueLen = value != null ? len : 0;
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final int valueLen = value != null
+        ? len
+        : 0;
     // Insert-time FSST, same shape as createJsonStringNode: fused object-string values carry
     // nearly all string bytes on real JSON, so THIS is the hot path the encode has to ride.
-    final byte[] encodedValue =
-        storageEngineWriter.encodeStringValueForInsert(kvl, value, off, valueLen);
-    final byte[] effValue = encodedValue != null ? encodedValue : value;
-    final int effOff = encodedValue != null ? 0 : off;
-    final int effLen = encodedValue != null ? encodedValue.length : valueLen;
-    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(
-        64 + effLen, deweyIdLen);
+    final byte[] encodedValue = storageEngineWriter.encodeStringValueForInsert(kvl, value, off, valueLen);
+    final byte[] effValue = encodedValue != null
+        ? encodedValue
+        : value;
+    final int effOff = encodedValue != null
+        ? 0
+        : off;
+    final int effLen = encodedValue != null
+        ? encodedValue.length
+        : valueLen;
+    final long absOffset = kvl.prepareHeapForDirectWriteOrOverflow(64 + effLen, deweyIdLen);
     if (absOffset == KeyValueLeafPage.DIRECT_WRITE_OVERFLOW) {
       // Large value (#1076): does not fit into the slotted page — store as a heap node so the
       // page diverts it to an OverflowPage at commit time. Stored raw: overflow payloads are
@@ -403,19 +470,16 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       if (valueLen > 0) {
         System.arraycopy(value, off, valueCopy, 0, valueLen);
       }
-      final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey, parentKey, rightSibKey, leftSibKey,
-          localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, valueCopy, hashFunction, id,
-          false, null);
+      final ObjectNamedStringNode node =
+          new ObjectNamedStringNode(nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey, pathNodeKey,
+              Constants.NULL_REVISION_NUMBER, revisionNumber, 0, valueCopy, hashFunction, id, false, null);
       kvl.setRecord(node);
       return node;
     }
     final int recordBytes = ObjectNamedStringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, effValue, effOff, effLen,
-        encodedValue != null);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_STRING.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+        reusableObjectNamedStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+        pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, effValue, effOff, effLen, encodedValue != null);
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_STRING.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedStringNode.setOwnerPage(kvl);
     // In-transaction reads of a compressed value decode through the page's table; null clears
@@ -426,23 +490,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedNullNode createJsonObjectNamedNullNode(long parentKey, long leftSibKey,
-      long rightSibKey, long pathNodeKey, String name, SirixDeweyID id) {
+  public ObjectNamedNullNode createJsonObjectNamedNullNode(long parentKey, long leftSibKey, long rightSibKey,
+      long pathNodeKey, String name, SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNamedNullNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset =
+        kvl.prepareHeapForDirectWrite(reusableObjectNamedNullNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ObjectNamedNullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedNullNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_NULL.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+        reusableObjectNamedNullNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, localNameKey,
+        pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_NULL.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedNullNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedNullNode.setOwnerPage(kvl);
     reusableObjectNamedNullNode.setDeweyIDAfterCreation(id, deweyIdBytes);
@@ -450,25 +516,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedObjectNode createJsonObjectNamedObjectNode(final long parentKey,
-      final long leftSibKey, final long rightSibKey, final long pathNodeKey,
-      final String name, final SirixDeweyID id) {
+  public ObjectNamedObjectNode createJsonObjectNamedObjectNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final long pathNodeKey, final String name, final SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNamedObjectNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset =
+        kvl.prepareHeapForDirectWrite(reusableObjectNamedObjectNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ObjectNamedObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        NULL_KEY, NULL_KEY,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_OBJECT.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+        reusableObjectNamedObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
+        localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_OBJECT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedObjectNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedObjectNode.setOwnerPage(kvl);
     reusableObjectNamedObjectNode.setName(new QNm(name));
@@ -477,25 +543,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public ObjectNamedArrayNode createJsonObjectNamedArrayNode(final long parentKey,
-      final long leftSibKey, final long rightSibKey, final long pathNodeKey,
-      final String name, final SirixDeweyID id) {
+  public ObjectNamedArrayNode createJsonObjectNamedArrayNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final long pathNodeKey, final String name, final SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_NAMED_OBJECT);
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
     final int slotOffset = storageEngineWriter.getAllocSlotOffset();
-    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
-    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
-    final long absOffset = kvl.prepareHeapForDirectWrite(
-        reusableObjectNamedArrayNode.estimateSerializedSize(), deweyIdLen);
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored())
+        ? id.toBytes()
+        : null;
+    final int deweyIdLen = deweyIdBytes != null
+        ? deweyIdBytes.length
+        : 0;
+    final long absOffset =
+        kvl.prepareHeapForDirectWrite(reusableObjectNamedArrayNode.estimateSerializedSize(), deweyIdLen);
     final int recordBytes = ObjectNamedArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
-        reusableObjectNamedArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        NULL_KEY, NULL_KEY,
-        localNameKey, pathNodeKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);
-    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_ARRAY.getId(), nodeKey, slotOffset, recordBytes,
-        deweyIdBytes);
+        reusableObjectNamedArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey, NULL_KEY, NULL_KEY,
+        localNameKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0L, 0L, 0L);
+    kvl.completeDirectWrite(NodeKind.OBJECT_NAMED_ARRAY.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectNamedArrayNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedArrayNode.setOwnerPage(kvl);
     reusableObjectNamedArrayNode.setName(new QNm(name));
@@ -509,12 +575,12 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   /**
-   * Bind the correct write singleton to a slotted page slot for zero-allocation modification.
-   * Reads the nodeKindId from the page directory, selects the matching singleton, unbinds if
-   * currently bound elsewhere, binds to the slot, and propagates DeweyID.
+   * Bind the correct write singleton to a slotted page slot for zero-allocation modification. Reads
+   * the nodeKindId from the page directory, selects the matching singleton, unbinds if currently
+   * bound elsewhere, binds to the slot, and propagates DeweyID.
    *
-   * @param page    the KeyValueLeafPage containing the slotted page
-   * @param offset  the slot index (0-1023)
+   * @param page the KeyValueLeafPage containing the slotted page
+   * @param offset the slot index (0-1023)
    * @param nodeKey the record key
    * @return the bound write singleton, or null if the slot is not a JSON node type
    */
@@ -523,6 +589,9 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, offset)) {
       return null;
     }
+    // The write singleton binds straight onto the heap and the DeweyID trailer is read out of it,
+    // so the slot's records have to be in the page before either happens.
+    page.ensureChunkFor(offset);
     final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);

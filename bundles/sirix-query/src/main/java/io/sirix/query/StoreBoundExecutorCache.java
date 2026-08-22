@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.atomic.QNm;
@@ -56,12 +55,13 @@ import io.sirix.settings.Fixed;
  * <p>
  * Executors are cached per {@code (database, resource, revision)} because building one per compile
  * would build a worker pool per compile. The cache is bounded and access-ordered: the
- * least-recently-used entry is closed on overflow. Two things make eviction (and the revision
- * advance that causes most of it) safe rather than merely likely-safe — a
- * {@link SirixVectorizedExecutor} whose pool has been shut down runs its chunks on the calling
- * thread, and its record transaction is reopened when it is found closed. A compiled query holding
- * an evicted executor therefore keeps answering, single-threaded, from the revision it was compiled
- * against.
+ * least-recently-used entry is removed under the cache monitor and retired after releasing it. A
+ * potentially slow executor retirement therefore never serializes unrelated document resolution.
+ * A retired executor runs later chunks on the calling thread, while lazy results detach from their
+ * short-lived construction cursors onto the chain's revision-rebindable consumer cursor pool. A
+ * compiled query or already-returned database object holding an evicted executor's state therefore
+ * keeps answering from its immutable revision without retaining a cursor per revision and lane. At
+ * terminal chain close, one shared admission fence covers current and already-evicted executors.
  *
  * <p>
  * Not thread-confined: one chain may compile on many threads, so every mutation of the cache takes
@@ -78,10 +78,10 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   private static final int LATEST_REVISION = SourceRef.LATEST_REVISION;
 
   /**
-   * Upper bound on cached executors. Each holds a lazily-populated worker pool and the resource
-   * session's shared read-only transactions for its revision, so an unbounded cache would retain a
-   * pool per revision on a chain that outlives many commits. Eight covers a chain serving a handful
-   * of resources across a few revisions; beyond that the least-recently-used one is closed.
+   * Upper bound on cached executors. Each holds a worker pool and revision-scoped analytical caches,
+   * so an unbounded cache would retain substantial state per revision on a long-lived chain. Eight
+   * covers a handful of resources across a few revisions; beyond that the least-recently-used one is
+   * retired and its pool is released.
    */
   private static final int MAX_CACHED_EXECUTORS = 8;
 
@@ -91,7 +91,10 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   /** The store every resource is resolved through; never {@code null}. */
   private final JsonDBStore store;
 
-  /** Access-ordered LRU; the evicted entry is closed by {@link #removeEldestEntry}. */
+  /** Shared by every executor, including LRU victims still held by compiled expressions. */
+  private final SirixVectorizedExecutor.ExecutionLifecycle executorLifecycle;
+
+  /** Access-ordered LRU; overflow victims are removed under {@link #lock} and retired outside it. */
   private final LinkedHashMap<ExecutorKey, SirixVectorizedExecutor> executors;
 
   /** Set by {@link #close()}; a resolve after close hands back nothing rather than a live pool. */
@@ -105,21 +108,17 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   record DocumentSource(String database, String resource, int revision) {
   }
 
-  StoreBoundExecutorCache(final JsonDBStore store) {
+  StoreBoundExecutorCache(final JsonDBStore store,
+      final SirixVectorizedExecutor.ExecutionLifecycle executorLifecycle) {
     if (store == null) {
       throw new IllegalArgumentException("store must not be null");
     }
+    if (executorLifecycle == null) {
+      throw new IllegalArgumentException("executorLifecycle must not be null");
+    }
     this.store = store;
-    this.executors = new LinkedHashMap<>(MAX_CACHED_EXECUTORS * 2, 0.75f, true) {
-      @Override
-      protected boolean removeEldestEntry(final Map.Entry<ExecutorKey, SirixVectorizedExecutor> eldest) {
-        if (size() <= MAX_CACHED_EXECUTORS) {
-          return false;
-        }
-        closeQuietly(eldest.getValue());
-        return true;
-      }
-    };
+    this.executorLifecycle = executorLifecycle;
+    this.executors = new LinkedHashMap<>(MAX_CACHED_EXECUTORS * 2, 0.75f, true);
   }
 
   /**
@@ -148,7 +147,16 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       return null;
     }
     try {
-      return resolveDocument(source);
+      // Resolution itself opens/reads a chain-owned resource session. Admit before that first
+      // access so terminal chain close cannot observe zero work and close the store underneath a
+      // resolver. RevisionTrackingExecutor already admits runtime calls; this nested admission is
+      // only a ThreadLocal depth increment there and also protects direct compile-time resolution.
+      executorLifecycle.enter();
+      try {
+        return resolveDocument(source);
+      } finally {
+        executorLifecycle.leave();
+      }
     } catch (final RuntimeException e) {
       // A missing database, a resource that does not exist yet, a store already closed: the query
       // itself will fail (or not) on its own terms. Auto-wiring never turns a resolution problem
@@ -192,6 +200,8 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       return null;
     }
     final ExecutorKey key = new ExecutorKey(source.database(), source.resource(), revision);
+    final SirixVectorizedExecutor built;
+    final SirixVectorizedExecutor evicted;
     synchronized (lock) {
       if (closed) {
         return null;
@@ -200,10 +210,25 @@ final class StoreBoundExecutorCache implements AutoCloseable {
       if (cached != null) {
         return cached;
       }
-      final SirixVectorizedExecutor built = new SirixVectorizedExecutor(session, revision);
+      built = new SirixVectorizedExecutor(session, revision, executorLifecycle);
       executors.put(key, built);
-      return built;
+      evicted = evictEldestOnOverflow();
     }
+    // Executor shutdown may wait for in-flight work. Keep that wait out of the cache monitor so a
+    // warm-up on the LRU victim cannot stall resolutions for otherwise unrelated resources.
+    retireQuietly(evicted);
+    return built;
+  }
+
+  /** Remove and return the LRU overflow victim. Caller must hold {@link #lock}. */
+  private SirixVectorizedExecutor evictEldestOnOverflow() {
+    if (executors.size() <= MAX_CACHED_EXECUTORS) {
+      return null;
+    }
+    final Iterator<SirixVectorizedExecutor> values = executors.values().iterator();
+    final SirixVectorizedExecutor eldest = values.next();
+    values.remove();
+    return eldest;
   }
 
   /** Close every cached executor. Idempotent; the chain's stores are closed by the chain. */
@@ -224,10 +249,24 @@ final class StoreBoundExecutorCache implements AutoCloseable {
   }
 
   private static void closeQuietly(final SirixVectorizedExecutor executor) {
+    if (executor == null) {
+      return;
+    }
     try {
       executor.close();
     } catch (final Exception ignored) {
       // Best-effort: a failing executor close must not mask the caller's own teardown.
+    }
+  }
+
+  private static void retireQuietly(final SirixVectorizedExecutor executor) {
+    if (executor == null) {
+      return;
+    }
+    try {
+      executor.retire();
+    } catch (final Exception ignored) {
+      // Best-effort: the chain-wide terminal fence remains authoritative at final close.
     }
   }
 

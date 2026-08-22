@@ -6,6 +6,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.node.SirixDeweyID;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /**
  * Thread-safe proxy for {@link JsonNodeReadOnlyTrx} that transparently delegates
@@ -17,65 +18,167 @@ import java.time.Instant;
  * threads (~20 ns after first access).
  *
  * <p>Only {@code close()}, {@code isClosed()}, and session/revision metadata are
- * overridden to always use the owner trx directly.
+ * overridden. A cursor used to construct escaping lazy items can be {@link #detachOwner() detached}
+ * after construction. Such a proxy keeps its immutable revision metadata, closes the construction
+ * cursor immediately, and obtains a cursor from a caller-supplied bounded provider when the item is
+ * consumed later. A detached item may outlive the executor that materialized it, but it may not be
+ * consumed concurrently with terminal close of the provider's owning chain/store: the item itself
+ * is not a lifetime lease, and putting a lease around every forwarded node operation would add
+ * synchronization to the navigation hot path.
  */
 public final class ThreadSafeJsonReadOnlyTrx implements ForwardingJsonNodeReadOnlyTrx {
 
-  private final JsonNodeReadOnlyTrx ownerTrx;
+  /**
+   * Supplies a cursor for a detached proxy on the calling thread.
+   *
+   * <p>The provider owns the returned cursor. In particular, closing one proxy must not close a
+   * provider shared by other lazy items. The caller must quiesce detached proxy use before closing
+   * the provider; a returned raw cursor is not guaranteed to survive concurrent provider close.
+   */
+  public interface DetachedCursorProvider {
+    JsonNodeReadOnlyTrx cursor(JsonResourceSession session, int revision);
+
+    boolean isClosed();
+  }
+
+  /** Cleared when detach publishes the replacement route; never retained by an escaped item. */
+  private JsonNodeReadOnlyTrx ownerTrx;
   private final long ownerThreadId;
+  private final DetachedCursorProvider detachedCursorProvider;
+  /** Published together with the cleared owner by the volatile {@link #ownerDetached} write. */
+  private JsonResourceSession detachedResourceSession;
+  private int detachedRevision;
+  private int detachedId;
+  private volatile boolean ownerDetached;
+  private volatile boolean closed;
 
   public ThreadSafeJsonReadOnlyTrx(final JsonNodeReadOnlyTrx ownerTrx) {
-    this.ownerTrx = ownerTrx;
+    this(ownerTrx, null);
+  }
+
+  /**
+   * Create a proxy whose construction cursor can later be detached in favour of {@code provider}.
+   */
+  public ThreadSafeJsonReadOnlyTrx(final JsonNodeReadOnlyTrx ownerTrx,
+      final DetachedCursorProvider provider) {
+    this.ownerTrx = Objects.requireNonNull(ownerTrx, "ownerTrx must not be null");
     this.ownerThreadId = Thread.currentThread().threadId();
+    detachedCursorProvider = provider;
   }
 
   @Override
   public JsonNodeReadOnlyTrx nodeReadOnlyTrxDelegate() {
-    final long tid = Thread.currentThread().threadId();
-    if (tid == ownerThreadId) {
+    if (closed) {
+      throw new IllegalStateException("Read-only transaction proxy is closed");
+    }
+    if (ownerDetached) {
+      return detachedCursorProvider == null
+          ? detachedResourceSession.getOrCreateSharedReadOnlyTrx(detachedRevision)
+          : detachedCursorProvider.cursor(detachedResourceSession, detachedRevision);
+    }
+    if (Thread.currentThread().threadId() == ownerThreadId) {
       return ownerTrx;
     }
-    return ownerTrx.getResourceSession().getOrCreateSharedReadOnlyTrx(ownerTrx.getRevisionNumber());
+    final JsonResourceSession session = ownerTrx.getResourceSession();
+    final int revision = ownerTrx.getRevisionNumber();
+    return detachedCursorProvider == null
+        ? session.getOrCreateSharedReadOnlyTrx(revision)
+        : detachedCursorProvider.cursor(session, revision);
   }
 
-  // -- Shared metadata: always route to ownerTrx --
+  // -- Immutable revision metadata survives detaching/closing the construction cursor. --
 
   @Override
   public JsonResourceSession getResourceSession() {
-    return ownerTrx.getResourceSession();
+    return ownerDetached ? detachedResourceSession : ownerTrx.getResourceSession();
   }
 
   @Override
   public int getRevisionNumber() {
-    return ownerTrx.getRevisionNumber();
+    return ownerDetached ? detachedRevision : ownerTrx.getRevisionNumber();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
-    return ownerTrx.getRevisionTimestamp();
+    return ownerDetached ? nodeReadOnlyTrxDelegate().getRevisionTimestamp() : ownerTrx.getRevisionTimestamp();
   }
 
   @Override
   public long getMaxNodeKey() {
-    return ownerTrx.getMaxNodeKey();
+    return ownerDetached ? nodeReadOnlyTrxDelegate().getMaxNodeKey() : ownerTrx.getMaxNodeKey();
   }
 
   @Override
   public int getId() {
-    return ownerTrx.getId();
+    return ownerDetached ? detachedId : ownerTrx.getId();
   }
 
-  // -- Lifecycle: only close ownerTrx --
+  // -- Lifecycle --
+
+  /**
+   * Stop retaining the registered cursor used to construct a lazy item.
+   *
+   * <p>Call only after construction has stopped using the owner cursor and before publishing the
+   * item. Subsequent reads transparently use the detached cursor provider. Idempotent.
+   */
+  public synchronized void detachOwner() {
+    if (closed || ownerDetached) {
+      return;
+    }
+    final JsonNodeReadOnlyTrx owner = ownerTrx;
+    // These three values are cheap immutable metadata and are required to locate a replacement
+    // cursor after owner close. Timestamp/max-node-key stay lazy and come from that replacement.
+    captureDetachedMetadata(owner);
+    try {
+      owner.close();
+    } finally {
+      // detachOwner is called before the item is published. This volatile release publishes both
+      // the immutable replacement metadata and the cleared owner to every later consumer.
+      ownerTrx = null;
+      ownerDetached = true;
+    }
+  }
 
   @Override
   public boolean isClosed() {
-    return ownerTrx.isClosed();
+    if (closed) {
+      return true;
+    }
+    if (!ownerDetached) {
+      return ownerTrx.isClosed();
+    }
+    return detachedCursorProvider != null && detachedCursorProvider.isClosed();
   }
 
   @Override
-  public void close() {
-    ownerTrx.getResourceSession().closeSharedReadOnlyTrxs(ownerTrx.getRevisionNumber());
-    ownerTrx.close();
+  public synchronized void close() {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    // The legacy provider is the session-wide (thread, revision) cache and retains the old close
+    // contract. A supplied detached provider is shared by many lazy items and owns its own lifetime.
+    if (detachedCursorProvider == null) {
+      final JsonResourceSession session = ownerDetached ? detachedResourceSession : ownerTrx.getResourceSession();
+      final int revision = ownerDetached ? detachedRevision : ownerTrx.getRevisionNumber();
+      session.closeSharedReadOnlyTrxs(revision);
+    }
+    if (!ownerDetached) {
+      final JsonNodeReadOnlyTrx owner = ownerTrx;
+      captureDetachedMetadata(owner);
+      try {
+        owner.close();
+      } finally {
+        ownerTrx = null;
+        ownerDetached = true;
+      }
+    }
+  }
+
+  private void captureDetachedMetadata(final JsonNodeReadOnlyTrx owner) {
+    detachedResourceSession = owner.getResourceSession();
+    detachedRevision = owner.getRevisionNumber();
+    detachedId = owner.getId();
   }
 
   // -- getDeweyID: not in ForwardingJsonNodeReadOnlyTrx defaults --

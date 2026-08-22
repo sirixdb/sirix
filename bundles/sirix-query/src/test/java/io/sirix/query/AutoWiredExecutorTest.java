@@ -289,8 +289,8 @@ public final class AutoWiredExecutorTest {
   /**
    * The cache is bounded, so an executor can be closed while a query compiled against it is still
    * reachable. That has to degrade, not fail: the worker pool is gone, so the scan runs inline, and
-   * a closed record transaction is reopened. Committing repeatedly is the cheapest way to overflow
-   * a cache keyed by {@code (database, resource, revision)}.
+   * lazy record cursors remain owned by the resource session. Committing repeatedly is the cheapest
+   * way to overflow a cache keyed by {@code (database, resource, revision)}.
    */
   @Test
   public void anEvictedExecutorStillAnswersTheQueryThatHoldsIt() throws IOException {

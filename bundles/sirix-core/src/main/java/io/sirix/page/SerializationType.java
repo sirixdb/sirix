@@ -60,7 +60,8 @@ public enum SerializationType {
       try {
         serializeBitSet(out, bitmap);
 
-        for (final PageReference pageReference : pageReferences) {
+        for (int index = 0; index < pageReferences.size(); index++) {
+          final PageReference pageReference = pageReferences.get(index);
           writePageFragments(out, pageReference);
           writeHash(out, pageReference);
         }
@@ -70,15 +71,16 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences, List<Short> offsets) {
+    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences, ShortList offsets) {
       try {
         out.writeByte((byte) pageReferences.size());
-        for (final PageReference pageReference : pageReferences) {
+        for (int index = 0; index < pageReferences.size(); index++) {
+          final PageReference pageReference = pageReferences.get(index);
           writePageFragments(out, pageReference);
           writeHash(out, pageReference);
         }
-        for (final short offset : offsets) {
-          out.writeShort(offset);
+        for (int index = 0; index < offsets.size(); index++) {
+          out.writeShort(offsets.getShort(index));
         }
       } catch (final IOException e) {
         throw new SirixIOException(e);
@@ -132,15 +134,10 @@ public enum SerializationType {
     @Override
     public void serializeFullReferencesPage(BytesOut<?> out, PageReference[] pageReferences) {
       try {
-        final BitSet bitSet = new BitSet(Constants.INP_REFERENCE_COUNT);
-        for (int i = 0, size = pageReferences.length; i < size; i++) {
-          if (pageReferences[i] != null) {
-            bitSet.set(i, true);
-          }
-        }
-        serializeBitSet(out, bitSet);
+        serializeReferencePresence(out, pageReferences);
 
-        for (final PageReference pageReference : pageReferences) {
+        for (int index = 0; index < pageReferences.length; index++) {
+          final PageReference pageReference = pageReferences[index];
           if (pageReference != null) {
             // writePageFragments already writes pageReference.getKey() as its trailing long, so the
             // former explicit out.writeLong(getKey()) here duplicated the key (8 wasted bytes/ref).
@@ -176,29 +173,22 @@ public enum SerializationType {
     }
   };
 
-  /** Page hashes are always XXH3-64 — exactly 8 bytes when present. */
-  private static final int PAGE_HASH_BYTES = 8;
-
   private static void writeHash(BytesOut<?> out, PageReference pageReference) throws IOException {
     // One presence flag byte instead of the old [i32 len] prefix for an always-8-byte value —
     // 3 bytes saved per reference (IndirectPages carry up to 1024 of them).
-    final byte[] hash = pageReference.getHash();
-    if (hash == null) {
+    if (!pageReference.hasHash()) {
       out.writeByte((byte) 0);
     } else {
-      if (hash.length != PAGE_HASH_BYTES) {
-        throw new IllegalStateException("Page hash must be " + PAGE_HASH_BYTES + " bytes, got " + hash.length);
-      }
       out.writeByte((byte) 1);
-      out.write(hash);
+      // BytesOut primitives are little-endian, while the established checksum wire is the
+      // canonical big-endian representation produced by HashAlgorithm.longToBytes().
+      out.writeLong(Long.reverseBytes(pageReference.getHashAsLong()));
     }
   }
 
   private static void readHash(BytesIn<?> in, PageReference reference) throws IOException {
     if (in.readByte() != 0) {
-      final byte[] hash = new byte[PAGE_HASH_BYTES];
-      in.read(hash);
-      reference.setHash(hash);
+      reference.setHash(Long.reverseBytes(in.readLong()));
     }
   }
 
@@ -224,7 +214,8 @@ public enum SerializationType {
       throw new IllegalStateException("Too many page fragments to serialize: " + keys.size() + " (max 255)");
     }
     out.writeByte((byte) keys.size());
-    for (final PageFragmentKey key : keys) {
+    for (int index = 0; index < keys.size(); index++) {
+      final PageFragmentKey key = keys.get(index);
       out.writeInt(key.revision());
       out.writeLong(key.key());
     }
@@ -232,10 +223,46 @@ public enum SerializationType {
   }
 
   public static void serializeBitSet(BytesOut<?> out, final BitSet bitmap) {
-    final var bytes = bitmap.toByteArray();
-    final int len = bytes.length;
-    out.writeShort((short) len);
-    out.write(bytes);
+    final int byteLength = Math.toIntExact((bitmap.length() + 7L) >>> 3);
+    if (byteLength > Short.MAX_VALUE) {
+      throw new IllegalStateException("Bitmap wire length exceeds signed-short limit: " + byteLength);
+    }
+    out.writeShort((short) byteLength);
+
+    int nextSetBit = bitmap.nextSetBit(0);
+    for (int byteIndex = 0; byteIndex < byteLength; byteIndex++) {
+      final int byteStartBit = byteIndex << 3;
+      final int byteEndBit = byteStartBit + Byte.SIZE;
+      int byteValue = 0;
+      while (nextSetBit >= byteStartBit && nextSetBit < byteEndBit) {
+        byteValue |= 1 << (nextSetBit - byteStartBit);
+        nextSetBit = bitmap.nextSetBit(nextSetBit + 1);
+      }
+      out.writeByte((byte) byteValue);
+    }
+  }
+
+  /** Serialize a full delegate's presence bitmap directly from indexed references. */
+  private static void serializeReferencePresence(final BytesOut<?> out, final PageReference[] references) {
+    int lastPresent = references.length - 1;
+    while (lastPresent >= 0 && references[lastPresent] == null) {
+      lastPresent--;
+    }
+    final int byteLength = lastPresent < 0
+        ? 0
+        : (lastPresent >>> 3) + 1;
+    out.writeShort((short) byteLength);
+    for (int byteIndex = 0; byteIndex < byteLength; byteIndex++) {
+      final int referenceBase = byteIndex << 3;
+      final int referenceEnd = Math.min(referenceBase + Byte.SIZE, references.length);
+      int byteValue = 0;
+      for (int referenceIndex = referenceBase; referenceIndex < referenceEnd; referenceIndex++) {
+        if (references[referenceIndex] != null) {
+          byteValue |= 1 << (referenceIndex - referenceBase);
+        }
+      }
+      out.writeByte((byte) byteValue);
+    }
   }
 
   public static BitSet deserializeBitSet(BytesIn<?> in) {
@@ -265,7 +292,7 @@ public enum SerializationType {
    * @throws SirixIOException if an I/O error occurs.
    */
   public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
-      List<Short> offsets);
+      ShortList offsets);
 
   /**
    * Deserialize all page references.

@@ -9,7 +9,7 @@ import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
 import io.sirix.index.Indexes;
-import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.ResourceSession;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexChangeListener;
@@ -53,6 +53,10 @@ import static java.util.Objects.requireNonNull;
 public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     implements IndexController<R, W> {
 
+  private static final ChangeListener[] NO_CHANGE_LISTENERS = new ChangeListener[0];
+
+  private static final PathNodeKeyChangeListener[] NO_PRIMITIVE_LISTENERS = new PathNodeKeyChangeListener[0];
+
   /**
    * The index types.
    */
@@ -67,6 +71,15 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    * Set of primitive listeners for allocation-conscious hot-path notifications.
    */
   private final Set<PathNodeKeyChangeListener> primitiveListeners;
+
+  /**
+   * Dense snapshots used by the per-node notification path. Index listeners change only at
+   * transaction/index lifecycle boundaries; iterating the backing {@link HashSet} for every JSON
+   * node would allocate one iterator per notification.
+   */
+  private ChangeListener[] listenerSnapshot = NO_CHANGE_LISTENERS;
+
+  private PathNodeKeyChangeListener[] primitiveListenerSnapshot = NO_PRIMITIVE_LISTENERS;
 
   /**
    * Used to provide path indexes.
@@ -119,6 +132,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         primitiveListeners.add(primitiveListener);
       }
     }
+    refreshListenerSnapshots();
     this.pathIndex = pathIndex;
     this.casIndex = casIndex;
     this.nameIndex = nameIndex;
@@ -212,22 +226,27 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public void notifyChange(final ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    if (listeners.isEmpty()) {
-      return;
-    }
-    for (final ChangeListener listener : listeners) {
-      listener.listen(type, node, pathNodeKey);
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].listen(type, node, pathNodeKey);
     }
   }
 
   @Override
   public void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind, final long pathNodeKey,
       final @Nullable QNm name, final @Nullable Str value) {
-    if (primitiveListeners.isEmpty()) {
-      return;
+    final PathNodeKeyChangeListener[] activeListeners = primitiveListenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].listen(type, nodeKey, nodeKind, pathNodeKey, name, value);
     }
-    for (final PathNodeKeyChangeListener primitiveListener : primitiveListeners) {
-      primitiveListener.listen(type, nodeKey, nodeKind, pathNodeKey, name, value);
+  }
+
+  @Override
+  public void notifyChange(final ChangeType type, final long nodeKey, final NodeKind nodeKind, final long parentKey,
+      final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+    final PathNodeKeyChangeListener[] activeListeners = primitiveListenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].listen(type, nodeKey, nodeKind, parentKey, pathNodeKey, name, value);
     }
   }
 
@@ -268,6 +287,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         }
       }
     }
+
+    refreshListenerSnapshots();
 
     return this;
   }
@@ -319,7 +340,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   private @Nullable ProjectionIndexChangeListener projectionListenerFor(final int indexDefId) {
-    for (final PathNodeKeyChangeListener listener : primitiveListeners) {
+    final PathNodeKeyChangeListener[] activeListeners = primitiveListenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      final PathNodeKeyChangeListener listener = activeListeners[i];
       if (listener instanceof final ProjectionIndexChangeListener projectionListener
           && projectionListener.indexDefId() == indexDefId) {
         return projectionListener;
@@ -341,6 +364,20 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     requireNonNull(nodeWriteTrx);
     if (indexDefs.isEmpty()) {
       return this;
+    }
+
+    // A load-time projection owns process-wide state outside the transaction's page log. Dropping its
+    // definition removes the only listener that can finish or abort that state, so retire the exact
+    // listener owner before touching the catalogue. Do not abort the remaining projection listeners:
+    // dropIndexes rebinds those below, and a successful intermediate commit may deliberately keep
+    // their streaming builders alive across listener epochs.
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        final ProjectionIndexChangeListener projectionListener = projectionListenerFor(indexDef.getID());
+        if (projectionListener != null) {
+          projectionListener.transactionAborted();
+        }
+      }
     }
 
     // 1. Remove from the catalogue (marks it dirty so the reduced catalogue is persisted on commit).
@@ -384,25 +421,72 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   public void clearChangeListeners() {
     listeners.clear();
     primitiveListeners.clear();
+    listenerSnapshot = NO_CHANGE_LISTENERS;
+    primitiveListenerSnapshot = NO_PRIMITIVE_LISTENERS;
     // Wtx handle cache entries are bound to listener instances — clearing
     // the listeners invalidates them (and releases the decoded payloads).
     uncommittedHandles.clear();
   }
 
   @Override
-  public void applyPendingIndexMaintenance() {
+  public void applyPendingIndexMaintenance(final boolean finalCommit) {
     // Uniform listener lifecycle: every listener gets the commit-time hook;
     // eagerly-maintained index types (PATH/CAS/NAME/valid-time) keep the
     // default no-op, batching types (projection) apply their pending work.
-    for (final ChangeListener listener : listeners) {
-      listener.beforeCommit();
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].beforeCommit(finalCommit);
     }
   }
 
   @Override
+  public void notifyBeforePageFlush() {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].beforePageFlush();
+    }
+  }
+
+  @Override
+  public void notifyTransactionAbort() {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].transactionAborted();
+    }
+    // Wtx-serving handles are tied to the listener's maintenance epoch and may retain decoded
+    // payloads from the lineage that is about to disappear.
+    uncommittedHandles.clear();
+  }
+
+  @Override
   public void notifyStructuralChange() {
-    for (final ChangeListener listener : listeners) {
-      listener.structuralChange();
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].structuralChange();
+    }
+  }
+
+  @Override
+  public void notifyBeforeStructuralChange(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].beforeStructuralChange(movedNodeKey);
+    }
+  }
+
+  @Override
+  public void notifyAfterStructuralChange(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].afterStructuralChange(movedNodeKey);
+    }
+  }
+
+  @Override
+  public void notifyStructuralChangeAborted(final long movedNodeKey) {
+    final ChangeListener[] activeListeners = listenerSnapshot;
+    for (int i = 0; i < activeListeners.length; i++) {
+      activeListeners[i].structuralChangeAborted(movedNodeKey);
     }
   }
 
@@ -431,6 +515,15 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       throw new IllegalStateException(
           "Listener does not support primitive change events: " + listener.getClass().getName());
     }
+  }
+
+  private void refreshListenerSnapshots() {
+    listenerSnapshot = listeners.isEmpty()
+        ? NO_CHANGE_LISTENERS
+        : listeners.toArray(ChangeListener[]::new);
+    primitiveListenerSnapshot = primitiveListeners.isEmpty()
+        ? NO_PRIMITIVE_LISTENERS
+        : primitiveListeners.toArray(PathNodeKeyChangeListener[]::new);
   }
 
   private ChangeListener createPathIndexListener(final StorageEngineWriter storageEngineWriter,
@@ -558,11 +651,9 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
     // Committed reader — the cached catalog front-end (probe + decoded-leaf
     // tiers keyed by resource and revision).
-    if (storageEngineReader.getResourceSession() instanceof final JsonResourceSession jsonSession) {
-      return ProjectionIndexCatalog.lookupCovering(jsonSession,
-          jsonSession.getResourceConfig().getResource().toString(),
-          storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
-    }
-    return null;
+    final ResourceSession<?, ?> session = storageEngineReader.getResourceSession();
+    return ProjectionIndexCatalog.lookupCovering(session,
+        session.getResourceConfig().getResource().toString(),
+        storageEngineReader.getRevisionNumber(), sourcePath, requiredFields);
   }
 }

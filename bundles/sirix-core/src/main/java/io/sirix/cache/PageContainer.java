@@ -49,11 +49,24 @@ import org.jspecify.annotations.Nullable;
  */
 public final class PageContainer {
 
+  /** Sentinel for a container which is not installed in a transaction-intent-log slot. */
+  public static final long NULL_TRANSACTION_LOG_IDENTITY = -1L;
+
   /** {@link KeyValueLeafPage} reference, which references the complete key/value page. */
   private final Page complete;
 
   /** {@link KeyValueLeafPage} reference, which references the modified key/value page. */
   private final Page modified;
+
+  /**
+   * Transient in-memory identity of the TIL slot currently owning this container.
+   *
+   * <p>The value packs {@code (generation, logKey)} and is deliberately excluded from equality,
+   * hashing, and page serialization. A same-generation replacement receives the same identity;
+   * resolving that identity through the TIL therefore yields the replacement rather than a stale
+   * page retained by a caller.</p>
+   */
+  private long transactionLogIdentity = NULL_TRANSACTION_LOG_IDENTITY;
 
   /** Empty instance. */
   private static final PageContainer EMPTY_INSTANCE = new PageContainer(null, null);
@@ -107,6 +120,20 @@ public final class PageContainer {
    */
   public Page getModified() {
     return modified;
+  }
+
+  /**
+   * Return the exact transaction-log identity assigned when this container was installed.
+   *
+   * @return packed {@code (generation, logKey)}, or {@link #NULL_TRANSACTION_LOG_IDENTITY}
+   */
+  public long getTransactionLogIdentity() {
+    return transactionLogIdentity;
+  }
+
+  /** Bind this container to an exact TIL slot. Package-private: only the owning log may stamp it. */
+  void setTransactionLogIdentity(final int generation, final int logKey) {
+    transactionLogIdentity = ((long) generation << 32) | (logKey & 0xFFFFFFFFL);
   }
 
   /**

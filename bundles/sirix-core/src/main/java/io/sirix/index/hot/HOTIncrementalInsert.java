@@ -9,11 +9,13 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 
 /**
@@ -31,6 +33,17 @@ import java.util.function.LongSupplier;
  * @author Johannes Lichtenberger
  */
 public final class HOTIncrementalInsert {
+
+  /**
+   * Diagnostic: leaf splits that carried a segment-reference side map onto their halves. The
+   * shape is rare (only the projection index attaches side maps, and only an overflowing
+   * ref-bearing leaf reaches here), so a test that means to exercise
+   * {@link #routeSegmentRefs} must assert this counter moved.
+   */
+  public static final AtomicLong SPLIT_SEGMENT_REF_CARRIES = new AtomicLong();
+
+  /** Diagnostic: individual segment references re-homed by {@link #routeSegmentRefs}. */
+  public static final AtomicLong SPLIT_SEGMENT_REFS_ROUTED = new AtomicLong();
 
   private HOTIncrementalInsert() {
     throw new AssertionError("utility class — static primitives only");
@@ -69,8 +82,16 @@ public final class HOTIncrementalInsert {
    * this leaf's {@code R(S)}-subtree; if it duplicates an existing key the values are OR-merged
    * ({@link #mergeIndexValues}). Tombstones are entries and are carried through unchanged.
    *
-   * <p><b>Purity.</b> Allocates only new pages; never mutates or closes {@code source}. The
-   * caller owns {@code source}'s lifecycle (it becomes an orphaned page after the splice).
+   * <p><b>Segment references.</b> A leaf's side map (projection-index segment references,
+   * {@code docs/PROJECTION_INDEX_STORAGE_REDESIGN.md} §2.3) is not part of the {@code (key,
+   * value)} entry set, so the rebuilt halves would not carry it. Each reference is re-homed onto
+   * the half that now holds its OWNING SLOT ({@link #routeSegmentRefs}) — the owner-slot-residency
+   * contract {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} applies to the in-place split
+   * variants, and {@code AbstractHOTIndexWriter#reattachSegmentRefs} to the rebuild paths.
+   *
+   * <p><b>Purity.</b> Allocates only new pages; never mutates or closes {@code source} (its side
+   * map is copied onto the halves, not moved off it). The caller owns {@code source}'s lifecycle
+   * (it becomes an orphaned page after the splice).
    *
    * @param source           the overflowing leaf page (≥ 2 entries; the caller checks
    *                         {@link HOTLeafPage#canSplit()})
@@ -89,15 +110,6 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(newValue, "newValue");
     Objects.requireNonNull(indexType, "indexType");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
-    // Loud backstop: this split rebuilds both halves from (key, value) pairs and abandons the
-    // source leaf — a segment-reference side map would be silently dropped. Projection trees
-    // (the only side-map users) split via HOTLeafPage's instrumented split variants instead;
-    // fail attributably if the wiring ever routes them here.
-    if (source.segmentRefCount() > 0) {
-      throw new IllegalStateException("Incremental leaf split would drop " + source.segmentRefCount()
-          + " segment reference(s) on leaf pageKey=" + source.getPageKey()
-          + " — this split path is not instrumented for segment-ref routing.");
-    }
 
     // The sorted, distinct union of the leaf's entries with the new one spliced in at its
     // lexicographic position (its value OR-merged into an existing key, if present).
@@ -139,8 +151,83 @@ public final class HOTIncrementalInsert {
 
     final Page left = buildHalf(union.subList(0, m), revision, indexType, pageKeyAllocator);
     final Page right = buildHalf(union.subList(m, n), revision, indexType, pageKeyAllocator);
+    if (source.segmentRefCount() > 0) {
+      routeSegmentRefs(source, left, right, splitBit);
+    }
     final int height = 1 + Math.max(heightOf(left), heightOf(right));
     return new BiNode(splitBit, height, swizzle(left), swizzle(right));
+  }
+
+  /**
+   * Re-home {@code source}'s segment-reference side map onto the split halves: every reference
+   * lands on the leaf that now holds its owning slot, so a reader navigating to the post-split
+   * leaf finds the slot AND its out-of-line segment page.
+   *
+   * <p>A reference key encodes its owner as {@code (ownerSlot << 16) | subId}
+   * ({@code HOTLeafPage#overflowPageRefKey}), and the owner's stored key bytes are
+   * {@link PathKeySerializer}'s encoding of {@code ownerSlot} — the same derivation
+   * {@code HOTLeafPage#moveOverflowPageRefsAfterSplit} and
+   * {@code HOTTrieWriter#redistributeLeafKeysIfMisrouted} use. The owning slot is an entry of
+   * {@code source}, hence of the union, hence of exactly one half — the one selected by the
+   * owner key's {@code splitBit} (the union's partition predicate); the other half is probed as a
+   * backstop. Residency is decided by {@link HOTLeafPage#findEntry}, never by a routed descent:
+   * the reference must sit on the page that PHYSICALLY holds the slot, exactly as
+   * {@code moveOverflowPageRefsAfterSplit} decides it. A reference whose owner is in neither half
+   * is data loss and fails loudly.
+   *
+   * <p>References are <em>copied</em>, not moved: {@code source} is abandoned by the splice, and
+   * the same {@link PageReference} instances keep whatever durable key an earlier commit assigned
+   * (an unreachable page is never re-committed), so the halves share the committed segment pages
+   * exactly as the rebuild paths' reattach does.
+   */
+  private static void routeSegmentRefs(final HOTLeafPage source, final Page left, final Page right,
+      final int splitBit) {
+    final long[] refKeys = source.overflowPageRefKeysSorted();
+    final byte[] ownerKey = new byte[HOTLongKeySerializer.SERIALIZED_SIZE];
+    SPLIT_SEGMENT_REF_CARRIES.incrementAndGet();
+    SPLIT_SEGMENT_REFS_ROUTED.addAndGet(refKeys.length);
+    for (int i = 0; i < refKeys.length; i++) {
+      final long refKey = refKeys[i];
+      final long ownerSlot = HOTLeafPage.overflowPageRefOwnerSlot(refKey);
+      PathKeySerializer.INSTANCE.serialize(ownerSlot, ownerKey, 0);
+      final boolean rightSide = HOTBulkBuilder.bitAt(ownerKey, splitBit);
+      HOTLeafPage target = findOwningLeaf(rightSide ? right : left, ownerKey);
+      if (target == null) {
+        target = findOwningLeaf(rightSide ? left : right, ownerKey);
+      }
+      if (target == null) {
+        throw new IllegalStateException(
+            "Incremental leaf split: owning slot " + ownerSlot + " (refKey=" + refKey + ") of leaf pageKey="
+                + source.getPageKey() + " is in neither half — the split dropped an entry it carried.");
+      }
+      target.setPageReference(refKey, source.getPageReference(refKey));
+    }
+  }
+
+  /**
+   * The leaf of {@code half} that physically holds {@code ownerKey}, or {@code null} when the half
+   * does not hold it. A half is a single leaf in the common case; only a half too large for one
+   * page is a {@link HOTBulkBuilder} subtree, and then the walk is bounded by that half's few
+   * pages. Every page of a half is in memory and swizzled onto its reference
+   * ({@link HOTBulkBuilder} and {@link #swizzle}), so this needs no page resolution.
+   */
+  private static @Nullable HOTLeafPage findOwningLeaf(final Page half, final byte[] ownerKey) {
+    if (half instanceof HOTLeafPage leaf) {
+      return leaf.findEntry(ownerKey) >= 0 ? leaf : null;
+    }
+    if (half instanceof HOTIndirectPage indirect) {
+      for (int i = 0; i < indirect.getNumChildren(); i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        final Page child = childRef == null ? null : childRef.getPage();
+        if (child != null) {
+          final HOTLeafPage found = findOwningLeaf(child, ownerKey);
+          if (found != null) {
+            return found;
+          }
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -577,6 +664,51 @@ public final class HOTIncrementalInsert {
         && biNodePairs(node)[leftIndex];
   }
 
+  /** A half-open direct-child range representing one complete flattened BiNode subtree. */
+  record ChildRange(int fromInclusive, int toExclusive) {
+    int size() {
+      return toExclusive - fromInclusive;
+    }
+  }
+
+  /**
+   * Find the smallest complete flattened-BiNode range containing two child slots. A range may have
+   * more than two entries: adjacent partials are not necessarily siblings when one of them shares a
+   * deeper branch with a following entry.
+   */
+  static ChildRange minimalBiNodeRangeContaining(final HOTIndirectPage node,
+      final int firstIndex, final int lastIndex) {
+    Objects.requireNonNull(node, "node");
+    final int n = node.getNumChildren();
+    Objects.checkIndex(firstIndex, n);
+    Objects.checkIndex(lastIndex, n);
+    if (firstIndex >= lastIndex) {
+      throw new IllegalArgumentException(
+          "range endpoints must be ordered and distinct: " + firstIndex + ", " + lastIndex);
+    }
+    return minimalBiNodeRangeContaining(node.getPartialKeysRef(), 0, n - 1, firstIndex,
+        lastIndex);
+  }
+
+  private static ChildRange minimalBiNodeRangeContaining(final int[] partials, final int lo,
+      final int hi, final int firstIndex, final int lastIndex) {
+    if (hi <= lo) {
+      throw new IllegalArgumentException("two distinct child slots cannot fit in a singleton range");
+    }
+    final int splitBit = Integer.highestOneBit(partials[lo] ^ partials[hi]);
+    int mid = lo + 1;
+    while ((partials[mid] & splitBit) == 0) {
+      mid++;
+    }
+    if (lastIndex < mid) {
+      return minimalBiNodeRangeContaining(partials, lo, mid - 1, firstIndex, lastIndex);
+    }
+    if (firstIndex >= mid) {
+      return minimalBiNodeRangeContaining(partials, mid, hi, firstIndex, lastIndex);
+    }
+    return new ChildRange(lo, hi + 1);
+  }
+
   /**
    * Collapse two adjacent BiNode-paired leaf children of {@code node} into a single merged leaf —
    * the inverse of a leaf-page split, the structural core of incremental leaf consolidation. The
@@ -606,27 +738,86 @@ public final class HOTIncrementalInsert {
     Objects.requireNonNull(node, "node");
     Objects.requireNonNull(mergedLeaf, "mergedLeaf");
     Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    return replaceAdjacentPairAndCompress(node, leftIndex, swizzle(mergedLeaf), revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Replace two adjacent BiNode-paired children with one subtree and recompress the surviving
+   * parent entries.
+   *
+   * <p>The replacement occupies the lower child's complete {@code R(S)} region. Removing the upper
+   * child can make one or more of the parent's discriminative-bit columns constant across every
+   * surviving entry. Reusing the old mask in that case leaves a dead column in the parent (and stale
+   * partial-key coordinates). Delegating the entire survivor array to {@link #compressHalf} drops
+   * exactly those columns and repacks every partial atomically.
+   *
+   * <p><b>Purity.</b> This method never mutates {@code node} or {@code replacementRef}. The caller
+   * retains ownership of both until it publishes the returned reference.
+   *
+   * @param node the compound node containing the adjacent pair
+   * @param leftIndex the lower of the two adjacent BiNode-paired child indices
+   * @param replacementRef the subtree replacing both children
+   * @param revision the revision stamped onto the rebuilt parent
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return a recompressed parent, or the replacement itself if it is the lone survivor
+   */
+  static PageReference replaceAdjacentPairAndCompress(final HOTIndirectPage node,
+      final int leftIndex, final PageReference replacementRef, final int revision,
+      final LongSupplier pageKeyAllocator) {
     final int n = node.getNumChildren();
     Objects.checkIndex(leftIndex, n - 1);
     if (!biNodePairs(node)[leftIndex]) {
       throw new IllegalArgumentException("children " + leftIndex + " and " + (leftIndex + 1)
           + " are not BiNode-paired — their union is not a single complete R(S)-subtree");
     }
+    return replaceChildRangeAndCompress(node, leftIndex, leftIndex + 2, replacementRef, revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Replace one complete contiguous flattened-BiNode child range with a subtree, then drop every
+   * parent discriminator column that became constant and repack the survivor partials.
+   *
+   * <p>The range must be exact: broadening or narrowing it would make the replacement cover only a
+   * fragment of an {@code R(S)} region and could redirect keys owned by a surviving sibling. The
+   * replacement inherits the range's lower stored partial before {@link #compressHalf} converts all
+   * survivors into their final coordinates.</p>
+   */
+  static PageReference replaceChildRangeAndCompress(final HOTIndirectPage node,
+      final int fromInclusive, final int toExclusive, final PageReference replacementRef,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(replacementRef, "replacementRef");
+    Objects.requireNonNull(replacementRef.getPage(), "replacementRef.page");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int n = node.getNumChildren();
+    Objects.checkFromToIndex(fromInclusive, toExclusive, n);
+    if (toExclusive - fromInclusive < 2) {
+      throw new IllegalArgumentException("a collapsed child range must contain at least two entries");
+    }
+    final ChildRange exact = minimalBiNodeRangeContaining(node, fromInclusive, toExclusive - 1);
+    if (exact.fromInclusive() != fromInclusive || exact.toExclusive() != toExclusive) {
+      throw new IllegalArgumentException("children [" + fromInclusive + ", " + toExclusive
+          + ") are not one complete flattened BiNode range; minimal complete range is ["
+          + exact.fromInclusive() + ", " + exact.toExclusive() + ")");
+    }
+
     final int[] partials = node.getPartialKeysRef();
     final int[] discBits = discriminativeBits(node);
-    final PageReference[] newChildren = new PageReference[n - 1];
-    final int[] newPartials = new int[n - 1];
-    for (int j = 0; j < n - 1; j++) {
-      if (j < leftIndex) {
-        newChildren[j] = node.getChildReference(j);
-        newPartials[j] = partials[j];
-      } else if (j == leftIndex) {
-        newChildren[j] = swizzle(mergedLeaf);
-        newPartials[j] = partials[leftIndex]; // the lower child already carries the joining bit 0
-      } else {
-        newChildren[j] = node.getChildReference(j + 1);
-        newPartials[j] = partials[j + 1];
-      }
+    final int newCount = n - (toExclusive - fromInclusive) + 1;
+    final PageReference[] newChildren = new PageReference[newCount];
+    final int[] newPartials = new int[newCount];
+    int target = 0;
+    for (int source = 0; source < fromInclusive; source++) {
+      newChildren[target] = node.getChildReference(source);
+      newPartials[target++] = partials[source];
+    }
+    newChildren[target] = replacementRef;
+    newPartials[target++] = partials[fromInclusive];
+    for (int source = toExclusive; source < n; source++) {
+      newChildren[target] = node.getChildReference(source);
+      newPartials[target++] = partials[source];
     }
     return compressHalf(newChildren, newPartials, discBits, revision, pageKeyAllocator);
   }

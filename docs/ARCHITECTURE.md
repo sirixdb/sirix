@@ -2107,6 +2107,20 @@ written: nothing becomes visible, and if the process crashes before the next
 real commit, the pre-flushed bytes are unreachable dead space (equivalent to
 rolled-back bytes in the append-only file).
 
+The transaction rotates at the first safe pre-mutation boundary after either
+of two thresholds is reached. Every epoch is bounded at 16 generation-scoped
+TIL entries (one background serializer window) or 16,384 completed node
+modifications so serializer/JIT and projection-maintenance work cannot
+accumulate into one unbounded production-path latency event. The
+first is an O(1) measure of actual snapshot work; structural entries make it
+conservative because they are pinned before KVL serialization. The second
+bounds the foreground index/projection maintenance performed before a
+rotation. A compound structural operation is never split: if it crosses a
+threshold, rotation waits for that operation's existing safe boundary and the
+resulting snapshot can contain that operation's overshoot. These are
+storage-epoch thresholds only. They neither create revisions nor change the
+versioning or page format.
+
 At the next real commit, each pre-flushed page falls into one of two cases:
 
 - **Unmodified since the snapshot** — the commit reuses the recorded offset
@@ -2312,4 +2326,3 @@ ResourceConfiguration.newBuilder("myresource")
 *Document Version: 1.0*  
 *Last Updated: June 2026*  
 *Author: SirixDB Team*
-

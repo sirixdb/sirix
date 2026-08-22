@@ -5,12 +5,14 @@ package io.sirix.index.projection;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -72,6 +74,17 @@ public final class ProjectionIndexRowGroupCodecTest {
         "decode(encode(raw)) must be byte-identical");
   }
 
+  private static boolean appendOrderAwareRow(final ProjectionIndexRowGroupPage page, final long recordKey,
+      final long value, final boolean orderException) {
+    final byte[][] stringUtf8 = new byte[KINDS.length][];
+    stringUtf8[2] = "x".getBytes(StandardCharsets.UTF_8);
+    final int[] stringUtf8Lengths = new int[KINDS.length];
+    stringUtf8Lengths[2] = stringUtf8[2].length;
+    return page.appendExtractedUtf8Row(recordKey, new long[] {value, 0L, 0L, value}, new boolean[KINDS.length],
+        stringUtf8, stringUtf8Lengths, new String[KINDS.length][], new boolean[] {true, true, true, true},
+        new boolean[KINDS.length], new boolean[KINDS.length], new boolean[KINDS.length], orderException);
+  }
+
   // ==================== round trips ====================
 
   @Test
@@ -98,17 +111,53 @@ public final class ProjectionIndexRowGroupCodecTest {
   }
 
   @Test
-  void nonAscendingKeysAndExtremeValuesRoundTrip() {
+  void nonAscendingDocumentKeysRoundTripWhenExceptionsAreMarked() {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
-    final boolean[] present = {true, true, true, true};
-    final boolean[] unrep = new boolean[4];
     final long[] keys = {900L, 5L, 12_345_678_901L, 3L};
     final long[] extremes = {Long.MIN_VALUE, Long.MAX_VALUE, -1L, 0L};
     for (int i = 0; i < keys.length; i++) {
-      page.appendRow(keys[i], new long[] {extremes[i], 0, 0, i}, new boolean[4],
-          new String[] {"", "", "x", ""}, present, unrep);
+      assertTrue(appendOrderAwareRow(page, keys[i], extremes[i], i == 1 || i == 3));
     }
     assertRoundTrip(page);
+    final ProjectionIndexRowGroupPage restored = ProjectionIndexRowGroupPage.deserialize(
+        ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(page.serialize())));
+    assertArrayEquals(keys, Arrays.copyOf(restored.recordKeys(), keys.length));
+    assertFalse(restored.orderExceptionAt(0));
+    assertTrue(restored.orderExceptionAt(1));
+    assertFalse(restored.orderExceptionAt(2));
+    assertTrue(restored.orderExceptionAt(3));
+    assertEquals(900L, restored.firstRecordKey());
+    assertEquals(12_345_678_901L, restored.lastRecordKey());
+  }
+
+  @Test
+  void v0NoneAndDenseOrderMetadataRoundTripByteIdentically() {
+    final ProjectionIndexRowGroupPage none = new ProjectionIndexRowGroupPage(KINDS);
+    assertTrue(appendOrderAwareRow(none, 2L, 10L, false));
+    assertTrue(appendOrderAwareRow(none, 5L, 20L, false));
+    assertTrue(appendOrderAwareRow(none, 8L, 30L, false));
+
+    final ProjectionIndexRowGroupPage dense = new ProjectionIndexRowGroupPage(KINDS);
+    assertTrue(appendOrderAwareRow(dense, 2L, 10L, false));
+    assertTrue(appendOrderAwareRow(dense, 100L, 20L, true));
+    assertTrue(appendOrderAwareRow(dense, 5L, 30L, false));
+    assertTrue(appendOrderAwareRow(dense, 8L, 40L, false));
+
+    for (final ProjectionIndexRowGroupPage page : List.of(none, dense)) {
+      assertRoundTrip(page);
+    }
+    final ProjectionIndexRowGroupPage restoredNone = ProjectionIndexRowGroupPage.deserialize(
+        ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(none.serialize())));
+    assertFalse(restoredNone.hasOrderExceptions());
+    assertArrayEquals(new long[] {2L, 5L, 8L}, Arrays.copyOf(restoredNone.recordKeys(), 3));
+
+    final ProjectionIndexRowGroupPage restoredDense = ProjectionIndexRowGroupPage.deserialize(
+        ProjectionIndexRowGroupCodec.decode(ProjectionIndexRowGroupCodec.encode(dense.serialize())));
+    assertTrue(restoredDense.hasOrderExceptions());
+    assertArrayEquals(new long[] {2L, 100L, 5L, 8L}, Arrays.copyOf(restoredDense.recordKeys(), 4));
+    assertTrue(restoredDense.orderExceptionAt(1));
+    assertEquals(2L, restoredDense.firstRecordKey());
+    assertEquals(8L, restoredDense.lastRecordKey());
   }
 
   @Test

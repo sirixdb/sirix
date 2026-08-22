@@ -113,26 +113,24 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private final boolean storeChildCount;
 
   /**
-   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are
-   * maintained on PathSummary nodes. Gated once at construction to make the
-   * {@code recordValue}/{@code removeValue} hot path branch-free (JIT dead-code-eliminates
-   * the body when the flag is false).
+   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are maintained on
+   * PathSummary nodes. Gated once at construction to make the {@code recordValue}/{@code removeValue}
+   * hot path branch-free (JIT dead-code-eliminates the body when the flag is false).
    */
   private final boolean withPathStatistics;
 
   /**
    * Deferred per-path statistics accumulator. The naive path calls
-   * {@link StorageEngineWriter#prepareRecordForModification} — a COW op — once
-   * per value insert, on top of the stats-update itself. On a 100M-record
-   * shred that's hundreds of millions of COWs just to maintain per-path
-   * aggregates. Here we keep the pending deltas in a primitive-keyed map
-   * and flush them to the underlying PathNodes in one pass at commit (or
-   * when the map exceeds a sanity threshold). Distinct-path cardinality in
-   * real JSON schemas is O(10-100), so the map is tiny in practice.
+   * {@link StorageEngineWriter#prepareRecordForModification} — a COW op — once per value insert, on
+   * top of the stats-update itself. On a 100M-record shred that's hundreds of millions of COWs just
+   * to maintain per-path aggregates. Here we keep the pending deltas in a primitive-keyed map and
+   * flush them to the underlying PathNodes in one pass at commit (or when the map exceeds a sanity
+   * threshold). Distinct-path cardinality in real JSON schemas is O(10-100), so the map is tiny in
+   * practice.
    *
-   * <p>Semantics: values deferred here are NOT yet visible to readers of
-   * the PathSummary. Queries that need live stats must call
-   * {@link #flushPendingStats()} before opening a reader. The standard
+   * <p>
+   * Semantics: values deferred here are NOT yet visible to readers of the PathSummary. Queries that
+   * need live stats must call {@link #flushPendingStats()} before opening a reader. The standard
    * commit path does so via the pre-commit hook in
    * {@link io.sirix.access.trx.node.AbstractNodeTrxImpl}.
    */
@@ -142,17 +140,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private static final int MAX_PENDING_PATH_ENTRIES = 4096;
 
   /**
-   * Per-path insert-side delta carried by {@link #pendingStats}. Remove
-   * paths flush synchronously so we don't carry remove deltas here. Fields
-   * track only the state needed to merge into a PathNode's stats in one
-   * pass: count / sum / min / max / null-count for numeric; bytes min/max
-   * for strings; HLL batched into a local sketch that's unioned on flush.
-   * Kind is recorded so mixed-type updates (rare but defensible) keep the
-   * right lane.
+   * Per-path insert-side delta carried by {@link #pendingStats}. Remove paths flush synchronously so
+   * we don't carry remove deltas here. Fields track only the state needed to merge into a PathNode's
+   * stats in one pass: count / sum / min / max / null-count for numeric; bytes min/max for strings;
+   * HLL batched into a local sketch that's unioned on flush. Kind is recorded so mixed-type updates
+   * (rare but defensible) keep the right lane.
    *
-   * <p>Objects are recycled: on flush we don't allocate a fresh
-   * {@code DeferredStats} per path; we clear in place via {@link #reset()}
-   * so the map is zero-alloc after the warm-up phase.
+   * <p>
+   * Objects are recycled: on flush we don't allocate a fresh {@code DeferredStats} per path; we clear
+   * in place via {@link #reset()} so the map is zero-alloc after the warm-up phase.
    */
   private static final class DeferredStats {
     /** Kind marker: 0 = none, 1 = long, 2 = bytes. */
@@ -172,11 +168,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     byte[] maxBytes;
     HyperLogLogSketch hll;
     /**
-     * Leaf-page keys witnessed during this batch. Small set — typically
-     * O(distinct pages touched since the last flush for this path) which
-     * is bounded by {@code MAX_PENDING_PATH_ENTRIES} / distinct paths.
-     * Lazily allocated so paths that never feed the page-skip index pay
-     * no extra state.
+     * Leaf-page keys witnessed during this batch. Small set — typically O(distinct pages touched since
+     * the last flush for this path) which is bounded by {@code MAX_PENDING_PATH_ENTRIES} / distinct
+     * paths. Lazily allocated so paths that never feed the page-skip index pay no extra state.
      */
     IntOpenHashSet seenPages;
 
@@ -196,33 +190,56 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       minBytes = null;
       maxBytes = null;
       hll = null;
-      if (seenPages != null) seenPages.clear();
+      if (seenPages != null)
+        seenPages.clear();
     }
 
     void recordPage(final int pageKey) {
-      if (pageKey < 0) return;
-      if (seenPages == null) seenPages = new IntOpenHashSet(4);
+      if (pageKey < 0)
+        return;
+      if (seenPages == null)
+        seenPages = new IntOpenHashSet(4);
       seenPages.add(pageKey);
     }
 
     void addLong(final long v) {
       kind = 1;
       count++;
-      sum += v;
-      if (v < min) min = v;
-      if (v > max) max = v;
-      if (hll == null) hll = new HyperLogLogSketch();
+      addToSum(v);
+      if (v < min)
+        min = v;
+      if (v > max)
+        max = v;
+      if (hll == null)
+        hll = new HyperLogLogSketch();
       hll.add(v);
+    }
+
+    /**
+     * Folds {@code delta} into {@link #sum}, marking the value statistics untrusted instead of wrapping
+     * when this accumulator would overflow. A column of 64-bit ids overflows a long after a few dozen
+     * values, and a wrapped total served as {@code sum}/{@code avg} is silently the true total modulo
+     * 2^64 — the same bargain NaN makes above: record that it cannot be reproduced and let the query
+     * fall back to the scan.
+     */
+    void addToSum(final long delta) {
+      final long updated = sum + delta;
+      if (((sum ^ updated) & (delta ^ updated)) < 0) {
+        valueStatsUntrusted = true;
+        return;
+      }
+      sum = updated;
     }
 
     /**
      * Non-integral observation: integral part into {@link #sum}, remainder into the fraction.
      *
-     * <p>NaN and the infinities carry nothing to accumulate and nothing to subtract later, and
-     * folding them in silently poisons the accumulators for good: {@code (long) NaN} is 0 while
+     * <p>
+     * NaN and the infinities carry nothing to accumulate and nothing to subtract later, and folding
+     * them in silently poisons the accumulators for good: {@code (long) NaN} is 0 while
      * {@code NaN - NaN} is NaN, so {@code sumFraction} would stay NaN forever, and casting the
-     * infinities yields {@code Long.MIN_VALUE}/{@code Long.MAX_VALUE} straight into min/max. They
-     * mark the sum and the bounds untrusted instead, which is the same bargain a delete makes.
+     * infinities yields {@code Long.MIN_VALUE}/{@code Long.MAX_VALUE} straight into min/max. They mark
+     * the sum and the bounds untrusted instead, which is the same bargain a delete makes.
      */
     void addDouble(final double v) {
       kind = 1;
@@ -230,27 +247,36 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       count++;
       if (Double.isNaN(v) || Double.isInfinite(v)) {
         valueStatsUntrusted = true;
-        if (hll == null) hll = new HyperLogLogSketch();
+        if (hll == null)
+          hll = new HyperLogLogSketch();
         hll.add(Double.doubleToLongBits(v));
         return;
       }
-      final double integral = v < 0 ? Math.ceil(v) : Math.floor(v);
-      sum += (long) integral;
+      final double integral = v < 0
+          ? Math.ceil(v)
+          : Math.floor(v);
+      addToSum((long) integral);
       sumFraction += v - integral;
       final long lower = (long) Math.floor(v);
       final long upper = (long) Math.ceil(v);
-      if (lower < min) min = lower;
-      if (upper > max) max = upper;
-      if (hll == null) hll = new HyperLogLogSketch();
+      if (lower < min)
+        min = lower;
+      if (upper > max)
+        max = upper;
+      if (hll == null)
+        hll = new HyperLogLogSketch();
       hll.add(Double.doubleToLongBits(v));
     }
 
     void addBytes(final byte[] v) {
       kind = 2;
       count++;
-      if (minBytes == null || Arrays.compareUnsigned(v, minBytes) < 0) minBytes = v.clone();
-      if (maxBytes == null || Arrays.compareUnsigned(v, maxBytes) > 0) maxBytes = v.clone();
-      if (hll == null) hll = new HyperLogLogSketch();
+      if (minBytes == null || Arrays.compareUnsigned(v, minBytes) < 0)
+        minBytes = v.clone();
+      if (maxBytes == null || Arrays.compareUnsigned(v, maxBytes) > 0)
+        maxBytes = v.clone();
+      if (hll == null)
+        hll = new HyperLogLogSketch();
       hll.add(v);
     }
 
@@ -264,7 +290,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
   private DeferredStats acquireDeferredStats() {
     final DeferredStats d = deferredStatsPool.pollFirst();
-    return d != null ? d : new DeferredStats();
+    return d != null
+        ? d
+        : new DeferredStats();
   }
 
   private void releaseDeferredStats(final DeferredStats d) {
@@ -280,8 +308,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param nodeFactory The node factory to create path nodes
    * @param rtx the read-only trx
    */
-  public PathSummaryWriter(final StorageEngineWriter storageEngineWriter, final ResourceSession<R, ? extends NodeTrx> resMgr,
-      final NodeFactory nodeFactory, final R rtx) {
+  public PathSummaryWriter(final StorageEngineWriter storageEngineWriter,
+      final ResourceSession<R, ? extends NodeTrx> resMgr, final NodeFactory nodeFactory, final R rtx) {
     this.storageEngineWriter = requireNonNull(storageEngineWriter);
     pathSummaryReader = PathSummaryReader.getInstance(storageEngineWriter, resMgr);
     nodeRtx = requireNonNull(rtx);
@@ -289,7 +317,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
     withPathStatistics = resMgr.getResourceConfig().withPathStatistics;
     // Tiny initial capacity — real JSON schemas see O(10-100) distinct paths.
-    pendingStats = withPathStatistics ? new Long2ObjectOpenHashMap<>(32) : null;
+    pendingStats = withPathStatistics
+        ? new Long2ObjectOpenHashMap<>(32)
+        : null;
   }
 
   /**
@@ -305,13 +335,17 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Look up or create an {@code __array__/ARRAY} child path node under the path summary entry
    * identified by {@code parentPathNodeKey}, then return that ARRAY child's path node key.
    *
-   * <p>iter#32 P2 structural fusion: a single {@code OBJECT_NAMED_ARRAY} record collapses the
-   * legacy {@code OBJECT_KEY + ARRAY} pair. Path-summary semantics still need the {@code []}
-   * (anonymous-array) layer so that user paths like {@code /features/[]/type} resolve. This
-   * helper anchors the ARRAY layer underneath the OBJECT_KEY layer the field name created.</p>
+   * <p>
+   * iter#32 P2 structural fusion: a single {@code OBJECT_NAMED_ARRAY} record collapses the legacy
+   * {@code OBJECT_KEY + ARRAY} pair. Path-summary semantics still need the {@code []}
+   * (anonymous-array) layer so that user paths like {@code /features/[]/type} resolve. This helper
+   * anchors the ARRAY layer underneath the OBJECT_KEY layer the field name created.
+   * </p>
    *
-   * <p>Idempotent: if an {@code __array__/ARRAY} child already exists, its reference count is
-   * incremented and the existing key is returned.</p>
+   * <p>
+   * Idempotent: if an {@code __array__/ARRAY} child already exists, its reference count is
+   * incremented and the existing key is returned.
+   * </p>
    *
    * @param parentPathNodeKey path node key of the OBJECT_KEY parent (must be a valid path node)
    * @return path node key of the {@code __array__/ARRAY} child (existing or freshly inserted)
@@ -323,8 +357,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     final QNm arrayName = ARRAY_PATH_QNM;
     final long existing = pathSummaryReader.findChild(parentPathNodeKey, arrayName, NodeKind.ARRAY);
     if (existing >= 0) {
-      final PathNode pathNode =
-          storageEngineWriter.prepareRecordForModification(existing, IndexType.PATH_SUMMARY, 0);
+      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(existing, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
       persistPathSummaryRecord(pathNode);
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -340,8 +373,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   public static final QNm ARRAY_PATH_QNM = new QNm("__array__");
 
   /**
-   * Look up the parent path node key (an OBJECT_KEY entry) of an {@code __array__/ARRAY} path
-   * entry — used to balance ref counts when a fused {@code OBJECT_NAMED_ARRAY} record is removed.
+   * Look up the parent path node key (an OBJECT_KEY entry) of an {@code __array__/ARRAY} path entry —
+   * used to balance ref counts when a fused {@code OBJECT_NAMED_ARRAY} record is removed.
    *
    * @param arrayPathNodeKey path node key of an {@code __array__/ARRAY} entry
    * @return parent OBJECT_KEY path node key, or {@code -1L} if not found / not an array entry
@@ -365,9 +398,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Decrement the reference count on the path-summary entry identified by {@code pathNodeKey}.
-   * If the resulting count is zero, the path subtree is removed (matches the {@link
-   * #remove(ImmutableNameNode)} contract). Used to balance the parent OBJECT_KEY ref the fused
+   * Decrement the reference count on the path-summary entry identified by {@code pathNodeKey}. If the
+   * resulting count is zero, the path subtree is removed (matches the
+   * {@link #remove(ImmutableNameNode)} contract). Used to balance the parent OBJECT_KEY ref the fused
    * {@code OBJECT_NAMED_ARRAY} insertion bumped via {@link #getArrayChildPathNodeKey(long)}.
    *
    * @param pathNodeKey path node key whose reference count should be decremented
@@ -391,17 +424,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Rename an existing OBJECT_KEY path-summary entry in place (does not move it among siblings).
-   * Used when {@code setObjectKeyName} renames a fused {@link NodeKind#OBJECT_NAMED_ARRAY} field
-   * — the OBJECT_KEY layer that carries the field name lives one level above the fused record's
+   * Rename an existing OBJECT_KEY path-summary entry in place (does not move it among siblings). Used
+   * when {@code setObjectKeyName} renames a fused {@link NodeKind#OBJECT_NAMED_ARRAY} field — the
+   * OBJECT_KEY layer that carries the field name lives one level above the fused record's
    * {@code __array__/ARRAY} pathNodeKey, so the rename targets that parent entry.
    *
    * @param objectKeyPathNodeKey path node key of the OBJECT_KEY entry to rename
-   * @param newName              new name for the entry
-   * @param newLocalNameKey      pre-allocated NamePage local-name key for the new name
+   * @param newName new name for the entry
+   * @param newLocalNameKey pre-allocated NamePage local-name key for the new name
    */
-  public long renameObjectKeyPathEntry(final long objectKeyPathNodeKey, final QNm newName,
-      final int newLocalNameKey) {
+  public long renameObjectKeyPathEntry(final long objectKeyPathNodeKey, final QNm newName, final int newLocalNameKey) {
     if (objectKeyPathNodeKey < 0) {
       return -1;
     }
@@ -421,8 +453,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       // EXCLUSIVE path class: rename in place, and refresh the (parent, name, kind) child-lookup
       // cache — without the refresh, findChild for the OLD name kept resolving to this renamed
       // entry, so a later insert of a field with the old name incremented the WRONG path class.
-      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(objectKeyPathNodeKey,
-          IndexType.PATH_SUMMARY, 0);
+      final PathNode pathNode =
+          storageEngineWriter.prepareRecordForModification(objectKeyPathNodeKey, IndexType.PATH_SUMMARY, 0);
       pathNode.setPrefixKey(-1);
       pathNode.setLocalNameKey(newLocalNameKey);
       pathNode.setURIKey(-1);
@@ -450,8 +482,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     pathSummaryReader.moveTo(parentKey);
     long newObjectKeyEntry = pathSummaryReader.findChild(parentKey, newName, pathKind);
     if (newObjectKeyEntry >= 0) {
-      final PathNode newEntry = storageEngineWriter.prepareRecordForModification(newObjectKeyEntry,
-          IndexType.PATH_SUMMARY, 0);
+      final PathNode newEntry =
+          storageEngineWriter.prepareRecordForModification(newObjectKeyEntry, IndexType.PATH_SUMMARY, 0);
       newEntry.incrementReferenceCount();
       persistPathSummaryRecord(newEntry);
       pathSummaryReader.putMapping(newEntry.getNodeKey(), newEntry);
@@ -482,6 +514,56 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     final long parentNodeKey = pathSummaryReader.getNodeKey();
 
+    return getPathNodeKey(name, pathKind, parentNodeKey, level);
+  }
+
+  /**
+   * Insert or resolve a path node below an explicitly known path-summary parent.
+   *
+   * <p>This is the cursor-independent twin of {@link #getPathNodeKey(QNm, NodeKind)}. Insert callers
+   * that already know the structural parent's path node key must not move the document cursor to the
+   * parent merely so this writer can discover the same key again. The path-summary cursor is still
+   * positioned on the explicit parent before a miss is inserted, preserving the ordinary method's
+   * lookup, reference-count, and insertion semantics.</p>
+   *
+   * @param parentPathNodeKey path node key of the new entry's parent; {@code 0} is the document root
+   * @param name the name of the path node to search for
+   * @param pathKind the kind of the path node to search for
+   * @return the existing or newly inserted child path node key
+   */
+  public long getPathNodeKey(final long parentPathNodeKey, final QNm name, final NodeKind pathKind) {
+    requireNonNull(name);
+    requireNonNull(pathKind);
+    if (parentPathNodeKey < Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
+    }
+    if (!pathSummaryReader.moveTo(parentPathNodeKey)) {
+      throw new IllegalStateException("Path-summary parent does not exist: " + parentPathNodeKey);
+    }
+    final int parentLevel = parentPathNodeKey == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()
+        ? 0
+        : pathSummaryReader.getLevel();
+    return getPathNodeKey(name, pathKind, parentPathNodeKey, parentLevel);
+  }
+
+  /**
+   * Resolve a path node's parent without moving the path-summary cursor.
+   *
+   * @param pathNodeKey child path node key
+   * @return its parent path node key, or {@code -1} when the child is absent or is the document root
+   */
+  public long getParentPathNodeKey(final long pathNodeKey) {
+    final PathNode pathNode = pathSummaryReader.getPathNodeForPathNodeKey(pathNodeKey);
+    return pathNode == null
+        ? Fixed.NULL_NODE_KEY.getStandardProperty()
+        : pathNode.getParentKey();
+  }
+
+  private long getPathNodeKey(final QNm name, final NodeKind pathKind, final long parentNodeKey,
+      final int parentLevel) {
+    requireNonNull(name);
+    requireNonNull(pathKind);
+
     // Use O(1) cache lookup instead of O(n) ChildAxis iteration
     // The child name for lookup - handle namespace prefix case
     final QNm lookupName = pathKind == NodeKind.NAMESPACE
@@ -501,7 +583,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     } else {
       // Child not found - insert new path node
       assert parentNodeKey == pathSummaryReader.getNodeKey();
-      insertPathAsFirstChild(name, pathKind, level + 1);
+      insertPathAsFirstChild(name, pathKind, parentLevel + 1);
       retVal = pathSummaryReader.getNodeKey();
     }
     return retVal;
@@ -528,11 +610,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
 
     final var node = nodeRtx.getNode();
-    throw new IllegalStateException("movePathSummary: unexpected node kind=" + currentKind
-        + " nodeClass=" + (node != null ? node.getClass().getName() : "null")
-        + " nodeKey=" + nodeRtx.getNodeKey()
-        + " pathNodeKey=" + pathNodeKey
-        + " instanceOfImmutableNameNode=" + (node instanceof ImmutableNameNode));
+    throw new IllegalStateException("movePathSummary: unexpected node kind=" + currentKind + " nodeClass="
+        + (node != null
+            ? node.getClass().getName()
+            : "null")
+        + " nodeKey=" + nodeRtx.getNodeKey() + " pathNodeKey=" + pathNodeKey + " instanceOfImmutableNameNode="
+        + (node instanceof ImmutableNameNode));
   }
 
   /**
@@ -573,7 +656,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     assert newNode != null;
 
     if (newNode instanceof StructNode strucNode) {
-      final StructNode parent = storageEngineWriter.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
+      final StructNode parent =
+          storageEngineWriter.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
       if (storeChildCount) {
         parent.incrementChildCount();
       }
@@ -620,7 +704,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Fused OBJECT_NAMED_* records are represented as OBJECT_KEY entries in the path summary, so
     // the filter needs the logical path kind, not the physical record kind.
     final NodeKind nodeKind = node.getKind();
-    final NodeKind pathFilterKind = nodeKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : nodeKind;
+    final NodeKind pathFilterKind = nodeKind.isFusedAnyNamed()
+        ? NodeKind.OBJECT_NAMED_OBJECT
+        : nodeKind;
     if (type == OPType.SETNAME && pathSummaryReader.getReferences() == 1) {
       moveSummaryGetLevel(node);
       // Search for new path entry.
@@ -681,7 +767,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           final NodeKind rtxKind = nodeRtx.getKind();
           if (rtxKind == NodeKind.ELEMENT || rtxKind.playsObjectKeyRole()) {
             // Fused OBJECT_NAMED_* play the OBJECT_KEY role in the path-summary.
-            final NodeKind pathKind = rtxKind == NodeKind.ELEMENT ? NodeKind.ELEMENT : NodeKind.OBJECT_NAMED_OBJECT;
+            final NodeKind pathKind = rtxKind == NodeKind.ELEMENT
+                ? NodeKind.ELEMENT
+                : NodeKind.OBJECT_NAMED_OBJECT;
             // Path Summary : New mapping.
             if (firstRun) {
               insertPathAsFirstChild(name, pathKind, ++level);
@@ -771,9 +859,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param localNameKey key of local name
    * @throws SirixException if Sirix fails to do so
    */
-  private void processFoundPathNode(final long oldPathNodeKey, final long newPathNodeKey,
-      final long oldNodeKey, final QNm name, final int uriKey, final int prefixKey,
-      final int localNameKey) {
+  private void processFoundPathNode(final long oldPathNodeKey, final long newPathNodeKey, final long oldNodeKey,
+      final QNm name, final int uriKey, final int prefixKey, final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
     // Set new reference count of the root.
@@ -859,7 +946,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Fused OBJECT_NAMED_* records live in the path summary under the OBJECT_KEY pathKind, so
     // normalise the physical record kind to the logical path kind for filtering.
     final NodeKind rtxKind = nodeRtx.getKind();
-    final NodeKind pathFilterKind = rtxKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : rtxKind;
+    final NodeKind pathFilterKind = rtxKind.isFusedAnyNamed()
+        ? NodeKind.OBJECT_NAMED_OBJECT
+        : rtxKind;
     // Search for new path entry.
     final Axis axis =
         new FilterAxis<>(new LevelOrderAxis.Builder(pathSummaryReader).filterLevel(level).includeSelf().build(),
@@ -882,7 +971,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Insert new node. Fused OBJECT_NAMED_* records share the OBJECT_KEY pathKind slot.
     final NodeKind rtxKind = nodeRtx.getKind();
-    final NodeKind pathKind = rtxKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : rtxKind;
+    final NodeKind pathKind = rtxKind.isFusedAnyNamed()
+        ? NodeKind.OBJECT_NAMED_OBJECT
+        : rtxKind;
     insertPathAsFirstChild(nodeRtx.getName(), pathKind, pathSummaryReader.getLevel() + 1);
 
     // Set reference count to one.
@@ -920,7 +1011,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void setNewPathNodeKey() {
-    final NameNode node = storageEngineWriter.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final NameNode node =
+        storageEngineWriter.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
     node.setPathNodeKey(pathSummaryReader.getNodeKey());
     persistDocumentRecord(node);
   }
@@ -970,10 +1062,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Reset a path node key on a document record.
    *
-   * <p>Applies to every record that implements {@link NameNode}: XML {@code ELEMENT/ATTRIBUTE/
-   * NAMESPACE}, JSON legacy {@code OBJECT_KEY}, and the iter#30 fused {@code OBJECT_NAMED_*}
-   * kinds. Each of those types stores its own {@code pathNodeKey}; the narrow {@code NameNode}
-   * interface exposes the setter uniformly. A previous implementation cast the else branch to
+   * <p>
+   * Applies to every record that implements {@link NameNode}: XML {@code ELEMENT/ATTRIBUTE/
+   * NAMESPACE}, JSON legacy {@code OBJECT_KEY}, and the iter#30 fused {@code OBJECT_NAMED_*} kinds.
+   * Each of those types stores its own {@code pathNodeKey}; the narrow {@code NameNode} interface
+   * exposes the setter uniformly. A previous implementation cast the else branch to
    * {@code ObjectKeyNode}, which blew up with a {@code ClassCastException} as soon as
    * {@code sirix.json.fuseNamedPrimitives=true} moved a primitive-valued field.
    *
@@ -1024,8 +1117,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Adapt left sibling node if there is one.
     if (pathSummaryReader.hasLeftSibling()) {
-      final StructNode leftSibling =
-          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
+      final StructNode leftSibling = storageEngineWriter.prepareRecordForModification(
+          pathSummaryReader.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
       leftSibling.setRightSiblingKey(pathSummaryReader.getRightSiblingKey());
       persistPathSummaryRecord(leftSibling);
       pathSummaryReader.putMapping(leftSibling.getNodeKey(), leftSibling);
@@ -1033,8 +1126,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Adapt right sibling node if there is one.
     if (pathSummaryReader.hasRightSibling()) {
-      final StructNode rightSibling =
-          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
+      final StructNode rightSibling = storageEngineWriter.prepareRecordForModification(
+          pathSummaryReader.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
       rightSibling.setLeftSiblingKey(pathSummaryReader.getLeftSiblingKey());
       persistPathSummaryRecord(rightSibling);
       pathSummaryReader.putMapping(rightSibling.getNodeKey(), rightSibling);
@@ -1107,8 +1200,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void decrementAndPersist(final long nodeKey) {
-    final PathNode pathNode =
-        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.PATH_SUMMARY, 0);
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.decrementReferenceCount();
     persistPathSummaryRecord(pathNode);
     pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -1131,13 +1223,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   // =====================================================================
 
   /**
-   * Record a numeric value observation for the path identified by {@code pathNodeKey}.
-   * No-op if path statistics are disabled or the key is negative (no path node).
+   * Record a numeric value observation for the path identified by {@code pathNodeKey}. No-op if path
+   * statistics are disabled or the key is negative (no path node).
    *
-   * <p>Update is deferred into {@link #pendingStats}; the actual PathNode
-   * COW happens at flush time (commit or size-threshold). This turns N
-   * value inserts per path into 1 COW per path per commit, a ~4-5 order
-   * magnitude reduction for analytical shreds.
+   * <p>
+   * Update is deferred into {@link #pendingStats}; the actual PathNode COW happens at flush time
+   * (commit or size-threshold). This turns N value inserts per path into 1 COW per path per commit, a
+   * ~4-5 order magnitude reduction for analytical shreds.
    */
   public void recordValue(final long pathNodeKey, final long numericValue) {
     recordValue(pathNodeKey, numericValue, -1L);
@@ -1159,13 +1251,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * {@code pageSourceNodeKey}-aware variant. The caller passes the node
-   * key of the just-inserted value node (or its enclosing OBJECT_KEY);
-   * the leaf pageKey is derived as
-   * {@code nodeKey >>> INP_REFERENCE_COUNT_EXPONENT} and folded into the
-   * PathNode's presence bitmap at flush time. Pass {@code -1L} to skip
-   * page-skip tracking — callers that don't yet have the nodeKey (or
-   * resources where the bitmap is useless) can use the un-keyed overload.
+   * {@code pageSourceNodeKey}-aware variant. The caller passes the node key of the just-inserted
+   * value node (or its enclosing OBJECT_KEY); the leaf pageKey is derived as
+   * {@code nodeKey >>> INP_REFERENCE_COUNT_EXPONENT} and folded into the PathNode's presence bitmap
+   * at flush time. Pass {@code -1L} to skip page-skip tracking — callers that don't yet have the
+   * nodeKey (or resources where the bitmap is useless) can use the un-keyed overload.
    */
   public void recordValue(final long pathNodeKey, final long numericValue, final long pageSourceNodeKey) {
     if (!withPathStatistics || pathNodeKey < 0) {
@@ -1180,12 +1270,12 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Record a numeric observation given as a {@code double}, exactly.
    *
-   * <p>The integral part joins the long accumulator and the remainder is carried separately, so a
-   * non-integral column no longer loses its fraction on the way in — which is what made a summary
-   * sum silently disagree with the scan.
+   * <p>
+   * The integral part joins the long accumulator and the remainder is carried separately, so a
+   * non-integral column no longer loses its fraction on the way in — which is what made a summary sum
+   * silently disagree with the scan.
    */
-  public void recordValue(final long pathNodeKey, final double numericValue,
-      final long pageSourceNodeKey) {
+  public void recordValue(final long pathNodeKey, final double numericValue, final long pageSourceNodeKey) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
@@ -1225,7 +1315,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       return;
     }
     final DeferredStats d = acquireOrCreate(pathNodeKey);
-    d.addLong(value ? 1L : 0L);
+    d.addLong(value
+        ? 1L
+        : 0L);
     recordPageFor(d, pageSourceNodeKey);
     maybeFlushIfOverflow();
   }
@@ -1250,9 +1342,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private static void recordPageFor(final DeferredStats d, final long nodeKey) {
-    if (nodeKey < 0L) return;
+    if (nodeKey < 0L)
+      return;
     final long pk = nodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
-    if (pk > Integer.MAX_VALUE) return; // bitmap is int-keyed; above 2^31 pages, skip tracking
+    if (pk > Integer.MAX_VALUE)
+      return; // bitmap is int-keyed; above 2^31 pages, skip tracking
     d.recordPage((int) pk);
   }
 
@@ -1265,12 +1359,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
   /**
    * Apply every deferred stats delta to its PathNode via a single
-   * {@link StorageEngineWriter#prepareRecordForModification} per path, then
-   * clear the map. Called by {@link io.sirix.access.trx.node.AbstractNodeTrxImpl}
-   * as the first pre-commit step AND by readers that need live stats.
+   * {@link StorageEngineWriter#prepareRecordForModification} per path, then clear the map. Called by
+   * {@link io.sirix.access.trx.node.AbstractNodeTrxImpl} as the first pre-commit step AND by readers
+   * that need live stats.
    *
-   * <p>Safe to call when {@code withPathStatistics == false} (no-op) or when
-   * the pending map is empty. Idempotent; back-to-back calls are cheap.
+   * <p>
+   * Safe to call when {@code withPathStatistics == false} (no-op) or when the pending map is empty.
+   * Idempotent; back-to-back calls are cheap.
    */
   public void flushPendingStats() {
     if (!withPathStatistics || pendingStats == null || pendingStats.isEmpty()) {
@@ -1300,10 +1395,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Merge one {@link DeferredStats} into a PathNode in a single update.
-   * Splice the precomputed aggregates directly; HLL is union-merged with
-   * the node's existing sketch. Remove paths don't flow through here —
-   * they flush-then-synchronously-apply.
+   * Merge one {@link DeferredStats} into a PathNode in a single update. Splice the precomputed
+   * aggregates directly; HLL is union-merged with the node's existing sketch. Remove paths don't flow
+   * through here — they flush-then-synchronously-apply.
    */
   private static void applyDeferredStats(final PathNode pn, final DeferredStats d) {
     if (d.kind == 1 && d.count > 0) {
@@ -1332,11 +1426,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Decrement stats on delete. Flushes any pending inserts first so the
-   * dirty-bound check sees the correct pre-delete state, then applies the
-   * decrement synchronously. Removes are much rarer than inserts in
-   * analytical shreds; the per-remove flush is cheap (flushes are O(distinct
-   * paths) and typically O(10)).
+   * Decrement stats on delete. Flushes any pending inserts first so the dirty-bound check sees the
+   * correct pre-delete state, then applies the decrement synchronously. Removes are much rarer than
+   * inserts in analytical shreds; the per-remove flush is cheap (flushes are O(distinct paths) and
+   * typically O(10)).
    */
   public void removeValue(final long pathNodeKey, final long numericValue) {
     if (!withPathStatistics || pathNodeKey < 0) {
@@ -1397,31 +1490,35 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * The path node to fold a statistics update into, or {@code null} when it no longer exists.
    *
-   * <p>Removing the last occurrence of a path deletes its {@link PathNode} and leaves a
-   * {@link io.sirix.node.DeletedNode} tombstone at the same key. The statistics live ON that node,
-   * so once it is gone there is nothing to decrement — but the delete path still asks, and the
-   * unchecked cast turned that ordinary sequence into a ClassCastException. It went unnoticed
-   * because path statistics were opt-in: every delete under the feature's own configuration
-   * crashed, and no default-configuration test could reach it.
+   * <p>
+   * Removing the last occurrence of a path deletes its {@link PathNode} and leaves a
+   * {@link io.sirix.node.DeletedNode} tombstone at the same key. The statistics live ON that node, so
+   * once it is gone there is nothing to decrement — but the delete path still asks, and the unchecked
+   * cast turned that ordinary sequence into a ClassCastException. It went unnoticed because path
+   * statistics were opt-in: every delete under the feature's own configuration crashed, and no
+   * default-configuration test could reach it.
    */
   private @Nullable PathNode pathNodeForStatUpdate(final long pathNodeKey) {
-    final DataRecord record =
-        storageEngineWriter.prepareRecordForModification(pathNodeKey, IndexType.PATH_SUMMARY, 0);
-    return record instanceof PathNode pathNode ? pathNode : null;
+    final DataRecord record = storageEngineWriter.prepareRecordForModification(pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    return record instanceof PathNode pathNode
+        ? pathNode
+        : null;
   }
 
   /**
    * Mark the statistics of {@code pathNodeKey} and every path below it stale.
    *
-   * <p>The blunt instrument, kept for a caller that genuinely cannot attribute what changed.
-   * Subtree moves no longer use it: they subtract each moved record's observation from its old
-   * path and add it back under the new one, which keeps {@code count} exact on both ends — see
+   * <p>
+   * The blunt instrument, kept for a caller that genuinely cannot attribute what changed. Subtree
+   * moves no longer use it: they subtract each moved record's observation from its old path and add
+   * it back under the new one, which keeps {@code count} exact on both ends — see
    * {@code JsonNodeTrxImpl#transferPathStatsForMovedSubtree}. Reach for this only when the set of
    * affected records is genuinely unknowable, and note what it costs: nothing clears
    * {@code countDirty}, and the reader disqualifies every aggregate on a stale count, so one call
    * switches summary-served aggregates off for a whole path subtree for the life of the resource.
    *
-   * <p>Descendants are included because a move re-parents a whole subtree, not one node.
+   * <p>
+   * Descendants are included because a move re-parents a whole subtree, not one node.
    */
   public void invalidateStatsForMovedSubtree(final long pathNodeKey) {
     if (!withPathStatistics || pathNodeKey <= 0) {
@@ -1445,8 +1542,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     long childKey = pathNode.getFirstChildKey();
     while (childKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
       final PathNode child = pathSummaryReader.getPathNodeForPathNodeKey(childKey);
-      final long nextSibling =
-          child == null ? Fixed.NULL_NODE_KEY.getStandardProperty() : child.getRightSiblingKey();
+      final long nextSibling = child == null
+          ? Fixed.NULL_NODE_KEY.getStandardProperty()
+          : child.getRightSiblingKey();
       markStaleRecursively(childKey);
       childKey = nextSibling;
     }

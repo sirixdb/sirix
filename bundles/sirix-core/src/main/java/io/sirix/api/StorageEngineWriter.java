@@ -250,6 +250,23 @@ public interface StorageEngineWriter extends StorageEngineReader {
    */
   void commit(PageReference reference);
 
+  /**
+   * Stage a fresh immutable {@link io.sirix.page.OverflowPage} for the writer's bounded background
+   * append batch.
+   *
+   * <p>This is intentionally narrower than {@link #commit(PageReference)}: the page must not be
+   * reachable from any committed root, must never be mutated, and its owner must tolerate the
+   * append becoming an unreachable orphan until transaction rollback reclaims the uncommitted
+   * tail. Implementations return {@code false} when their backend cannot reclaim such a tail; the
+   * page then stays resident and ordinary recursive commit writes it safely.</p>
+   *
+   * @param reference fresh unresolved reference whose page is an immutable OverflowPage
+   * @return {@code true} if ownership moved into a bounded pending-write batch
+   */
+  default boolean stageUncommittedOverflowPage(final PageReference reference) {
+    return false;
+  }
+
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**
@@ -270,6 +287,24 @@ public interface StorageEngineWriter extends StorageEngineReader {
   default void setWriteSingletonBinder(final WriteSingletonBinder binder) {
     // Default no-op; NodeStorageEngineWriter overrides
   }
+
+  /**
+   * Permanently mark this page transaction rollback-only after an already-published structural
+   * mutation fails. The first cause is authoritative; later failures must not replace it.
+   *
+   * <p>This is distinct from an asynchronous-flush failure: the page graph may already contain a
+   * partially propagated in-memory splice, so no commit or later mutation may continue on this
+   * writer. Rollback closes it and creates a fresh writer with a clear state.</p>
+   *
+   * @param cause the failure that made the transaction unsafe to commit
+   */
+  void markTransactionRollbackOnly(Throwable cause);
+
+  /**
+   * Reject work on a writer previously marked by {@link #markTransactionRollbackOnly(Throwable)}.
+   * Implementations must report the original structural cause.
+   */
+  void assertTransactionWritable();
 
   /**
    * Allocate a record key and resolve the KVL page for direct-to-heap creation.
@@ -310,6 +345,28 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * or MEMORY_MAPPED backend (both append through the file-channel writer).</p>
    */
   default void asyncFlush() {}
+
+  /**
+   * Whether the live transaction-intent-log generation has reached the bounded amount of work for
+   * one async-flush epoch.
+   *
+   * <p>The node transaction samples this only at its existing compound-operation-safe pre-mutation
+   * boundary. Implementations that do not support async TIL rotation retain the default
+   * {@code false} result.</p>
+   *
+   * @return {@code true} when the foreground should rotate the current async-flush epoch
+   */
+  default boolean isAsyncFlushLogBoundaryReached() {
+    return false;
+  }
+
+  /**
+   * Record the duration of one complete foreground async-flush rotation, including index
+   * maintenance performed before {@link #asyncFlush()}.
+   *
+   * @param elapsedNanos non-negative elapsed time in nanoseconds
+   */
+  default void recordAsyncFlushForegroundNanos(final long elapsedNanos) {}
 
   /**
    * Phase 1 of a pipelined commit: create the commit marker, serialize and write every modified

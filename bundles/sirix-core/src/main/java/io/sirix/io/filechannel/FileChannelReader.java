@@ -23,6 +23,7 @@ package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import it.unimi.dsi.fastutil.ints.IntArrays;
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -39,7 +40,6 @@ import io.sirix.settings.StringCompressionType;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
-import io.sirix.page.KeyValueLeafPage;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -222,8 +222,8 @@ public final class FileChannelReader extends AbstractReader {
    */
   private void readFully(final ByteBuffer buffer, final long offset, final String what) throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = dataFileChannel.read(buffer, offset + buffer.position());
-      if (n < 0) {
+      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      if (n <= 0) {
         throw new SirixIOException("Truncated " + what + " at offset " + offset
             + " — the data file ends before the expected " + buffer.limit() + " bytes.");
       }
@@ -231,6 +231,17 @@ public final class FileChannelReader extends AbstractReader {
   }
 
   public Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, false);
+  }
+
+  @Override
+  public Page readRecordPageLazily(final PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
+    return read(reference, resourceConfiguration, true);
+  }
+
+  private Page read(final PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration,
+      final boolean lazyRecordPage) {
     // First pread: 4-byte length header. Uses a pooled buffer so we can size the
     // data buffer exactly for the second pread.
     ByteBuffer buffer = acquireBuffer(4);
@@ -263,12 +274,12 @@ public final class FileChannelReader extends AbstractReader {
       if (byteHandler.supportsMemorySegments()) {
         final MemorySegment segment = MemorySegment.ofBuffer(buffer);
         verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
-        return deserializeFromSegment(resourceConfiguration, segment, reference);
+        return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
       } else {
         final byte[] page = new byte[dataLength];
         buffer.get(page);
         verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-        return deserialize(resourceConfiguration, page, reference);
+        return deserialize(resourceConfiguration, page, reference, lazyRecordPage);
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -379,9 +390,10 @@ public final class FileChannelReader extends AbstractReader {
       chunk.flip();
       // The bitmap is copied out of the thread-local scratch: the page outlives this call and the
       // scratch is reused by the next page this thread reads.
+      // probe[3] is the page's FSST dictionary id, which only a chunked body states this early; a
+      // monolith page reports "none" here and is kept off this path by regionChunkEligible.
       return deserializeRegionTableFromChunk(resourceConfiguration, MemorySegment.ofBuffer(chunk), probe[0],
-          (int) probe[1], (int) probe[2], KeyValueLeafPage.NO_FSST_SYMBOL_TABLE_ID, regionKindMask, regionDeferMask,
-          bitmap.clone());
+          (int) probe[1], (int) probe[2], probe[3], regionKindMask, regionDeferMask, bitmap.clone());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     } finally {
@@ -392,8 +404,8 @@ public final class FileChannelReader extends AbstractReader {
   /** Read up to the buffer's limit; a short read at EOF is expected here, not an error. */
   private void readAtMost(final ByteBuffer buffer, final long offset) throws IOException {
     while (buffer.hasRemaining()) {
-      final int n = dataFileChannel.read(buffer, offset + buffer.position());
-      if (n < 0) {
+      final int n = readAt(dataFileChannel, buffer, offset + buffer.position());
+      if (n <= 0) {
         break;
       }
     }
@@ -600,7 +612,7 @@ public final class FileChannelReader extends AbstractReader {
       final ByteBuffer slot = ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES);
       int position = 0;
       while (slot.hasRemaining()) {
-        final int read = dataFileChannel.read(slot, offset + position);
+        final int read = readAt(dataFileChannel, slot, offset + position);
         if (read <= 0) {
           break; // EOF — short slot is handled by the verifier
         }
@@ -640,7 +652,7 @@ public final class FileChannelReader extends AbstractReader {
       buffer.order(ByteOrder.LITTLE_ENDIAN);
       int bytesRead = 0;
       while (buffer.hasRemaining()) {
-        final int read = revisionsOffsetFileChannel.read(buffer, fileOffset + bytesRead);
+        final int read = readAt(revisionsOffsetFileChannel, buffer, fileOffset + bytesRead);
         if (read <= 0) {
           // Crash-shortened revisions file (or a zero-byte read, legal per the FileChannel
           // contract): under lazy revision records the trailing records may never have reached
@@ -743,7 +755,7 @@ public final class FileChannelReader extends AbstractReader {
   private void healRevisionRecord(final int revision, final RevisionFileData ringRecord) {
     try {
       final ByteBuffer magicProbe = ByteBuffer.allocate(Superblock.MAGIC.length);
-      final int probeRead = revisionsOffsetFileChannel.read(magicProbe, 0);
+      final int probeRead = readAt(revisionsOffsetFileChannel, magicProbe, 0L);
       if (probeRead < Superblock.MAGIC.length) {
         return;
       }
@@ -761,7 +773,7 @@ public final class FileChannelReader extends AbstractReader {
           ByteBuffer.allocate(IOStorage.REVISIONS_FILE_RECORD_SIZE).order(ByteOrder.LITTLE_ENDIAN);
       int currentRead = 0;
       while (current.hasRemaining()) {
-        final int n = revisionsOffsetFileChannel.read(current, recordOffset + currentRead);
+        final int n = readAt(revisionsOffsetFileChannel, current, recordOffset + currentRead);
         if (n <= 0) {
           break;
         }
@@ -785,14 +797,24 @@ public final class FileChannelReader extends AbstractReader {
       record.putLong(pageHash);
       record.flip();
       while (record.hasRemaining()) {
-        if (revisionsOffsetFileChannel.write(record, recordOffset + record.position()) <= 0) {
+        final int written = revisionsOffsetFileChannel.write(record, recordOffset + record.position());
+        if (written <= 0) {
           throw new IOException("Revision-record heal stalled: no progress");
         }
+        HftBoundaryTelemetry.storageWrite(written);
       }
     } catch (final IOException | RuntimeException healFailure) {
       LOGGER.warn("Salvaged revision record {} could not be healed back into the revisions file", revision,
           healFailure);
     }
+  }
+
+  private static int readAt(final FileChannel channel, final ByteBuffer buffer, final long offset) throws IOException {
+    final int read = channel.read(buffer, offset);
+    if (read > 0) {
+      HftBoundaryTelemetry.storageRead(read);
+    }
+    return read;
   }
 
   @Override

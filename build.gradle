@@ -299,6 +299,11 @@ subprojects {
         testLogging {
             events "failed"
             exceptionFormat "short"
+            // Opt-in only: the forked JVM's stdout/stderr is the only way to read the
+            // -Dsirix.*Diag route traces, and it is far too noisy to carry by default.
+            if (System.getenv("SIRIX_TEST_STREAMS") != null) {
+                showStandardStreams = true
+            }
         }
         // Re-print every failure at the END of the run: the GitHub Actions
         // log API only serves a bounded tail, so per-test failure lines from

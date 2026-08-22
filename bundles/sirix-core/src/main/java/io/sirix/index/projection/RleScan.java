@@ -190,10 +190,14 @@ public final class RleScan {
       case GE -> value >= lit;
       case LE -> value <= lit;
       case EQ -> value == lit;
+      case NE -> value != lit;
       case BETWEEN_GT_LT -> value > lit && value < high;
       case BETWEEN_GT_LE -> value > lit && value <= high;
       case BETWEEN_GE_LT -> value >= lit && value < high;
       case BETWEEN_GE_LE -> value >= lit && value <= high;
+      // RLE runs carry numeric values only; a string op reaching this kernel is a routing defect.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op in the RLE run kernel: " + op);
     };
   }
 }

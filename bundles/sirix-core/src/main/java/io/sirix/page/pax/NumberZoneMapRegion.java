@@ -4,8 +4,10 @@
 package io.sirix.page.pax;
 
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 
 /**
  * The per-tag min/max of {@link NumberRegion}, lifted out of the compressed payload into a region
@@ -62,6 +64,12 @@ import java.nio.ByteOrder;
  */
 public final class NumberZoneMapRegion {
 
+  /** Maximum tags a 1024-slot leaf page normally contains; used only to pre-size scratch. */
+  private static final int PAGE_MAX_DICT_SIZE = 1024;
+
+  /** Returned by {@link #encodeInto} when the source has no zone map to publish. */
+  public static final int ENCODE_FAILED = -1;
+
   /** Current wire format version. */
   public static final byte VERSION_V1 = 1;
 
@@ -70,6 +78,12 @@ public final class NumberZoneMapRegion {
 
   /** Bytes each tag contributes: dict + count + min + max. */
   private static final int BYTES_PER_TAG = 4 + 4 + 8 + 8;
+
+  private static final VarHandle INT_LE =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+
+  private static final VarHandle LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   private NumberZoneMapRegion() {
   }
@@ -173,30 +187,93 @@ public final class NumberZoneMapRegion {
    *         which case there is nothing worth writing
    */
   public static byte[] encode(final NumberRegion.Header source) {
-    if (source == null || source.tagMin == null || source.tagMax == null || source.dictSize <= 0) {
+    if (!encodable(source)) {
       return null;
     }
+    final int encodedLength = encodedSize(source.dictSize);
+    final byte[] retainedScratch = ENCODE_SCRATCH.get();
+    // The compatibility API accepts headers larger than a page. Keep that behavior without letting
+    // one exceptional call pin an unbounded byte array on a long-lived serializer thread.
+    final byte[] scratch = retainedScratch.length >= encodedLength
+        ? retainedScratch
+        : new byte[encodedLength];
+    final int written = encodeInto(source, scratch);
+    return written == ENCODE_FAILED ? null : Arrays.copyOf(scratch, written);
+  }
+
+  /**
+   * Encode into caller-owned reusable storage.
+   *
+   * <p>The returned prefix is valid only until {@code out} is reused. A retaining caller must copy
+   * it first; {@link RegionTable#set(byte, byte[], int)} performs that copy synchronously.
+   *
+   * @return bytes written, or {@link #ENCODE_FAILED} when the source carries no per-tag zone map
+   */
+  public static int encodeInto(final NumberRegion.Header source, final byte[] out) {
+    if (out == null) {
+      throw new NullPointerException("out must be non-null");
+    }
+    if (!encodable(source)) {
+      return ENCODE_FAILED;
+    }
     final int dictSize = source.dictSize;
-    final byte[] out = new byte[FIXED_BYTES + dictSize * BYTES_PER_TAG];
-    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(VERSION_V1);
-    bb.put(source.tagKind);
-    bb.putLong(source.valueMin);
-    bb.putLong(source.valueMax);
-    bb.putInt(dictSize);
+    requireArrayLength("dict", source.dict, dictSize);
+    requireArrayLength("tagCount", source.tagCount, dictSize);
+    requireArrayLength("tagMin", source.tagMin, dictSize);
+    requireArrayLength("tagMax", source.tagMax, dictSize);
+
+    final int encodedLength = encodedSize(dictSize);
+    if (out.length < encodedLength) {
+      throw new IllegalArgumentException("output too small: " + out.length + " bytes for " + encodedLength);
+    }
+
+    int offset = 0;
+    out[offset++] = VERSION_V1;
+    out[offset++] = source.tagKind;
+    LONG_LE.set(out, offset, source.valueMin);
+    offset += Long.BYTES;
+    LONG_LE.set(out, offset, source.valueMax);
+    offset += Long.BYTES;
+    INT_LE.set(out, offset, dictSize);
+    offset += Integer.BYTES;
     for (int i = 0; i < dictSize; i++) {
-      bb.putInt(source.dict[i]);
+      INT_LE.set(out, offset, source.dict[i]);
+      offset += Integer.BYTES;
     }
     for (int i = 0; i < dictSize; i++) {
-      bb.putInt(source.tagCount[i]);
+      INT_LE.set(out, offset, source.tagCount[i]);
+      offset += Integer.BYTES;
     }
     for (int i = 0; i < dictSize; i++) {
-      bb.putLong(source.tagMin[i]);
+      LONG_LE.set(out, offset, source.tagMin[i]);
+      offset += Long.BYTES;
     }
     for (int i = 0; i < dictSize; i++) {
-      bb.putLong(source.tagMax[i]);
+      LONG_LE.set(out, offset, source.tagMax[i]);
+      offset += Long.BYTES;
     }
-    return out;
+    return offset;
+  }
+
+  private static boolean encodable(final NumberRegion.Header source) {
+    if (source == null || source.tagMin == null || source.tagMax == null || source.dictSize <= 0) {
+      return false;
+    }
+    return true;
+  }
+
+  private static void requireArrayLength(final String name, final int[] values, final int length) {
+    if (values == null || values.length < length) {
+      throw new IllegalArgumentException(name + " has length " + (values == null ? 0 : values.length)
+          + ", expected at least " + length);
+    }
+  }
+
+  private static void requireArrayLength(final String name, final long[] values, final int length) {
+    if (values == null || values.length < length) {
+      throw new IllegalArgumentException(name + " has length " + (values == null ? 0 : values.length)
+          + ", expected at least " + length);
+    }
   }
 
   /** Exact encoded size for {@code dictSize} tags, for sizing assertions and diagnostics. */
@@ -206,4 +283,7 @@ public final class NumberZoneMapRegion {
     }
     return FIXED_BYTES + dictSize * BYTES_PER_TAG;
   }
+
+  private static final ThreadLocal<byte[]> ENCODE_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[encodedSize(PAGE_MAX_DICT_SIZE)]);
 }

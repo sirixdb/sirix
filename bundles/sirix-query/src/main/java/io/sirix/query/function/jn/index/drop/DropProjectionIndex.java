@@ -120,6 +120,7 @@ public final class DropProjectionIndex extends AbstractFunction {
   private static void dropAll(final Set<IndexDef> toDrop, final JsonIndexController controller,
       final JsonNodeTrx wtx) {
     if (!toDrop.isEmpty()) {
+      wtx.awaitPendingAsyncCommit();
       controller.dropIndexes(toDrop, wtx);
       // Tombstone each dropped sub-tree's metadata slot: with the listener
       // gone, subsequent record changes are untracked, so an id-reusing

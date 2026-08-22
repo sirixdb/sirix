@@ -5,9 +5,11 @@ import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -193,5 +195,30 @@ final class StringDictSketchTest {
                                          "nope".getBytes(StandardCharsets.UTF_8), null));
   }
 
+  @Test
+  void reusablePayloadSketchUsesOnlyItsLogicalPrefix() {
+    final StringRegion.Encoder enc = new StringRegion.Encoder();
+    for (int i = 0; i < 128; i++) {
+      enc.addValue(7, ("large-value-" + i).getBytes(StandardCharsets.UTF_8));
+    }
+    enc.encodeInto(StringRegion.TAG_KIND_NAME, false);
+
+    enc.reset();
+    enc.addValue(9, "alpha".getBytes(StandardCharsets.UTF_8));
+    enc.addValue(9, "beta".getBytes(StandardCharsets.UTF_8));
+    final int logicalLength = enc.encodeInto(StringRegion.TAG_KIND_PATH_NODE, true);
+    final byte[] exactPayload = Arrays.copyOf(enc.output(), logicalLength);
+    final StringRegion.Header header =
+        new StringRegion.Header().parseInto(PaxTestSegments.of(exactPayload));
+
+    final byte[] expected = StringDictSketch.encodeFromStringRegion(exactPayload, header);
+    final byte[] actual = StringDictSketch.encodeFromStringRegion(enc.output(), logicalLength, header);
+    assertArrayEquals(expected, actual);
+    assertNull(StringDictSketch.encodeFromStringRegion(enc.output(), header.valueDictIdsOffset - 1, header),
+        "bytes beyond the logical prefix must never rescue a truncated dictionary");
+
+    Arrays.fill(enc.output(), logicalLength, enc.output().length, (byte) 0x5a);
+    assertArrayEquals(expected, StringDictSketch.encodeFromStringRegion(enc.output(), logicalLength, header));
+  }
 
 }

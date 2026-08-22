@@ -30,31 +30,35 @@ public class SirixOptimizer extends TopDownOptimizer {
    * Join-relation count above which the exploratory join-reorder / mesh stages (those marked
    * {@link BudgetSheddable}) are shed for a bounded compile.
    *
-   * <p>This replaces a former 50ms WALL-CLOCK circuit breaker whose timing-dependent shedding could
-   * drop a stage — and therefore change which indexes a query used — based purely on runner speed
-   * (the flaky-plan bug this fixes). The exploratory stage whose cost grows fastest is DPhyp join
+   * <p>
+   * This replaces a former 50ms WALL-CLOCK circuit breaker whose timing-dependent shedding could drop
+   * a stage — and therefore change which indexes a query used — based purely on runner speed (the
+   * flaky-plan bug this fixes). The exploratory stage whose cost grows fastest is DPhyp join
    * reordering, O(n&#183;3&#8319;) in the join-relation count n. The default 12 is derived from that
    * bound: n&#183;3&#8319; &#8776; 6.4M at n=12 (sub-millisecond), so shedding above it keeps the
-   * join search cheap. It is deliberately BELOW
-   * {@code AdaptiveJoinOrderOptimizer.DPHYP_THRESHOLD} (20, above which that optimizer falls back to
-   * greedy GOO): at n=20 DPhyp alone is n&#183;3&#8319; &#8776; 70e9 (seconds), so the internal
-   * threshold is not by itself a compile-time guard — this budget is. If you change either constant,
-   * review the other.</p>
+   * join search cheap. It is deliberately BELOW {@code AdaptiveJoinOrderOptimizer.DPHYP_THRESHOLD}
+   * (20, above which that optimizer falls back to greedy GOO): at n=20 DPhyp alone is n&#183;3&#8319;
+   * &#8776; 70e9 (seconds), so the internal threshold is not by itself a compile-time guard — this
+   * budget is. If you change either constant, review the other.
+   * </p>
    *
-   * <p>The count is a deliberately CONSERVATIVE global upper bound on any single connected join
-   * group's arity (the quantity DPhyp is actually exponential in): a query with several independent
-   * small join groups may be shed although no one group is large. That only costs join-order quality
+   * <p>
+   * The count is a deliberately CONSERVATIVE global upper bound on any single connected join group's
+   * arity (the quantity DPhyp is actually exponential in): a query with several independent small
+   * join groups may be shed although no one group is large. That only costs join-order quality
    * (results stay correct); it never lets a blowup through. A per-connected-group count is a possible
-   * refinement.</p>
+   * refinement.
+   * </p>
    *
-   * <p>DETERMINISM CAVEAT: unlike the wall-clock breaker, this budget does NOT cap total compile
-   * time — only the exploratory join/mesh search. The always-run stages (cost estimation, the four
+   * <p>
+   * DETERMINISM CAVEAT: unlike the wall-clock breaker, this budget does NOT cap total compile time —
+   * only the exploratory join/mesh search. The always-run stages (cost estimation, the four
    * index-matching walkers) are each O(query) but uncapped, so a pathological low-join query with
    * very many distinct paths / predicates can still compile slowly. That is the accepted price of a
-   * deterministic plan; the wall-clock net that previously bounded such cases is intentionally gone.</p>
+   * deterministic plan; the wall-clock net that previously bounded such cases is intentionally gone.
+   * </p>
    */
-  private static final int MAX_JOIN_RELATIONS_FOR_REORDER =
-      Integer.getInteger("sirix.optimizer.maxJoinRelations", 12);
+  private static final int MAX_JOIN_RELATIONS_FOR_REORDER = Integer.getInteger("sirix.optimizer.maxJoinRelations", 12);
 
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
@@ -67,8 +71,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     this(options, nodeStore, jsonItemStore, new PlanCache());
   }
 
-  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
-                         final JsonDBStore jsonItemStore, final PlanCache planCache) {
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore,
+      final PlanCache planCache) {
     // `true`: this backend DECOMPOSES predicates. SirixVectorizedExecutor answers a cross-field
     // disjunction by inclusion-exclusion and a negation by complement, anchoring each branch on its
     // OWN field, so it never depends on one field's slots enumerating every candidate record — the
@@ -127,10 +131,10 @@ public class SirixOptimizer extends TopDownOptimizer {
     // exact-arithmetic kernel folds; consumed by SirixTranslator's functionCall seam.
     getStages().add(new ComputedAggregateDetectionStage());
     // 10. Index matching as the last step. It always runs (never budget-shed): the index decision
-    //     is authored solely by the always-run CostBasedStage (mesh only re-derives it, never
-    //     contradicts it — so shedding join/mesh cannot change which indexes a query uses), and
-    //     applying that decision is cheap. Keeping it mandatory is what makes index selection
-    //     independent of the optimizer budget.
+    // is authored solely by the always-run CostBasedStage (mesh only re-derives it, never
+    // contradicts it — so shedding join/mesh cannot change which indexes a query uses), and
+    // applying that decision is cheap. Keeping it mandatory is what makes index selection
+    // independent of the optimizer budget.
     getStages().add(new IndexMatching(jsonItemStore));
   }
 
@@ -199,7 +203,9 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   /** ForBind+Join count, capped at {@code threshold + 1} via early-exit. */
   private static int countJoinRelations(final AST node, final int threshold) {
-    int count = node.getType() == XQ.ForBind || node.getType() == XQ.Join ? 1 : 0;
+    int count = node.getType() == XQ.ForBind || node.getType() == XQ.Join
+        ? 1
+        : 0;
     for (int i = 0, n = node.getChildCount(); i < n; i++) {
       if (count > threshold) {
         return count;
@@ -228,8 +234,8 @@ public class SirixOptimizer extends TopDownOptimizer {
   }
 
   /**
-   * Collect histograms for fields that had cache misses during the last optimization.
-   * Call this after query execution completes and all resource sessions are closed.
+   * Collect histograms for fields that had cache misses during the last optimization. Call this after
+   * query execution completes and all resource sessions are closed.
    */
   public void collectPendingHistograms() {
     costBasedStage.collectPendingHistograms();
@@ -315,9 +321,11 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Disable an optimization stage by its class.
    *
-   * <p>Disabled stages are skipped during optimization. This allows enterprise
-   * subclasses or tests to selectively turn off stages without removing them
-   * from the pipeline (preserving stage ordering for later re-enable).</p>
+   * <p>
+   * Disabled stages are skipped during optimization. This allows enterprise subclasses or tests to
+   * selectively turn off stages without removing them from the pipeline (preserving stage ordering
+   * for later re-enable).
+   * </p>
    *
    * @param stageClass the stage class to disable
    */

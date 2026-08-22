@@ -6,7 +6,11 @@ package io.sirix.index.projection;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.access.trx.node.json.FusedStringCursor;
+import io.sirix.access.trx.node.json.PrimitiveNumberCursor;
+import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
@@ -16,6 +20,7 @@ import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 
@@ -41,11 +46,31 @@ public final class ProjectionIndexRowExtractor {
   /**
    * Flattened (pathNodeKey → column) pairs for the declared fields. A field path resolving to
    * MULTIPLE pathNodeKeys (same shape under different roots) contributes one pair per PCR —
-   * {@link #findField} matches any of them. A field whose path resolves to nothing contributes no
+   * {@link #nextFieldMapping(long, long[], int)} matches all of them. A field whose path resolves to nothing contributes no
    * pair: such records carry only {@code present == false} for that column.
+   *
+   * <p>
+   * Non-final because an INCREMENTAL (load-time) build resolves them against a path summary that is
+   * still growing: on an empty resource no declared field has a path class yet, and a field whose
+   * first occurrence is in record 5,000,000 gets its path class only then. {@link #refresh} re-reads
+   * them; a stale set would record a present field as ABSENT, which is a wrong answer rather than a
+   * slow one. The bulk builder holds ONE extractor for the whole build (the column-kinds array is
+   * shared by reference with every leaf it produced), so refreshing in place is the only option.
    */
-  private final long[] fieldPcrKeys;
-  private final int[] fieldPcrColumns;
+  private long[] fieldPcrKeys;
+  private int[] fieldPcrColumns;
+
+  /** PCRs that currently match the declared record-root path. */
+  private long[] rootPcrKeys;
+
+  /** The declared field paths, kept for {@link #refresh}. */
+  private final List<Path<QNm>> fieldPaths;
+
+  /** Declared source type per column; XML lexical conversion must retain this provenance. */
+  private final Type[] fieldTypes;
+
+  /** The declared record-root path, kept for membership refresh after XML renames/moves. */
+  private final Path<QNm> rootPath;
 
   /** Per-field column kind, index-aligned with projection fields. */
   private final byte[] columnKinds;
@@ -53,7 +78,14 @@ public final class ProjectionIndexRowExtractor {
   /** Reusable per-row extraction buffers — one entry per field. Zero alloc in the hot loop. */
   private final long[] rowLongs;
   private final boolean[] rowBools;
-  private final String[] rowStrings;
+  private final byte[][] rowStringUtf8;
+  private final int[] rowStringUtf8Lengths;
+
+  /**
+   * Grow-only caller-owned scalar-string buffers. Kept separate from {@link #rowStringUtf8} because
+   * a custom cursor's public byte API may return node-owned storage that must never be overwritten.
+   */
+  private final byte[][] rowStringUtf8Scratch;
 
   /**
    * Per-column set elements for {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_SET}. Reused
@@ -103,8 +135,50 @@ public final class ProjectionIndexRowExtractor {
     }
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
+    this.fieldPaths = fieldPaths;
+    this.fieldTypes = fieldTypes.toArray(Type[]::new);
+    this.rootPath = indexDef.getProjectionRootPath();
     this.columnKinds = new byte[fieldPaths.size()];
     this.numericColumnSawNonIntegral = new boolean[fieldPaths.size()];
+    for (int i = 0; i < fieldPaths.size(); i++) {
+      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i));
+    }
+    resolveFieldPcrs(pathSummary);
+    this.rowLongs = new long[fieldPaths.size()];
+    this.rowBools = new boolean[fieldPaths.size()];
+    this.rowStringUtf8 = new byte[fieldPaths.size()][];
+    this.rowStringUtf8Lengths = new int[fieldPaths.size()];
+    this.rowStringUtf8Scratch = new byte[fieldPaths.size()][];
+    this.rowStringSets = new String[fieldPaths.size()][];
+    this.rowStringSetLen = new int[fieldPaths.size()];
+    this.rowPresent = new boolean[fieldPaths.size()];
+    this.rowUnrepresentable = new boolean[fieldPaths.size()];
+    this.rowNonIntegral = new boolean[fieldPaths.size()];
+    this.rowNonDoubleSource = new boolean[fieldPaths.size()];
+  }
+
+  /**
+   * Re-resolve the declared field paths against {@code pathSummary}.
+   *
+   * <p>
+   * Only the INCREMENTAL build needs this: it extracts rows while the resource — and therefore the
+   * path summary — is still growing, so an extractor built at one auto-commit epoch does not yet know
+   * the path classes of fields whose first occurrence comes later. Without the refresh those fields
+   * extract as ABSENT on every row built before their path node existed, which is indistinguishable
+   * downstream from a record that genuinely lacks them.
+   *
+   * <p>
+   * Cheap enough to run once per extraction batch (one path-summary lookup per declared field) and
+   * deliberately in place: {@link #columnKindsRef()} hands the kinds array out BY REFERENCE to every
+   * leaf the build has produced, so replacing the extractor mid-build would detach them from the
+   * global-dictionary decision that flips entries in it.
+   */
+  public void refresh(final PathSummaryReader pathSummary) {
+    resolveFieldPcrs(pathSummary);
+  }
+
+  private void resolveFieldPcrs(final PathSummaryReader pathSummary) {
+    this.rootPcrKeys = pathSummary.getPCRsForPath(rootPath).toLongArray();
     final LongArrayList pcrKeys = new LongArrayList();
     final IntArrayList pcrCols = new IntArrayList();
     for (int i = 0; i < fieldPaths.size(); i++) {
@@ -115,19 +189,9 @@ public final class ProjectionIndexRowExtractor {
         pcrKeys.add(it.nextLong());
         pcrCols.add(i);
       }
-      columnKinds[i] = ProjectionIndexBuilder.mapTypeToColumnKind(fieldTypes.get(i), fieldPaths.get(i));
     }
     this.fieldPcrKeys = pcrKeys.toLongArray();
     this.fieldPcrColumns = pcrCols.toIntArray();
-    this.rowLongs = new long[fieldPaths.size()];
-    this.rowBools = new boolean[fieldPaths.size()];
-    this.rowStrings = new String[fieldPaths.size()];
-    this.rowStringSets = new String[fieldPaths.size()][];
-    this.rowStringSetLen = new int[fieldPaths.size()];
-    this.rowPresent = new boolean[fieldPaths.size()];
-    this.rowUnrepresentable = new boolean[fieldPaths.size()];
-    this.rowNonIntegral = new boolean[fieldPaths.size()];
-    this.rowNonDoubleSource = new boolean[fieldPaths.size()];
   }
 
   /** Per-column kinds, index-aligned with the projection's declared fields. */
@@ -153,10 +217,33 @@ public final class ProjectionIndexRowExtractor {
    *         caller drops the row
    */
   public boolean extractInto(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    return extractInto(rtx, recordKey, null);
+  }
+
+  boolean extractInto(final JsonNodeReadOnlyTrx rtx, final long recordKey, final long[] selectedColumns) {
     if (!rtx.moveTo(recordKey)) {
       return false;
     }
-    extractAt(rtx, recordKey);
+    extractAt(rtx, recordKey, selectedColumns);
+    return true;
+  }
+
+  public boolean extractInto(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
+    return extractInto(rtx, recordKey, null);
+  }
+
+  boolean extractInto(final XmlNodeReadOnlyTrx rtx, final long recordKey, final long[] selectedColumns) {
+    if (!rtx.moveTo(recordKey)) {
+      return false;
+    }
+    if (rtx.getKind() != NodeKind.ELEMENT) {
+      throw new IllegalStateException("XML projection record roots must be elements; node " + recordKey
+          + " has kind " + rtx.getKind());
+    }
+    if (!isXmlRecordRoot(rtx.getPathNodeKey())) {
+      return false;
+    }
+    extractAt(rtx, recordKey, selectedColumns);
     return true;
   }
 
@@ -223,6 +310,7 @@ public final class ProjectionIndexRowExtractor {
     return out;
   }
 
+  private static final byte[] EMPTY_UTF8 = new byte[0];
   private static final String[] EMPTY_SET = new String[0];
 
   /**
@@ -232,8 +320,42 @@ public final class ProjectionIndexRowExtractor {
    * @return {@code false} when {@code leaf} is at capacity (caller opens a fresh leaf and retries)
    */
   public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey) {
-    return leaf.appendRow(recordKey, rowLongs, rowBools, rowStrings, stringSetsForAppend(), rowPresent,
-        rowUnrepresentable, rowNonIntegral, rowNonDoubleSource);
+    return appendTo(leaf, recordKey, false);
+  }
+
+  /** Append the extracted row with its persisted sparse document-order classification. */
+  public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey,
+      final boolean orderException) {
+    return leaf.appendExtractedUtf8Row(recordKey, rowLongs, rowBools, rowStringUtf8, rowStringUtf8Lengths,
+        stringSetsForAppend(), rowPresent, rowUnrepresentable, rowNonIntegral, rowNonDoubleSource,
+        orderException);
+  }
+
+  /**
+   * Append one selected source column to a one-column maintenance page without manufacturing
+   * projection-width value arrays or a trimmed set array.  The row buffers are borrowed only for the
+   * synchronous append; the page copies/interns every value it retains.
+   */
+  boolean appendColumnTo(final ProjectionIndexRowGroupPage leaf, final long recordKey, final int sourceColumn) {
+    if (sourceColumn < 0 || sourceColumn >= columnKinds.length) {
+      throw new IndexOutOfBoundsException("projection source column out of range: " + sourceColumn);
+    }
+    final byte sourceKind = columnKinds[sourceColumn];
+    final byte maintenanceKind = leaf.columnKind(0);
+    // A resource-wide dictionary is a persisted encoding choice made after extraction has already
+    // classified the logical string column as STRING_DICT. Ordinary maintenance must keep feeding
+    // the extractor's UTF-8 cell into that elected STRING_GLOBAL page; requiring byte-identical
+    // kinds here rejects every value-only update to such a column.
+    final boolean compatibleGlobalString =
+        sourceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            && maintenanceKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    if (leaf.getColumnCount() != 1 || (maintenanceKind != sourceKind && !compatibleGlobalString)) {
+      throw new IllegalArgumentException("maintenance page kind does not match source column " + sourceColumn);
+    }
+    return leaf.appendExtractedSingleColumnRow(recordKey, rowLongs[sourceColumn], rowBools[sourceColumn],
+        rowStringUtf8[sourceColumn], rowStringUtf8Lengths[sourceColumn], rowStringSets[sourceColumn],
+        rowStringSetLen[sourceColumn], rowPresent[sourceColumn], rowUnrepresentable[sourceColumn],
+        rowNonIntegral[sourceColumn], rowNonDoubleSource[sourceColumn]);
   }
 
   /**
@@ -245,11 +367,15 @@ public final class ProjectionIndexRowExtractor {
    * Clear every per-row slot. A field this row fails to resolve stays "missing" — presence bit clear
    * — and serialises as the column's default on the leaf page.
    */
-  private void resetRow() {
+  private void resetRow(final long[] selectedColumns) {
     for (int i = 0; i < columnKinds.length; i++) {
+      if (!isSelected(i, selectedColumns)) {
+        continue;
+      }
       rowLongs[i] = 0L;
       rowBools[i] = false;
-      rowStrings[i] = "";
+      rowStringUtf8[i] = null;
+      rowStringUtf8Lengths[i] = 0;
       rowPresent[i] = false;
       rowUnrepresentable[i] = false;
       rowNonIntegral[i] = false;
@@ -259,7 +385,12 @@ public final class ProjectionIndexRowExtractor {
   }
 
   void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
-    resetRow();
+    extractAt(rtx, recordKey, null);
+  }
+
+  private void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey,
+      final long[] selectedColumns) {
+    resetRow(selectedColumns);
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
     // - a fused OBJECT_NAMED_* record matching a declared field reads its
@@ -279,14 +410,17 @@ public final class ProjectionIndexRowExtractor {
           // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
           // direct extraction, no synthetic-child navigation. Fused nodes have no children,
           // so there is nothing to descend into.
-          final int col = findField(rtx.getPathNodeKey());
-          if (col >= 0) {
+          final long pathNodeKey = rtx.getPathNodeKey();
+          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
+              mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+            final int col = fieldPcrColumns[mapping];
             readFusedValueIntoRow(rtx, kind, col);
           }
         } else if (kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
           final long pk = rtx.getPathNodeKey();
-          final int col = findField(pk);
-          if (col >= 0) {
+          for (int mapping = nextFieldMapping(pk, selectedColumns, 0); mapping >= 0;
+              mapping = nextFieldMapping(pk, selectedColumns, mapping + 1)) {
+            final int col = fieldPcrColumns[mapping];
             if (kind == NodeKind.OBJECT_NAMED_ARRAY
                 && columnKinds[col] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
               // An array-valued field declared as a SET column: its string elements ARE the value.
@@ -318,6 +452,167 @@ public final class ProjectionIndexRowExtractor {
     rtx.moveTo(recordKey);
   }
 
+  void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
+    extractAt(rtx, recordKey, null);
+  }
+
+  private void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey,
+      final long[] selectedColumns) {
+    resetRow(selectedColumns);
+    workListSize = 0;
+    if (!rtx.moveTo(recordKey) || rtx.getKind() != NodeKind.ELEMENT) {
+      throw new IllegalStateException("XML projection record root is not an element: " + recordKey);
+    }
+    extractXmlAttributes(rtx, recordKey, selectedColumns);
+    pushFirstChild(rtx, recordKey);
+    while (workListSize > 0) {
+      final long top = workList[--workListSize];
+      rtx.moveTo(top);
+      long current = top;
+      do {
+        final NodeKind kind = rtx.getKind();
+        if (kind == NodeKind.ELEMENT) {
+          extractXmlAttributes(rtx, current, selectedColumns);
+          final long pathNodeKey = rtx.getPathNodeKey();
+          for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
+              mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+            final int column = fieldPcrColumns[mapping];
+            readXmlElementIntoRow(rtx, current, column);
+          }
+          pushFirstChild(rtx, current);
+        }
+        if (!rtx.moveToRightSibling()) {
+          break;
+        }
+        current = rtx.getNodeKey();
+      } while (true);
+    }
+    rtx.moveTo(recordKey);
+  }
+
+  private void extractXmlAttributes(final XmlNodeReadOnlyTrx rtx, final long elementKey,
+      final long[] selectedColumns) {
+    final int attributeCount = rtx.getAttributeCount();
+    for (int index = 0; index < attributeCount; index++) {
+      if (!rtx.moveToAttribute(index)) {
+        throw new IllegalStateException("XML attribute " + index + " disappeared during projection extraction");
+      }
+      final long pathNodeKey = rtx.getPathNodeKey();
+      for (int mapping = nextFieldMapping(pathNodeKey, selectedColumns, 0); mapping >= 0;
+          mapping = nextFieldMapping(pathNodeKey, selectedColumns, mapping + 1)) {
+        final int column = fieldPcrColumns[mapping];
+        readXmlScalarIntoRow(rtx.getValue(), column);
+      }
+      rtx.moveTo(elementKey);
+    }
+  }
+
+  private void readXmlElementIntoRow(final XmlNodeReadOnlyTrx rtx, final long elementKey,
+      final int column) {
+    final boolean setColumn = columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
+    if (rowPresent[column] && !setColumn) {
+      // XML permits repeated element names and wildcard paths can intentionally match more than
+      // one element. A scalar projection has no sequence semantics, so retaining either the first
+      // or last value would be a wrong answer. Poison the cell and force value consumers to the
+      // generic XML pipeline.
+      rowUnrepresentable[column] = true;
+      return;
+    }
+    if (!rtx.moveToFirstChild()) {
+      readXmlScalarIntoRow("", column);
+      rtx.moveTo(elementKey);
+      return;
+    }
+    if (rtx.getKind() != NodeKind.TEXT || rtx.hasRightSibling()) {
+      rowPresent[column] = true;
+      rowUnrepresentable[column] = true;
+      rtx.moveTo(elementKey);
+      return;
+    }
+    readXmlScalarIntoRow(rtx.getValue(), column);
+    rtx.moveTo(elementKey);
+  }
+
+  private void readXmlScalarIntoRow(final String value, final int column) {
+    final byte columnKind = columnKinds[column];
+    if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+      rowPresent[column] = true;
+      if (value == null) {
+        rowUnrepresentable[column] = true;
+      } else {
+        appendXmlSetValue(column, value);
+      }
+      return;
+    }
+    if (rowPresent[column]) {
+      rowUnrepresentable[column] = true;
+      return;
+    }
+    rowPresent[column] = true;
+    if (value == null) {
+      rowUnrepresentable[column] = true;
+      return;
+    }
+    try {
+      if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN) {
+        if ("true".equals(value) || "1".equals(value)) {
+          rowBools[column] = true;
+        } else if ("false".equals(value) || "0".equals(value)) {
+          rowBools[column] = false;
+        } else {
+          rowUnrepresentable[column] = true;
+        }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        rowLongs[column] = new BigDecimal(value.trim()).longValueExact();
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE) {
+        final String lexical = value.trim();
+        final Type sourceType = fieldTypes[column];
+        final double number;
+        if (sourceType == Type.DBL) {
+          number = Double.parseDouble(lexical);
+        } else if (sourceType == Type.FLO) {
+          number = Float.parseFloat(lexical);
+          rowNonDoubleSource[column] = true;
+        } else if (sourceType == Type.DEC) {
+          final BigDecimal decimal = new BigDecimal(lexical);
+          number = decimal.doubleValue();
+          rowNonDoubleSource[column] = true;
+          if (!Double.isFinite(number) || isLossyDoubleConversion(decimal, number)) {
+            rowUnrepresentable[column] = true;
+          }
+        } else {
+          rowUnrepresentable[column] = true;
+          return;
+        }
+        if (!Double.isFinite(number)) {
+          rowUnrepresentable[column] = true;
+        } else {
+          rowLongs[column] = ProjectionDoubleEncoding.encode(number);
+        }
+      } else {
+        final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+        rowStringUtf8[column] = utf8;
+        rowStringUtf8Lengths[column] = utf8.length;
+      }
+    } catch (final ArithmeticException | NumberFormatException malformed) {
+      rowUnrepresentable[column] = true;
+    }
+  }
+
+  private void appendXmlSetValue(final int column, final String value) {
+    int length = rowStringSetLen[column];
+    String[] values = rowStringSets[column];
+    if (values == null) {
+      values = new String[8];
+      rowStringSets[column] = values;
+    } else if (length == values.length) {
+      values = Arrays.copyOf(values, length << 1);
+      rowStringSets[column] = values;
+    }
+    values[length] = value;
+    rowStringSetLen[column] = length + 1;
+  }
+
   /** The fused kinds whose value sits inline on the record itself, rather than on a child node. */
   private static boolean isFusedScalarKind(final NodeKind kind) {
     return kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
@@ -336,15 +631,83 @@ public final class ProjectionIndexRowExtractor {
     rtx.moveTo(saved);
   }
 
-  private int findField(final long pathNodeKey) {
-    // Linear scan over the flattened (pcr -> column) pairs is cheaper than
-    // a HashMap lookup at typical projection width (~5 fields, one or a few
-    // PCRs each) — fits in a cache line and JIT-inlines cleanly.
-    for (int i = 0; i < fieldPcrKeys.length; i++) {
-      if (fieldPcrKeys[i] == pathNodeKey)
-        return fieldPcrColumns[i];
+  private void pushFirstChild(final XmlNodeReadOnlyTrx rtx, final long parentKey) {
+    final long saved = rtx.getNodeKey();
+    rtx.moveTo(parentKey);
+    if (rtx.moveToFirstChild()) {
+      if (workListSize == workList.length) {
+        workList = Arrays.copyOf(workList, workList.length * 2);
+      }
+      workList[workListSize++] = rtx.getNodeKey();
+    }
+    rtx.moveTo(saved);
+  }
+
+  private boolean isXmlRecordRoot(final long pathNodeKey) {
+    for (final long rootPcrKey : rootPcrKeys) {
+      if (rootPcrKey == pathNodeKey) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isSelected(final int column, final long[] selectedColumns) {
+    if (selectedColumns == null) {
+      return true;
+    }
+    final int word = column >>> 6;
+    return word < selectedColumns.length && (selectedColumns[word] & (1L << (column & 63))) != 0;
+  }
+
+  private int nextFieldMapping(final long pathNodeKey, final long[] selectedColumns, final int start) {
+    for (int index = Math.max(0, start); index < fieldPcrKeys.length; index++) {
+      final int column = fieldPcrColumns[index];
+      if (fieldPcrKeys[index] == pathNodeKey && isSelected(column, selectedColumns)) {
+        return index;
+      }
     }
     return -1;
+  }
+
+  long rowLong(final int column) {
+    return rowLongs[column];
+  }
+
+  boolean rowBoolean(final int column) {
+    return rowBools[column];
+  }
+
+  byte[] rowStringUtf8(final int column) {
+    return rowStringUtf8[column];
+  }
+
+  int rowStringUtf8Length(final int column) {
+    return rowStringUtf8Lengths[column];
+  }
+
+  String[] rowStringSet(final int column) {
+    return rowStringSets[column];
+  }
+
+  int rowStringSetLength(final int column) {
+    return rowStringSetLen[column];
+  }
+
+  boolean rowPresent(final int column) {
+    return rowPresent[column];
+  }
+
+  boolean rowUnrepresentable(final int column) {
+    return rowUnrepresentable[column];
+  }
+
+  boolean rowNonIntegral(final int column) {
+    return rowNonIntegral[column];
+  }
+
+  boolean rowNonDoubleSource(final int column) {
+    return rowNonDoubleSource[column];
   }
 
   /**
@@ -411,53 +774,153 @@ public final class ProjectionIndexRowExtractor {
   }
 
   /**
+   * Reads an integral fused-number payload through the internal primitive cursor capability.
+   * Returns {@code false} for non-integral wire kinds and custom cursors, which preserves the
+   * ordinary {@link Number} fallback below.
+   */
+  private boolean readPrimitiveNumberIntoRow(final JsonNodeReadOnlyTrx rtx, final byte columnKind,
+      final int col) {
+    if (!(rtx instanceof PrimitiveNumberCursor primitiveNumberCursor)) {
+      return false;
+    }
+
+    final byte primitiveType = primitiveNumberCursor.readFusedPrimitiveNumber(rowLongs, col);
+    if (primitiveType != PrimitiveNumberValue.INT && primitiveType != PrimitiveNumberValue.LONG) {
+      return false;
+    }
+    if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+      // Integer and Long both map exactly to the long column. readFusedPrimitiveNumber already
+      // sign-extended an int into the caller-owned long slot.
+      return true;
+    }
+
+    final long integralValue = rowLongs[col];
+    final double doubleValue = primitiveType == PrimitiveNumberValue.INT
+        ? (double) (int) integralValue
+        : (double) integralValue;
+    if (primitiveType == PrimitiveNumberValue.LONG
+        && (integralValue == Long.MAX_VALUE || (long) doubleValue != integralValue)) {
+      // Mirrors isLossyDoubleConversion(Long, double), including the saturation edge where
+      // Long.MAX_VALUE rounds up to 2^63 and narrows back to MAX_VALUE.
+      numericColumnSawNonIntegral[col] = true;
+      rowNonIntegral[col] = true;
+    }
+    // Neither integral source is a Double, even when its conversion is value-exact. The
+    // interpreter fallback therefore has different result typing and the pure-double assertion
+    // must be cleared exactly as on the boxed path.
+    rowNonDoubleSource[col] = true;
+    rowLongs[col] = ProjectionDoubleEncoding.encode(doubleValue);
+    return true;
+  }
+
+  /**
+   * Copy a fused string through the allocation-stable internal cursor lane.
+   *
+   * @return {@code true} when the cursor supplied the value; {@code false} requests the unchanged
+   *         public-byte fallback
+   */
+  private boolean readFusedStringIntoRow(final JsonNodeReadOnlyTrx rtx, final int col) {
+    if (!(rtx instanceof FusedStringCursor fusedStringCursor)) {
+      return false;
+    }
+
+    byte[] scratch = rowStringUtf8Scratch[col];
+    if (scratch == null) {
+      scratch = EMPTY_UTF8;
+    }
+    int result = fusedStringCursor.readFusedStringUtf8(scratch);
+    while (result < FusedStringCursor.UNAVAILABLE) {
+      final int required = FusedStringCursor.requiredCapacity(result);
+      if (required <= scratch.length) {
+        throw new IllegalStateException("fused string cursor requested capacity " + required
+            + " after receiving a " + scratch.length + "-byte destination");
+      }
+      scratch = Arrays.copyOf(scratch, grownStringCapacity(scratch.length, required));
+      rowStringUtf8Scratch[col] = scratch;
+      result = fusedStringCursor.readFusedStringUtf8(scratch);
+    }
+    if (result == FusedStringCursor.UNAVAILABLE) {
+      return false;
+    }
+    if (result > scratch.length) {
+      throw new IllegalStateException("fused string cursor reported " + result
+          + " bytes from a " + scratch.length + "-byte destination");
+    }
+    rowStringUtf8[col] = scratch;
+    rowStringUtf8Lengths[col] = result;
+    return true;
+  }
+
+  private static int grownStringCapacity(final int currentCapacity, final int requiredCapacity) {
+    int grown = Math.max(64, currentCapacity);
+    while (grown < requiredCapacity) {
+      final int doubled = grown << 1;
+      if (doubled <= grown) {
+        return requiredCapacity;
+      }
+      grown = doubled;
+    }
+    return grown;
+  }
+
+  /**
    * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into the current row.
    * The rtx's value predicates already return true on a fused record; dispatch is by record kind:
    * fused-number → numeric column, fused-boolean → boolean column, fused-string → string column,
    * fused-null → present but unrepresentable (no column kind can hold it).
    */
   private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind, final int col) {
+    if (rowPresent[col]) {
+      // A descendant/wildcard field path can resolve more than one scalar below one record.  Scalar
+      // projection columns have no sequence/last-wins semantics, so retaining either match would let
+      // an indexed predicate return a wrong answer.  Mirror XML's repeated-scalar discipline and
+      // poison the cell so value consumers fall back to the generic pipeline.
+      rowUnrepresentable[col] = true;
+      return;
+    }
     rowPresent[col] = true;
     final byte columnKind = columnKinds[col];
     switch (fusedKind) {
       case OBJECT_NAMED_NUMBER -> {
-        final Number n = ProjectionIndexRowGroupPage.isNumericKind(columnKind)
-            ? rtx.getNumberValue()
-            : null;
-        if (n == null) {
+        if (!ProjectionIndexRowGroupPage.isNumericKind(columnKind)) {
           // Kind mismatch (number where the column expects bool/string) or a
           // null Number — present but unrepresentable.
           rowUnrepresentable[col] = true;
-        } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
-          if (isNonIntegral(n) || isLossyLongConversion(n)) {
-            numericColumnSawNonIntegral[col] = true;
-            rowNonIntegral[col] = true;
-          }
-          rowLongs[col] = n.longValue();
-        } else {
-          // NUMERIC_DOUBLE: store the order-preserving transform of the exact double value.
-          // Non-finite values cannot arise from JSON but are defensively unrepresentable (no
-          // stored pattern may collide with the zone-map sentinels). Lossy Big*/long→double
-          // conversions raise the value-exactness bit (COLUMN_FLAG_NON_INTEGRAL semantics for
-          // this kind) so value-exact consumers decline — same fail-closed discipline as
-          // integrality on long columns.
-          final double d = n.doubleValue();
-          if (!Double.isFinite(d)) {
+        } else if (!readPrimitiveNumberIntoRow(rtx, columnKind, col)) {
+          final Number n = rtx.getNumberValue();
+          if (n == null) {
             rowUnrepresentable[col] = true;
-          } else {
-            if (isLossyDoubleConversion(n, d)) {
+          } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            if (isNonIntegral(n) || isLossyLongConversion(n)) {
               numericColumnSawNonIntegral[col] = true;
               rowNonIntegral[col] = true;
             }
-            if (!(n instanceof Double)) {
-              // Strict source typing, not exactness: an exact Integer→double cell clears
-              // purity because the fallback would type the aggregate Dec, not Dbl — and
-              // Float clears it too (the interpreter wraps Float as xs:float and
-              // accumulates in FLOAT arithmetic, surfacing Flt; only Double sources make
-              // the fallback provably compute-and-type in double space).
-              rowNonDoubleSource[col] = true;
+            rowLongs[col] = n.longValue();
+          } else {
+            // NUMERIC_DOUBLE: store the order-preserving transform of the exact double value.
+            // Non-finite values cannot arise from JSON but are defensively unrepresentable (no
+            // stored pattern may collide with the zone-map sentinels). Lossy Big*/long→double
+            // conversions raise the value-exactness bit (COLUMN_FLAG_NON_INTEGRAL semantics for
+            // this kind) so value-exact consumers decline — same fail-closed discipline as
+            // integrality on long columns.
+            final double d = n.doubleValue();
+            if (!Double.isFinite(d)) {
+              rowUnrepresentable[col] = true;
+            } else {
+              if (isLossyDoubleConversion(n, d)) {
+                numericColumnSawNonIntegral[col] = true;
+                rowNonIntegral[col] = true;
+              }
+              if (!(n instanceof Double)) {
+                // Strict source typing, not exactness: an exact Integer→double cell clears
+                // purity because the fallback would type the aggregate Dec, not Dbl — and
+                // Float clears it too (the interpreter wraps Float as xs:float and
+                // accumulates in FLOAT arithmetic, surfacing Flt; only Double sources make
+                // the fallback provably compute-and-type in double space).
+                rowNonDoubleSource[col] = true;
+              }
+              rowLongs[col] = ProjectionDoubleEncoding.encode(d);
             }
-            rowLongs[col] = ProjectionDoubleEncoding.encode(d);
           }
         }
       }
@@ -469,11 +932,16 @@ public final class ProjectionIndexRowExtractor {
         }
       }
       case OBJECT_NAMED_STRING -> {
-        final String v = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            ? rtx.getValue()
-            : null;
-        if (v != null) {
-          rowStrings[col] = v;
+        if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // The production cursor copies/decodes into a grow-only per-column buffer. Custom cursors
+          // retain the public-byte fallback; their returned array may be node-owned, so it is never
+          // installed as reusable scratch.
+          if (!readFusedStringIntoRow(rtx, col)) {
+            final byte[] value = rtx.getValueBytes();
+            rowStringUtf8[col] = value;
+            rowStringUtf8Lengths[col] = value == null ? 0 : value.length;
+          }
         } else {
           rowUnrepresentable[col] = true;
         }

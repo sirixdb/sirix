@@ -7,12 +7,16 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import it.unimi.dsi.fastutil.HashCommon;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 
@@ -56,6 +60,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  *   16:  long lastRecordKey
  *   24:  byte[columnCount] kinds
  *   24+columnCount: long[rowCount] recordKeys    (if rowCount > 0)
+ *   then byte orderExceptionKind and, only for DENSE, ceil(rowCount/64) bitmap words
  *   then per column in order:
  *     long min, long max
  *     NUMERIC_LONG:  long[rowCount] values
@@ -68,6 +73,18 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  *
  * <p>
  * All multi-byte integers are little-endian.
+ *
+ * <h2>Group-by kernels: two families, never interchangeable</h2>
+ *
+ * The STRING_DICT kernels ({@link #conjunctiveCountByGroup} and friends) and the NUMERIC_LONG
+ * kernels ({@link #conjunctiveCountByGroupNumeric} and friends) are siblings — each rejects the
+ * other's column kind loudly. The numeric family exists because a numeric key deletes the entire
+ * canonical-dictionary apparatus the string family needs: dict ids are LEAF-LOCAL and cannot be
+ * summed across leaves, whereas values are globally comparable by construction. So the numeric
+ * kernels carry no canonical-dict probe, no per-leaf {@code dictId → canonId} remap, no per-leaf
+ * fallback map, no FNV-1a intern and no {@code String} at all; the dense arm indexes by
+ * {@code value - base} and merges by elementwise sum with no decode step. See
+ * {@link #numericZoneUnion} for where {@code base} comes from (metadata, no row touches).
  */
 public final class ProjectionIndexByteScan {
 
@@ -147,6 +164,18 @@ public final class ProjectionIndexByteScan {
     // iter#10 dense group-by remap: per-leaf dictId -> canonId.
     // Pre-allocated to 64, grown on demand for leaves with larger dicts.
     int[] dictRemap;
+    // Flat string group-by: per-leaf dictId -> (FNV hash, cached table slot base). The base is
+    // validated against the table key on every use (rehash-safe), so stale bases self-heal.
+    long[] dictHashCache;
+    int[] dictSlotBase;
+    // COUNT(DISTINCT) over a STRING_DICT operand: per-leaf dictId -> payload byte range of the
+    // entry plus its content hash (0 = not yet hashed). Separate from dictByteOff/dictHashCache,
+    // which the GROUP key owns — the distinct column may well be the group column.
+    int[] cdDictOff;
+    int[] cdDictLen;
+    long[] cdDictHash;
+    // TREE mask builder: one mask per predicate-tree leaf (program stack depth <= MAX_LEAVES).
+    long[][] treeMaskStack;
   }
 
   private static final ThreadLocal<ScanScratch> SCRATCH = ThreadLocal.withInitial(ScanScratch::new);
@@ -291,7 +320,7 @@ public final class ProjectionIndexByteScan {
     if (groupColumn < 0 || groupColumn >= columnCount)
       return -1;
     final int kindsOff = 24;
-    int cursor = kindsOff + columnCount + rowCount * 8; // recordKeysOff + rowCount*8
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16; // per-column min/max
       if (c == groupColumn)
@@ -299,7 +328,8 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + c];
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -550,7 +580,95 @@ public final class ProjectionIndexByteScan {
    * {@code predicates}, folds the column value into {@code acc} = {@code [count, sum, min, max]}. The
    * column sweep is a straight {@code long[rowCount]} read per leaf — memory-bandwidth bound, the
    * same shape a column store executes.
+   *
+   * <p>
+   * Exact sum or DECLINE, the same contract as {@link #conjunctiveAggregateByGroup}:
+   * {@code xs:integer} is arbitrary precision and the interpreter promotes an overflowing total to
+   * exact decimal, so a wrapped {@code long} would be a silently wrong answer (a column of 1e18-scale
+   * ids wraps after a few dozen rows). The check is a per-value {@link Math#addExact} rather than the
+   * pre-flight zone-map bound the SIMD fold kernel uses: this is a SCALAR walk, where an exact add
+   * costs one never-taken branch and — unlike a lanewise fold — can see every carry, so it declines
+   * only on a real overflow instead of on a conservative bound. (The zone map is reachable here too,
+   * but only per leaf as {@code evaluateRowGroupMask} resolves it, and the payloads arrive as an
+   * {@link Iterable} this method must not walk twice.)
+   *
+   * @throws ArithmeticException on overflow — callers treat it as a DECLINE
    */
+  /**
+   * {@link #conjunctiveAggregateNumeric} with a 128-BIT SUM — the overflow fallback for columns whose
+   * exact long sum cannot fit (64-bit id columns; the interpreter promotes to big-integer arithmetic
+   * there, so declining to the row path was pure cost). {@code acc} layout:
+   * {@code [count, sumHi, sumLo(unsigned), min, max]}; the two sum lanes add with carry and merge
+   * associatively, so the parallel chunk merge stays exact.
+   */
+  public static void conjunctiveAggregateNumeric128(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    for (final byte[] payload : rowGroupPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte kind = payload[24 + numericColumn];
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalStateException(
+            "aggregate column " + numericColumn + " is not NUMERIC_LONG (kind=" + kind + ")");
+      }
+      final int base = s.columnDataOff[numericColumn];
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      if (tailStart >= 0) {
+        final int presOff = presenceWordsOff(payload, tailStart, numericColumn);
+        for (int w = 0; w < stride; w++) {
+          scanMask[w] &= getLongLE(payload, presOff + w * 8);
+        }
+      }
+      long count = acc[0];
+      long sumHi = acc[1];
+      long sumLo = acc[2];
+      long min = acc[3];
+      long max = acc[4];
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long v = getLongLE(payload, base + rowIdx * 8);
+          count++;
+          final long lo = sumLo + v;
+          // Unsigned carry-out of lo += v, plus the sign extension of v into the high lane.
+          sumHi += (v >> 63) + (((sumLo & v) | ((sumLo | v) & ~lo)) >>> 63);
+          sumLo = lo;
+          if (v < min) {
+            min = v;
+          }
+          if (v > max) {
+            max = v;
+          }
+        }
+      }
+      acc[0] = count;
+      acc[1] = sumHi;
+      acc[2] = sumLo;
+      acc[3] = min;
+      acc[4] = max;
+    }
+  }
+
   public static void conjunctiveAggregateNumeric(final Iterable<byte[]> rowGroupPayloads,
       final ProjectionIndexScan.ColumnPredicate[] predicates, final int numericColumn, final long[] acc) {
     if (predicates == null) {
@@ -597,7 +715,7 @@ public final class ProjectionIndexByteScan {
           for (int i = 0; i < 64; i++) {
             final long v = getLongLE(payload, base + (rowBase + i) * 8);
             count++;
-            sum += v;
+            sum = Math.addExact(sum, v);
             if (v < min)
               min = v;
             if (v > max)
@@ -613,7 +731,7 @@ public final class ProjectionIndexByteScan {
             break;
           final long v = getLongLE(payload, base + rowIdx * 8);
           count++;
-          sum += v;
+          sum = Math.addExact(sum, v);
           if (v < min)
             min = v;
           if (v > max)
@@ -1475,6 +1593,2398 @@ public final class ProjectionIndexByteScan {
     }
   }
 
+  // ==================================================================
+  // NUMERIC_LONG group-by kernels.
+  // ==================================================================
+
+  /**
+   * Byte offsets of every column's zone-map {@code (min, max)} pair, written into {@code out} (which
+   * must hold at least {@code columnCount} entries). Header walk only — the row payload is never
+   * touched, and a STRING_DICT/STRING_SET column costs one read of its length header.
+   *
+   * @return the leaf's {@code rowCount}; {@code 0} for a rowless leaf, which carries NO per-column
+   *         zone pair at all (so {@code out} is left untouched); {@code -1} on an unknown column kind
+   */
+  private static int columnZonePairOffsets(final byte[] payload, final int[] out) {
+    final int rowCount = getIntLE(payload, 0);
+    final int columnCount = getIntLE(payload, 4);
+    final int kindsOff = 24;
+    if (rowCount == 0) {
+      return 0;
+    }
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
+    for (int c = 0; c < columnCount; c++) {
+      out[c] = cursor;
+      cursor += 16;
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+          cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
+        default -> {
+          return -1;
+        }
+      }
+    }
+    return rowCount;
+  }
+
+  /** Grow the per-thread offset scratch in lockstep so the two arrays never disagree in length. */
+  private static void ensureOffsetScratch(final ScanScratch s, final int columnCount) {
+    if (s.columnDataOff.length < columnCount) {
+      s.columnDataOff = new int[columnCount];
+      s.columnMinMaxOff = new int[columnCount];
+    }
+  }
+
+  /**
+   * Union of a NUMERIC_LONG column's per-leaf zone maps: {@code out3} receives
+   * {@code {gMin, gMax, totalRows}}. The EAGER-handle twin of
+   * {@link ProjectionColumnStore#columnZoneRange} — leaf HEADERS only, no row payload, no I/O.
+   *
+   * <p>
+   * The union is what makes an index-by-subtraction group accumulator safe with no probe pass: zone
+   * maps fold in only PRESENT, representable values, so under the caller's sparse-clean gate every
+   * value the kernel will read is provably inside {@code [gMin, gMax]}.
+   *
+   * <p>
+   * Leaves whose pair reads {@code min > max} (the all-missing marker) contribute rows but no range —
+   * folding their sentinels in would produce an inverted union. A leaf whose range cannot be read at
+   * all makes the whole union UNKNOWN ({@code false}); skipping it would under-report the range and
+   * the dense arm would then address out of bounds.
+   *
+   * @return {@code false} — range UNKNOWN, caller must take the hash arm — on an empty leaf list, a
+   *         null payload, a column index out of range, a kind that is not NUMERIC_LONG on some leaf,
+   *         a structurally unwalkable leaf, or zero present rows across the whole index
+   */
+  public static boolean numericZoneUnion(final List<byte[]> rowGroupPayloads, final int col, final long[] out3) {
+    if (out3 == null || out3.length < 3) {
+      throw new IllegalArgumentException("out3 must hold at least three longs");
+    }
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty() || col < 0) {
+      return false;
+    }
+    final ScanScratch s = SCRATCH.get();
+    long gMin = Long.MAX_VALUE;
+    long gMax = Long.MIN_VALUE;
+    long rows = 0;
+    boolean anyRange = false;
+    for (final byte[] payload : rowGroupPayloads) {
+      if (payload == null) {
+        return false;
+      }
+      final int columnCount = columnCountOf(payload);
+      if (col >= columnCount) {
+        return false;
+      }
+      if (payload[24 + col] != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return false;
+      }
+      ensureOffsetScratch(s, columnCount);
+      final int rowCount = columnZonePairOffsets(payload, s.columnMinMaxOff);
+      if (rowCount < 0) {
+        return false;
+      }
+      rows += rowCount;
+      if (rowCount == 0) {
+        continue;
+      }
+      final int off = s.columnMinMaxOff[col];
+      final long min = getLongLE(payload, off);
+      final long max = getLongLE(payload, off + 8);
+      if (min > max) {
+        continue;
+      }
+      if (min < gMin) {
+        gMin = min;
+      }
+      if (max > gMax) {
+        gMax = max;
+      }
+      anyRange = true;
+    }
+    if (!anyRange) {
+      return false;
+    }
+    out3[0] = gMin;
+    out3[1] = gMax;
+    out3[2] = rows;
+    return true;
+  }
+
+  /**
+   * Zone-map pre-flight for per-group sums: declines BEFORE a single row is read when the aggregate
+   * columns cannot be summed exactly in a {@code long}. Port of
+   * {@code ProjectionColumnSegmentFoldScan#requireSumFitsLong} to the whole-leaf path.
+   *
+   * <p>
+   * A single WHOLE-COLUMN bound covers every group, because each group's sum is a sub-multiset of the
+   * column's — so one {@code O(leaves)} metadata check replaces an {@code O(rows)} scan that was
+   * going to be thrown away. {@link Math#absExact} supplies the {@link Long#MIN_VALUE} guard for
+   * free.
+   *
+   * <p>
+   * The bound is CONSERVATIVE (predicates and presence only ever remove contributions), so this may
+   * decline a shape whose actual sums would have fit — a slower correct answer instead of a wrapped
+   * wrong one. It is an EARLY-decline optimization layered over the per-row {@link Math#addExact} in
+   * the kernels, which remains the authority: on any leaf shape this walk cannot decode it abandons
+   * the pre-flight rather than reporting a partial (and therefore too-small) bound.
+   *
+   * @throws ArithmeticException naming the column — callers treat it as a DECLINE
+   */
+  public static void requireGroupSumsFitLong(final List<byte[]> rowGroupPayloads, final int[] aggColumns) {
+    if (rowGroupPayloads == null || rowGroupPayloads.isEmpty() || aggColumns == null || aggColumns.length == 0) {
+      return;
+    }
+    final ScanScratch s = SCRATCH.get();
+    final long[] bounds = new long[aggColumns.length];
+    int failedColumn = -1;
+    try {
+      for (final byte[] payload : rowGroupPayloads) {
+        if (payload == null) {
+          return;
+        }
+        final int columnCount = columnCountOf(payload);
+        ensureOffsetScratch(s, columnCount);
+        final int rowCount = columnZonePairOffsets(payload, s.columnMinMaxOff);
+        if (rowCount <= 0) {
+          if (rowCount < 0) {
+            return;
+          }
+          continue;
+        }
+        for (int a = 0; a < aggColumns.length; a++) {
+          final int col = aggColumns[a];
+          if (col < 0 || col >= columnCount) {
+            return;
+          }
+          final int off = s.columnMinMaxOff[col];
+          final long min = getLongLE(payload, off);
+          final long max = getLongLE(payload, off + 8);
+          if (min > max) {
+            continue;
+          }
+          failedColumn = col;
+          final long magnitude = Math.max(Math.absExact(min), Math.absExact(max));
+          bounds[a] = Math.addExact(bounds[a], Math.multiplyExact((long) rowCount, magnitude));
+        }
+      }
+    } catch (final ArithmeticException overflow) {
+      throw new ArithmeticException("Projection column " + failedColumn
+          + " cannot be summed exactly in a long: the zone-map magnitude bound over " + rowGroupPayloads.size()
+          + " row groups leaves the signed 64-bit range");
+    }
+  }
+
+  /**
+   * Per-leaf preamble shared by the three numeric group kernels: verify the column kind, then locate
+   * the group column's presence words.
+   *
+   * <p>
+   * Presence is MANDATORY here, unlike in the string kernels. Those tolerate a missing tail and fall
+   * back to dense semantics, which for a dict id merely mis-groups; for a VALUE the stored default of
+   * a missing row (typically {@code 0}) is generally outside the zone-map range and would trip the
+   * dense arm's range guard — or, worse, land inside it and fabricate a phantom group {@code 0}.
+   *
+   * @return the leaf's validated presence-tail start
+   * @throws IllegalStateException on kind drift, an out-of-range column, or an unreadable presence
+   *         tail — callers catch it as a DECLINE
+   */
+  private static int numericGroupTailStart(final byte[] payload, final int groupColumn, final ScanScratch s) {
+    final int columnCount = columnCountOf(payload);
+    if (groupColumn < 0 || groupColumn >= columnCount) {
+      throw new IllegalStateException("groupColumn " + groupColumn + " out of range [0, " + columnCount + ")");
+    }
+    final byte kind = payload[24 + groupColumn];
+    // STRING_GLOBAL joins NUMERIC_LONG: its cells are resource-wide dictionary ids stored in the
+    // same long lane, and grouping by an id IS grouping by the value it stands for — that identity
+    // is the whole point of the kind. What must NOT join is NUMERIC_DOUBLE, whose cells carry the
+    // order-preserving transform rather than the value.
+    if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      throw new IllegalStateException(
+          "groupColumn " + groupColumn + " is not NUMERIC_LONG or STRING_GLOBAL (kind=" + kind + ")");
+    }
+    final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+    if (tailStart < 0) {
+      throw new IllegalStateException("groupColumn " + groupColumn
+          + " has no readable presence tail — a numeric group key must never fall back to the stored default");
+    }
+    return tailStart;
+  }
+
+  /**
+   * Bit mask selecting the VALID rows of mask word {@code w} — the once-per-word form of the
+   * {@code rowIdx >= rowCount} bound check the dict kernels re-run per set bit. Equivalent (the mask
+   * builder already clears the final word's tail bits), cheaper, and it is what lets the hot loop
+   * tally MISSING rows with one {@link Long#bitCount} instead of branching per row.
+   */
+  /**
+   * Composite missing-component sentinel — part of the key identity, shared with the sliced kernels.
+   */
+  static final long MISSING_COMPONENT_HASH = 0x9E3779B97F4A7C15L;
+  /** FNV-1a chain seed/prime — shared so the sliced composite kernel cannot drift. */
+  static final long FNV_SEED = 0xcbf29ce484222325L;
+  static final long FNV_PRIME = 0x100000001b3L;
+
+  /**
+   * Per-call CROSS-LEAF regex transform cache: raw entry FNV → transformed-key FNV. Dict hashes reset
+   * per leaf, but dictionary content repeats heavily ACROSS leaves — without this, a regex-keyed
+   * 1M-row scan runs ~1M Matcher+replaceAll+getBytes rounds against ~100k distinct strings. Keying on
+   * the raw 64-bit FNV is the same trust level the group identity already ships. One instance per
+   * kernel call (worker × query) — a regex/replacement pair never outlives its query.
+   */
+  static final class RegexHashCache {
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap map =
+        new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap(256);
+    java.util.regex.Matcher matcher;
+
+    RegexHashCache() {
+      map.defaultReturnValue(Long.MIN_VALUE);
+    }
+  }
+
+  /** The transformed-key hash of one dict entry, served from {@code cache} across leaves. */
+  static long transformedKeyHash(final RegexHashCache cache, final java.util.regex.Pattern keyRegex,
+      final String keyRegexRepl, final byte[] bytes, final int off, final int len) {
+    final long raw = fnv1a64(bytes, off, len);
+    final long cached = cache.map.get(raw);
+    if (cached != Long.MIN_VALUE) {
+      return cached;
+    }
+    final String src = new String(bytes, off, len, StandardCharsets.UTF_8);
+    java.util.regex.Matcher m = cache.matcher;
+    if (m == null) {
+      m = cache.matcher = keyRegex.matcher(src);
+    } else {
+      m.reset(src);
+    }
+    final byte[] tb = m.replaceAll(keyRegexRepl).getBytes(StandardCharsets.UTF_8);
+    final long h = fnv1a64(tb, 0, tb.length);
+    cache.map.put(raw, h);
+    return h;
+  }
+
+  static long validRowsMask(final int w, final int stride, final int rowCount) {
+    final int lastBits = rowCount & 63;
+    return lastBits != 0 && w == stride - 1
+        ? -1L >>> 64 - lastBits
+        : -1L;
+  }
+
+  /**
+   * Conjunctive filter + group-by-count over a
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_NUMERIC_LONG} column — the HASH arm. Every
+   * matching row bumps {@code out} under its primitive value; matching rows whose group field is
+   * MISSING count into {@code missingOut[0]} (the null-key group), never under the stored default.
+   *
+   * <p>
+   * HFT-grade: one 8-byte load and one {@link Long2LongOpenHashMap#addTo} probe per matching row. No
+   * boxing (primitive key), no interning, no {@code String}, no per-leaf dictionary work, zero
+   * allocation on the hot path.
+   *
+   * <p>
+   * Counts cannot overflow and are deliberately unchecked: rows are bounded by
+   * {@code leaves × MAX_ROWS ≤ 2^31 × 2^10 = 2^41}.
+   *
+   * @param out caller-supplied accumulator with {@code defaultReturnValue(0L)}
+   * @param missingOut one-element sink for the missing-field group; must be non-null — presence is
+   *        mandatory on this path (see {@link #numericGroupPresenceOff})
+   * @throws IllegalStateException on column-kind drift or an unreadable presence tail — a DECLINE
+   */
+  public static void conjunctiveCountByGroupNumeric(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final Long2LongOpenHashMap out,
+      final long[] missingOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null) {
+      throw new IllegalArgumentException("out must not be null");
+    }
+    if (missingOut == null || missingOut.length < 1) {
+      throw new IllegalArgumentException("missingOut is mandatory — the numeric group path requires presence");
+    }
+    final ScanScratch s = SCRATCH.get();
+    long missing = 0;
+    for (final byte[] payload : rowGroupPayloads) {
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int presOff = presenceWordsOff(payload, numericGroupTailStart(payload, groupColumn, s), groupColumn);
+      final int valOff = s.columnDataOff[groupColumn];
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        final long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long presWord = getLongLE(payload, presOff + (w << 3));
+        missing += Long.bitCount(word & ~presWord);
+        long live = word & presWord;
+        final int rowBase = w << 6;
+        while (live != 0L) {
+          final int bit = Long.numberOfTrailingZeros(live);
+          live &= live - 1L;
+          out.addTo(getLongLE(payload, valOff + (rowBase + bit) * 8), 1L);
+        }
+      }
+    }
+    missingOut[0] += missing;
+  }
+
+  /**
+   * DENSE arm of {@link #conjunctiveCountByGroupNumeric}: the group index IS the value, offset by
+   * {@code base}, so a matching row costs one 8-byte load and one array increment — no hash probe.
+   * The caller sizes {@code counts} from the zone-map union ({@link #numericZoneUnion}) and passes
+   * {@code base = gMin}.
+   *
+   * <p>
+   * There is no {@code fallbackOut} counterpart to the string dense kernel's: values are globally
+   * comparable, so "outside the accumulator" is not a late-arriving value, it is CORRUPTION (a zone
+   * map disagreeing with its own column). The range guard converts it into a decline rather than an
+   * {@link ArrayIndexOutOfBoundsException} or, worse, a silently wrong bucket. Keep the branch: it is
+   * perfectly predicted (always false) and it is the only thing standing between a corrupt leaf and a
+   * wrong answer.
+   *
+   * @param counts caller-zeroed accumulator; its LENGTH defines the addressable range, so it cannot
+   *        drift from the guard
+   * @throws IllegalStateException on kind drift, an unreadable presence tail, or a value outside
+   *         {@code [base, base + counts.length)} — all DECLINES
+   */
+  public static void conjunctiveCountByGroupNumericDense(final Iterable<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final long base,
+      final long[] counts, final long[] missingOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (counts == null || counts.length == 0) {
+      throw new IllegalArgumentException("counts must be a non-empty caller-zeroed accumulator");
+    }
+    if (missingOut == null || missingOut.length < 1) {
+      throw new IllegalArgumentException("missingOut is mandatory — the numeric group path requires presence");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int cells = counts.length;
+    long missing = 0;
+    for (final byte[] payload : rowGroupPayloads) {
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int presOff = presenceWordsOff(payload, numericGroupTailStart(payload, groupColumn, s), groupColumn);
+      final int valOff = s.columnDataOff[groupColumn];
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        final long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long presWord = getLongLE(payload, presOff + (w << 3));
+        missing += Long.bitCount(word & ~presWord);
+        long live = word & presWord;
+        final int rowBase = w << 6;
+        while (live != 0L) {
+          final int bit = Long.numberOfTrailingZeros(live);
+          live &= live - 1L;
+          final long v = getLongLE(payload, valOff + (rowBase + bit) * 8);
+          final long d = v - base;
+          if (d < 0 || d >= cells) {
+            throw new IllegalStateException("group value " + v + " outside zone range [" + base + ", " + (base + cells)
+                + ") on column " + groupColumn);
+          }
+          counts[(int) d]++;
+        }
+      }
+    }
+    missingOut[0] += missing;
+  }
+
+  /**
+   * Per-group NUMERIC_LONG aggregates keyed by a NUMERIC_LONG group column — the numeric twin of
+   * {@link #conjunctiveAggregateByGroup}. Accumulator layout, per-aggregate-column presence AND,
+   * exact-sum discipline and first-seen ordinals ({@code (leafIndexBase + leaf) << 20 | rowIdx},
+   * min-on-merge) are unchanged: the ordinals are what make the served emission order match the
+   * interpreter's document first-appearance order.
+   *
+   * <p>
+   * Hash only, no dense arm: a per-group accumulator is {@code 2 + 4·aggCols} longs, so a dense array
+   * of them is {@code long[cells × slots]} and explodes; and at the cardinality where per-group
+   * aggregates actually appear the map is L1-resident and the probe is invisible against the per-row
+   * presence + value loads.
+   *
+   * @param missingAcc accumulator for matching rows whose GROUP field is missing (the null-key group)
+   * @throws ArithmeticException on a per-group sum overflow — a DECLINE
+   * @throws IllegalStateException on kind drift or an unreadable presence tail — a DECLINE
+   */
+  public static void conjunctiveAggregateByGroupNumeric(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final Long2ObjectOpenHashMap<long[]> out, final long[] missingAcc, final int leafIndexBase) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || missingAcc == null || aggColumns == null) {
+      throw new IllegalArgumentException("out, missingAcc and aggColumns must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = aggColumns.length;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = numericGroupTailStart(payload, groupColumn, s);
+      final int groupPresOff = presenceWordsOff(payload, tailStart, groupColumn);
+      final int groupValOff = s.columnDataOff[groupColumn];
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        // Same fail-loud per-leaf kind check the group column gets: a leaf whose kind byte
+        // drifted from the handle metadata must never be folded as longs silently.
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          final long[] acc;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            acc = missingAcc;
+            if (acc[0] == 0) {
+              // First missing-group row of this chunk — record its ordinal so the
+              // null-key group emits at its document first-appearance position.
+              acc[1] = leafOrdinalBase | rowIdx;
+            }
+          } else {
+            final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+            long[] existing = out.get(gv);
+            if (existing == null) {
+              existing = newGroupAggAcc(aggCount, leafOrdinalBase | rowIdx);
+              out.put(gv, existing);
+            }
+            acc = existing;
+          }
+          acc[0]++;
+          for (int a = 0; a < aggCount; a++) {
+            if ((getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) == 0L) {
+              continue;
+            }
+            final long v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+            final int base = 2 + 4 * a;
+            acc[base]++;
+            // Exact sum or DECLINE: the interpreter promotes an overflowing xs:integer
+            // sum to exact decimal — a wrapped long would silently serve a wrong total.
+            acc[base + 1] = Math.addExact(acc[base + 1], v);
+            if (v < acc[base + 2]) {
+              acc[base + 2] = v;
+            }
+            if (v > acc[base + 3]) {
+              acc[base + 3] = v;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupNumeric} writing into a {@link NumericGroupAggTable} instead
+   * of a boxed map — identical fold, identical accumulator layout, identical exact-sum and
+   * first-seen-ordinal discipline. The flat table removes the per-group {@code long[]} allocation and
+   * the boxed probe, which the profile shows dominating the high-cardinality kernel once the
+   * downstream sort is gone.
+   */
+  public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
+    conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, -1, null, null, null, null, null, false);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupNumericFlat} with an optional COUNT(DISTINCT) lane: agg block
+   * {@code distinctBlock} is not folded — instead each present value enters the group's
+   * {@link LongOpenHashSet} in {@code distinctOut} (keyed by the group value; the missing-key group's
+   * set is {@code distinctMissing}). {@code budget} is {@code [remaining, exceededFlag]}: once
+   * remaining goes negative the flag is set and the scan stops — the CALLER declines, a budget stop
+   * must never look like an answer. The block's lanes stay zero; the caller writes the exact set size
+   * into its sum lane after the partition-wise union (merging partial SIZES would double-count values
+   * shared between threads).
+   */
+  public static void conjunctiveAggregateByGroupNumericFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final boolean[] aggStrlen,
+      final boolean cdStringDict) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || missingAcc == null || aggColumns == null) {
+      throw new IllegalArgumentException("out, missingAcc and aggColumns must not be null");
+    }
+    // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query that
+    // asks only for min/max/count can never decline on an overflow no answer depends on —
+    // see NumericGroupAggTable#sumsExact for the rule the partition merge obeys too.
+    final long sumExactMask = out.sumExactMask();
+    if (cdStringDict && distinctBlock < 0) {
+      throw new IllegalArgumentException("cdStringDict without a distinct block");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = aggColumns.length;
+    // COUNT-ONLY: no aggregate lanes and no distinct set, so a row is one increment into a
+    // [key, count, firstSeen] stripe. Decided ONCE, never per row.
+    final boolean countOnly = aggCount == 0 && distinctBlock < 0;
+    // Per-agg codepoint-count caches for string-length operands (one int per dict entry, per
+    // leaf); UTF-8 codepoints = non-continuation bytes, matching fn:string-length's
+    // codePointCount contract for every plane.
+    final int[][] strlenCpLen = aggStrlen != null
+        ? new int[aggCount][]
+        : null;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines; nothing here is an answer
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      ensureOffsetScratch(s, columnCountOf(payload));
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = numericGroupTailStart(payload, groupColumn, s);
+      final int groupPresOff = presenceWordsOff(payload, tailStart, groupColumn);
+      final int groupValOff = s.columnDataOff[groupColumn];
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggStrlen != null && aggStrlen[a]) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException(
+                "strlen aggColumn " + aggColumns[a] + " is not STRING_DICT (kind=" + aggKind + ")");
+          }
+          final int base = s.columnDataOff[aggColumns[a]];
+          final int dictSize = getIntLE(payload, base);
+          final int lenHeaderOff = base + 4;
+          int[] cp = strlenCpLen[a];
+          if (cp == null || cp.length < dictSize) {
+            strlenCpLen[a] = cp = new int[Math.max(64, dictSize)];
+          }
+          int off = lenHeaderOff + dictSize * 4;
+          for (int i = 0; i < dictSize; i++) {
+            final int len = getIntLE(payload, lenHeaderOff + i * 4);
+            int cnt = 0;
+            for (int b = off; b < off + len; b++) {
+              if ((payload[b] & 0xC0) != 0x80) {
+                cnt++;
+              }
+            }
+            cp[i] = cnt;
+            off += len;
+          }
+          aggValOff[a] = off; // ids region
+          aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+          continue;
+        }
+        if (cdStringDict && a == distinctBlock) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException(
+                "distinct aggColumn " + aggColumns[a] + " is not STRING_DICT (kind=" + aggKind + ")");
+          }
+          aggValOff[a] = prepareCdDict(s, payload, s.columnDataOff[aggColumns[a]]); // ids region
+          aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+          continue;
+        }
+        // A STRING_GLOBAL column is admitted in exactly ONE lane: the distinct operand, where its
+        // cells are folded into a set of longs. Resource-wide ids need no dictionary and no content
+        // hash — they ARE the identity — so the plain long lane below serves them unchanged. Every
+        // other lane keeps the NUMERIC_LONG assert, because summing or averaging an id is a wrong
+        // answer, not a slow one.
+        final boolean globalDistinctOperand =
+            a == distinctBlock && !cdStringDict && aggKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+        if (!globalDistinctOperand && aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = presenceWordsOff(payload, tailStart, aggColumns[a]);
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      // Read AFTER the loop: prepareCdDict may have grown the scratch arrays.
+      final int[] cdOff = cdStringDict
+          ? s.cdDictOff
+          : null;
+      final int[] cdLen = cdStringDict
+          ? s.cdDictLen
+          : null;
+      final long[] cdHashes = cdStringDict
+          ? s.cdDictHash
+          : null;
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      if (countOnly) {
+        for (int w = 0; w < stride; w++) {
+          long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+          final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+          final int rowBase = w << 6;
+          while (word != 0L) {
+            final int bit = Long.numberOfTrailingZeros(word);
+            word &= word - 1L;
+            final int rowIdx = rowBase + bit;
+            if ((groupPresWord & 1L << bit) == 0L) {
+              if (missingAcc[0] == 0) {
+                missingAcc[1] = leafOrdinalBase | rowIdx;
+              }
+              missingAcc[0]++;
+            } else {
+              final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+              if (gv == 0L) {
+                out.acquireZero(leafOrdinalBase | rowIdx)[0]++;
+              } else {
+                // The table array is re-read AFTER the acquire: growth swaps it out.
+                final int base = out.acquire(gv, leafOrdinalBase | rowIdx);
+                out.table()[base]++;
+              }
+            }
+          }
+        }
+        continue;
+      }
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long groupPresWord = getLongLE(payload, groupPresOff + (w << 3));
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          final long[] slotArr;
+          final int base;
+          LongOpenHashSet dset = null;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            slotArr = missingAcc;
+            base = 0;
+            if (slotArr[0] == 0) {
+              slotArr[1] = leafOrdinalBase | rowIdx;
+            }
+            dset = distinctMissing;
+          } else {
+            final long gv = getLongLE(payload, groupValOff + rowIdx * 8);
+            if (gv == 0L) {
+              slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
+              base = 0;
+            } else {
+              // Order matters: a growing acquire swaps the table array, so read it AFTER.
+              base = out.acquire(gv, leafOrdinalBase | rowIdx);
+              slotArr = out.table();
+            }
+            if (distinctBlock >= 0) {
+              dset = distinctSetFor(distinctOut, gv);
+            }
+          }
+          slotArr[base]++;
+          for (int a = 0; a < aggCount; a++) {
+            final boolean strlenAgg = aggStrlen != null && aggStrlen[a];
+            final boolean present = (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) != 0L;
+            if (!present && !strlenAgg) {
+              continue;
+            }
+            // fn:string-length(()) is 0, never empty: a row MISSING the operand still
+            // contributes 0 — skipping it would shrink counts and shift averages.
+            final long v;
+            if (strlenAgg) {
+              v = present
+                  ? strlenCpLen[a][getIntLE(payload, aggValOff[a] + rowIdx * 4)]
+                  : 0L;
+            } else if (cdStringDict && a == distinctBlock) {
+              // STRING distinct operand: dict ids are LEAF-LOCAL, so the set member is the
+              // entry's 64-bit content hash — exact up to a hash collision, the SAME standard
+              // the composite group-key identity already accepts. Hashed once per entry per leaf.
+              final int cdId = getIntLE(payload, aggValOff[a] + rowIdx * 4);
+              long h = cdHashes[cdId];
+              if (h == 0L) {
+                h = fnv1a64(payload, cdOff[cdId], cdLen[cdId]);
+                cdHashes[cdId] = h;
+              }
+              v = h;
+            } else {
+              v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+            }
+            if (a == distinctBlock) {
+              if (dset.add(v) && --budget[0] < 0) {
+                budget[1] = 1;
+              }
+              continue;
+            }
+            final int aggBase = base + 2 + 4 * a;
+            slotArr[aggBase]++;
+            // Exact sum or DECLINE — the interpreter promotes an overflowing xs:integer sum. A lane
+            // no sum/avg reads is not folded at all, so a min-only query cannot decline on an
+            // overflow nothing in its answer depends on.
+            if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+              slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+            }
+            if (v < slotArr[aggBase + 2]) {
+              slotArr[aggBase + 2] = v;
+            }
+            if (v > slotArr[aggBase + 3]) {
+              slotArr[aggBase + 3] = v;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroup} without Strings: groups are keyed by the 64-bit FNV-1a hash
+   * of their bytes — the SAME identity the string kernels' intern table already trusts — into a flat
+   * {@link NumericGroupAggTable} whose aux lane records {@code (leaf << 20) | dictId} of each group's
+   * first sighting, so a caller materializes Strings for WINNING groups only (via
+   * {@link #stringDictColumnBase}/{@link #dictEntryString}). Per row the fold is: dict id → cached
+   * slot base (validated by key match, so table growth self-heals) → inline accumulate; a String is
+   * never built and the per-distinct work is one hash + one probe per leaf.
+   */
+  public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase) {
+    conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, -1, null, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupStringFlat} with the optional COUNT(DISTINCT) lane — the
+   * string twin of the numeric overload's contract, with the group's set keyed by the SAME 64-bit
+   * hash the table keys on.
+   */
+  public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    conjunctiveAggregateByGroupStringFlat(rowGroupPayloads, predicates, groupColumn, aggColumns, out, missingAcc,
+        leafIndexBase, distinctBlock, distinctOut, distinctMissing, budget, treeOrNull, null, null, null, null, false);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupStringFlat} with the REGEX key transform and/or string-length
+   * aggregate operands. {@code keyRegex} groups on the TRANSFORMED string — hashed once per
+   * dictionary entry per leaf; a matched row MISSING the key field sets {@code regexDecline[0]}
+   * (fn:replace over the empty sequence is {@code ""}, a REAL key the missing-key arm must not
+   * absorb) and the caller declines. {@code aggStrlen[a]} folds per-dict-entry CODEPOINT counts with
+   * fn:string-length's missing-is-0 semantics. {@code cdStringDict} marks the distinct block's
+   * operand as STRING_DICT — see {@link #foldRowDistinct} for the leaf-local-id → content-hash
+   * identity it feeds the set.
+   */
+  public static void conjunctiveAggregateByGroupStringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int[] aggColumns,
+      final NumericGroupAggTable out, final long[] missingAcc, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final LongOpenHashSet distinctMissing,
+      final long[] budget, final ProjectionIndexScan.PredicateTree treeOrNull, final Pattern keyRegex,
+      final String keyRegexRepl, final long[] regexDecline, final boolean[] aggStrlen, final boolean cdStringDict) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || missingAcc == null || aggColumns == null) {
+      throw new IllegalArgumentException("out, missingAcc and aggColumns must not be null");
+    }
+    // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query that
+    // asks only for min/max/count can never decline on an overflow no answer depends on —
+    // see NumericGroupAggTable#sumsExact for the rule the partition merge obeys too.
+    final long sumExactMask = out.sumExactMask();
+    if (cdStringDict && distinctBlock < 0) {
+      throw new IllegalArgumentException("cdStringDict without a distinct block");
+    }
+    final ScanScratch s = SCRATCH.get();
+    if (s.dictByteOff == null) {
+      s.dictByteOff = new int[64];
+    }
+    if (s.dictHashCache == null) {
+      s.dictHashCache = new long[64];
+      s.dictSlotBase = new int[64];
+    }
+    int[] dictByteOff = s.dictByteOff;
+    long[] dictHash = s.dictHashCache;
+    int[] dictBase = s.dictSlotBase;
+    final RegexHashCache regexCache = keyRegex != null
+        ? new RegexHashCache()
+        : null;
+    final int aggCount = aggColumns.length;
+    // COUNT-ONLY: no aggregate lanes and no distinct set, so the fold is one increment into a
+    // [key, count, firstSeen, aux] stripe. Loop-invariant — the dict cache below is the group
+    // identity and stays in both shapes.
+    final boolean countOnly = aggCount == 0 && distinctBlock < 0;
+    final int[][] strlenCpLen = aggStrlen != null
+        ? new int[aggCount][]
+        : null;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (dictByteOff.length < dictSize) {
+        final int newSize = Math.max(dictByteOff.length * 2, dictSize);
+        dictByteOff = s.dictByteOff = new int[newSize];
+      }
+      if (dictHash.length < dictSize) {
+        final int newSize = Math.max(dictHash.length * 2, dictSize);
+        dictHash = s.dictHashCache = new long[newSize];
+        dictBase = s.dictSlotBase = new int[newSize];
+      }
+      final int lenHeaderOff = groupBase + 4;
+      final int concatOff = lenHeaderOff + dictSize * 4;
+      int running = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        dictByteOff[i] = running;
+        running += getIntLE(payload, lenHeaderOff + i * 4);
+        dictBase[i] = -1; // unresolved for THIS leaf
+      }
+      final int idsOff = running;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int groupPresOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, groupColumn)
+          : -1;
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggStrlen != null && aggStrlen[a]) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException(
+                "strlen aggColumn " + aggColumns[a] + " is not STRING_DICT (kind=" + aggKind + ")");
+          }
+          final int aBase = s.columnDataOff[aggColumns[a]];
+          final int aDictSize = getIntLE(payload, aBase);
+          final int aLensOff = aBase + 4;
+          int[] cp = strlenCpLen[a];
+          if (cp == null || cp.length < aDictSize) {
+            strlenCpLen[a] = cp = new int[Math.max(64, aDictSize)];
+          }
+          int aOff = aLensOff + aDictSize * 4;
+          for (int i = 0; i < aDictSize; i++) {
+            final int len = getIntLE(payload, aLensOff + i * 4);
+            int cnt = 0;
+            for (int b = aOff; b < aOff + len; b++) {
+              if ((payload[b] & 0xC0) != 0x80) {
+                cnt++;
+              }
+            }
+            cp[i] = cnt;
+            aOff += len;
+          }
+          aggValOff[a] = aOff; // ids region
+          aggPresOff[a] = tailStart >= 0
+              ? presenceWordsOff(payload, tailStart, aggColumns[a])
+              : -1;
+          continue;
+        }
+        if (cdStringDict && a == distinctBlock) {
+          if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException(
+                "distinct aggColumn " + aggColumns[a] + " is not STRING_DICT (kind=" + aggKind + ")");
+          }
+          aggValOff[a] = prepareCdDict(s, payload, s.columnDataOff[aggColumns[a]]); // ids region
+          aggPresOff[a] = tailStart >= 0
+              ? presenceWordsOff(payload, tailStart, aggColumns[a])
+              : -1;
+          continue;
+        }
+        // See the numeric-flat twin: STRING_GLOBAL is admitted in the distinct-operand lane only,
+        // where its resource-wide ids go straight into a set of longs. This is the JSONBench Q2
+        // shape — a per-leaf-dict GROUP key with a high-cardinality global distinct operand.
+        final boolean globalDistinctOperand =
+            a == distinctBlock && !cdStringDict && aggKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+        if (!globalDistinctOperand && aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      // Read AFTER the loop: prepareCdDict may have grown the scratch arrays.
+      final int[] cdOff = cdStringDict
+          ? s.cdDictOff
+          : null;
+      final int[] cdLen = cdStringDict
+          ? s.cdDictLen
+          : null;
+      final long[] cdHashes = cdStringDict
+          ? s.cdDictHash
+          : null;
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final long groupPresWord = groupPresOff >= 0
+            ? getLongLE(payload, groupPresOff + w * 8)
+            : -1L;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          final long[] slotArr;
+          final int base;
+          LongOpenHashSet dset = null;
+          if (groupPresOff >= 0 && (groupPresWord & 1L << bit) == 0L) {
+            if (keyRegex != null) {
+              // fn:replace over the missing field's empty sequence is "" — a REAL key.
+              regexDecline[0] = 1;
+              return;
+            }
+            slotArr = missingAcc;
+            base = 0;
+            if (slotArr[0] == 0) {
+              slotArr[1] = leafOrdinalBase | rowIdx;
+            }
+            dset = distinctMissing;
+          } else {
+            final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+            final long ordinal = leafOrdinalBase | rowIdx;
+            int cached = dictBase[dictId];
+            long h;
+            if (cached >= 0) {
+              h = dictHash[dictId];
+              // Rehash-safe validation: keys are unique, so a key match IS the group. The key
+              // sits one lane BELOW the cached block base — same stripe, same cache line.
+              if (out.keyAtAccBase(cached) != h) {
+                cached = -1;
+              }
+            } else {
+              h = 0L;
+            }
+            if (cached < 0) {
+              if (h == 0L) {
+                if (keyRegex != null) {
+                  h = transformedKeyHash(regexCache, keyRegex, keyRegexRepl, payload, dictByteOff[dictId],
+                      getIntLE(payload, lenHeaderOff + dictId * 4));
+                } else {
+                  h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+                }
+                dictHash[dictId] = h;
+              }
+              if (h == 0L) {
+                // A value whose FNV hash IS the empty-bucket sentinel: zero side slot.
+                final boolean fresh = !out.hasZeroKey();
+                final long[] zero = out.acquireZero(ordinal);
+                if (fresh) {
+                  out.setZeroAux(leafOrdinalBase | dictId);
+                }
+                if (countOnly) {
+                  zero[0]++;
+                } else if (distinctBlock < 0) {
+                  foldRow(zero, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen, sumExactMask);
+                } else {
+                  foldRowDistinct(zero, 0, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
+                      distinctSetFor(distinctOut, 0L), budget, w, bit, rowIdx, aggStrlen, strlenCpLen, cdOff, cdLen,
+                      cdHashes, sumExactMask);
+                }
+                continue;
+              }
+              cached = out.acquire(h, ordinal);
+              // Every acquire is followed by a fold, so count 0 means the entry was created
+              // just now — stamp the source reference exactly once.
+              if (out.table()[cached] == 0L) {
+                out.setAuxAtAccBase(cached, leafOrdinalBase | dictId);
+              }
+              dictBase[dictId] = cached;
+            }
+            if (distinctBlock >= 0) {
+              dset = distinctSetFor(distinctOut, h);
+            }
+            slotArr = out.table();
+            base = cached;
+          }
+          if (countOnly) {
+            slotArr[base]++;
+          } else if (distinctBlock < 0) {
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, aggStrlen, strlenCpLen, sumExactMask);
+          } else {
+            foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock, dset, budget, w,
+                bit, rowIdx, aggStrlen, strlenCpLen, cdOff, cdLen, cdHashes, sumExactMask);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Fold EVERY matching row of every leaf into ONE accumulator block ({@link #newGroupAggAcc} layout;
+   * the ordinal lane is unused) — the single-group kernel behind {@code group by
+   * <constant>}: N aggregates over their operand columns in one pass, no group column read at all.
+   */
+  public static void conjunctiveAggregateAllNumeric(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] aggColumns, final long[] acc) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (acc == null || aggColumns == null) {
+      throw new IllegalArgumentException("acc and aggColumns must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final int aggCount = aggColumns.length;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          foldRow(acc, 0, payload, aggPresOff, aggValOff, aggCount, w, bit, rowBase + bit, -1L);
+        }
+      }
+    }
+  }
+
+  /**
+   * COMPOSITE-key flat group aggregation: 2..5 key components, each NUMERIC_LONG or STRING_DICT,
+   * combined into one 64-bit identity by chaining LEAF-INDEPENDENT component hashes (numeric:
+   * {@code HashCommon.mix(value)}; dict: the FNV-1a of the entry BYTES, cached per leaf entry;
+   * missing component: a fixed sentinel — a missing part is PART of the key, per the multi-key
+   * contract, never a separate null-key group). Identity is hash-only — the same assumption the
+   * string kernels' intern already trusts. The table's aux lane records the FIRST-SEEN row
+   * ({@code (leaf << 20) | rowIdx}), so a caller materializes the K winning keys by re-reading their
+   * component values from that one row each — no per-group key materialization during the scan at
+   * all.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out, leafIndexBase,
+        -1, null, null, null, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupCompositeFlat} with the COUNT(DISTINCT) lane, keyed by the
+   * same composite hash the table keys on (no missing-key side set: a missing component is part of
+   * the key here). Same budget-decline contract as the single-key overloads.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out, leafIndexBase,
+        distinctBlock, distinctOut, budget, null, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupCompositeFlat} with per-component KEY TRANSFORMS:
+   * {@code keyOffsets[k]} shifts a numeric component ({@code $r.f + c} keys — grouping happens on the
+   * SHIFTED value; a non-injective transform grouped raw would over-partition), and
+   * {@code keySubstr[2k, 2k+1]} applies {@code xs:integer(substring(entry, start, len))} to a dict
+   * component, evaluated once per dictionary entry per leaf. {@code declineFlag[0] != 0} signals a
+   * case the interpreter RAISES on (missing operand under a substring transform, a lexically invalid
+   * slice, an overflowing shift) — the caller declines, and the generic pipeline raises identically.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
+      final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    conjunctiveAggregateByGroupCompositeFlat(rowGroupPayloads, predicates, groupColumns, aggColumns, out, leafIndexBase,
+        distinctBlock, distinctOut, budget, keyOffsets, keySubstr, declineFlag, treeOrNull, null, null, null, null);
+  }
+
+  /**
+   * {@link #conjunctiveAggregateByGroupCompositeFlat} with the CONDITIONAL key transform
+   * ({@code if ($r.c1 = L1 [and $r.c2 = L2]) then $r.f else "lit"} — the Q39 CASE WHEN port):
+   * {@code keyCondCols[2k]} ({@code -1} = key {@code k} unconditional) and {@code 2k+1} name the
+   * NUMERIC condition columns, {@code keyCondLits} the literals, {@code keyCondElse[k]} the else
+   * literal's UTF-8 bytes. Condition truth per row is {@code present AND value == literal} — the
+   * general comparison's existential (missing ⇒ false). The then-branch reads the dict component
+   * exactly like an untransformed key (missing field ⇒ the empty-sequence key); the else branch
+   * hashes the literal bytes in the SAME FNV domain as dict entries, so a stored value equal to the
+   * literal merges into the interpreter's group.
+   *
+   * <p>
+   * {@code keyCondElse[k]} with NO condition column ({@code keyCondCols[2k] < 0}) is the
+   * MISSING-value substitution instead — the {@code fn:string($r.f)} key, whose only difference from
+   * the bare deref is that an absent field reads as {@code ""}. Same FNV domain, for the same reason:
+   * a stored {@code ""} must land in the group the interpreter puts it in.
+   *
+   * <p>
+   * {@code keyDivMod} carries {@code ($r.f idiv D) mod M} per key ({@code 2k} the divisor,
+   * {@code 2k+1} the modulus, {@code 0} = not applied): integer date-part extraction over a
+   * NUMERIC_LONG component, applied AFTER {@code keyOffsets} and grouped on the transformed value.
+   * Java's {@code /} and {@code %} are XQuery's {@code idiv} and {@code mod} for every input, so no
+   * case declines.
+   */
+  public static void conjunctiveAggregateByGroupCompositeFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int[] groupColumns, final int[] aggColumns,
+      final NumericGroupAggTable out, final int leafIndexBase, final int distinctBlock,
+      final Long2ObjectOpenHashMap<LongOpenHashSet> distinctOut, final long[] budget, final long[] keyOffsets,
+      final int[] keySubstr, final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull,
+      final int[] keyCondCols, final long[] keyCondLits, final byte[][] keyCondElse, final long[] keyDivMod) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || aggColumns == null || groupColumns == null) {
+      throw new IllegalArgumentException("out, aggColumns and groupColumns must not be null");
+    }
+    // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query that
+    // asks only for min/max/count can never decline on an overflow no answer depends on —
+    // see NumericGroupAggTable#sumsExact for the rule the partition merge obeys too.
+    final long sumExactMask = out.sumExactMask();
+    final ScanScratch s = SCRATCH.get();
+    final int keyCount = groupColumns.length;
+    final int aggCount = aggColumns.length;
+    // COUNT-ONLY: no aggregate lanes and no distinct set, so the fold is one increment into a
+    // [key, count, firstSeen, aux] stripe. Loop-invariant, decided once per call.
+    final boolean countOnly = aggCount == 0 && distinctBlock < 0;
+    // Per-component per-leaf dict caches (entry hash by dict id); components are <= 5.
+    final long[][] compDictHash = new long[keyCount][];
+    final int[] compPresOff = new int[keyCount];
+    final int[] compValOff = new int[keyCount];
+    final byte[] compKind = new byte[keyCount];
+    final long[] condElseHash = keyCondCols != null
+        ? new long[keyCount]
+        : null;
+    final int[] condPresOff = keyCondCols != null
+        ? new int[2 * keyCount]
+        : null;
+    final int[] condValOff = keyCondCols != null
+        ? new int[2 * keyCount]
+        : null;
+    if (keyCondCols != null) {
+      for (int k = 0; k < keyCount; k++) {
+        // Both roles of the literal — the conditional else branch and the missing-value
+        // substitution — hash once here, in the dictionary's own domain.
+        if (keyCondElse[k] != null) {
+          condElseHash[k] = fnv1a64(keyCondElse[k], 0, keyCondElse[k].length);
+        }
+      }
+    }
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (budget != null && budget[1] != 0) {
+        return; // distinct budget exceeded — the caller declines
+      }
+      if (declineFlag != null && declineFlag[0] != 0) {
+        return; // a transform case the interpreter raises on — the caller declines
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      for (int k = 0; k < keyCount; k++) {
+        final int col = groupColumns[k];
+        final byte kind = payload[24 + col];
+        compKind[k] = kind;
+        compPresOff[k] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, col)
+            : -1;
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          compValOff[k] = s.columnDataOff[col];
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          // Pre-hash the WHOLE dictionary once per leaf (<= 1024 entries): per-row cost is
+          // then one id load + one array index per component. Under a substring transform the
+          // per-entry value IS the transformed integer (hashed), with Long.MIN_VALUE marking a
+          // slice the cast would raise on — referenced by a row, that declines the serve.
+          final int groupBase = s.columnDataOff[col];
+          final int dictSize = getIntLE(payload, groupBase);
+          final int lenHeaderOff = groupBase + 4;
+          long[] hashes = compDictHash[k];
+          if (hashes == null || hashes.length < dictSize) {
+            hashes = compDictHash[k] = new long[Math.max(64, dictSize)];
+          }
+          // POSITIVE start = the xs:integer(substring(...)) cast; 0 = none. The STRING
+          // substring variant (negative start) never reaches this kernel — it routes to the
+          // packed single-key arm, and the executor gate declines it for composites.
+          final int subStart = keySubstr != null
+              ? keySubstr[2 * k]
+              : 0;
+          final int subLen = keySubstr != null
+              ? keySubstr[2 * k + 1]
+              : 0;
+          int off = lenHeaderOff + dictSize * 4;
+          for (int i = 0; i < dictSize; i++) {
+            final int len = getIntLE(payload, lenHeaderOff + i * 4);
+            if (subStart > 0) {
+              final long tv = xsIntegerOfSubstring(payload, off, len, subStart, subLen);
+              hashes[i] = tv == Long.MIN_VALUE
+                  ? Long.MIN_VALUE
+                  : HashCommon.mix(tv);
+            } else {
+              hashes[i] = fnv1a64(payload, off, len);
+            }
+            off += len;
+          }
+          compValOff[k] = off; // ids region
+        } else {
+          throw new IllegalStateException("composite key component " + col + " has unsupported kind " + kind);
+        }
+      }
+      if (keyCondCols != null) {
+        for (int c2 = 0; c2 < 2 * keyCount; c2++) {
+          final int cc = keyCondCols[c2];
+          if (cc >= 0) {
+            final byte condKind = payload[24 + cc];
+            if (condKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+              throw new IllegalStateException(
+                  "condition column " + cc + " is not NUMERIC_LONG (kind=" + condKind + ")");
+            }
+            condPresOff[c2] = tailStart >= 0
+                ? presenceWordsOff(payload, tailStart, cc)
+                : -1;
+            condValOff[c2] = s.columnDataOff[cc];
+          }
+        }
+      }
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          long h = 0xcbf29ce484222325L;
+          for (int k = 0; k < keyCount; k++) {
+            final boolean subTransformed = keySubstr != null && keySubstr[2 * k] > 0;
+            final long compHash;
+            if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+              boolean condTrue = true;
+              for (int j = 0; j < 2 && condTrue; j++) {
+                final int cc = keyCondCols[2 * k + j];
+                if (cc < 0) {
+                  continue;
+                }
+                if (condPresOff[2 * k + j] >= 0
+                    && (getLongLE(payload, condPresOff[2 * k + j] + (w << 3)) & 1L << bit) == 0L) {
+                  condTrue = false; // missing condition operand: the comparison is false
+                } else if (getLongLE(payload, condValOff[2 * k + j] + rowIdx * 8) != keyCondLits[2 * k + j]) {
+                  condTrue = false;
+                }
+              }
+              if (!condTrue) {
+                compHash = condElseHash[k];
+              } else if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+                compHash = 0x9E3779B97F4A7C15L; // then-branch over a missing field: empty-sequence key
+              } else {
+                compHash = compDictHash[k][getIntLE(payload, compValOff[k] + rowIdx * 4)];
+              }
+            } else if (compPresOff[k] >= 0 && (getLongLE(payload, compPresOff[k] + (w << 3)) & 1L << bit) == 0L) {
+              if (subTransformed) {
+                // xs:integer(substring((), s, l)) = xs:integer("") — the interpreter RAISES.
+                declineFlag[0] = 1;
+                return;
+              }
+              // fn:string(()) is "" — the substitution literal's hash, in the dict domain, so the
+              // group merges with a stored empty string exactly as the interpreter's does.
+              // Otherwise a fixed sentinel: part of the identity, not a side group.
+              compHash = condElseHash != null && keyCondElse[k] != null
+                  ? condElseHash[k]
+                  : MISSING_COMPONENT_HASH;
+            } else if (compKind[k] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+              long v = getLongLE(payload, compValOff[k] + rowIdx * 8);
+              if (keyOffsets != null && keyOffsets[k] != 0L) {
+                final long shifted = v + keyOffsets[k];
+                if (((v ^ shifted) & (keyOffsets[k] ^ shifted)) < 0) {
+                  declineFlag[0] = 1; // overflow: the interpreter promotes to decimal
+                  return;
+                }
+                v = shifted;
+              }
+              v = applyDivMod(v, keyDivMod, k);
+              compHash = HashCommon.mix(v);
+            } else {
+              compHash = compDictHash[k][getIntLE(payload, compValOff[k] + rowIdx * 4)];
+              if (subTransformed && compHash == Long.MIN_VALUE) {
+                declineFlag[0] = 1; // a row references a slice the cast raises on
+                return;
+              }
+            }
+            h = h * 0x100000001b3L ^ compHash;
+          }
+          final long[] slotArr;
+          final int base;
+          if (h == 0L) {
+            final boolean fresh = !out.hasZeroKey();
+            slotArr = out.acquireZero(leafOrdinalBase | rowIdx);
+            base = 0;
+            if (fresh) {
+              out.setZeroAux(leafOrdinalBase | rowIdx);
+            }
+          } else {
+            base = out.acquire(h, leafOrdinalBase | rowIdx);
+            slotArr = out.table();
+            if (slotArr[base] == 0L) {
+              out.setAuxAtAccBase(base, leafOrdinalBase | rowIdx);
+            }
+          }
+          if (countOnly) {
+            slotArr[base]++;
+          } else if (distinctBlock < 0) {
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, sumExactMask);
+          } else {
+            foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock,
+                distinctSetFor(distinctOut, h), budget, w, bit, rowIdx, sumExactMask);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Materialize the composite key parts of ONE row — the winner-side companion of
+   * {@link #conjunctiveAggregateByGroupCompositeFlat}: {@code outStrings[k]} for a present
+   * STRING_DICT component, {@code outLongs[k]} (with {@code outIsLong[k]}) for a present NUMERIC_LONG
+   * one, neither for a missing component ({@code outPresent[k] == false}). {@code columnDataOff} must
+   * be this payload's offsets from {@link #columnOffsets}.
+   */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong) {
+    readRowKeyParts(payload, columnDataOff, leafDataEnd, groupColumns, rowIdx, outStrings, outLongs, outPresent,
+        outIsLong, null, null);
+  }
+
+  /**
+   * {@link #readRowKeyParts} applying the same key transforms the composite kernel groups by —
+   * winners must emit the TRANSFORMED value. A raise-case cannot appear here: the kernel already
+   * declined the serve before any winner existed.
+   */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets, final int[] keySubstr) {
+    readRowKeyParts(payload, columnDataOff, leafDataEnd, groupColumns, rowIdx, outStrings, outLongs, outPresent,
+        outIsLong, keyOffsets, keySubstr, null, null, null, null);
+  }
+
+  /**
+   * {@link #readRowKeyParts} with the CONDITIONAL key transform — the winner-side companion of the
+   * kernel's conditional arm: the same per-row condition picks the dict entry or the else literal, so
+   * the emitted key part is byte-for-byte the value the row grouped under.
+   */
+  public static void readRowKeyParts(final byte[] payload, final int[] columnDataOff, final int leafDataEnd,
+      final int[] groupColumns, final int rowIdx, final String[] outStrings, final long[] outLongs,
+      final boolean[] outPresent, final boolean[] outIsLong, final long[] keyOffsets, final int[] keySubstr,
+      final int[] keyCondCols, final long[] keyCondLits, final String[] keyCondElse, final long[] keyDivMod) {
+    final int tailStart = presenceTailStart(payload, leafDataEnd);
+    for (int k = 0; k < groupColumns.length; k++) {
+      final int col = groupColumns[k];
+      if (keyCondCols != null && keyCondCols[2 * k] >= 0) {
+        boolean condTrue = true;
+        for (int j = 0; j < 2 && condTrue; j++) {
+          final int cc = keyCondCols[2 * k + j];
+          if (cc < 0) {
+            continue;
+          }
+          if (tailStart >= 0) {
+            final int cPresOff = presenceWordsOff(payload, tailStart, cc);
+            if ((getLongLE(payload, cPresOff + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+              condTrue = false;
+              continue;
+            }
+          }
+          if (getLongLE(payload, columnDataOff[cc] + rowIdx * 8) != keyCondLits[2 * k + j]) {
+            condTrue = false;
+          }
+        }
+        if (!condTrue) {
+          outPresent[k] = true;
+          outIsLong[k] = false;
+          outStrings[k] = keyCondElse[k];
+          continue;
+        }
+        // Condition holds: fall through to the plain dict read below (missing ⇒ absent part).
+      }
+      if (tailStart >= 0) {
+        final int presOff = presenceWordsOff(payload, tailStart, col);
+        if ((getLongLE(payload, presOff + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+          // fn:string over a missing field emits the substitution literal the kernel grouped it
+          // under; a conditional key (handled above) keeps the empty-sequence part.
+          if (keyCondElse != null && keyCondElse[k] != null && (keyCondCols == null || keyCondCols[2 * k] < 0)) {
+            outPresent[k] = true;
+            outIsLong[k] = false;
+            outStrings[k] = keyCondElse[k];
+          } else {
+            outPresent[k] = false;
+          }
+          continue;
+        }
+      }
+      outPresent[k] = true;
+      final byte kind = payload[24 + col];
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        outIsLong[k] = true;
+        outLongs[k] = applyDivMod(getLongLE(payload, columnDataOff[col] + rowIdx * 8) + (keyOffsets != null
+            ? keyOffsets[k]
+            : 0L), keyDivMod, k);
+      } else {
+        outIsLong[k] = false;
+        final int groupBase = columnDataOff[col];
+        final int dictSize = getIntLE(payload, groupBase);
+        final int lenHeaderOff = groupBase + 4;
+        int off = lenHeaderOff + dictSize * 4;
+        int total = 0;
+        for (int i = 0; i < dictSize; i++) {
+          total += getIntLE(payload, lenHeaderOff + i * 4);
+        }
+        final int idsOff = off + total;
+        final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+        int entryOff = off;
+        for (int i = 0; i < dictId; i++) {
+          entryOff += getIntLE(payload, lenHeaderOff + i * 4);
+        }
+        final int entryLen = getIntLE(payload, lenHeaderOff + dictId * 4);
+        if (keySubstr != null && keySubstr[2 * k] > 0) {
+          outIsLong[k] = true;
+          outLongs[k] = xsIntegerOfSubstring(payload, entryOff, entryLen, keySubstr[2 * k], keySubstr[2 * k + 1]);
+        } else {
+          outStrings[k] = new String(payload, entryOff, entryLen, StandardCharsets.UTF_8);
+        }
+      }
+    }
+  }
+
+  /**
+   * {@code (v idiv D) mod M} for the group key's divmod transform — {@code keyDivMod[2k]} the divisor
+   * and {@code 2k+1} the modulus, {@code 0} meaning the operation is absent.
+   *
+   * <p>
+   * Exact, not approximate: Java's {@code /} truncates toward zero exactly as XQuery's {@code idiv}
+   * does and Java's {@code %} takes the dividend's sign exactly as XQuery's {@code mod} does, so
+   * every input — negatives included — yields the interpreter's value. The caller admits only
+   * POSITIVE constants, which is also what rules out the two arithmetic traps: a zero divisor
+   * (FOAR0001 in the interpreter) and {@code Long.MIN_VALUE / -1} (overflow).
+   */
+  static long applyDivMod(final long v, final long[] keyDivMod, final int k) {
+    if (keyDivMod == null) {
+      return v;
+    }
+    long out = v;
+    final long divisor = keyDivMod[2 * k];
+    if (divisor > 0L) {
+      out /= divisor;
+    }
+    final long modulus = keyDivMod[2 * k + 1];
+    if (modulus > 0L) {
+      out %= modulus;
+    }
+    return out;
+  }
+
+  /**
+   * {@code xs:integer(substring(entry, start, len))} as a long — the transform the composite kernel
+   * groups by. {@code Long.MIN_VALUE} = a case the CAST raises on (empty slice, non-digit, beyond
+   * long) or a non-ASCII entry (fn:substring counts CODEPOINTS; declining beats an off-by-index
+   * answer). fn:substring clamps out-of-range windows to the empty string.
+   */
+  static long xsIntegerOfSubstring(final byte[] bytes, final int off, final int len, final int start,
+      final int subLen) {
+    for (int i = off; i < off + len; i++) {
+      if (bytes[i] < 0) {
+        return Long.MIN_VALUE;
+      }
+    }
+    final int s0 = start - 1;
+    int from = off + Math.min(s0, len);
+    int end = off + Math.min(len, s0 + subLen);
+    // xs:integer's whiteSpace facet collapses surrounding whitespace before the cast.
+    while (from < end && (bytes[from] == ' ' || bytes[from] == '\t' || bytes[from] == '\n' || bytes[from] == '\r')) {
+      from++;
+    }
+    while (end > from
+        && (bytes[end - 1] == ' ' || bytes[end - 1] == '\t' || bytes[end - 1] == '\n' || bytes[end - 1] == '\r')) {
+      end--;
+    }
+    if (from >= end) {
+      return Long.MIN_VALUE;
+    }
+    boolean neg = false;
+    if (bytes[from] == '+' || bytes[from] == '-') {
+      neg = bytes[from] == '-';
+      from++;
+    }
+    if (from >= end) {
+      return Long.MIN_VALUE;
+    }
+    long v = 0;
+    for (int i = from; i < end; i++) {
+      final int d = bytes[i] - '0';
+      if (d < 0 || d > 9) {
+        return Long.MIN_VALUE;
+      }
+      v = v * 10 + d;
+      if (v < 0) {
+        return Long.MIN_VALUE; // beyond long: the interpreter goes to big-integer — decline
+      }
+    }
+    return neg
+        ? -v
+        : v;
+  }
+
+  /**
+   * Column offsets + data end for one payload — the winner-side offset computation (headers only, no
+   * mask work); cache the result per leaf when materializing many winners.
+   *
+   * @return {@code [columnDataOff.., leafDataEnd]} — the last slot carries the data end
+   */
+  public static int[] columnOffsets(final byte[] payload) {
+    final int rowCount = getIntLE(payload, 0);
+    final int columnCount = getIntLE(payload, 4);
+    final int kindsOff = 24;
+    final int[] result = new int[columnCount + 1];
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
+    for (int c = 0; c < columnCount; c++) {
+      cursor += 16;
+      result[c] = cursor;
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+          cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + kind);
+      }
+    }
+    result[columnCount] = cursor;
+    return result;
+  }
+
+  /**
+   * MIN or MAX over a STRING_DICT column, from the dictionaries: per leaf, mark the entries a PRESENT
+   * row references (a dictionary may hold phantom entries interned by missing rows — an unreferenced
+   * {@code ""} must never win a MIN), then compare only those. Collation follows the interpreter's
+   * {@code Str#cmp}: unsigned byte order unless either side carries a 4-byte UTF-8 lead, then decoded
+   * {@code String.compareTo}. Cost is the ids sweep plus at most dictSize comparisons per leaf — no
+   * row value is ever materialized.
+   *
+   * @return the extremum, or {@code null} when no present row carries the field anywhere (the caller
+   *         emits the empty sequence or falls back)
+   */
+  public static String stringDictMinMax(final List<byte[]> rowGroupPayloads, final int column, final boolean min) {
+    final ScanScratch s = SCRATCH.get();
+    byte[] bestPayload = null;
+    int bestOff = 0;
+    int bestLen = 0;
+    long[] referenced = null;
+    for (final byte[] payload : rowGroupPayloads) {
+      final int rowCount = getIntLE(payload, 0);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      // Offsets + presence tail via the conjunctive builder with zero predicates.
+      evaluateRowGroupMask(payload, NO_PREDICATES, s);
+      final byte kind = payload[24 + column];
+      if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("column " + column + " is not STRING_DICT (kind=" + kind + ")");
+      }
+      final int groupBase = s.columnDataOff[column];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (dictSize <= 0) {
+        continue;
+      }
+      final int lenHeaderOff = groupBase + 4;
+      int concatOff = lenHeaderOff + dictSize * 4;
+      int total = 0;
+      for (int i = 0; i < dictSize; i++) {
+        total += getIntLE(payload, lenHeaderOff + i * 4);
+      }
+      final int idsOff = concatOff + total;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int presOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, column)
+          : -1;
+      final int refWords = dictSize + 63 >>> 6;
+      if (referenced == null || referenced.length < refWords) {
+        referenced = new long[Math.max(16, refWords)];
+      } else {
+        Arrays.fill(referenced, 0, refWords, 0L);
+      }
+      for (int r = 0; r < rowCount; r++) {
+        if (presOff >= 0 && (getLongLE(payload, presOff + (r >>> 6) * 8) & 1L << (r & 63)) == 0L) {
+          continue;
+        }
+        final int id = getIntLE(payload, idsOff + r * 4);
+        referenced[id >>> 6] |= 1L << (id & 63);
+      }
+      int off = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        if ((referenced[i >>> 6] & 1L << (i & 63)) != 0L) {
+          if (bestPayload == null || compareStrSlices(payload, off, len, bestPayload, bestOff, bestLen) * (min
+              ? 1
+              : -1) < 0) {
+            bestPayload = payload;
+            bestOff = off;
+            bestLen = len;
+          }
+        }
+        off += len;
+      }
+    }
+    return bestPayload == null
+        ? null
+        : new String(bestPayload, bestOff, bestLen, StandardCharsets.UTF_8);
+  }
+
+  /**
+   * PASS 2 of the deferred string-aggregate route: fold {@code min}/{@code max} over STRING_DICT
+   * operand columns for the K WINNING groups only. Pass 1 (numeric kernel + top-K) selected the
+   * winners; an aggregate that appears only in the emission record cannot change which groups win or
+   * their order, so its exact value is computed afterwards for K groups instead of all of them. Group
+   * membership matches pass 1's identity exactly: the FNV-64 of the key entry bytes
+   * ({@code winnerHashes}), plus the missing-key group as slot {@code winnerHashes.length} when
+   * {@code winnerMissingKey}. Comparison authority: {@link #compareStrSlices} — the collation every
+   * dict kernel shares. Best-so-far is held as (payload, off, len) slices, so a row costs one
+   * early-exit byte compare against its group's current best; rows whose operand is MISSING
+   * contribute nothing (min over present values only, the interpreter's fn:min semantics).
+   *
+   * <p>
+   * {@code bestOut[a][slot]} receives the materialized best value, or stays {@code null} when no row
+   * of the group carries the operand (min over the empty sequence). Thread-partials merge caller-side
+   * via {@link String#compareTo} — the identical collation on materialized values.
+   */
+  public static void stringAggForWinnerGroups(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionIndexScan.PredicateTree treeOrNull,
+      final int groupColumn, final int[] stringAggColumns, final boolean[] aggIsMin, final long[] winnerHashes,
+      final boolean winnerMissingKey, final String[][] bestOut) {
+    stringAggForWinnerGroups(rowGroupPayloads, predicates, treeOrNull, groupColumn, stringAggColumns, aggIsMin,
+        winnerHashes, winnerMissingKey, bestOut, null, null);
+  }
+
+  /**
+   * {@link #stringAggForWinnerGroups} under a REGEX-transformed key: row-to-winner matching hashes
+   * the TRANSFORMED entry — the same identity pass 1 grouped on.
+   */
+  public static void stringAggForWinnerGroups(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final ProjectionIndexScan.PredicateTree treeOrNull,
+      final int groupColumn, final int[] stringAggColumns, final boolean[] aggIsMin, final long[] winnerHashes,
+      final boolean winnerMissingKey, final String[][] bestOut, final Pattern keyRegex, final String keyRegexRepl) {
+    if (predicates == null || stringAggColumns == null || aggIsMin == null || winnerHashes == null || bestOut == null) {
+      throw new IllegalArgumentException(
+          "predicates, stringAggColumns, aggIsMin, winnerHashes and bestOut must not be null");
+    }
+    final ScanScratch s = SCRATCH.get();
+    final RegexHashCache regexCache2 = keyRegex != null
+        ? new RegexHashCache()
+        : null;
+    final int aggCount = stringAggColumns.length;
+    final int slots = winnerHashes.length + (winnerMissingKey
+        ? 1
+        : 0);
+    final byte[][][] bestPayload = new byte[aggCount][slots][];
+    final int[][] bestOff = new int[aggCount][slots];
+    final int[][] bestLen = new int[aggCount][slots];
+    final int[][] aggEntryOff = new int[aggCount][];
+    final int[] aggIdsOff = new int[aggCount];
+    final int[] aggPresOff = new int[aggCount];
+    final int[] aggLensOff = new int[aggCount];
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (s.dictByteOff == null || s.dictByteOff.length < dictSize) {
+        s.dictByteOff = new int[Math.max(64, dictSize)];
+      }
+      if (s.dictSlotBase == null || s.dictSlotBase.length < dictSize) {
+        s.dictSlotBase = new int[Math.max(64, dictSize)];
+      }
+      final int[] dictByteOff = s.dictByteOff;
+      final int[] winnerSlotOfDict = s.dictSlotBase;
+      final int lenHeaderOff = groupBase + 4;
+      int running = lenHeaderOff + dictSize * 4;
+      for (int i = 0; i < dictSize; i++) {
+        dictByteOff[i] = running;
+        running += getIntLE(payload, lenHeaderOff + i * 4);
+        winnerSlotOfDict[i] = -2; // unresolved for THIS leaf
+      }
+      final int idsOff = running;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int groupPresOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, groupColumn)
+          : -1;
+      for (int a = 0; a < aggCount; a++) {
+        final int col = stringAggColumns[a];
+        final byte kind = payload[24 + col];
+        if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("stringAggColumn " + col + " is not STRING_DICT (kind=" + kind + ")");
+        }
+        final int base = s.columnDataOff[col];
+        final int aDictSize = getIntLE(payload, base);
+        aggLensOff[a] = base + 4;
+        int[] offs = aggEntryOff[a];
+        if (offs == null || offs.length < aDictSize) {
+          aggEntryOff[a] = offs = new int[Math.max(64, aDictSize)];
+        }
+        int run = aggLensOff[a] + aDictSize * 4;
+        for (int i = 0; i < aDictSize; i++) {
+          offs[i] = run;
+          run += getIntLE(payload, aggLensOff[a] + i * 4);
+        }
+        aggIdsOff[a] = run;
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, col)
+            : -1;
+      }
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        final long groupPresWord = groupPresOff >= 0
+            ? getLongLE(payload, groupPresOff + w * 8)
+            : -1L;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) {
+            break;
+          }
+          int slot;
+          if ((groupPresWord & 1L << bit) == 0L) {
+            if (!winnerMissingKey) {
+              continue;
+            }
+            slot = winnerHashes.length;
+          } else {
+            final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+            slot = winnerSlotOfDict[dictId];
+            if (slot == -2) {
+              final long h;
+              if (keyRegex != null) {
+                h = transformedKeyHash(regexCache2, keyRegex, keyRegexRepl, payload, dictByteOff[dictId],
+                    getIntLE(payload, lenHeaderOff + dictId * 4));
+              } else {
+                h = fnv1a64(payload, dictByteOff[dictId], getIntLE(payload, lenHeaderOff + dictId * 4));
+              }
+              slot = -1;
+              for (int wi = 0; wi < winnerHashes.length; wi++) {
+                if (winnerHashes[wi] == h) {
+                  slot = wi;
+                  break;
+                }
+              }
+              winnerSlotOfDict[dictId] = slot;
+            }
+            if (slot < 0) {
+              continue;
+            }
+          }
+          for (int a = 0; a < aggCount; a++) {
+            if (aggPresOff[a] >= 0
+                && (getLongLE(payload, aggPresOff[a] + (rowIdx >>> 6) * 8) & 1L << (rowIdx & 63)) == 0L) {
+              continue; // operand missing on this row — contributes nothing
+            }
+            final int id = getIntLE(payload, aggIdsOff[a] + rowIdx * 4);
+            final int off = aggEntryOff[a][id];
+            final int len = getIntLE(payload, aggLensOff[a] + id * 4);
+            final byte[] cur = bestPayload[a][slot];
+            if (cur == null) {
+              bestPayload[a][slot] = payload;
+              bestOff[a][slot] = off;
+              bestLen[a][slot] = len;
+              continue;
+            }
+            if (cur == payload && bestOff[a][slot] == off) {
+              continue; // the group's best IS this dict entry
+            }
+            final int cmp = compareStrSlices(payload, off, len, cur, bestOff[a][slot], bestLen[a][slot]);
+            if (aggIsMin[a]
+                ? cmp < 0
+                : cmp > 0) {
+              bestPayload[a][slot] = payload;
+              bestOff[a][slot] = off;
+              bestLen[a][slot] = len;
+            }
+          }
+        }
+      }
+    }
+    for (int a = 0; a < aggCount; a++) {
+      for (int sl = 0; sl < slots; sl++) {
+        bestOut[a][sl] = bestPayload[a][sl] == null
+            ? null
+            : new String(bestPayload[a][sl], bestOff[a][sl], bestLen[a][sl], StandardCharsets.UTF_8);
+      }
+    }
+  }
+
+  /**
+   * FNV-64 of arbitrary UTF-8 bytes in the SAME domain the flat string kernels key on — for
+   * rebuilding a REGEX-transformed winner's hash from its materialized value.
+   */
+  public static long utf8Hash(final byte[] utf8) {
+    return fnv1a64(utf8, 0, utf8.length);
+  }
+
+  /**
+   * FNV-64 of ONE dict entry's bytes — the flat string kernels' group identity, exposed so the
+   * executor can rebuild a winner's hash from its {@code (leaf, dictId)} source reference.
+   */
+  public static long dictEntryHash(final byte[] payload, final int columnBase, final int dictId) {
+    final int dictSize = getIntLE(payload, columnBase);
+    final int lenHeaderOff = columnBase + 4;
+    int off = lenHeaderOff + dictSize * 4;
+    for (int i = 0; i < dictId; i++) {
+      off += getIntLE(payload, lenHeaderOff + i * 4);
+    }
+    return fnv1a64(payload, off, getIntLE(payload, lenHeaderOff + dictId * 4));
+  }
+
+  /**
+   * Slice comparison under the interpreter's collation ({@code Str#cmp} = UTF-16 code units):
+   * unsigned bytes unless either side carries a 4-byte UTF-8 lead, then decoded compareTo.
+   */
+  static int compareStrSlices(final byte[] a, final int aOff, final int aLen, final byte[] b, final int bOff,
+      final int bLen) {
+    if (ProjectionIndexScan.hasFourByteUtf8(a, aOff, aLen) || ProjectionIndexScan.hasFourByteUtf8(b, bOff, bLen)) {
+      return new String(a, aOff, aLen, StandardCharsets.UTF_8).compareTo(
+          new String(b, bOff, bLen, StandardCharsets.UTF_8));
+    }
+    return Arrays.compareUnsigned(a, aOff, aOff + aLen, b, bOff, bOff + bLen);
+  }
+
+  /**
+   * Order-preserving digit pack of an ISO-minute substring window: the {@code len == 16} window
+   * {@code dddd-dd-ddTdd:dd} packs its 12 digits as {@code yyyyMMddHHmm + 1} (the bias keeps the
+   * degenerate all-zero string off the table's zero sentinel). Lexicographic order over the validated
+   * set equals numeric order over the packs — the property that lets ORD_KEY serve {@code order by}
+   * on the substring. {@code Long.MIN_VALUE} = the window fails the shape (including the {@code ""} a
+   * MISSING field produces, a REAL group key the interpreter emits) — ONE such entry referenced by a
+   * row corrupts the packed order, so the caller declines.
+   */
+  static long packIsoMinuteSubstring(final byte[] bytes, final int off, final int len, final int start,
+      final int subLen) {
+    if (subLen != 16) {
+      return Long.MIN_VALUE;
+    }
+    final int s0 = start - 1;
+    if (s0 + 16 > len) {
+      return Long.MIN_VALUE; // fn:substring clamps to a SHORTER window — not the ISO shape
+    }
+    final int b = off + s0;
+    if (bytes[b + 4] != '-' || bytes[b + 7] != '-' || bytes[b + 10] != 'T' || bytes[b + 13] != ':') {
+      return Long.MIN_VALUE;
+    }
+    long v = 0;
+    for (final int i : ISO_MINUTE_DIGITS) {
+      final int d = bytes[b + i] - '0';
+      if (d < 0 || d > 9) {
+        return Long.MIN_VALUE;
+      }
+      v = v * 10 + d;
+    }
+    return v + 1;
+  }
+
+  private static final int[] ISO_MINUTE_DIGITS = {0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15};
+
+  /**
+   * Single STRING_DICT group key transformed by a bare {@code substring(f, s, 16)} over ISO
+   * timestamps: groups AND orders on {@link #packIsoMinuteSubstring}'s long (an ORD_KEY the heap
+   * compares directly), with the aux lane carrying {@code (leaf << 20) | dictId} so the K winners
+   * emit the ORIGINAL substring bytes. Structure mirrors the numeric flat kernel; a single unpackable
+   * entry REFERENCED BY A MATCHING ROW sets {@code declineFlag} and aborts.
+   */
+  public static void conjunctiveAggregateByGroupPackedSubstringFlat(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates, final int groupColumn, final int subStart,
+      final int subLen, final int[] aggColumns, final NumericGroupAggTable out, final int leafIndexBase,
+      final long[] declineFlag, final ProjectionIndexScan.PredicateTree treeOrNull) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (out == null || aggColumns == null || declineFlag == null) {
+      throw new IllegalArgumentException("out, aggColumns and declineFlag must not be null");
+    }
+    // The SUM lanes the query actually reads. Every other lane goes unfolded, so a query that
+    // asks only for min/max/count can never decline on an overflow no answer depends on —
+    // see NumericGroupAggTable#sumsExact for the rule the partition merge obeys too.
+    final long sumExactMask = out.sumExactMask();
+    final ScanScratch s = SCRATCH.get();
+    if (s.dictHashCache == null) {
+      s.dictHashCache = new long[64];
+      s.dictSlotBase = new int[64];
+    }
+    long[] dictPacked = s.dictHashCache;
+    final int aggCount = aggColumns.length;
+    // COUNT-ONLY: no aggregate lanes, so the fold is one increment into the group's stripe.
+    final boolean countOnly = aggCount == 0;
+    for (int leaf = 0; leaf < rowGroupPayloads.size(); leaf++) {
+      if (declineFlag[0] != 0) {
+        return;
+      }
+      final byte[] payload = rowGroupPayloads.get(leaf);
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = treeOrNull != null
+          ? evaluateRowGroupMaskTree(payload, treeOrNull, s)
+          : evaluateRowGroupMask(payload, predicates, s);
+      if (rowCount <= 0) {
+        continue;
+      }
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (dictPacked.length < dictSize) {
+        dictPacked = s.dictHashCache = new long[Math.max(dictPacked.length * 2, dictSize)];
+      }
+      final int lenHeaderOff = groupBase + 4;
+      int off = lenHeaderOff + dictSize * 4;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        dictPacked[i] = packIsoMinuteSubstring(payload, off, len, subStart, subLen);
+        off += len;
+      }
+      final int idsOff = off;
+      final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+      final int groupPresOff = tailStart >= 0
+          ? presenceWordsOff(payload, tailStart, groupColumn)
+          : -1;
+      final int[] aggPresOff = s.groupAggPresOff != null && s.groupAggPresOff.length >= aggCount
+          ? s.groupAggPresOff
+          : (s.groupAggPresOff = new int[Math.max(4, aggCount)]);
+      final int[] aggValOff = s.groupAggValOff != null && s.groupAggValOff.length >= aggCount
+          ? s.groupAggValOff
+          : (s.groupAggValOff = new int[Math.max(4, aggCount)]);
+      for (int a = 0; a < aggCount; a++) {
+        final byte aggKind = payload[24 + aggColumns[a]];
+        if (aggKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggColumns[a] + " is not NUMERIC_LONG (kind=" + aggKind + ")");
+        }
+        aggPresOff[a] = tailStart >= 0
+            ? presenceWordsOff(payload, tailStart, aggColumns[a])
+            : -1;
+        aggValOff[a] = s.columnDataOff[aggColumns[a]];
+      }
+      final long leafOrdinalBase = (long) (leafIndexBase + leaf) << 20;
+      final int stride = rowCount + 63 >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w] & validRowsMask(w, stride, rowCount);
+        final long groupPresWord = groupPresOff >= 0
+            ? getLongLE(payload, groupPresOff + (w << 3))
+            : -1L;
+        final int rowBase = w << 6;
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = rowBase + bit;
+          if (groupPresOff >= 0 && (groupPresWord & 1L << bit) == 0L) {
+            // substring((), s, l) is "" — a REAL group key that fails the ISO shape: decline,
+            // never the null-key group (the interpreter emits "" here, not JSON null).
+            declineFlag[0] = 1;
+            return;
+          }
+          final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+          final long packed = dictPacked[dictId];
+          if (packed == Long.MIN_VALUE) {
+            declineFlag[0] = 1;
+            return;
+          }
+          final int base = out.acquire(packed, leafOrdinalBase | rowIdx);
+          final long[] slotArr = out.table();
+          if (slotArr[base] == 0L) {
+            out.setAuxAtAccBase(base, leafOrdinalBase | dictId);
+          }
+          if (countOnly) {
+            slotArr[base]++;
+          } else {
+            foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, sumExactMask);
+          }
+        }
+      }
+    }
+  }
+
+  /** Shared per-row accumulate for the flat group kernels. */
+  private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
+      final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx,
+      final long sumExactMask) {
+    foldRow(slotArr, base, payload, aggPresOff, aggValOff, aggCount, w, bit, rowIdx, null, null, sumExactMask);
+  }
+
+  /**
+   * {@link #foldRow} with string-length operand modes: a strlen agg folds the entry's CODEPOINT
+   * count, and a row MISSING the operand folds 0 (fn:string-length(()) is 0, never empty — skipping
+   * would shrink counts and shift averages).
+   */
+  private static void foldRow(final long[] slotArr, final int base, final byte[] payload, final int[] aggPresOff,
+      final int[] aggValOff, final int aggCount, final int w, final int bit, final int rowIdx,
+      final boolean[] aggStrlen, final int[][] strlenCpLen, final long sumExactMask) {
+    slotArr[base]++;
+    for (int a = 0; a < aggCount; a++) {
+      final boolean strlenAgg = aggStrlen != null && aggStrlen[a];
+      final boolean present = aggPresOff[a] < 0 || (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) != 0L;
+      if (!present && !strlenAgg) {
+        continue;
+      }
+      final long v = strlenAgg
+          ? (present
+              ? strlenCpLen[a][getIntLE(payload, aggValOff[a] + rowIdx * 4)]
+              : 0L)
+          : getLongLE(payload, aggValOff[a] + rowIdx * 8);
+      final int aggBase = base + 2 + 4 * a;
+      slotArr[aggBase]++;
+      // Exact sum or DECLINE — but only for a lane some sum/avg reads; an unread lane is not
+      // folded, so a min-only query cannot decline on an overflow its answer never touches.
+      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+        slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+      }
+      if (v < slotArr[aggBase + 2]) {
+        slotArr[aggBase + 2] = v;
+      }
+      if (v > slotArr[aggBase + 3]) {
+        slotArr[aggBase + 3] = v;
+      }
+    }
+  }
+
+  /** {@link #foldRowDistinct} without string operand modes — every agg block is NUMERIC_LONG. */
+  private static void foldRowDistinct(final long[] slotArr, final int base, final byte[] payload,
+      final int[] aggPresOff, final int[] aggValOff, final int aggCount, final int distinctBlock,
+      final LongOpenHashSet dset, final long[] budget, final int w, final int bit, final int rowIdx,
+      final long sumExactMask) {
+    foldRowDistinct(slotArr, base, payload, aggPresOff, aggValOff, aggCount, distinctBlock, dset, budget, w, bit,
+        rowIdx, null, null, null, null, null, sumExactMask);
+  }
+
+  /**
+   * {@link #foldRow} with block {@code distinctBlock} feeding the group's distinct SET instead of the
+   * fold lanes; its lanes stay zero until the caller writes the merged set size.
+   *
+   * <p>
+   * {@code cdHash != null} marks the distinct operand as STRING_DICT: dict ids are LEAF-LOCAL, so the
+   * set member is the entry's 64-bit content hash, computed once per referenced entry per leaf
+   * ({@code 0} = not yet hashed). Identity is therefore exact up to a 64-bit hash collision — the
+   * SAME standard the composite group-key identity already accepts.
+   */
+  private static void foldRowDistinct(final long[] slotArr, final int base, final byte[] payload,
+      final int[] aggPresOff, final int[] aggValOff, final int aggCount, final int distinctBlock,
+      final LongOpenHashSet dset, final long[] budget, final int w, final int bit, final int rowIdx,
+      final boolean[] aggStrlen, final int[][] strlenCpLen, final int[] cdOff, final int[] cdLen, final long[] cdHash,
+      final long sumExactMask) {
+    slotArr[base]++;
+    for (int a = 0; a < aggCount; a++) {
+      final boolean strlenAgg = aggStrlen != null && aggStrlen[a];
+      final boolean present = aggPresOff[a] < 0 || (getLongLE(payload, aggPresOff[a] + (w << 3)) & 1L << bit) != 0L;
+      if (!present && !strlenAgg) {
+        continue;
+      }
+      final long v;
+      if (strlenAgg) {
+        // fn:string-length(()) is 0, never empty — the same rule foldRow applies.
+        v = present
+            ? strlenCpLen[a][getIntLE(payload, aggValOff[a] + rowIdx * 4)]
+            : 0L;
+      } else if (cdHash != null && a == distinctBlock) {
+        final int cdId = getIntLE(payload, aggValOff[a] + rowIdx * 4);
+        long h = cdHash[cdId];
+        if (h == 0L) {
+          h = fnv1a64(payload, cdOff[cdId], cdLen[cdId]);
+          cdHash[cdId] = h;
+        }
+        v = h;
+      } else {
+        v = getLongLE(payload, aggValOff[a] + rowIdx * 8);
+      }
+      if (a == distinctBlock) {
+        if (dset.add(v) && --budget[0] < 0) {
+          budget[1] = 1;
+        }
+        continue;
+      }
+      final int aggBase = base + 2 + 4 * a;
+      slotArr[aggBase]++;
+      // Exact sum or DECLINE — but only for a lane some sum/avg reads; an unread lane is not
+      // folded, so a min-only query cannot decline on an overflow its answer never touches.
+      if (NumericGroupAggTable.sumsExact(sumExactMask, a)) {
+        slotArr[aggBase + 1] = Math.addExact(slotArr[aggBase + 1], v);
+      }
+      if (v < slotArr[aggBase + 2]) {
+        slotArr[aggBase + 2] = v;
+      }
+      if (v > slotArr[aggBase + 3]) {
+        slotArr[aggBase + 3] = v;
+      }
+    }
+  }
+
+  /**
+   * Per-leaf memo for a COUNT(DISTINCT) operand over a STRING_DICT column: each dict entry's payload
+   * byte range, hashes reset to the "unhashed" sentinel, and the returned offset is the column's IDS
+   * region (what {@code aggValOff} must carry for that block). The hashes themselves are computed
+   * lazily on first reference in {@link #foldRowDistinct} — a selective predicate must not pay for
+   * entries no matching row names. Grows the scratch arrays, so re-read them after.
+   */
+  private static int prepareCdDict(final ScanScratch s, final byte[] payload, final int columnBase) {
+    final int dictSize = getIntLE(payload, columnBase);
+    if (s.cdDictOff == null || s.cdDictOff.length < dictSize) {
+      final int n = Math.max(64, dictSize);
+      s.cdDictOff = new int[n];
+      s.cdDictLen = new int[n];
+      s.cdDictHash = new long[n];
+    }
+    final int[] offs = s.cdDictOff;
+    final int[] lens = s.cdDictLen;
+    final long[] hashes = s.cdDictHash;
+    final int lenHeaderOff = columnBase + 4;
+    int off = lenHeaderOff + dictSize * 4;
+    for (int i = 0; i < dictSize; i++) {
+      final int len = getIntLE(payload, lenHeaderOff + i * 4);
+      offs[i] = off;
+      lens[i] = len;
+      hashes[i] = 0L;
+      off += len;
+    }
+    return off;
+  }
+
+  /** The group's distinct set, created on first sight. */
+  private static LongOpenHashSet distinctSetFor(final Long2ObjectOpenHashMap<LongOpenHashSet> out, final long key) {
+    LongOpenHashSet s = out.get(key);
+    if (s == null) {
+      s = new LongOpenHashSet();
+      out.put(key, s);
+    }
+    return s;
+  }
+
+  /**
+   * Data-stream base of a STRING_DICT column, walking the header of one leaf payload — the
+   * winner-materialization companion of {@link #conjunctiveAggregateByGroupStringFlat} (cache the
+   * result per leaf; the walk prices every column before {@code column}).
+   */
+  public static int stringDictColumnBase(final byte[] payload, final int column) {
+    final int rowCount = getIntLE(payload, 0);
+    final int columnCount = getIntLE(payload, 4);
+    final int kindsOff = 24;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
+    for (int c = 0; c < columnCount; c++) {
+      cursor += 16;
+      if (c == column) {
+        if (payload[kindsOff + c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("column " + column + " is not STRING_DICT");
+        }
+        return cursor;
+      }
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
+          cursor += rowCount * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += (rowCount + 63 >>> 6) * 8;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          final int countsOff = cursor + 4 + dictSize * 4 + lenTotal;
+          int elemTotal = 0;
+          for (int r = 0; r < rowCount; r++) {
+            elemTotal += getIntLE(payload, countsOff + r * 4);
+          }
+          cursor = countsOff + rowCount * 4 + elemTotal * 4;
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + kind);
+      }
+    }
+    throw new IllegalStateException("column " + column + " out of range");
+  }
+
+  /**
+   * Dict entry {@code dictId} of the STRING_DICT column whose data stream starts at
+   * {@code columnBase} (from {@link #stringDictColumnBase}), decoded as a String.
+   */
+  public static String dictEntryString(final byte[] payload, final int columnBase, final int dictId) {
+    final int dictSize = getIntLE(payload, columnBase);
+    if (dictId < 0 || dictId >= dictSize) {
+      throw new IllegalStateException("dictId " + dictId + " out of range 0.." + (dictSize - 1));
+    }
+    final int lenHeaderOff = columnBase + 4;
+    int off = lenHeaderOff + dictSize * 4;
+    for (int i = 0; i < dictId; i++) {
+      off += getIntLE(payload, lenHeaderOff + i * 4);
+    }
+    final int len = getIntLE(payload, lenHeaderOff + dictId * 4);
+    return new String(payload, off, len, StandardCharsets.UTF_8);
+  }
+
   /**
    * Maximum group columns for {@link #conjunctiveAggregateByGroupMulti}: composite keys pack one
    * 11-bit component per column ({@link ProjectionIndexRowGroupPage#MAX_ROWS} caps dict ids at 1024,
@@ -2038,6 +4548,27 @@ public final class ProjectionIndexByteScan {
     return getIntLE(payload, 4);
   }
 
+  /** End of KEYS in the raw V0 leaf; NONE is the allocation-free one-byte common case. */
+  private static int columnStreamStart(final byte[] payload, final int rowCount, final int columnCount) {
+    final long markerOffsetLong = 24L + columnCount + (long) rowCount * Long.BYTES;
+    if (rowCount < 0 || columnCount < 0 || markerOffsetLong < 0 || markerOffsetLong >= payload.length) {
+      throw new IllegalStateException("truncated projection KEYS stream");
+    }
+    final int markerOffset = (int) markerOffsetLong;
+    final byte kind = payload[markerOffset];
+    if (kind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE) {
+      return markerOffset + 1;
+    }
+    if (kind != ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE || rowCount == 0) {
+      throw new IllegalStateException("unknown projection order-exception kind " + kind);
+    }
+    final long end = markerOffsetLong + 1L + ((rowCount + 63L) >>> 6) * Long.BYTES;
+    if (end > payload.length) {
+      throw new IllegalStateException("truncated projection order-exception bitmap");
+    }
+    return (int) end;
+  }
+
   // ------------------------------------------------------------------
   // Presence tail (sparse-field correctness). Layout appended AFTER the
   // column stream — see ProjectionIndexRowGroupPage's class javadoc:
@@ -2091,14 +4622,15 @@ public final class ProjectionIndexByteScan {
     final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
     if (rowCount == 0)
-      return kindsOff + columnCount;
-    int cursor = kindsOff + columnCount + rowCount * 8;
+      return columnStreamStart(payload, rowCount, columnCount);
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       cursor += 16;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -2307,6 +4839,120 @@ public final class ProjectionIndexByteScan {
    * The mask is sized to {@code ceil(MAX_ROWS/64)}; only the first {@code ceil(rowCount/64)} words
    * are populated. As a side effect {@code s.leafDataEnd} records where the column stream ends.
    */
+  /**
+   * Evaluate ONE predicate leaf into {@code s.colMask} (presence NOT yet applied) — the shared
+   * per-leaf body of the conjunctive and TREE mask builders, so their semantics cannot drift.
+   */
+  private static void evalPredicateLeafMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate p,
+      final int rowCount, final ScanScratch s) {
+    final int kindsOff = 24;
+    final byte kind = payload[kindsOff + p.column];
+    switch (kind) {
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+          ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+        evalNumericBytes(payload, s.columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, s.numericScratch,
+            s.numericFlags, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL -> {
+        // Ids, evaluated as the integers they are. Sound only because the literal was resolved to
+        // an id at plan time; one that still carries its bytes never reached that translation, and
+        // comparing them against ids would answer a different question with a plausible number.
+        if (p.stringLitBytes != null) {
+          throw new IllegalStateException("column " + p.column + " is STRING_GLOBAL, but the " + p.op
+              + " predicate still carries a string literal — it was never resolved to a dictionary id");
+        }
+        evalNumericBytes(payload, s.columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, s.numericScratch,
+            s.numericFlags, s.colMask);
+      }
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
+        evalBooleanBytes(payload, s.columnDataOff[p.column], rowCount, p.boolLit, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
+        // Per-entry two-phase evaluation: NE is an ordinary per-entry outcome now (no
+        // complement pass, no tail-mask hazard), and ordering/contains ride the same path.
+        evalStringDictBytes(payload, s.columnDataOff[p.column], rowCount, p, s.colMask);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> {
+        if (p.op != ProjectionIndexScan.Op.EQ) {
+          // `!= lit` over a SET is not the complement of membership — the interpreter compares a
+          // SEQUENCE to a literal, which is an existential over the elements, so its negation is
+          // not "does not contain". Decline rather than answer a different question.
+          throw new IllegalStateException("STRING_SET column supports containment (EQ) only, got " + p.op);
+        }
+        evalStringSetContainsBytes(payload, s.columnDataOff[p.column], rowCount, p.stringLitBytes, s.colMask);
+      }
+      default -> throw new IllegalStateException("Unknown column kind " + kind);
+    }
+  }
+
+  /** Zero-length predicate array for the tree evaluator's offset-filling pre-pass. */
+  private static final ProjectionIndexScan.ColumnPredicate[] NO_PREDICATES = new ProjectionIndexScan.ColumnPredicate[0];
+
+  /**
+   * TREE mask builder — the disjunction-capable twin of {@link #evaluateRowGroupMask}: each tree leaf
+   * evaluates into its OWN mask with its OWN column's presence ANDed in (missing ⇒ false per leaf —
+   * the tree type's contract, which is what makes OR over sparse fields sound), then the postfix
+   * program combines masks with AND/OR. No zone pruning: a leaf's zone evidence cannot prune the
+   * GROUP under a disjunction, so the tree path conservatively reads every leaf.
+   */
+  private static int evaluateRowGroupMaskTree(final byte[] payload, final ProjectionIndexScan.PredicateTree tree,
+      final ScanScratch s) {
+    // The conjunctive builder with zero predicates fills the column offsets, leafDataEnd and the
+    // tail-masked all-true mask; its zone loop no-ops.
+    final int rowCount = evaluateRowGroupMask(payload, NO_PREDICATES, s);
+    if (rowCount <= 0) {
+      return rowCount;
+    }
+    final int stride = rowCount + 63 >>> 6;
+    final int tailStart = presenceTailStart(payload, s.leafDataEnd);
+    long[][] stack = s.treeMaskStack;
+    if (stack == null || stack[0].length < stride) {
+      stack = s.treeMaskStack =
+          new long[ProjectionIndexScan.PredicateTree.MAX_LEAVES][(ProjectionIndexRowGroupPage.MAX_ROWS + 63) >>> 6];
+    }
+    int top = 0;
+    final long[] colMask = s.colMask;
+    for (final byte op : tree.program) {
+      if (op >= 0) {
+        final ProjectionIndexScan.ColumnPredicate p = tree.leaves[op];
+        Arrays.fill(colMask, 0, stride, 0L);
+        evalPredicateLeafMask(payload, p, rowCount, s);
+        final long[] dst = stack[top++];
+        if (tailStart >= 0) {
+          final int presOff = presenceWordsOff(payload, tailStart, p.column);
+          for (int i = 0; i < stride; i++) {
+            dst[i] = colMask[i] & getLongLE(payload, presOff + i * 8);
+          }
+        } else {
+          System.arraycopy(colMask, 0, dst, 0, stride);
+        }
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_AND) {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] &= b[i];
+        }
+      } else if (op == ProjectionIndexScan.PredicateTree.OP_NOT) {
+        // Complement of (present AND matches) = missing OR (present AND !matches) — exactly
+        // fn:not over the child. Tail garbage past rowCount is cleared by the final AND with
+        // the tail-masked base mask below.
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] = ~a[i];
+        }
+      } else {
+        final long[] b = stack[--top];
+        final long[] a = stack[top - 1];
+        for (int i = 0; i < stride; i++) {
+          a[i] |= b[i];
+        }
+      }
+    }
+    final long[] result = stack[0];
+    final long[] mask = s.mask;
+    for (int i = 0; i < stride; i++) {
+      mask[i] &= result[i];
+    }
+    return rowCount;
+  }
+
   private static int evaluateRowGroupMask(final byte[] payload, final ProjectionIndexScan.ColumnPredicate[] predicates,
       final ScanScratch s) {
     final int[] columnDataOff = s.columnDataOff;
@@ -2320,13 +4966,13 @@ public final class ProjectionIndexByteScan {
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
     if (rowCount == 0) {
-      s.leafDataEnd = recordKeysOff;
+      s.leafDataEnd = columnStreamStart(payload, rowCount, columnCount);
       return 0;
     }
 
     // Compute column offsets in one pass. Each column starts with
     // (min, max) 16 bytes, then its kind-specific data.
-    int cursor = recordKeysOff + rowCount * 8;
+    int cursor = columnStreamStart(payload, rowCount, columnCount);
     for (int c = 0; c < columnCount; c++) {
       columnMinMaxOff[c] = cursor;
       cursor += 16;
@@ -2334,7 +4980,8 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + c];
       switch (kind) {
         case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE,
+            ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL ->
           cursor += rowCount * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> {
@@ -2388,20 +5035,7 @@ public final class ProjectionIndexByteScan {
       // Only clear the live prefix of colMask — tail words beyond
       // `stride` are never read.
       Arrays.fill(colMask, 0, stride, 0L);
-      final byte kind = payload[kindsOff + p.column];
-      switch (kind) {
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-            ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
-          evalNumericBytes(payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch,
-              numericFlags, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
-          evalBooleanBytes(payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT ->
-          evalStringEqBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
-        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET ->
-          evalStringSetContainsBytes(payload, columnDataOff[p.column], rowCount, p.stringLitBytes, colMask);
-        default -> throw new IllegalStateException("Unknown column kind " + kind);
-      }
+      evalPredicateLeafMask(payload, p, rowCount, s);
       if (tailStart >= 0) {
         // Missing field ⇒ predicate is false — AND with the column's presence.
         final int presOff = presenceWordsOff(payload, tailStart, p.column);
@@ -2416,14 +5050,50 @@ public final class ProjectionIndexByteScan {
     return rowCount;
   }
 
+  /**
+   * Flip the first {@code rowCount} bits of {@code mask} in place, leaving every bit at or beyond
+   * {@code rowCount} clear.
+   *
+   * <p>
+   * The tail matters: masks are sized in whole 64-bit words, so the last word carries up to 63 bits
+   * that name no row. Complementing them would light rows that do not exist, and the callers AND
+   * these masks together — one stray bit survives into the answer.
+   */
+  private static void invertMaskRows(final long[] mask, final int rowCount) {
+    final int stride = (rowCount + 63) >>> 6;
+    for (int i = 0; i < stride; i++) {
+      mask[i] = ~mask[i];
+    }
+    final int tailBits = rowCount & 63;
+    if (tailBits != 0) {
+      mask[stride - 1] &= (1L << tailBits) - 1;
+    }
+  }
+
   /** Package-private: the SINGLE zone-skip authority, shared with the column kernels. */
   static boolean zoneSkip(final ProjectionIndexScan.ColumnPredicate p, final long min, final long max) {
+    // A STRING predicate can never be zone-skipped, whatever its op. A string column's zone map
+    // holds min/max DICTIONARY IDS — which say nothing about the values' order or content — while
+    // the numeric arms below test p.longLit, which a string predicate does not set.
+    //
+    // The STR_* ops opt out below for exactly this reason, but EQ and NE did not, and were safe
+    // only by accident: per-leaf dict ids start at 0, so `longLit == 0` fell inside every zone and
+    // the test never fired. Global dictionary ids start at 1, at which point the same unsound
+    // comparison starts pruning leaves that hold matches — a silent wrong answer, and one that
+    // shows up as a missing count rather than an error.
+    if (p.stringLitBytes != null) {
+      return false;
+    }
     return switch (p.op) {
       case GT -> max <= p.longLit;
       case LT -> min >= p.longLit;
       case GE -> max < p.longLit;
       case LE -> min > p.longLit;
       case EQ -> p.longLit < min || p.longLit > max;
+      // A leaf can only be skipped for NE when EVERY value equals the literal, i.e. the zone
+      // collapses onto it. Common enough to be worth the test: a column that is constant 0 across a
+      // row group skips entirely for `!= 0`.
+      case NE -> min == max && min == p.longLit;
       // BETWEEN zone-skip: OR of the two single-bound zone-skip conditions.
       // Strictly no more pessimistic than two independent predicates — see
       // iter07-range-fusion-analysis.md for the semantics derivation.
@@ -2431,6 +5101,9 @@ public final class ProjectionIndexByteScan {
       case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
       case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
       case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
+      // NEVER skip on string ops: a STRING_DICT column's zone map holds min/max DICT IDS, which
+      // say nothing about the values' order or content — pruning here drops matching leaves.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
     };
   }
 
@@ -2440,7 +5113,11 @@ public final class ProjectionIndexByteScan {
    * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder / decoder agree on key space when
    * interop is needed.
    */
-  private static long fnv1a64(final byte[] data, final int off, final int len) {
+  /**
+   * THE group-identity hash — shared by the byte and sliced kernel families so the domains can never
+   * drift (table keys, winner hashes, distinct-set keys all ride it).
+   */
+  static long fnv1a64(final byte[] data, final int off, final int len) {
     long h = 0xcbf29ce484222325L;
     final int end = off + len;
     for (int i = off; i < end; i++) {
@@ -2511,6 +5188,12 @@ public final class ProjectionIndexByteScan {
       case EQ -> {
         for (int k = 0; k < rowCount; k++)
           flags[k] = (scratch[k] == lit)
+              ? 1L
+              : 0L;
+      }
+      case NE -> {
+        for (int k = 0; k < rowCount; k++)
+          flags[k] = (scratch[k] != lit)
               ? 1L
               : 0L;
       }
@@ -2636,27 +5319,34 @@ public final class ProjectionIndexByteScan {
     }
   }
 
-  private static void evalStringEqBytes(final byte[] payload, final int baseOff, final int rowCount,
-      final byte[] literal, final long[] out) {
-    // Dict header: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids]
+  private static void evalStringDictBytes(final byte[] payload, final int baseOff, final int rowCount,
+      final ProjectionIndexScan.ColumnPredicate p, final long[] out) {
+    // Dict header: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids].
+    // Two-phase: the predicate evaluates ONCE per dict entry into an id bitset — a walk this
+    // method already paid to locate the ids region — then the row sweep is one bit test each.
+    // All op semantics live in ProjectionIndexScan#stringDictEntryMatches, shared with the
+    // hydrated and sliced kernels.
     final int dictSize = getIntLE(payload, baseOff);
+    final long[] idBits = new long[dictSize + 63 >>> 6];
+    boolean any = false;
+    final byte[] lit = p.stringLitBytes;
+    final boolean litHasSupplementary = ProjectionIndexScan.hasFourByteUtf8(lit, 0, lit.length);
     int concatOff = baseOff + 4 + dictSize * 4;
-    int targetDictId = -1;
     for (int i = 0; i < dictSize; i++) {
       final int len = getIntLE(payload, baseOff + 4 + i * 4);
-      if (bytesEqualAt(payload, concatOff, len, literal)) {
-        targetDictId = i;
-        // Don't break — still need concatOff to advance past all dict entries
-        // to find the ids region. Take shortcut: we know ids start at
-        // concatOff + totalLengthsRemaining from here.
+      if (ProjectionIndexScan.stringDictEntryMatches(payload, concatOff, len, p.op, lit, litHasSupplementary)) {
+        idBits[i >>> 6] |= 1L << (i & 63);
+        any = true;
       }
       concatOff += len;
     }
-    if (targetDictId < 0)
+    if (!any) {
       return;
+    }
     final int idsOff = concatOff;
     for (int i = 0; i < rowCount; i++) {
-      if (getIntLE(payload, idsOff + i * 4) == targetDictId) {
+      final int id = getIntLE(payload, idsOff + i * 4);
+      if ((idBits[id >>> 6] & 1L << (id & 63)) != 0L) {
         out[i >>> 6] |= 1L << (i & 63);
       }
     }

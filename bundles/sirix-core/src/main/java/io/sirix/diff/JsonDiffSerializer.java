@@ -37,6 +37,15 @@ public final class JsonDiffSerializer {
   }
 
   public String serialize(boolean emitFromDiffAlgorithm) {
+    return serialize(emitFromDiffAlgorithm, false);
+  }
+
+  /** Serialize the compact internal per-revision sidecar, including integrity metadata. */
+  public String serializeSidecar() {
+    return serialize(false, true);
+  }
+
+  private String serialize(final boolean emitFromDiffAlgorithm, final boolean includeIntegrityMetadata) {
     final var resourceName = resourceSession.getResourceConfig().getName();
 
     final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
@@ -44,7 +53,7 @@ public final class JsonDiffSerializer {
     if (diffs.size() == 1) {
       final var tuple = diffs.iterator().next();
       if (tuple.getDiff() == DiffFactory.DiffType.SAME || tuple.getDiff() == DiffFactory.DiffType.SAMEHASH) {
-        return json.toString();
+        return finish(json, includeIntegrityMetadata);
       }
     }
 
@@ -59,7 +68,7 @@ public final class JsonDiffSerializer {
       }
 
       if (diffs.isEmpty()) {
-        return json.toString();
+        return finish(json, includeIntegrityMetadata);
       }
 
       for (final var diffTuple : diffs) {
@@ -167,7 +176,8 @@ public final class JsonDiffSerializer {
             final QNm newName = newRtx.getName();
             if (!Objects.equals(oldName, newName) && newName != null) {
               jsonUpdateDiff.addProperty("name", newName.toString());
-            } else if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
+            }
+            if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
               if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
                   || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
                 jsonUpdateDiff.addProperty("type", "boolean");
@@ -187,8 +197,14 @@ public final class JsonDiffSerializer {
               }
             }
 
-            updateJson.add("update", jsonUpdateDiff);
-            jsonDiffs.add(updateJson);
+            // Setters may be called with the value they already hold. Such a tuple carries only
+            // routing metadata and is not an operation a reader can replay. Conversely a fused
+            // named primitive may change BOTH its field name and inline value in one transaction;
+            // the independent tests above deliberately retain both changes in one update payload.
+            if (jsonUpdateDiff.has("name") || jsonUpdateDiff.has("type")) {
+              updateJson.add("update", jsonUpdateDiff);
+              jsonDiffs.add(updateJson);
+            }
 
             // $CASES-OMITTED$
           default:
@@ -197,7 +213,14 @@ public final class JsonDiffSerializer {
       }
     }
 
-    return json.toString();
+    return finish(json, includeIntegrityMetadata);
+  }
+
+  private static String finish(final JsonObject document, final boolean includeIntegrityMetadata) {
+    if (includeIntegrityMetadata) {
+      JsonDiffIntegrity.add(document);
+    }
+    return document.toString();
   }
 
   private void insertBasedOnNewRtx(JsonNodeReadOnlyTrx newRtx, JsonObject jsonInsertDiff) {

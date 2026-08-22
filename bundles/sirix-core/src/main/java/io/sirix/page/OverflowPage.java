@@ -2,21 +2,25 @@ package io.sirix.page;
 
 
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.node.BytesOut;
 import io.sirix.page.interfaces.Page;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.util.List;
 
 /**
- * OverflowPage: an opaque, immutable heap byte[] hung off a leaf's side map by a bare durable
- * offset key — the working template for reference-bearing values (#1076). Two producers:
+ * OverflowPage: opaque immutable bytes hung off a leaf's side map by a bare durable offset key —
+ * heap-backed for ordinary pages, or a bounded native-reservoir view while a bulk side page is
+ * pending. It is the working template for reference-bearing values (#1076). Two producers:
  *
  * <ul>
  *   <li>{@link KeyValueLeafPage} spills a record that does not fit the slotted page heap here;</li>
  *   <li>the projection index stores a <em>referenced</em> column segment here (the segments a
  *       {@link io.sirix.index.projection.RowGroupDescriptor} does not inline — see
  *       {@code docs/PROJECTION_INDEX_HYBRID_INLINE_SEGMENTS.md} §3.1a). It replaced the
- *       near-identical bespoke {@code ProjectionSegmentPage}: same single immutable byte[], same
+ *       near-identical bespoke {@code ProjectionSegmentPage}: same immutable bytes, same
  *       throwing structural accessors, same {@code [id][ver+flags][int len][data]} wire form.</li>
  * </ul>
  *
@@ -31,9 +35,21 @@ import java.util.List;
 public final class OverflowPage implements Page {
 
   /**
-   * Data to be stored.
+   * Heap data to be stored, or {@code null} for a view into a transaction-owned native reservoir.
    */
-  private final byte[] data;
+  private final byte @Nullable [] heapData;
+
+  /** Shared, read-only native reservoir for a staged immutable page. */
+  private final @Nullable MemorySegment nativeData;
+
+  /** First byte of this page inside {@link #nativeData}. */
+  private final long nativeOffset;
+
+  /** Exact payload length for either representation. */
+  private final int dataLength;
+
+  /** Native views are valid only while their append batch owns them. */
+  private volatile boolean closed;
 
   /**
    * Constructor.
@@ -54,7 +70,44 @@ public final class OverflowPage implements Page {
     if (data == null) {
       throw new IllegalArgumentException("overflow page data must not be null");
     }
-    this.data = data;
+    heapData = data;
+    nativeData = null;
+    nativeOffset = 0L;
+    dataLength = data.length;
+  }
+
+  /**
+   * Construct an immutable view into a transaction-owned native payload reservoir.
+   *
+   * <p>The segment must be read-only and remain alive until the owning page reference is either
+   * published or cancelled. The side-page append pipeline uses this representation so encoded
+   * segment arrays can die in eden immediately instead of surviving several young collections and
+   * becoming dead old-generation garbage. The reservoir itself is fixed-size and reused.</p>
+   *
+   * @param data shared read-only reservoir
+   * @param offset first payload byte in {@code data}
+   * @param length exact payload length
+   */
+  public OverflowPage(final MemorySegment data, final long offset, final int length) {
+    if (data == null) {
+      throw new IllegalArgumentException("overflow page data segment must not be null");
+    }
+    if (!data.isReadOnly()) {
+      throw new IllegalArgumentException("native overflow page data must be read-only");
+    }
+    if (!data.isNative()) {
+      throw new IllegalArgumentException("native overflow page data must reside outside the Java heap");
+    }
+    final long capacity = data.byteSize();
+    if (offset < 0L || length < 0 || offset > capacity || length > capacity - offset) {
+      throw new IllegalArgumentException(
+          "overflow page native range is outside its segment: offset=" + offset + ", length=" + length
+              + ", capacity=" + capacity);
+    }
+    heapData = null;
+    nativeData = data;
+    nativeOffset = offset;
+    dataLength = length;
   }
 
 
@@ -83,13 +136,88 @@ public final class OverflowPage implements Page {
    * backed by the byte array.
    */
   public MemorySegment getData() {
-    return MemorySegment.ofArray(data);
+    if (heapData != null) {
+      return MemorySegment.ofArray(heapData);
+    }
+    // Do not leak a view into a reusable reservoir to compatibility callers. The page serializer
+    // uses writeDataTo(), which retains the zero-allocation native-to-native path.
+    return MemorySegment.ofArray(getDataBytes());
   }
 
   /**
-   * Get the raw byte array data.
+   * Get this payload as a byte array.
+   *
+   * <p>A heap-backed page returns its immutable producer array as before. A staged native page
+   * returns a copy; same-transaction projection reads are deliberately uncommon and must not turn
+   * the fixed native reservoir back into transaction-long heap retention.</p>
    */
   public byte[] getDataBytes() {
-    return data;
+    if (heapData != null) {
+      return heapData;
+    }
+    ensureNativeViewOpen();
+    final byte[] copy = new byte[dataLength];
+    MemorySegment.copy(nativeData, ValueLayout.JAVA_BYTE, nativeOffset, copy, 0, dataLength);
+    return copy;
+  }
+
+  /** Exact payload length without materialising a native payload on heap. */
+  public int dataLength() {
+    return dataLength;
+  }
+
+  /** Whether this page still owns a producer-supplied heap array. */
+  public boolean isHeapBacked() {
+    return heapData != null;
+  }
+
+  /** Copy this payload into a writable staging reservoir. */
+  public void copyDataTo(final MemorySegment target, final long targetOffset) {
+    if (target == null) {
+      throw new IllegalArgumentException("overflow page copy target must not be null");
+    }
+    final long capacity = target.byteSize();
+    if (targetOffset < 0L || targetOffset > capacity || dataLength > capacity - targetOffset) {
+      throw new IllegalArgumentException(
+          "overflow page copy range is outside its target: offset=" + targetOffset + ", length=" + dataLength
+              + ", capacity=" + capacity);
+    }
+    if (heapData != null) {
+      MemorySegment.copy(heapData, 0, target, ValueLayout.JAVA_BYTE, targetOffset, dataLength);
+    } else {
+      ensureNativeViewOpen();
+      MemorySegment.copy(nativeData, nativeOffset, target, targetOffset, dataLength);
+    }
+  }
+
+  /** Serialize only the payload bytes, preserving the exact bounded native view. */
+  public void writeDataTo(final BytesOut<?> sink) {
+    if (sink == null) {
+      throw new IllegalArgumentException("overflow page sink must not be null");
+    }
+    if (heapData != null) {
+      sink.write(heapData);
+    } else {
+      ensureNativeViewOpen();
+      sink.writeSegment(nativeData, nativeOffset, dataLength);
+    }
+  }
+
+  private void ensureNativeViewOpen() {
+    if (closed) {
+      throw new IllegalStateException("staged native overflow page is no longer owned by its append batch");
+    }
+  }
+
+  @Override
+  public void close() {
+    if (nativeData != null) {
+      closed = true;
+    }
+  }
+
+  @Override
+  public boolean isClosed() {
+    return nativeData != null && closed;
   }
 }

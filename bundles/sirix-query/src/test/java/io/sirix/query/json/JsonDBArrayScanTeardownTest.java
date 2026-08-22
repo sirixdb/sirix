@@ -289,7 +289,7 @@ final class JsonDBArrayScanTeardownTest {
   }
 
   @Test
-  @DisplayName("a negative or far-out index is still null, and random access still materializes")
+  @DisplayName("a negative or far-out index is still null, and random access no longer materializes")
   void boundsAndRandomAccessAreUnchanged() throws Exception {
     final JsonDBArray array = loadArray("[10,20,30]");
 
@@ -298,9 +298,14 @@ final class JsonDBArrayScanTeardownTest {
     assertNull(array.at(99));
     assertNull(valuesFieldOf(array), "a bounds probe must not materialize a list either");
 
-    // A jump, not a walk: this is the arm that legitimately materializes, and it must keep working.
+    // A jump, not a walk. This used to be the arm that memoized the whole element list, and this
+    // test used to assert that it did. It no longer may: the list is unbounded in the size of the
+    // array and outlives nothing short of the query, and ONE interleaved walk is enough to reach
+    // this arm — see JsonDBArrayInterleavedWalkTest for the query shape that did exactly that and
+    // cost 4.8 GB. A jump is served by walking the sibling chain instead.
     assertNotNull(array.at(2));
-    assertNotNull(valuesFieldOf(array), "random access still memoizes the element list");
+    assertNull(valuesFieldOf(array), "random access must be served by walking, not by memoizing");
     assertEquals("10", ((Item) array.at(0)).atomize().stringValue());
+    assertEquals("30", ((Item) array.at(2)).atomize().stringValue());
   }
 }

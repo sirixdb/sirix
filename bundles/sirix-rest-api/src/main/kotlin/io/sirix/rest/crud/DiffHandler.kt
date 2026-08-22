@@ -3,6 +3,9 @@ package io.sirix.rest.crud
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.google.gson.Strictness
+import com.google.gson.stream.JsonReader
+import com.google.gson.stream.JsonToken
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
@@ -18,6 +21,8 @@ import io.sirix.access.ResourceConfiguration
 import io.sirix.api.Database
 import io.sirix.api.json.JsonNodeReadOnlyTrx
 import io.sirix.api.json.JsonResourceSession
+import io.sirix.diff.JsonDiffIntegrity
+import io.sirix.diff.JsonDiffSidecar
 import io.sirix.rest.Auth
 import io.sirix.rest.AuthRole
 import io.sirix.service.json.BasicJsonDiff
@@ -130,7 +135,13 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                                     val enrichedDiffPath = diffPath.resolveSibling(
                                         "diffFromRev${firstRevisionNumber}toRev${secondRevisionNumber}-enriched.json"
                                     )
-                                    readValidDiffFile(enrichedDiffPath) ?: run {
+                                    readValidPublicDiffFile(
+                                        enrichedDiffPath,
+                                        databaseName,
+                                        resourceName,
+                                        firstRevisionNumber,
+                                        secondRevisionNumber
+                                    ) ?: run {
                                         val enrichedDiff = computeEnrichedDiff(
                                             resourceSession,
                                             databaseName,
@@ -146,12 +157,23 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                                         enrichedDiff
                                     }
                                 } else {
-                                    readValidDiffFile(diffPath) ?: run {
+                                    readPublicCompactSidecar(
+                                        diffPath,
+                                        resourceSession,
+                                        databaseName,
+                                        resourceName,
+                                        firstRevisionNumber,
+                                        secondRevisionNumber
+                                    ) ?: run {
                                         // Missing (resource doesn't store diffs, or a crash hit
                                         // before the file was written) or torn — recompute
                                         // instead of failing the request.
-                                        val replaceTornFile = Files.exists(diffPath)
-                                        val diff = BasicJsonDiff(databaseName).generateDiff(
+                                        // The commit sidecar has a stronger internal contract
+                                        // than this public diff. Do not replace a corrupt sidecar
+                                        // here with an integrity-less public document: the
+                                        // sidecar remains visibly invalid and rebuildable by its
+                                        // owning storage path.
+                                        BasicJsonDiff(databaseName).generateDiff(
                                             resourceSession,
                                             firstRevisionNumber,
                                             secondRevisionNumber,
@@ -159,27 +181,44 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
                                             maxDepthAsLong,
                                             false
                                         )
-                                        if (replaceTornFile) {
-                                            writeDiffFileAtomically(diffPath, diff)
-                                        }
-                                        diff
                                     }
                                 }
                             }
                         } else if (isConsecutive && resourceSession.resourceConfig.areDeweyIDsStored
-                            && readValidDiffFile(diffPath) != null
+                            && readValidSidecar(
+                                diffPath,
+                                resourceSession,
+                                databaseName,
+                                resourceName,
+                                firstRevisionNumber,
+                                secondRevisionNumber
+                            ) != null
                         ) {
                             // Consecutive revisions with filtering — filter the pre-computed
                             // update operations (only usable if the diff file is intact).
-                            val rtx = resourceSession.beginNodeReadOnlyTrx(secondRevisionNumber)
-                            rtx.use {
-                                diffString = useUpdateOperations(
-                                    rtx,
-                                    startNodeKeyAsLong,
-                                    databaseName,
-                                    resourceName,
+                            diffString = try {
+                                resourceSession.beginNodeReadOnlyTrx(secondRevisionNumber).use { rtx ->
+                                    useUpdateOperations(
+                                        rtx,
+                                        resourceSession,
+                                        startNodeKeyAsLong,
+                                        databaseName,
+                                        resourceName,
+                                        firstRevisionNumber,
+                                        secondRevisionNumber,
+                                        maxDepthAsLong,
+                                        includeData
+                                    )
+                                }
+                            } catch (e: RuntimeException) {
+                                // The sidecar is a rebuildable cache. It may have changed after
+                                // validation, or a referenced fragment may no longer resolve.
+                                logger.warn("Could not use internal diff sidecar $diffPath — recomputing.", e)
+                                BasicJsonDiff(databaseName).generateDiff(
+                                    resourceSession,
                                     firstRevisionNumber,
                                     secondRevisionNumber,
+                                    startNodeKeyAsLong,
                                     maxDepthAsLong,
                                     includeData
                                 )
@@ -262,18 +301,31 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
         secondRevisionNumber: Int,
         diffPath: Path
     ): String {
-        if (resourceSession.resourceConfig.areDeweyIDsStored && readValidDiffFile(diffPath) != null) {
-            resourceSession.beginNodeReadOnlyTrx(secondRevisionNumber).use { rtx ->
-                return useUpdateOperations(
-                    rtx,
-                    0L,
-                    databaseName,
-                    resourceName,
-                    firstRevisionNumber,
-                    secondRevisionNumber,
-                    Long.MAX_VALUE,
-                    true
-                )
+        if (resourceSession.resourceConfig.areDeweyIDsStored && readValidSidecar(
+                diffPath,
+                resourceSession,
+                databaseName,
+                resourceName,
+                firstRevisionNumber,
+                secondRevisionNumber
+            ) != null
+        ) {
+            try {
+                resourceSession.beginNodeReadOnlyTrx(secondRevisionNumber).use { rtx ->
+                    return useUpdateOperations(
+                        rtx,
+                        resourceSession,
+                        0L,
+                        databaseName,
+                        resourceName,
+                        firstRevisionNumber,
+                        secondRevisionNumber,
+                        Long.MAX_VALUE,
+                        true
+                    )
+                }
+            } catch (e: RuntimeException) {
+                logger.warn("Could not enrich internal diff sidecar $diffPath — recomputing.", e)
             }
         }
         return BasicJsonDiff(databaseName).generateDiff(
@@ -287,31 +339,131 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
     }
 
     /**
-     * Reads a pre-computed diff file and validates that it parses as a diff JSON object: a crash
-     * while the file was written (after the storage commit was already durable) may have left a
-     * torn file behind, which must not be served verbatim forever. The parse is cheap relative to
-     * a full diff recomputation.
-     *
-     * @return the file content, or `null` if the file is missing or doesn't parse
+     * Reads the internal commit sidecar with its full storage contract. Besides strict JSON, this
+     * verifies resource/revision identity, operation schema, optional Dewey metadata, operation
+     * count, and the semantic SHA-256 digest. A syntactically valid truncated sidecar therefore
+     * cannot be served or used as the basis for filtering/enrichment.
      */
-    private fun readValidDiffFile(diffFilePath: Path): String? {
+    private fun readValidSidecar(
+        diffFilePath: Path,
+        resourceSession: JsonResourceSession,
+        expectedDatabase: String,
+        resourceName: String,
+        firstRevisionNumber: Int,
+        secondRevisionNumber: Int
+    ): JsonObject? {
         if (!Files.exists(diffFilePath)) {
             return null
         }
-        val content = try {
-            Files.readString(diffFilePath)
-        } catch (e: IOException) {
-            logger.warn("Pre-computed diff file $diffFilePath could not be read — recomputing.", e)
+
+        return try {
+            val document = JsonDiffSidecar.read(
+                diffFilePath,
+                resourceName,
+                firstRevisionNumber,
+                secondRevisionNumber,
+                resourceSession.resourceConfig.areDeweyIDsStored
+            )
+            if (!hasStringValue(document, "database", expectedDatabase)) {
+                throw IllegalStateException("Internal diff sidecar database identity does not match its path")
+            }
+            document
+        } catch (e: Exception) {
+            logger.warn("Internal diff sidecar $diffFilePath is invalid — recomputing the public diff.", e)
+            null
+        }
+    }
+
+    /**
+     * Converts a validated internal sidecar into the public compact representation. Integrity
+     * metadata is deliberately removed from the in-memory tree only; the immutable sidecar on
+     * disk remains untouched.
+     */
+    private fun readPublicCompactSidecar(
+        diffFilePath: Path,
+        resourceSession: JsonResourceSession,
+        databaseName: String,
+        resourceName: String,
+        firstRevisionNumber: Int,
+        secondRevisionNumber: Int
+    ): String? {
+        val document = readValidSidecar(
+            diffFilePath,
+            resourceSession,
+            databaseName,
+            resourceName,
+            firstRevisionNumber,
+            secondRevisionNumber
+        ) ?: return null
+
+        document.remove(JsonDiffIntegrity.FORMAT_VERSION_FIELD)
+        document.remove(JsonDiffIntegrity.OPERATION_COUNT_FIELD)
+        document.remove(JsonDiffIntegrity.OPERATIONS_DIGEST_FIELD)
+        return document.toString()
+    }
+
+    /**
+     * Reads the REST-owned enriched cache. It is a public diff, not an internal sidecar, so it has
+     * no integrity envelope. Still require exactly one strict JSON object, matching identity, and
+     * a diffs array before serving it. Internal sidecar fields are rejected rather than leaked.
+     */
+    private fun readValidPublicDiffFile(
+        diffFilePath: Path,
+        expectedDatabase: String,
+        expectedResource: String,
+        expectedOldRevision: Int,
+        expectedNewRevision: Int
+    ): String? {
+        if (!Files.exists(diffFilePath)) {
             return null
         }
-        val isValid = runCatching {
-            JsonParser.parseString(content).asJsonObject.getAsJsonArray("diffs") != null
-        }.getOrDefault(false)
-        if (!isValid) {
-            logger.warn("Pre-computed diff file $diffFilePath is corrupt (torn write?) — recomputing.")
-            return null
+
+        return try {
+            val document = Files.newBufferedReader(diffFilePath, StandardCharsets.UTF_8).use { bufferedReader ->
+                JsonReader(bufferedReader).use { reader ->
+                    reader.strictness = Strictness.STRICT
+                    if (reader.peek() == JsonToken.END_DOCUMENT) {
+                        throw IllegalStateException("Public diff cache is empty")
+                    }
+                    val root = JsonParser.parseReader(reader)
+                    if (reader.peek() != JsonToken.END_DOCUMENT || !root.isJsonObject) {
+                        throw IllegalStateException("Public diff cache is not one JSON object")
+                    }
+                    root.asJsonObject
+                }
+            }
+
+            if (!hasStringValue(document, "database", expectedDatabase)
+                || !hasStringValue(document, "resource", expectedResource)
+                || !hasIntValue(document, "old-revision", expectedOldRevision)
+                || !hasIntValue(document, "new-revision", expectedNewRevision)
+                || document.get("diffs")?.isJsonArray != true
+                || document.has(JsonDiffIntegrity.FORMAT_VERSION_FIELD)
+                || document.has(JsonDiffIntegrity.OPERATION_COUNT_FIELD)
+                || document.has(JsonDiffIntegrity.OPERATIONS_DIGEST_FIELD)
+            ) {
+                throw IllegalStateException("Public diff cache has invalid identity or shape")
+            }
+
+            document.toString()
+        } catch (e: Exception) {
+            logger.warn("Public diff cache $diffFilePath is invalid — recomputing.", e)
+            null
         }
-        return content
+    }
+
+    private fun hasStringValue(document: JsonObject, name: String, expected: String): Boolean {
+        val value = document.get(name)
+        return value != null && value.isJsonPrimitive && value.asJsonPrimitive.isString
+                && value.asString == expected
+    }
+
+    private fun hasIntValue(document: JsonObject, name: String, expected: Int): Boolean {
+        val value = document.get(name)
+        if (value == null || !value.isJsonPrimitive || !value.asJsonPrimitive.isNumber) {
+            return false
+        }
+        return value.asString.toIntOrNull() == expected
     }
 
     /**
@@ -339,6 +491,7 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
 
     private fun useUpdateOperations(
         rtx: JsonNodeReadOnlyTrx,
+        resourceSession: JsonResourceSession,
         startNodeKeyAsLong: Long,
         databaseName: String,
         resourceName: String,
@@ -347,7 +500,22 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
         maxDepthAsLong: Long,
         includeData: Boolean
     ): String {
-        rtx.moveTo(startNodeKeyAsLong)
+        val rootDeweyId = if (rtx.moveTo(startNodeKeyAsLong)) {
+            rtx.deweyID
+        } else {
+            // A requested subtree root can itself be deleted or replaced, so its key may be
+            // absent from the new revision used to hydrate inserts/replacements. Resolve the
+            // filtering anchor in the old revision instead of silently filtering from the
+            // document root left behind by a failed move.
+            resourceSession.beginNodeReadOnlyTrx(firstRevisionNumber).use { oldRtx ->
+                if (!oldRtx.moveTo(startNodeKeyAsLong)) {
+                    throw IllegalStateException(
+                        "Diff start node $startNodeKeyAsLong exists in neither requested revision"
+                    )
+                }
+                oldRtx.deweyID
+            }
+        }
         val metaInfo = createMetaInfo(
             databaseName,
             resourceName,
@@ -357,7 +525,7 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
 
         val diffs = metaInfo.getAsJsonArray("diffs")
         val updateOperations =
-            rtx.getUpdateOperationsInSubtreeOfNode(rtx.deweyID, maxDepthAsLong)
+            rtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, maxDepthAsLong)
         updateOperations.forEach {
             if (!includeData) {
                 stripJsonFragmentData(it)

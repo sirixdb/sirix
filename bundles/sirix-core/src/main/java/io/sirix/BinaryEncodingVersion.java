@@ -31,11 +31,9 @@ package io.sirix;
 /**
  * Determines the binary encoding version.
  *
- * <p>Currently a single version ({@link #V0}) — kept as an enum only so the
- * version byte in the page header reserves space for future format bumps.
- * The prior {@code V1} structural-encoder variant has been folded into V0;
- * there is no on-disk compatibility shim because the Sirix storage format
- * has no deployed users yet.
+ * <p>The version byte in each page header rejects future incompatible record layouts before their
+ * fields can be misparsed. The current format reuses the original zero value because no earlier
+ * database using an intermediate development layout needs migration.
  *
  * @author Johannes Lichtenberger
  */
@@ -73,17 +71,7 @@ public enum BinaryEncodingVersion {
    * <p>FlyweightNode records bind directly to page memory for zero-copy reads;
    * non-FlyweightNode records are serialized to the heap at commit time.
    */
-  V0((byte) 0),
-
-  /**
-   * Path-statistics record layout. {@code PathStats} gained {@code sumFraction} and the
-   * {@code sumDirty}/{@code doubleTyped}/{@code countDirty} flags BETWEEN {@code maxDirty} and the
-   * page-key trailer, so a V0 record read by a V1 reader consumes the trailer's {@code int} as part
-   * of a {@code double} and every field after it is garbage. The break is deliberate and not
-   * bridged: a resource written at V0 has to be re-created rather than silently answering from
-   * misparsed statistics.
-   */
-  V1((byte) 1);
+  V0((byte) 0);
 
   private final byte versionAsAByte;
 

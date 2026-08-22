@@ -21,17 +21,19 @@
 
 package io.sirix.page.delegates;
 
-import io.sirix.utils.ToStringHelper;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import io.sirix.node.BytesIn;
+import io.sirix.utils.ToStringHelper;
 
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Class to provide basic reference handling functionality.
@@ -61,11 +63,15 @@ public final class FullReferencesPage implements Page {
   public FullReferencesPage(final BitmapReferencesPage pageToClone) {
     references = new PageReference[Constants.INP_REFERENCE_COUNT];
     final BitSet bitSet = pageToClone.getBitmap();
+    final List<PageReference> compactReferences = pageToClone.getReferences();
+    int compactRank = 0;
 
-    for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i + 1)) {
-      final var pageReferenceToClone = pageToClone.getReferences().get(i);
-      final var newPageReference = new PageReference(pageReferenceToClone);
-      references[i] = newPageReference;
+    // BitmapReferencesPage stores references densely: bitmap offsets identify the destination
+    // slots, while the source list is indexed by the rank of each set bit. Using the sparse
+    // offset as a list index both misplaced references and failed for any offset >= list size.
+    for (int offset = bitSet.nextSetBit(0); offset >= 0;
+        offset = bitSet.nextSetBit(offset + 1)) {
+      references[offset] = new PageReference(compactReferences.get(compactRank++));
     }
   }
 
@@ -78,7 +84,7 @@ public final class FullReferencesPage implements Page {
     references = new PageReference[Constants.INP_REFERENCE_COUNT];
 
     for (int index = 0, size = pageToClone.references.length; index < size; index++) {
-      final var pageReferenceToClone = pageToClone.getReferences().get(index);
+      final PageReference pageReferenceToClone = pageToClone.referenceAt(index);
       // Route through the PageReference copy constructor (copies hashInBytes + fragments, nulls a
       // resolvable swizzle) — a manual copy dropped the hash, disabling checksum verification.
       references[index] =
@@ -96,8 +102,14 @@ public final class FullReferencesPage implements Page {
     return references.length;
   }
 
-  public PageReference[] getReferencesArray() {
-    return this.references;
+  /** Allocation-free indexed access without exposing the mutable structural backing array. */
+  public PageReference referenceAt(final int index) {
+    return references[Objects.checkIndex(index, references.length)];
+  }
+
+  /** Serialize through the trusted enum codec without letting the mutable backing array escape. */
+  public void serializeReferences(final BytesOut<?> sink, final SerializationType type) {
+    type.serializeFullReferencesPage(sink, references);
   }
 
   /**

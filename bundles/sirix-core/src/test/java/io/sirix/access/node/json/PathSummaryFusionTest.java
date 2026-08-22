@@ -3,6 +3,12 @@ package io.sirix.access.node.json;
 import io.brackit.query.atomic.QNm;
 import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
+import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.Axis;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -12,6 +18,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -19,6 +27,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockingDetails;
+import static org.mockito.Mockito.when;
 
 /**
  * PathSummary correctness under default-on iter#30 + iter#32 fusion.
@@ -217,6 +228,111 @@ public final class PathSummaryFusionTest {
         assertTrue(sawArrayLevel,
             "path-summary lacks the array-level mirror entry that Phase 2 structural fusion must "
                 + "register under OBJECT_NAMED_ARRAY");
+      }
+    }
+  }
+
+  @Test
+  void namedSiblingAfterFusedArray_keepsTheObjectParentPath() {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      try (final var wtx = session.beginNodeTrx()) {
+        // OBJECT_NAMED_ARRAY stores the synthetic __array__/ARRAY PCR. The following field must
+        // therefore climb two PCR levels to find the shared object parent, without moving the
+        // document cursor.
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+            "{\"items\":[{\"deep\":1}],\"after\":2,\"nested\":{\"value\":3},\"tail\":4}"));
+        wtx.commit();
+      }
+
+      try (final var summary = session.openPathSummary()) {
+        final Map<String, Integer> levels = new HashMap<>();
+        final Axis axis = new DescendantAxis(summary);
+        while (axis.hasNext()) {
+          axis.nextLong();
+          final QNm name = summary.getName();
+          if (name != null) {
+            levels.put(name.getLocalName(), summary.getLevel());
+          }
+        }
+
+        assertEquals(1, levels.get("items"));
+        assertEquals(1, levels.get("after"));
+        assertEquals(1, levels.get("nested"));
+        assertEquals(1, levels.get("tail"));
+        assertEquals(3, levels.get("deep"));
+        assertEquals(2, levels.get("value"));
+      }
+    }
+  }
+
+  @Test
+  void knownPathNamedSibling_emitsExactlyOneIndexNotification() throws ReflectiveOperationException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      wtx.insertObjectAsFirstChild();
+      wtx.insertObjectRecordAsFirstChild("first", new StringValue("one"));
+
+      @SuppressWarnings("unchecked")
+      final IndexController<?, ?> indexController = mock(IndexController.class);
+      when(indexController.hasAnyPrimitiveIndex()).thenReturn(true);
+      final Field controllerField = AbstractNodeTrxImpl.class.getDeclaredField("indexController");
+      controllerField.setAccessible(true);
+      final Object originalIndexController = controllerField.get(wtx);
+      try {
+        controllerField.set(wtx, indexController);
+        wtx.insertObjectRecordAsRightSibling("second", new NumberValue(2));
+
+        final long notifications = mockingDetails(indexController).getInvocations()
+            .stream()
+            .filter(invocation -> invocation.getMethod().getName().equals("notifyChange"))
+            .count();
+        assertEquals(1L, notifications,
+            "the known-path insertAsSibling overload owns the fused record's sole INSERT notification");
+      } finally {
+        controllerField.set(wtx, originalIndexController);
+        wtx.rollback();
+      }
+    }
+  }
+
+  @Test
+  void unusableStructuralSiblingPcr_fallsBackToObjectParentAndRestoresCursor()
+      throws ReflectiveOperationException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+         final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      try {
+        wtx.insertObjectAsFirstChild();
+        wtx.insertObjectRecordAsFirstChild("namedObject", ObjectValue.INSTANCE);
+        final long namedObjectNodeKey = wtx.getNodeKey();
+        wtx.insertObjectRecordAsRightSibling("namedArray", ArrayValue.INSTANCE);
+        final long namedArrayNodeKey = wtx.getNodeKey();
+
+        final Method helper = wtx.getClass().getDeclaredMethod("getPathNodeKeyForNamedSibling",
+            long.class, QNm.class, NodeKind.class, long.class, NodeKind.class);
+        helper.setAccessible(true);
+
+        assertTrue(wtx.moveTo(namedObjectNodeKey));
+        final long objectSiblingPathNodeKey = (Long) helper.invoke(wtx, namedObjectNodeKey,
+            new QNm("afterNamedObject"), NodeKind.OBJECT_NAMED_OBJECT, -1L,
+            NodeKind.OBJECT_NAMED_OBJECT);
+        assertEquals(namedObjectNodeKey, wtx.getNodeKey(), "fallback must restore the named-object cursor");
+        assertTrue(wtx.getPathSummary().moveTo(objectSiblingPathNodeKey));
+        assertEquals(1, wtx.getPathSummary().getLevel());
+        assertEquals(0L, wtx.getPathSummary().getParentKey());
+
+        assertTrue(wtx.moveTo(namedArrayNodeKey));
+        final long arraySiblingPathNodeKey = (Long) helper.invoke(wtx, namedArrayNodeKey,
+            new QNm("afterNamedArray"), NodeKind.OBJECT_NAMED_ARRAY, -1L,
+            NodeKind.OBJECT_NAMED_OBJECT);
+        assertEquals(namedArrayNodeKey, wtx.getNodeKey(), "fallback must restore the named-array cursor");
+        assertTrue(wtx.getPathSummary().moveTo(arraySiblingPathNodeKey));
+        assertEquals(1, wtx.getPathSummary().getLevel());
+        assertEquals(0L, wtx.getPathSummary().getParentKey());
+      } finally {
+        wtx.rollback();
       }
     }
   }

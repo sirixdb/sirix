@@ -7,22 +7,36 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
+import io.sirix.HftBoundaryTelemetry;
 import io.sirix.access.trx.node.IndexController;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.ChangeListener;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexType;
+import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.utils.LogWrapper;
+import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -30,9 +44,15 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Update-time maintenance hook for a projection index, wired through the {@code IndexController}
@@ -48,44 +68,23 @@ import java.util.Set;
  * per-transaction dirty set. Nothing is written yet.
  *
  * <b>Apply phase (once, at pre-commit via
- * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty records are located in their
- * leaves through the per-leaf record-key zone maps, each touched leaf is rebuilt by re-extracting
- * ALL its rows from the transaction's current state (deleted records simply drop out, updated
- * records pick up their new values — extraction semantics are shared 1:1 with the bulk builder via
- * {@link ProjectionIndexRowExtractor}), and new records (node keys are monotonically increasing, so
- * inserts always sort after every indexed key) are appended to the tail leaf / fresh leaves. Slot
- * 0's metadata is rewritten with the updated leaf count and the committing revision as the new
+ * {@link IndexController#applyPendingIndexMaintenance()}):</b> dirty records are located by the
+ * sparse exception locator first and the normal-backbone fences second. Inserts and deletes rebuild
+ * their touched leaves; an update that does not change row membership re-extracts only
+ * its dirty column across the leaf and patches only that column's immutable segments. Extraction
+ * semantics are shared 1:1 with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable
+ * node keys identify rows but never determine their order: explicit document links place new and
+ * moved rows at their current tree position, while sparse record locators route order exceptions.
+ * Slot 0's metadata is rewritten with the updated leaf count and the committing revision as the new
  * build revision, which re-keys the catalog's decoded-leaf cache. All writes ride the write
  * transaction — invisible to concurrent readers until commit, discarded on rollback, and historical
  * revisions keep serving their own immutable snapshots.
  *
- * <h2>Always maintained — the rebuild fallback</h2> Like the PATH/CAS/NAME listeners, this listener
- * keeps its index EXACTLY maintained across every operation — there is no invalidation ladder.
- * Changes the incremental patch cannot attribute provably-correctly degrade to an automatic FULL
- * REBUILD inside the same commit (the shared {@link ProjectionIndexBuilder#buildAndPersist} core
- * re-extracts the whole record set from the transaction's current state — always correct, cost
- * bounded by the index size, no manual re-creation involved):
- * <ul>
- * <li>subtree moves ({@link #structuralChange()} — the moved nodes fire no per-node notifications,
- * so attribution is impossible);</li>
- * <li>an unresolvable ancestor chain (record read failure mid-walk);</li>
- * <li>more than {@code -Dsirix.projection.maxIncrementalRecords} dirty records in one transaction
- * (patching approaches rebuild cost);</li>
- * <li>any inconsistency discovered while patching (a dirty record that cannot be located in any
- * leaf, a missing leaf payload, foreign metadata under this definition's sub-tree).</li>
- * </ul>
- * Cheap exact cases never rebuild: record-set array instances appearing or disappearing are no-ops
- * (their records notify individually — pre-order on insert, post-order on delete), and a NEW path
- * class matching the root path (an exact-path record set re-appearing, or a descendant pattern
- * widening to another subtree) reseeds the root-PCR set so subsequent notifications attribute
- * normally.
- *
- * <p>
- * The {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} survives only as a
- * CORRUPTION VALVE: if the apply phase <em>and</em> the rebuild both fail with an unexpected
- * exception, slot 0 is overwritten so readers fall back to the always-correct generic pipeline
- * until a manual {@code jn:create-projection-index} re-run — the projection analogue of any other
- * index family surfacing an unexpected page-layer failure.
+ * <h2>Bounded ownership</h2> Ordinary maintenance rewrites only touched row groups, fence chunks,
+ * Bloom chunks, set-summary columns, and affected immutable dictionary radix paths. It never scans or
+ * rebuilds the complete projection. Structural moves attribute both the old and new enclosing
+ * records and splice moved record roots through bounded local row-group edits. Moves wholly within
+ * one record only rewrite that record's dirty persistent units.
  *
  * <h2>Hot-path cost</h2> The relevant-PCR sets are seeded LAZILY on the first notification, so
  * write transactions that never touch any node pay nothing beyond object construction at open.
@@ -97,22 +96,42 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexChangeListener.class));
 
-  /**
-   * Dirty-record ceiling per transaction. Beyond this, per-leaf patching approaches full-rebuild
-   * cost, so the listener degrades to the commit-time full rebuild.
-   */
-  private static final int MAX_INCREMENTAL_RECORDS =
-      Integer.getInteger("sirix.projection.maxIncrementalRecords", 100_000);
+  private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
+  private static final AtomicLong HFT_COMMITS = new AtomicLong();
+  private static final AtomicLong HFT_DIRTY_RECORDS = new AtomicLong();
+  private static final AtomicLong HFT_ROW_GROUPS_READ = new AtomicLong();
+  private static final AtomicLong HFT_ROW_GROUPS_WRITTEN = new AtomicLong();
+  private static final AtomicLong HFT_DICTIONARY_SEGMENTS = new AtomicLong();
+  private static final AtomicLong HFT_FENCE_CHUNKS_READ = new AtomicLong();
+  private static final AtomicLong HFT_FENCE_CHUNKS_WRITTEN = new AtomicLong();
+  private static final AtomicLong HFT_SET_CHUNKS_READ = new AtomicLong();
+  private static final AtomicLong HFT_SET_CHUNKS_WRITTEN = new AtomicLong();
+  private static final AtomicLong HFT_BLOOM_ROW_GROUPS_READ = new AtomicLong();
+  private static final AtomicLong HFT_BLOOM_CHUNKS_WRITTEN = new AtomicLong();
+  private static final AtomicLong HFT_METADATA_READS = new AtomicLong();
+  private static final AtomicLong HFT_METADATA_WRITES = new AtomicLong();
+  private static final AtomicLong HFT_DICTIONARY_PROBES = new AtomicLong();
+  private static final AtomicLong HFT_REBUILD_BASELINE = new AtomicLong();
 
-  /** Hard bound on the record ancestor walk — malformed chains rebuild. */
-  private static final int MAX_ANCESTOR_WALK = 512;
+  /** Last completed maintenance pass, used by locality tests and operational diagnostics. */
+  private static volatile MaintenanceLocality LAST_MAINTENANCE_LOCALITY = MaintenanceLocality.EMPTY;
+
+  private static final int DEEP_WALK_CYCLE_THRESHOLD = 512;
 
   /** Resolution verdict: change is not under any record — no row affected. */
   private static final long NOT_UNDER_RECORD_SET = -2L;
-  /** Resolution verdict: chain unresolvable — degrade to the full rebuild. */
+  /** Resolution verdict: chain unresolvable — fail the owning transaction. */
   private static final long UNRESOLVED = -4L;
   /** Sentinel for "parent key not provided by this listen overload". */
   private static final long PARENT_UNKNOWN = Long.MIN_VALUE;
+  /** No projected record exists on one side of a document-order interval. */
+  private static final long NO_RECORD_KEY = -1L;
+
+  private static final byte FIRST_ROOT_EVENT_MASK = 0x03;
+  private static final byte FIRST_ROOT_INSERT = 0x01;
+  private static final byte FIRST_ROOT_DELETE = 0x02;
+  private static final byte STRUCTURAL_ENTER = 0x04;
+  private static final byte STRUCTURAL_EXIT = 0x08;
 
   private final StorageEngineWriter storageEngineWriter;
   private final PathSummaryReader pathSummary;
@@ -123,7 +142,26 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * (pre-commit re-extraction). {@code null} degrades to the legacy invalidation-only contract: the
    * first relevant change tombstones the projection.
    */
-  private final @Nullable JsonNodeReadOnlyTrx maintenanceTrx;
+  private final @Nullable NodeReadOnlyTrx maintenanceTrx;
+
+  /**
+   * The load-time build this transaction is feeding, or {@code null} for ordinary maintenance. When
+   * set, every path below is bypassed: the projection is not being MAINTAINED but BUILT, by the real
+   * build machinery, and the dirty-set patcher's structures (dirty records, resolution memo,
+   * per-leaf rebuilds) are neither needed nor affordable at load scale.
+   *
+   * <p>
+   * Cleared by {@link #activeBulkLoad()} the moment the build finishes — see the HANDOFF note there.
+   */
+  private @Nullable ProjectionBulkLoad bulkLoad;
+
+  /**
+   * Bulk mode only: a fused {@code OBJECT_NAMED_*} node is an object FIELD and can never be an array
+   * element, so when the record set is the elements of an array those notifications need no ancestor
+   * read at all. The parent-aware primitive notification also makes the record-root classification a
+   * set lookup rather than a page-layer self-read in the usual one-array-root load.
+   */
+  private final boolean bulkSkipsNamedKinds;
 
   /** Root PCRs of the record set; empty ⇒ conservative mode (everything relevant). */
   private LongOpenHashSet rootPcrs;
@@ -134,22 +172,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private boolean seeded;
 
-  /**
-   * Corruption valve ONLY — set when both the incremental apply and the full rebuild failed
-   * unexpectedly (or, in legacy invalidation-only mode without a maintenance transaction, on the
-   * first relevant change).
-   */
+  /** Corruption valve used by the legacy invalidation-only and abandoned bulk-build paths. */
   private boolean invalidated;
 
-  /**
-   * The pending state cannot be patched incrementally (subtree move, over-ceiling transaction,
-   * unresolvable chain) — {@link #beforeCommit()} performs a full rebuild instead. Dirty-key
-   * collection stops while set: the rebuild re-extracts everything anyway.
-   */
-  private boolean rebuildPending;
-
+  private boolean maintenanceFailed;
   /** Record nodeKeys touched by this transaction; lazily allocated. */
   private @Nullable LongOpenHashSet dirtyRecordKeys;
+  private @Nullable Long2ObjectOpenHashMap<long[]> dirtyColumnWordsByRecord;
+  /** First authoritative root event plus structural membership provenance, keyed by record identity. */
+  private @Nullable Long2ByteOpenHashMap rootProvenanceByRecord;
+  /** One active surgery and the completed deltas retained until apply-time placement. */
+  private @Nullable StructuralSnapshot pendingStructuralRecords;
+  private @Nullable ArrayList<StructuralDelta> structuralDeltas;
 
   /**
    * Positive resolution memo: nodeKey → enclosing record's nodeKey, for nodes proven to lie INSIDE a
@@ -161,8 +195,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   private @Nullable Long2LongOpenHashMap resolvedRecordMemo;
 
+  /**
+   * NodeKeys proven to be ARRAY-LIKE record-set root instances. A record's own walk crosses its root
+   * instance every time and can never memoize it in {@link #resolvedRecordMemo} — the record there is
+   * the CHILD, not the root — so without this set every record notification pays a second raw record
+   * read just to re-derive "the parent is the array". Bounded by {@link #MEMO_CAP}; in the common
+   * single-array case it holds exactly one key.
+   */
+  private @Nullable LongOpenHashSet arrayRootInstances;
+
   /** Scratch for the walked ancestor chain (memoized on resolution). */
   private long[] walkChain = new long[32];
+  private @Nullable LongOpenHashSet deepWalkVisited;
+  private @Nullable Long2ObjectOpenHashMap<long[]> columnWordsByPcr;
+  private long[] allColumnWords;
 
   /**
    * Monotone per-listener maintenance epoch: bumped whenever the pending state changes (new dirty
@@ -176,7 +222,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   public ProjectionIndexChangeListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummary, final IndexDef indexDef,
-      final @Nullable JsonNodeReadOnlyTrx maintenanceTrx) {
+      final @Nullable NodeReadOnlyTrx maintenanceTrx) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
@@ -185,6 +231,69 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     this.pathSummary = pathSummary;
     this.indexDef = indexDef;
     this.maintenanceTrx = maintenanceTrx;
+    this.bulkLoad = resolveBulkLoad(indexDef, maintenanceTrx);
+    this.bulkSkipsNamedKinds = bulkLoad != null && bulkLoad.isArrayElementRoot();
+  }
+
+  /**
+   * The armed load-time build for this definition, if any. Looked up per listener because listeners
+   * are rebuilt at every auto-commit while the build spans all of them; the registry read is guarded
+   * by a map-emptiness check so a resource with no load in flight pays one field read.
+   */
+  /**
+   * The load-time build to route this notification to, or {@code null} when ordinary maintenance owns
+   * the index.
+   *
+   * <h2>Handoff</h2> A load ends at its final commit: {@link ProjectionBulkLoad#finish} writes the
+   * real metadata over the tombstone and retires the registry entry, and from that moment the
+   * projection is an ordinary maintained index. Listeners rebound at later transaction epochs
+   * therefore find no armed load and take the maintenance path by construction. THIS listener,
+   * however, was constructed before the finish and still holds the reference, so it drops it here —
+   * the same instance goes on serving the rest of its transaction through the dirty-set patcher,
+   * exactly as it would for a projection built any other way. Without this, a post-load insert on the
+   * still-open transaction would be handed to a closed build.
+   */
+  private @Nullable ProjectionBulkLoad activeBulkLoad() {
+    final ProjectionBulkLoad load = bulkLoad;
+    if (load == null) {
+      return null;
+    }
+    if (load.isFinished()) {
+      bulkLoad = null;
+      return null;
+    }
+    return load;
+  }
+
+  private static @Nullable ProjectionBulkLoad resolveBulkLoad(final IndexDef indexDef,
+      final @Nullable NodeReadOnlyTrx maintenanceTrx) {
+    if (maintenanceTrx == null || !ProjectionBulkLoad.anyActive()) {
+      return null;
+    }
+    return ProjectionBulkLoad.active(maintenanceTrx.getResourceSession().getResourceConfig().getResource().toString(),
+        indexDef.getID(), maintenanceTrx);
+  }
+
+  @Override
+  public void transactionAborted() {
+    final ProjectionBulkLoad load = bulkLoad;
+    bulkLoad = null;
+    try {
+      if (load != null) {
+        load.abort();
+      }
+    } finally {
+      // A cached controller can outlive the write transaction. Drop every potentially large,
+      // transaction-owned memo/batch now rather than waiting for the controller itself to be evicted.
+      dirtyRecordKeys = null;
+      dirtyColumnWordsByRecord = null;
+      rootProvenanceByRecord = null;
+      pendingStructuralRecords = null;
+      structuralDeltas = null;
+      resolvedRecordMemo = null;
+      deepWalkVisited = null;
+      arrayRootInstances = null;
+    }
   }
 
   /** Catalogue id of the definition this listener maintains. */
@@ -192,48 +301,281 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     return indexDef.getID();
   }
 
-  /**
-   * Subtree MOVES cannot be attributed incrementally: a record moved OUT of the record set still
-   * exists (so re-extraction would keep its row), and moved plain containers/value elements fire no
-   * per-node notifications at all. Degrade to the commit-time full rebuild — the index stays exactly
-   * maintained, like the other index families.
-   */
   @Override
-  public void structuralChange() {
-    scheduleRebuild();
+  public void beforeStructuralChange(final long movedNodeKey) {
+    if (activeBulkLoad() != null) {
+      throw new IllegalStateException("Subtree move rejected: projection index " + indexDef.getID()
+          + " is being built by the running load; load-time projection construction is append-only");
+    }
+    if (invalidated || maintenanceTrx == null) {
+      return;
+    }
+    if (!seeded) {
+      seed();
+    }
+    if (pendingStructuralRecords != null) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " received nested structural changes");
+    }
+    pendingStructuralRecords = collectStructuralRecords(movedNodeKey);
   }
 
-  /**
-   * Downgrade from incremental patching to a full rebuild at commit. In legacy invalidation-only mode
-   * (no maintenance transaction) a rebuild is impossible — tombstone as before.
-   */
-  private void scheduleRebuild() {
-    if (invalidated || rebuildPending) {
+  @Override
+  public void afterStructuralChange(final long movedNodeKey) {
+    if (invalidated || maintenanceTrx == null) {
       return;
     }
-    if (maintenanceTrx == null) {
-      invalidate();
-      return;
+    final StructuralSnapshot before = pendingStructuralRecords;
+    pendingStructuralRecords = null;
+    if (before == null) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " did not observe the start of structural change " + movedNodeKey);
     }
-    rebuildPending = true;
-    dirtyRecordKeys = null;
-    maintenanceEpoch++;
+    resolvedRecordMemo = null;
+    arrayRootInstances = null;
+    final StructuralSnapshot after = collectStructuralRecords(movedNodeKey);
+    if (!before.containedInDocumentOrder().isEmpty() || !after.containedInDocumentOrder().isEmpty()) {
+      if (structuralDeltas == null) {
+        structuralDeltas = new ArrayList<>();
+      }
+      structuralDeltas.add(new StructuralDelta(before, after));
+      for (final LongIterator iterator = before.contained().iterator(); iterator.hasNext();) {
+        recordStructuralProvenance(iterator.nextLong(), STRUCTURAL_EXIT);
+      }
+      for (final LongIterator iterator = after.contained().iterator(); iterator.hasNext();) {
+        recordStructuralProvenance(iterator.nextLong(), STRUCTURAL_ENTER);
+      }
+    }
+    markAllDirty(before.affected());
+    markAllDirty(after.affected());
+  }
+
+  @Override
+  public void structuralChangeAborted(final long movedNodeKey) {
+    pendingStructuralRecords = null;
+    resolvedRecordMemo = null;
+    arrayRootInstances = null;
+  }
+
+  private StructuralSnapshot collectStructuralRecords(final long movedNodeKey) {
+    final LongOpenHashSet affected = new LongOpenHashSet();
+    final LongOpenHashSet contained = new LongOpenHashSet();
+    final LongArrayList containedInDocumentOrder = new LongArrayList();
+    long currentKey = movedNodeKey;
+    for (;;) {
+      final ImmutableNode node = readNode(currentKey);
+      if (!(node instanceof final StructNode structural)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot read moved subtree node " + currentKey);
+      }
+      final long pathNodeKey = pathNodeKeyOf(node);
+      if (pathNodeKey > 0 && !relevantPcrs.contains(pathNodeKey)
+          && !irrelevantPcrs.contains(pathNodeKey)) {
+        classifyUnseenPcr(pathNodeKey);
+      }
+      final long recordKey = resolveRecordKey(currentKey, node.getKind(), node.getParentKey(), pathNodeKey);
+      if (recordKey >= 0) {
+        affected.add(recordKey);
+        if (recordKey == currentKey && contained.add(recordKey)) {
+          containedInDocumentOrder.add(recordKey);
+        }
+      } else if (recordKey == UNRESOLVED) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot attribute moved subtree node " + currentKey);
+      }
+      if (structural.hasFirstChild()) {
+        currentKey = structural.getFirstChildKey();
+        continue;
+      }
+      long walkKey = currentKey;
+      StructNode walk = structural;
+      while (walkKey != movedNodeKey && !walk.hasRightSibling()) {
+        walkKey = walk.getParentKey();
+        final ImmutableNode parent = readNode(walkKey);
+        if (!(parent instanceof final StructNode parentStructural)) {
+          throw new IllegalStateException("Projection index " + indexDef.getID()
+              + " cannot ascend moved subtree from " + currentKey);
+        }
+        walk = parentStructural;
+      }
+      if (walkKey == movedNodeKey) {
+        final long predecessor = containedInDocumentOrder.isEmpty()
+            ? NO_RECORD_KEY
+            : nearestPreviousRecord(containedInDocumentOrder.getLong(0), contained);
+        final long successor = containedInDocumentOrder.isEmpty()
+            ? NO_RECORD_KEY
+            : nearestFollowingRecord(containedInDocumentOrder.getLong(containedInDocumentOrder.size() - 1), contained);
+        return new StructuralSnapshot(affected, contained, containedInDocumentOrder, predecessor, successor);
+      }
+      currentKey = walk.getRightSiblingKey();
+    }
+  }
+
+  private record StructuralSnapshot(LongOpenHashSet affected, LongOpenHashSet contained,
+                                    LongArrayList containedInDocumentOrder,
+                                    long predecessorRecordKey, long successorRecordKey) {
+  }
+
+  private record StructuralDelta(StructuralSnapshot before, StructuralSnapshot after) {
+  }
+
+  private void recordStructuralProvenance(final long recordKey, final byte flag) {
+    if (rootProvenanceByRecord == null) {
+      rootProvenanceByRecord = new Long2ByteOpenHashMap();
+    }
+    rootProvenanceByRecord.put(recordKey, (byte) (rootProvenanceByRecord.get(recordKey) | flag));
+  }
+
+  /** Nearest projected record preceding {@code recordKey}, skipping one structurally moved interval. */
+  private long nearestPreviousRecord(final long recordKey, final LongOpenHashSet excludedRecords) {
+    long current = recordKey;
+    int traversed = 0;
+    for (;;) {
+      final long candidate = previousDocumentNode(current);
+      if (candidate < 0) {
+        return NO_RECORD_KEY;
+      }
+      final ImmutableNode node = readNode(candidate);
+      if (node == null) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot read document predecessor " + candidate);
+      }
+      final long resolved = resolveRecordKey(candidate, node.getKind(), node.getParentKey(), pathNodeKeyOf(node));
+      if (resolved == UNRESOLVED) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot attribute document predecessor " + candidate);
+      }
+      if (resolved >= 0) {
+        if (!excludedRecords.contains(resolved)) {
+          return resolved;
+        }
+        current = resolved;
+      } else {
+        current = candidate;
+      }
+      if (++traversed > MEMO_CAP) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " exceeded the bounded predecessor walk");
+      }
+    }
+  }
+
+  /** Nearest projected record following {@code recordKey}'s subtree. */
+  private long nearestFollowingRecord(final long recordKey, final LongOpenHashSet excludedRecords) {
+    long candidate = nextNodeAfterSubtree(recordKey);
+    int traversed = 0;
+    while (candidate >= 0) {
+      final ImmutableNode node = readNode(candidate);
+      if (node == null) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot read document successor " + candidate);
+      }
+      final long resolved = resolveRecordKey(candidate, node.getKind(), node.getParentKey(), pathNodeKeyOf(node));
+      if (resolved == UNRESOLVED) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot attribute document successor " + candidate);
+      }
+      if (resolved >= 0) {
+        if (!excludedRecords.contains(resolved)) {
+          return resolved;
+        }
+        candidate = nextNodeAfterSubtree(resolved);
+      } else {
+        candidate = nextDocumentNode(candidate);
+      }
+      if (++traversed > MEMO_CAP) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " exceeded the bounded successor walk");
+      }
+    }
+    return NO_RECORD_KEY;
+  }
+
+  private long previousDocumentNode(final long nodeKey) {
+    final ImmutableNode node = readNode(nodeKey);
+    if (!(node instanceof final StructNode structural)) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot navigate before non-structural node " + nodeKey);
+    }
+    if (!structural.hasLeftSibling()) {
+      return structural.getParentKey();
+    }
+    long candidate = structural.getLeftSiblingKey();
+    for (;;) {
+      final ImmutableNode previous = readNode(candidate);
+      if (!(previous instanceof final StructNode previousStructural)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot navigate predecessor subtree " + candidate);
+      }
+      if (!previousStructural.hasLastChild()) {
+        return candidate;
+      }
+      candidate = previousStructural.getLastChildKey();
+    }
+  }
+
+  private long nextDocumentNode(final long nodeKey) {
+    final ImmutableNode node = readNode(nodeKey);
+    if (!(node instanceof final StructNode structural)) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot navigate after non-structural node " + nodeKey);
+    }
+    if (structural.hasFirstChild()) {
+      return structural.getFirstChildKey();
+    }
+    return nextNodeAfterSubtree(nodeKey);
+  }
+
+  private long nextNodeAfterSubtree(final long nodeKey) {
+    long current = nodeKey;
+    for (;;) {
+      final ImmutableNode node = readNode(current);
+      if (!(node instanceof final StructNode structural)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot navigate after subtree " + current);
+      }
+      if (structural.hasRightSibling()) {
+        return structural.getRightSiblingKey();
+      }
+      current = structural.getParentKey();
+      if (current < 0) {
+        return NO_RECORD_KEY;
+      }
+    }
+  }
+
+  private void markAllDirty(final LongOpenHashSet recordKeys) {
+    for (final LongIterator iterator = recordKeys.iterator(); iterator.hasNext();) {
+      markDirty(iterator.nextLong(), allColumnWords);
+    }
   }
 
   @Override
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
-    onChange(node.getNodeKey(), node.getKind(), node.getParentKey(), pathNodeKey);
+    onChange(type, node.getNodeKey(), node.getKind(), node.getParentKey(), pathNodeKey);
   }
 
   @Override
   public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
       final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
-    onChange(nodeKey, nodeKind, PARENT_UNKNOWN, pathNodeKey);
+    onChange(type, nodeKey, nodeKind, PARENT_UNKNOWN, pathNodeKey);
   }
 
-  private void onChange(final long nodeKey, final NodeKind kind, final long parentKey, final long pathNodeKey) {
-    if (invalidated || rebuildPending) {
-      return; // the rebuild re-extracts everything — attribution is moot
+  @Override
+  public void listen(final IndexController.ChangeType type, final long nodeKey, final NodeKind nodeKind,
+      final long parentKey, final long pathNodeKey, final @Nullable QNm name, final @Nullable Str value) {
+    onChange(type, nodeKey, nodeKind, parentKey, pathNodeKey);
+  }
+
+  private void onChange(final IndexController.ChangeType type, final long nodeKey, final NodeKind kind,
+      final long parentKey, final long pathNodeKey) {
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
+      return;
+    }
+    if (invalidated) {
+      return;
     }
     if (!seeded) {
       seed();
@@ -264,10 +606,189 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     if (recordKey < 0) {
-      scheduleRebuild();
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " could not attribute changed node " + nodeKey + " to a record");
+    }
+    if (recordKey == nodeKey) {
+      recordFirstRootEvent(recordKey, type);
+    }
+    final long[] changedColumns = pathNodeKey > 0 ? columnWordsByPcr.get(pathNodeKey) : null;
+    markDirty(recordKey, changedColumns == null ? allColumnWords : changedColumns);
+  }
+
+  private void recordFirstRootEvent(final long recordKey, final IndexController.ChangeType type) {
+    if (rootProvenanceByRecord == null) {
+      rootProvenanceByRecord = new Long2ByteOpenHashMap();
+    }
+    final byte prior = rootProvenanceByRecord.get(recordKey);
+    if ((prior & FIRST_ROOT_EVENT_MASK) != 0) {
       return;
     }
-    markDirty(recordKey);
+    final byte event = type == IndexController.ChangeType.INSERT
+        ? FIRST_ROOT_INSERT
+        : FIRST_ROOT_DELETE;
+    rootProvenanceByRecord.put(recordKey, (byte) (prior | event));
+  }
+
+  /**
+   * Load-time build attribution: decide which RECORD the changed node belongs to and tell the build,
+   * which closes the previous record when the answer changes.
+   *
+   * <p>
+   * Nothing is extracted here. Extraction moves the cursor, and a notification fires in the middle of
+   * the shredder's insert — the shredder would resume from wherever the extractor left the cursor.
+   * Closed records are extracted at the commit hook instead, which is where cursor movement is already
+   * safe.
+   *
+   * <h2>Cost</h2>
+   * The overwhelmingly common notification — a field of the record being written — is rejected before
+   * any read when the record set is array-rooted (a fused named node is never an array element). A new
+   * record under the known array root is likewise classified without a read because the JSON write
+   * transaction supplies its parent key. Legacy primitive callers that omit the parent retain the
+   * exact old fallback: one self-read recovers it before the same walk. No memo is kept: at load scale
+   * the maintenance path's node→record memo would grow to its million-entry cap and stay there.
+   */
+  private void onChangeDuringBulkLoad(final ProjectionBulkLoad load, final long nodeKey, final NodeKind kind,
+      final long parentKey, final long pathNodeKey) {
+    if (!seeded) {
+      seed();
+    }
+    if (!couldBeRecordRootDuringBulkLoad(kind, pathNodeKey)) {
+      if (ProjectionBulkLoad.diagnosticsEnabled()) {
+        load.countClassification(bulkSkipsNamedKinds && kind.playsObjectKeyRole()
+            ? ProjectionBulkLoad.DIAG_SKIPPED_NAMED_KIND
+            : ProjectionBulkLoad.DIAG_SKIPPED_PATH_CLASS);
+      }
+      return;
+    }
+    final long recordKey = resolveRecordKeyDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
+    if (ProjectionBulkLoad.diagnosticsEnabled()) {
+      load.countClassification(recordKey >= 0
+          ? ProjectionBulkLoad.DIAG_OBSERVED
+          : recordKey == UNRESOLVED
+              ? ProjectionBulkLoad.DIAG_UNRESOLVED
+              : ProjectionBulkLoad.DIAG_NOT_UNDER_RECORD_SET);
+    }
+    if (recordKey < 0) {
+      // NOT_UNDER_RECORD_SET (a container above the record set, or the record-set array itself) and
+      // UNRESOLVED (a chain that cannot be read) both mean "no record starts here". An unreadable
+      // chain cannot silently lose a record: the end-of-load row count would not add up, and the
+      // build fails loudly there rather than persisting a short index.
+      return;
+    }
+    load.observeRecord(recordKey);
+  }
+
+  /**
+   * Cheap pre-filter for {@link #onChangeDuringBulkLoad}: whether this notification could possibly
+   * announce a new record root. Two facts do the work — a record root's notification carries the
+   * record set's own path class (the enclosing one, which for an array element IS the array's), and
+   * when the declared root path ends in an array step the record roots are array ELEMENTS, which the
+   * fused {@code OBJECT_NAMED_*} kinds never are.
+   *
+   * <p>
+   * A pathNodeKey of zero or less carries no provenance (kinds without a path class) and is never
+   * filtered out — the walk classifies it exactly.
+   */
+  private boolean couldBeRecordRootDuringBulkLoad(final NodeKind kind, final long pathNodeKey) {
+    if (bulkSkipsNamedKinds && kind.playsObjectKeyRole()) {
+      return false;
+    }
+    if (pathNodeKey <= 0) {
+      return true;
+    }
+    if (rootPcrs.contains(pathNodeKey)) {
+      return true;
+    }
+    if (irrelevantPcrs.contains(pathNodeKey)) {
+      return false;
+    }
+    if (relevantPcrs.contains(pathNodeKey)) {
+      // A field's own path class: relevant to maintenance, but it can never BE a record root.
+      return false;
+    }
+    // Unseen path class — it may be the record set's, appearing for the first time (on an empty
+    // resource EVERY class is unseen, the root's included). matchesRootPath reseeds rootPcrs.
+    if (matchesRootPath(pathNodeKey)) {
+      rootPcrs.add(pathNodeKey);
+      relevantPcrs.add(pathNodeKey);
+      return true;
+    }
+    irrelevantPcrs.add(pathNodeKey);
+    return false;
+  }
+
+  /**
+   * Ancestor walk for the load-time build: climb until the open record, a known record-set array
+   * instance, or a node at a record-set root path class is crossed. {@code parentKey} is normally
+   * supplied by the writer; {@link #PARENT_UNKNOWN} preserves the original self-read fallback for
+   * legacy primitive callers.
+   *
+   * @return the record's nodeKey, or {@link #NOT_UNDER_RECORD_SET} / {@link #UNRESOLVED}
+   */
+  private long resolveRecordKeyDuringBulkLoad(final ProjectionBulkLoad load, final long nodeKey,
+      final NodeKind kind, long parentKey, final long pathNodeKey) {
+    final boolean atRootPcr = pathNodeKey > 0 && rootPcrs.contains(pathNodeKey);
+    if (atRootPcr && isArrayLike(kind)) {
+      // The record SET's array instance itself — it has no row, but remembering it is what lets every
+      // one of its elements be recognised as a record in one set lookup, and what makes the
+      // end-of-load row count checkable.
+      load.noteArrayRootInstance(nodeKey);
+      return NOT_UNDER_RECORD_SET;
+    }
+    if (atRootPcr && maintenanceTrx instanceof XmlNodeReadOnlyTrx && kind == NodeKind.ELEMENT) {
+      final ImmutableNode self = readNode(nodeKey);
+      if (self != null && rootPcrs.contains(pathNodeKeyOf(self))) {
+        return nodeKey;
+      }
+    }
+    if (parentKey == PARENT_UNKNOWN) {
+      final ImmutableNode self = readNode(nodeKey);
+      if (self == null) {
+        return UNRESOLVED;
+      }
+      parentKey = self.getParentKey();
+    }
+    final long openRecordKey = load.currentRecordKey();
+    long childKey = nodeKey;
+    int chainLength = 0;
+    resetDeepWalkVisited();
+    for (;;) {
+      if (chainLength == walkChain.length) {
+        walkChain = Arrays.copyOf(walkChain, Math.multiplyExact(walkChain.length, 2));
+      }
+      walkChain[chainLength++] = childKey;
+      if (hasAncestorCycle(chainLength, parentKey)) {
+        return UNRESOLVED;
+      }
+      if (parentKey <= 0) {
+        // Nothing encloses this node. It is the record itself only when it stands at the root path —
+        // a single-record root, whose parent lies outside the record set.
+        return atRootPcr
+            ? nodeKey
+            : NOT_UNDER_RECORD_SET;
+      }
+      if (parentKey == openRecordKey) {
+        return openRecordKey; // the common case: a field of the record being shredded
+      }
+      if (load.isArrayRootInstance(parentKey)) {
+        return childKey;
+      }
+      final ImmutableNode parent = readNode(parentKey);
+      if (parent == null) {
+        return UNRESOLVED;
+      }
+      final long parentPcr = pathNodeKeyOf(parent);
+      if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
+        if (isArrayLike(parent.getKind())) {
+          load.noteArrayRootInstance(parentKey);
+          return childKey;
+        }
+        return parentKey; // a non-array root IS the record
+      }
+      childKey = parentKey;
+      parentKey = parent.getParentKey();
+    }
   }
 
   /**
@@ -280,6 +801,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     rootPcrs = new LongOpenHashSet();
     relevantPcrs = new LongOpenHashSet();
     irrelevantPcrs = new LongOpenHashSet();
+    columnWordsByPcr = new Long2ObjectOpenHashMap<>();
+    final int columnCount = indexDef.getProjectionFields().size();
+    allColumnWords = new long[(columnCount + Long.SIZE - 1) / Long.SIZE];
+    Arrays.fill(allColumnWords, -1L);
+    if (columnCount % Long.SIZE != 0) {
+      allColumnWords[allColumnWords.length - 1] = (1L << (columnCount % Long.SIZE)) - 1L;
+    }
     final LongSet roots = pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath()));
     for (final LongIterator it = roots.iterator(); it.hasNext();) {
       final long pcr = it.nextLong();
@@ -295,11 +823,31 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         node = pathSummary.getPathNodeForPathNodeKey(parentKey);
       }
     }
+    int column = 0;
     for (final Path<QNm> fieldPath : indexDef.getProjectionFields()) {
       final LongSet fieldPcrs = pathSummary.getPCRsForPaths(Set.of(fieldPath));
       for (final LongIterator it = fieldPcrs.iterator(); it.hasNext();) {
-        relevantPcrs.add(it.nextLong());
+        registerColumnPcrAndAncestors(it.nextLong(), column);
       }
+      column++;
+    }
+  }
+
+  private void registerColumnPcrAndAncestors(final long pathNodeKey, final int column) {
+    long current = pathNodeKey;
+    while (current > 0) {
+      relevantPcrs.add(current);
+      long[] words = columnWordsByPcr.get(current);
+      if (words == null) {
+        words = new long[allColumnWords.length];
+        columnWordsByPcr.put(current, words);
+      }
+      words[column >>> 6] |= 1L << (column & 63);
+      final PathNode node = pathSummary.getPathNodeForPathNodeKey(current);
+      if (node == null) {
+        break;
+      }
+      current = node.getParentKey();
     }
   }
 
@@ -325,26 +873,17 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * set lookup. The new PCR may itself BE a new record-set root — an exact-path record set
    * re-appearing after removal, or a descendant pattern widening to another matching subtree — which
    * the seeded root PCRs cannot know: the root path is re-checked against the new path class and a
-   * match RESEEDS the root set, so the new roots' records attribute normally (their node keys are
-   * fresh, hence pure appends at apply time).
+   * match RESEEDS the root set, so the new roots' records attribute normally. Stable node keys prove
+   * identity only, not document position; apply-time maintenance derives position from the current
+   * document neighbors and stores non-backbone rows through the sparse exception locator.
    */
   private boolean classifyUnseenPcr(final long pathNodeKey) {
-    boolean relevant = false;
-    PathNode node = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
-    while (node != null) {
-      final long parentKey = node.getParentKey();
-      if (parentKey <= 0) {
-        break;
-      }
-      if (rootPcrs.contains(parentKey)) {
-        relevant = true;
-        break;
-      }
-      node = pathSummary.getPathNodeForPathNodeKey(parentKey);
-    }
-    if (!relevant && matchesRootPath(pathNodeKey)) {
+    registerMatchingColumns(pathNodeKey);
+    boolean relevant = columnWordsByPcr.containsKey(pathNodeKey);
+    if (matchesRootPath(pathNodeKey)) {
       rootPcrs.add(pathNodeKey);
       relevantPcrs.add(pathNodeKey);
+      columnWordsByPcr.put(pathNodeKey, allColumnWords.clone());
       return true;
     }
     if (relevant) {
@@ -355,28 +894,47 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     return relevant;
   }
 
+  private void registerMatchingColumns(final long pathNodeKey) {
+    final long savedNodeKey = pathSummary.getNodeKey();
+    try {
+      if (!pathSummary.moveTo(pathNodeKey)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot resolve path node " + pathNodeKey);
+      }
+      final Path<QNm> path = pathSummary.getPath();
+      if (path == null) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot reconstruct path node " + pathNodeKey);
+      }
+      final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
+      for (int column = 0; column < fieldPaths.size(); column++) {
+        if (fieldPaths.get(column).matches(path)) {
+          registerColumnPcrAndAncestors(pathNodeKey, column);
+        }
+      }
+    } finally {
+      pathSummary.moveTo(savedNodeKey);
+    }
+  }
+
   /**
    * Whether the (unseen) path class {@code pathNodeKey} matches the definition's root path (exact or
    * descendant pattern — {@code matches} covers both). Cursor-neutral; an unreadable or failing
-   * reconstruction cannot be proven irrelevant, so it degrades to the full rebuild and reports no
-   * match.
+   * reconstruction cannot be proven irrelevant, so it fails the owning transaction.
    */
   private boolean matchesRootPath(final long pathNodeKey) {
     final long savedNodeKey = pathSummary.getNodeKey();
     try {
       if (!pathSummary.moveTo(pathNodeKey)) {
-        scheduleRebuild();
-        return false;
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot resolve path node " + pathNodeKey);
       }
       final Path<QNm> path = pathSummary.getPath();
       if (path == null) {
-        scheduleRebuild();
-        return false;
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot reconstruct path node " + pathNodeKey);
       }
       return indexDef.getProjectionRootPath().matches(path);
-    } catch (final RuntimeException e) {
-      scheduleRebuild();
-      return false;
     } finally {
       pathSummary.moveTo(savedNodeKey);
     }
@@ -392,18 +950,40 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    *         {@link #UNRESOLVED})
    */
   private long resolveRecordKey(final long nodeKey, final NodeKind kind, long parentKey, final long pathNodeKey) {
-    if (pathNodeKey > 0 && rootPcrs.contains(pathNodeKey)) {
-      if (isArrayLike(kind)) {
-        // The record SET's array instance itself appeared or disappeared —
-        // no row of its own. Its records are attributed individually: an
-        // insert notifies the array BEFORE its records (pre-order), a
-        // delete notifies the records BEFORE the array (post-order), so
-        // every row lands in the dirty set through its own notification.
-        return NOT_UNDER_RECORD_SET;
-      }
-      // A single-record root (fused object at the root path) IS the record.
-      return nodeKey;
+    final boolean atRootPcr = pathNodeKey > 0 && rootPcrs.contains(pathNodeKey);
+    if (atRootPcr && isArrayLike(kind)) {
+      // The record SET's array instance itself appeared or disappeared —
+      // no row of its own. Its records are attributed individually: an
+      // insert notifies the array BEFORE its records (pre-order), a
+      // delete notifies the records BEFORE the array (post-order), so
+      // every row lands in the dirty set through its own notification.
+      return NOT_UNDER_RECORD_SET;
     }
+    if (atRootPcr && maintenanceTrx instanceof XmlNodeReadOnlyTrx && kind == NodeKind.ELEMENT) {
+      final ImmutableNode self = readNode(nodeKey);
+      if (self != null && rootPcrs.contains(pathNodeKeyOf(self))) {
+        if (resolvedRecordMemo == null) {
+          resolvedRecordMemo = new Long2LongOpenHashMap();
+          resolvedRecordMemo.defaultReturnValue(MEMO_MISS);
+        }
+        if (resolvedRecordMemo.size() < MEMO_CAP) {
+          resolvedRecordMemo.put(nodeKey, nodeKey);
+        }
+        return nodeKey;
+      }
+    }
+    // NOTE: `atRootPcr` alone must NOT be read as "this node IS the record". An INSERT notifies each
+    // new node TWICE, and the first notification carries the pathNodeKey the cursor stood on — the
+    // enclosing record's, i.e. the ROOT pcr — because the field's own path node does not exist yet:
+    //
+    // node=6004 kind=OBJECT_NAMED_BOOLEAN pcr=1(root) then node=6004 ... pcr=3(/[]/active)
+    //
+    // Taking the shortcut on that first notification made a FIELD its own record, and the extractor
+    // then built an ALL-MISSING row for it — one surplus row per field, indistinguishable downstream
+    // from a record whose indexed fields are genuinely absent, and so a phantom null group in every
+    // group-by. The ancestor walk is authoritative because it reads the stored parent chain rather
+    // than a notification-supplied pcr; the shortcut survives only for the case the walk cannot
+    // express — a single-record root, whose parent lies OUTSIDE the record set.
     if (resolvedRecordMemo == null) {
       resolvedRecordMemo = new Long2LongOpenHashMap();
       resolvedRecordMemo.defaultReturnValue(MEMO_MISS);
@@ -422,8 +1002,23 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     int chainLength = 0;
     walkChain[chainLength++] = nodeKey;
-    for (int depth = 0; depth < MAX_ANCESTOR_WALK; depth++) {
+    resetDeepWalkVisited();
+    for (;;) {
+      if (hasAncestorCycle(chainLength, parentKey)) {
+        return UNRESOLVED;
+      }
       if (parentKey <= 0) {
+        if (atRootPcr) {
+          // Nothing encloses this node and it stands at the root path itself: a single-record root
+          // (a fused object at the root path) IS the record. This is the ONLY reading of the
+          // notified pcr the walk cannot reach on its own, and it is safe precisely because the walk
+          // already proved there is no enclosing record — a field misreported at the root pcr always
+          // resolves above instead.
+          if (resolvedRecordMemo.size() < MEMO_CAP) {
+            resolvedRecordMemo.put(nodeKey, nodeKey);
+          }
+          return nodeKey;
+        }
         // Reached the document root without crossing a record-set root:
         // the change cannot affect any indexed row. (Deleting a container
         // ABOVE the record set is covered by the post-order notifications
@@ -431,6 +1026,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         // every record can still be an ancestor OF the record set, and its
         // descendants' walks must not inherit this verdict.
         return NOT_UNDER_RECORD_SET;
+      }
+      if (arrayRootInstances != null && arrayRootInstances.contains(parentKey)) {
+        // Known array-like root instance — the record is the element we came from.
+        memoizeChain(chainLength, childKey);
+        return childKey;
       }
       final long ancestorMemo = resolvedRecordMemo.get(parentKey);
       if (ancestorMemo != MEMO_MISS) {
@@ -446,9 +1046,18 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (parentPcr > 0 && rootPcrs.contains(parentPcr)) {
         // Crossed the root: under an array-like root the record is the
         // element we came from; a non-array root IS the record.
-        final long recordKey = isArrayLike(parent.getKind())
+        final boolean arrayRoot = isArrayLike(parent.getKind());
+        final long recordKey = arrayRoot
             ? childKey
             : parentKey;
+        if (arrayRoot) {
+          if (arrayRootInstances == null) {
+            arrayRootInstances = new LongOpenHashSet();
+          }
+          if (arrayRootInstances.size() < MEMO_CAP) {
+            arrayRootInstances.add(parentKey);
+          }
+        }
         memoizeChain(chainLength, recordKey);
         if (recordKey == parentKey && resolvedRecordMemo.size() < MEMO_CAP) {
           resolvedRecordMemo.put(recordKey, recordKey);
@@ -457,12 +1066,34 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       childKey = parentKey;
       if (chainLength == walkChain.length) {
-        walkChain = Arrays.copyOf(walkChain, walkChain.length * 2);
+        walkChain = Arrays.copyOf(walkChain, Math.multiplyExact(walkChain.length, 2));
       }
       walkChain[chainLength++] = parentKey;
       parentKey = parent.getParentKey();
     }
-    return UNRESOLVED;
+  }
+
+  private boolean hasAncestorCycle(final int chainLength, final long parentKey) {
+    if (parentKey <= 0 || chainLength < DEEP_WALK_CYCLE_THRESHOLD) {
+      return false;
+    }
+    if (chainLength == DEEP_WALK_CYCLE_THRESHOLD) {
+      if (deepWalkVisited == null) {
+        deepWalkVisited = new LongOpenHashSet(chainLength * 2);
+      }
+      for (int i = 0; i < chainLength; i++) {
+        if (!deepWalkVisited.add(walkChain[i])) {
+          return true;
+        }
+      }
+    }
+    return !deepWalkVisited.add(parentKey);
+  }
+
+  private void resetDeepWalkVisited() {
+    if (deepWalkVisited != null) {
+      deepWalkVisited.clear();
+    }
   }
 
   /** Memoize every walked chain node as lying inside {@code recordKey}. */
@@ -504,17 +1135,26 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
-  private void markDirty(final long recordKey) {
+  private void markDirty(final long recordKey, final long[] changedColumnWords) {
     if (dirtyRecordKeys == null) {
       dirtyRecordKeys = new LongOpenHashSet();
+      dirtyColumnWordsByRecord = new Long2ObjectOpenHashMap<>();
     }
-    if (dirtyRecordKeys.add(recordKey)) {
+    boolean changed = dirtyRecordKeys.add(recordKey);
+    long[] recordWords = dirtyColumnWordsByRecord.get(recordKey);
+    if (recordWords == null) {
+      recordWords = changedColumnWords.clone();
+      dirtyColumnWordsByRecord.put(recordKey, recordWords);
+      changed = true;
+    } else {
+      for (int word = 0; word < recordWords.length; word++) {
+        final long merged = recordWords[word] | changedColumnWords[word];
+        changed |= merged != recordWords[word];
+        recordWords[word] = merged;
+      }
+    }
+    if (changed) {
       maintenanceEpoch++;
-    }
-    if (dirtyRecordKeys.size() > MAX_INCREMENTAL_RECORDS) {
-      // Patching this many leaves approaches rebuild cost — rebuild once
-      // at commit instead of tracking further keys.
-      scheduleRebuild();
     }
   }
 
@@ -528,83 +1168,250 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     return maintenanceEpoch;
   }
 
-  /**
-   * Apply the collected changes to the persisted projection. Invoked once per commit through the
-   * uniform {@link ChangeListener} lifecycle ({@link IndexController#applyPendingIndexMaintenance()})
-   * BEFORE page serialization, so all writes ride the committing transaction. Incremental patching
-   * that discovers an inconsistency degrades to the full rebuild; only an unexpected failure of BOTH
-   * paths tombstones (corruption valve) — a stale-but-honest projection beats a wrong one.
-   */
-  @Override
-  public void beforeCommit() {
-    final LongOpenHashSet dirty = dirtyRecordKeys;
-    dirtyRecordKeys = null;
-    if (invalidated || maintenanceTrx == null) {
-      return;
-    }
-    if (!rebuildPending && (dirty == null || dirty.isEmpty())) {
-      return;
-    }
-    try {
-      boolean patched = false;
-      if (!rebuildPending) {
-        try {
-          // The fingerprint blocks are DERIVED from the per-leaf segments this patch is about to
-          // rewrite; a stale filter could prove a freshly added value "absent" — a wrong answer.
-          // Tombstone them first; readers fall back to the per-leaf chain, and the next full
-          // build (or the rebuild below) rewrites them.
-          new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()).removeBloomBlocks(
-              indexDef.getProjectionFields().size());
-          patched = applyIncremental(dirty);
-        } catch (final RuntimeException incrementalFailure) {
-          // The incremental patch is the OPTIONAL fast path: a throw here must degrade to the
-          // rebuild, exactly as a `false` return does, so that only a failure of BOTH paths reaches
-          // the tombstone valve (the contract this method's javadoc states). Rebuilding over a
-          // partially-written patch is sound: the rebuild re-extracts every record and tombstones
-          // orphans. A `false` return already established this for phase-1 writes (slots within the
-          // declared count); a THROW can additionally leave fresh row groups ABOVE that count, which
-          // is why buildAndPersist probes upward from the declared count rather than trusting it.
-          LOGGER.warn("Incremental projection maintenance failed for index " + indexDef.getID()
-              + " — degrading to a full rebuild", incrementalFailure);
-          patched = false;
-        }
-      }
-      if (!patched) {
-        rebuildFully();
-      }
-      rebuildPending = false;
-      // Leaves (possibly) rewritten — cached decodes are stale.
-      maintenanceEpoch++;
-    } catch (final RuntimeException e) {
-      LOGGER.warn("Projection maintenance (incremental and rebuild) failed for index " + indexDef.getID()
-          + " — falling back to invalidation", e);
-      invalidate();
+  public record MaintenanceTelemetry(long commits, long dirtyRecords, long rowGroupsRead,
+      long rowGroupsWritten, long dictionarySegments, long fenceChunksRead, long fenceChunksWritten,
+      long setChunksRead, long setChunksWritten, long bloomRowGroupsRead, long bloomChunksWritten,
+      long metadataReads, long metadataWrites, long dictionaryProbes, long storageReads, long storageWrites,
+      long allocatorAllocations, long allocatorReleases, long tilReads, long tilWrites, long nativeAllocations,
+      long nativeReleases, long asyncSubmissions, long asyncCompletions, long bytesRead, long bytesWritten,
+      long fullRebuilds) {
+
+    public long operations() {
+      return Math.addExact(Math.addExact(Math.addExact(Math.addExact(storageReads, storageWrites),
+              Math.addExact(allocatorAllocations, allocatorReleases)), Math.addExact(tilReads, tilWrites)),
+          Math.addExact(Math.addExact(nativeAllocations, nativeReleases),
+              Math.addExact(asyncSubmissions, asyncCompletions)));
     }
   }
 
   /**
-   * Full commit-time rebuild over the transaction's current state — the exact-maintenance fallback
-   * for changes the incremental patch cannot attribute. Reuses the creation path's build core; a
-   * record set with no remaining instances persists as the truthful EMPTY projection. A pre-existing
-   * tombstone (corruption valve fired in an earlier commit) is respected — only
-   * {@code jn:create-projection-index} resurrects.
+   * Logical projection I/O for the most recently completed maintenance pass.  Segment counts are
+   * independent of cache hits: they describe which persistent units the algorithm requested, making
+   * a one-cell locality assertion deterministic across hot and cold test runs.
    */
-  private void rebuildFully() {
-    final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
-    final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
-    final ProjectionIndexMetadata meta = readMetadata(storage);
-    if (meta == null || meta.isStale()) {
-      // No live snapshot to maintain (bench/legacy store, or a valve
-      // tombstone from an earlier commit) — nothing to rebuild.
+  public record MaintenanceLocality(int fullRowGroupsRead, int descriptorsRead, int keySegmentsRead,
+      int bodySegmentsRead, int dictionarySegmentsRead, int columnSegmentsEncoded, int columnSegmentsWritten,
+      int descriptorsWritten, int rowGroupsColumnPatched) {
+    private static final MaintenanceLocality EMPTY = new MaintenanceLocality(0, 0, 0, 0, 0, 0, 0, 0, 0);
+  }
+
+  /** Snapshot of the latest completed pass; immutable and safe to retain. */
+  public static MaintenanceLocality lastMaintenanceLocality() {
+    return LAST_MAINTENANCE_LOCALITY;
+  }
+
+  private static final class MaintenanceLocalityAccumulator {
+    private int fullRowGroupsRead;
+    private int descriptorsRead;
+    private int keySegmentsRead;
+    private int bodySegmentsRead;
+    private int dictionarySegmentsRead;
+    private int columnSegmentsEncoded;
+    private int columnSegmentsWritten;
+    private int descriptorsWritten;
+    private int rowGroupsColumnPatched;
+
+    private MaintenanceLocality snapshot() {
+      return new MaintenanceLocality(fullRowGroupsRead, descriptorsRead, keySegmentsRead, bodySegmentsRead,
+          dictionarySegmentsRead, columnSegmentsEncoded, columnSegmentsWritten, descriptorsWritten,
+          rowGroupsColumnPatched);
+    }
+  }
+
+  public static MaintenanceTelemetry maintenanceTelemetry() {
+    return maintenanceTelemetry(HftBoundaryTelemetry.snapshot());
+  }
+
+  public static MaintenanceTelemetry maintenanceTelemetry(final HftBoundaryTelemetry.Snapshot boundaries) {
+    Objects.requireNonNull(boundaries);
+    return new MaintenanceTelemetry(HFT_COMMITS.get(), HFT_DIRTY_RECORDS.get(), HFT_ROW_GROUPS_READ.get(),
+        HFT_ROW_GROUPS_WRITTEN.get(), HFT_DICTIONARY_SEGMENTS.get(), HFT_FENCE_CHUNKS_READ.get(),
+        HFT_FENCE_CHUNKS_WRITTEN.get(), HFT_SET_CHUNKS_READ.get(), HFT_SET_CHUNKS_WRITTEN.get(),
+        HFT_BLOOM_ROW_GROUPS_READ.get(), HFT_BLOOM_CHUNKS_WRITTEN.get(), HFT_METADATA_READS.get(),
+        HFT_METADATA_WRITES.get(), HFT_DICTIONARY_PROBES.get(), boundaries.storageReads(),
+        boundaries.storageWrites(), boundaries.allocatorAllocations(), boundaries.allocatorReleases(),
+        boundaries.tilReads(), boundaries.tilWrites(), boundaries.nativeAllocations(), boundaries.nativeReleases(),
+        boundaries.asyncSubmissions(), boundaries.asyncCompletions(), boundaries.bytesRead(), boundaries.bytesWritten(),
+        Math.max(0L,
+            AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get() - HFT_REBUILD_BASELINE.get()));
+  }
+
+  public static void resetMaintenanceTelemetry() {
+    LAST_MAINTENANCE_LOCALITY = MaintenanceLocality.EMPTY;
+    HFT_COMMITS.set(0L);
+    HFT_DIRTY_RECORDS.set(0L);
+    HFT_ROW_GROUPS_READ.set(0L);
+    HFT_ROW_GROUPS_WRITTEN.set(0L);
+    HFT_DICTIONARY_SEGMENTS.set(0L);
+    HFT_FENCE_CHUNKS_READ.set(0L);
+    HFT_FENCE_CHUNKS_WRITTEN.set(0L);
+    HFT_SET_CHUNKS_READ.set(0L);
+    HFT_SET_CHUNKS_WRITTEN.set(0L);
+    HFT_BLOOM_ROW_GROUPS_READ.set(0L);
+    HFT_BLOOM_CHUNKS_WRITTEN.set(0L);
+    HFT_METADATA_READS.set(0L);
+    HFT_METADATA_WRITES.set(0L);
+    HFT_DICTIONARY_PROBES.set(0L);
+    HftBoundaryTelemetry.reset();
+    HFT_REBUILD_BASELINE.set(AbstractHOTIndexWriter.PROJECTION_REBUILD_SUBTREE_ATTEMPTED.get());
+  }
+
+  public static void printMaintenanceTelemetry() {
+    printMaintenanceTelemetry(HftBoundaryTelemetry.snapshot());
+  }
+
+  public static void printMaintenanceTelemetry(final HftBoundaryTelemetry.Snapshot boundaries) {
+    final MaintenanceTelemetry telemetry = maintenanceTelemetry(boundaries);
+    System.out.printf("# HFT_PROJECTION_MAINTENANCE commits=%d dirtyRecords=%d rowGroupsRead=%d "
+            + "rowGroupsWritten=%d dictionarySegments=%d fenceChunksRead=%d fenceChunksWritten=%d "
+            + "setChunksRead=%d setChunksWritten=%d bloomRowGroupsRead=%d bloomChunksWritten=%d "
+            + "metadataReads=%d metadataWrites=%d dictionaryProbes=%d storageReads=%d storageWrites=%d "
+            + "allocatorAllocations=%d allocatorReleases=%d tilReads=%d tilWrites=%d nativeAllocations=%d "
+            + "nativeReleases=%d asyncSubmissions=%d asyncCompletions=%d operations=%d bytesRead=%d bytesWritten=%d "
+            + "fullRebuilds=%d%n",
+        telemetry.commits(), telemetry.dirtyRecords(), telemetry.rowGroupsRead(), telemetry.rowGroupsWritten(),
+        telemetry.dictionarySegments(), telemetry.fenceChunksRead(), telemetry.fenceChunksWritten(),
+        telemetry.setChunksRead(), telemetry.setChunksWritten(), telemetry.bloomRowGroupsRead(),
+        telemetry.bloomChunksWritten(), telemetry.metadataReads(), telemetry.metadataWrites(),
+        telemetry.dictionaryProbes(), telemetry.storageReads(), telemetry.storageWrites(),
+        telemetry.allocatorAllocations(), telemetry.allocatorReleases(), telemetry.tilReads(), telemetry.tilWrites(),
+        telemetry.nativeAllocations(), telemetry.nativeReleases(), telemetry.asyncSubmissions(),
+        telemetry.asyncCompletions(), telemetry.operations(), telemetry.bytesRead(), telemetry.bytesWritten(),
+        telemetry.fullRebuilds());
+  }
+
+  /**
+   * Apply the collected changes to the persisted projection. Invoked once per commit through the
+   * uniform {@link ChangeListener} lifecycle ({@link IndexController#applyPendingIndexMaintenance()})
+   * BEFORE page serialization, so all writes ride the committing transaction. Any attribution or
+   * persistent-unit inconsistency fails before publication.
+   */
+  @Override
+  public void beforeCommit() {
+    beforeCommit(false);
+  }
+
+  @Override
+  public void beforeCommit(final boolean finalCommit) {
+    awaitDurablePredecessor();
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      // Intermediate commits drain the records closed so far into the build (full leaves are already
+      // in the sub-tree and ride this commit); the final commit additionally writes the dictionaries,
+      // the fingerprint blocks, the fences and the metadata that replaces the tombstone, after which
+      // activeBulkLoad() hands this listener back to ordinary maintenance.
+      try {
+        if (finalCommit) {
+          load.finish(storageEngineWriter, pathSummary, maintenanceTrx, maintenanceTrx.getRevisionNumber());
+        } else {
+          load.drain(storageEngineWriter, pathSummary, maintenanceTrx);
+        }
+      } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+        abandonForOversizedDictionary(load, tooBig);
+      } catch (final RuntimeException | Error failure) {
+        failMaintenance(failure);
+        throw failure;
+      }
       return;
     }
-    final long savedNodeKey = rtx.getNodeKey();
-    try {
-      ProjectionIndexBuilder.buildAndPersist(indexDef, pathSummary, rtx, storageEngineWriter, true);
-    } finally {
-      if (!rtx.moveTo(savedNodeKey)) {
-        rtx.moveToDocumentRoot();
+    applyPendingMaintenance();
+  }
+
+  /**
+   * A resource-wide dictionary hit its bound: give up the projection, keep the load.
+   *
+   * <p>
+   * The alternative is what this exists to prevent — the dictionary's arena doubling until the
+   * collector owns every core and the load stops producing rows while still looking alive, which is
+   * how a 100M ClickBench load spent two hours before it was killed. Abandoning is cheap and
+   * already modelled: {@link ProjectionBulkLoad#abort()} drops the build without finalizing, so slot
+   * 0 keeps the stale tombstone it has carried since the load began, and {@link #invalidate()} makes
+   * every later notification a no-op. Both matter — without the invalidate the listener would fall
+   * back to the dirty-set patcher and buffer a record key for every remaining row of the corpus,
+   * trading one unbounded structure for another.
+   * </p>
+   */
+  private void abandonForOversizedDictionary(final ProjectionBulkLoad load,
+      final GlobalDictionaryBudgetExceededException tooBig) {
+    LOGGER.warn("Projection index " + indexDef.getID() + " ABANDONED during the load. "
+        + tooBig.getMessage(), tooBig);
+    load.abort();
+    invalidate();
+  }
+
+  @Override
+  public void beforePageFlush() {
+    awaitDurablePredecessor();
+    final ProjectionBulkLoad load = activeBulkLoad();
+    if (load != null) {
+      // Last chance to read these records: the flush hands their pages to the writer and the
+      // revision they belong to is still uncommitted, so after it they can be read from nowhere.
+      //
+      // CURSOR SAFETY: this fires from the node-count check at the TOP of an insert, which is mid
+      // shred and not at a record boundary — the insert goes on to read the cursor immediately
+      // afterwards. drain() therefore saves the cursor and restores it before returning, and
+      // ProjectionLoadTimeBuildEquivalenceTest#theShredSurvivesDrainsFiredMidRecord pins that by
+      // reading every shredded record back through the row path.
+      try {
+        load.drain(storageEngineWriter, pathSummary, maintenanceTrx);
+      } catch (final GlobalDictionaryBudgetExceededException tooBig) {
+        abandonForOversizedDictionary(load, tooBig);
+      } catch (final RuntimeException | Error failure) {
+        failMaintenance(failure);
+        throw failure;
       }
+      return;
+    }
+    applyPendingMaintenance();
+  }
+
+  private void awaitDurablePredecessor() {
+    if (maintenanceTrx instanceof final NodeTrx nodeTrx) {
+      nodeTrx.awaitPendingAsyncCommit();
+    }
+  }
+
+  private void applyPendingMaintenance() {
+    if (maintenanceFailed) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " maintenance previously failed; rollback is required before another commit");
+    }
+    if (pendingStructuralRecords != null) {
+      final IllegalStateException failure = new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot publish maintenance during an incomplete structural change; rollback is required");
+      failMaintenance(failure);
+      throw failure;
+    }
+    final LongOpenHashSet dirty = dirtyRecordKeys;
+    final Long2ObjectOpenHashMap<long[]> dirtyColumnWords = dirtyColumnWordsByRecord;
+    final Long2ByteOpenHashMap rootProvenance = rootProvenanceByRecord;
+    final ArrayList<StructuralDelta> completedStructuralDeltas = structuralDeltas;
+    dirtyRecordKeys = null;
+    dirtyColumnWordsByRecord = null;
+    rootProvenanceByRecord = null;
+    structuralDeltas = null;
+    if (invalidated || maintenanceTrx == null) {
+      return;
+    }
+    if (dirty == null || dirty.isEmpty()) {
+      return;
+    }
+    try {
+      if (!applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " incremental maintenance found inconsistent persistent units");
+      }
+      maintenanceEpoch++;
+    } catch (final RuntimeException | Error failure) {
+      failMaintenance(failure);
+      throw failure;
+    }
+  }
+
+  private void failMaintenance(final Throwable failure) {
+    maintenanceFailed = true;
+    if (maintenanceTrx instanceof final NodeTrx nodeTrx) {
+      nodeTrx.markRollbackOnly(failure);
     }
   }
 
@@ -612,11 +1419,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * Patch the persisted leaves for the given dirty records.
    *
    * @return {@code true} when the persisted state is consistent afterwards (including "nothing to
-   *         maintain"); {@code false} when an inconsistency was discovered and the caller must run
-   *         the full rebuild instead
+   *         maintain"); {@code false} when an inconsistency was discovered
    */
-  private boolean applyIncremental(final LongOpenHashSet dirty) {
-    final JsonNodeReadOnlyTrx rtx = maintenanceTrx;
+  private boolean applyIncremental(final LongOpenHashSet dirty,
+      final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
+      final @Nullable Long2ByteOpenHashMap rootProvenance,
+      final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas) {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
@@ -630,9 +1438,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     // composite key and each column segment at its own slot, so it must NOT go through the
     // descriptor layout's raw-slot I/O. The flag is also carried into the refreshed metadata at the
     // end (it is sticky per store); dropping it there would silently reinterpret every slot.
-    // Shape guard: the persisted snapshot must describe exactly this
-    // definition, or patching would splice rows into foreign columns —
-    // the rebuild replaces the foreign payloads with this definition's.
+    // Shape guard: the persisted snapshot must describe exactly this definition, or patching would
+    // splice rows into foreign columns.
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
     final String[] defPaths = new String[fieldPaths.size()];
@@ -645,201 +1452,949 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return false;
     }
 
-    final int rowGroupCount = meta.rowGroupCount();
-    // Per-leaf record-key zone maps (slots 1..rowGroupCount), read from the
-    // carry-forward fence chunks instead of probing every leaf's head chunk
-    // (O(rowGroupCount) HOT descents). A missing/short chunk means the persisted
-    // zone map is inconsistent — rebuild rather than trust a partial map.
-    // Empty leaves carry the degenerate (MAX_VALUE, MIN_VALUE) range and never
-    // match. Non-final: appends grow the arrays.
-    final long[][] fences = ProjectionIndexFences.read(storage, rowGroupCount);
-    if (fences == null) {
-      return false;
+    final byte[] persistedKinds = meta.columnKinds();
+    final MaintenanceGlobalDictionary[] globalDictionaries = createMaintenanceGlobalDictionaries(meta);
+    final ProjectionSetSummaryChunks.Accessor setValueRowCounts =
+        ProjectionSetSummaryChunks.open(storage, meta.setValueRowCounts());
+    try {
+      return applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas,
+          storage, meta, persistedKinds, globalDictionaries, setValueRowCounts);
+    } finally {
+      releaseMaintenanceGlobalDictionaries(globalDictionaries);
     }
-    long[] firsts = new long[rowGroupCount + 1];
-    long[] lasts = new long[rowGroupCount + 1];
-    long globalMaxLast = Long.MIN_VALUE;
-    for (int slot = 1; slot <= rowGroupCount; slot++) {
-      firsts[slot] = fences[0][slot - 1];
-      lasts[slot] = fences[1][slot - 1];
-      if (lasts[slot] > globalMaxLast) {
-        globalMaxLast = lasts[slot];
-      }
-    }
+  }
 
-    final long[] keys = dirty.toLongArray();
-    Arrays.sort(keys);
-    // Node keys are monotonically increasing, so records created by this
-    // transaction always sort AFTER every indexed key: keys beyond the
-    // global max are appends, the rest must live in exactly one leaf.
-    int appendFrom = keys.length;
-    while (appendFrom > 0 && keys[appendFrom - 1] > globalMaxLast) {
-      appendFrom--;
-    }
+  private boolean applyIncremental(final LongOpenHashSet dirty,
+      final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
+      final @Nullable Long2ByteOpenHashMap rootProvenance,
+      final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas,
+      final ProjectionIndexHOTStorage storage, final ProjectionIndexMetadata meta,
+      final byte[] persistedKinds,
+      final MaintenanceGlobalDictionary @Nullable [] globalDictionaries,
+      final ProjectionSetSummaryChunks.Accessor setValueRowCounts) {
+    final NodeReadOnlyTrx rtx = maintenanceTrx;
+    final int priorRowGroupCount = meta.rowGroupCount();
+    final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, priorRowGroupCount);
+    final ProjectionRecordLocator.Accessor locator = ProjectionRecordLocator.open(storage);
+    final ProjectionPersistedRecordLookup persistedLookup =
+        new ProjectionPersistedRecordLookup(storage, fences, locator);
+    final MaintenanceLocalityAccumulator locality = new MaintenanceLocalityAccumulator();
+    final Long2LongOpenHashMap locationByRecord = new Long2LongOpenHashMap();
+    locationByRecord.defaultReturnValue(ProjectionPersistedRecordLookup.ABSENT);
+    final LongOpenHashSet removals = new LongOpenHashSet();
+    final LongOpenHashSet insertions = new LongOpenHashSet();
+    final LongOpenHashSet movedRecords = new LongOpenHashSet();
+    final Long2ObjectOpenHashMap<long[]> changedColumnsBySlot = new Long2ObjectOpenHashMap<>();
+    final LongOpenHashSet structuralEntriesWithoutPriorMembership =
+        validateStructuralProvenance(completedStructuralDeltas, rootProvenance);
 
-    // Locate the touched leaves. Build-order leaves have ascending,
-    // non-overlapping ranges (document order over monotone keys) — a
-    // two-pointer merge locates every in-place key in one pass. Should a
-    // store ever violate the ascending invariant, fall back to a per-key
-    // scan over the in-memory zone maps (bounded, else invalidate).
-    final LongArrayList touchedSlots = new LongArrayList();
-    final boolean ascending = zoneMapsAscending(firsts, lasts, rowGroupCount);
-    if (ascending) {
-      int slot = 1;
-      long lastTouched = -1;
-      for (int i = 0; i < appendFrom; i++) {
-        final long k = keys[i];
-        while (slot <= rowGroupCount && lasts[slot] < k) {
-          slot++;
-        }
-        if (slot > rowGroupCount || firsts[slot] > k) {
-          // In a gap although the key predates the snapshot's max: the
-          // record was never indexed — inconsistent, rebuild.
-          return false;
-        }
-        if (slot != lastTouched) {
-          touchedSlots.add(slot);
-          lastTouched = slot;
-        }
-      }
-    } else {
-      if ((long) appendFrom * rowGroupCount > 50_000_000L) {
-        return false; // quadratic scan too expensive — rebuild instead
-      }
-      final LongOpenHashSet touched = new LongOpenHashSet();
-      for (int i = 0; i < appendFrom; i++) {
-        final long k = keys[i];
-        boolean found = false;
-        for (int slot = 1; slot <= rowGroupCount; slot++) {
-          if (firsts[slot] <= k && k <= lasts[slot]) {
-            if (touched.add(slot)) {
-              touchedSlots.add(slot);
-            }
-            found = true;
+    for (final LongIterator iterator = dirty.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      final long location = persistedLookup.find(recordKey);
+      locationByRecord.put(recordKey, location);
+      final boolean persisted = location != ProjectionPersistedRecordLookup.ABSENT;
+      final boolean current = isCurrentRecordRoot(recordKey);
+      final byte provenance = rootProvenance == null ? 0 : rootProvenance.get(recordKey);
+      final byte firstEvent = (byte) (provenance & FIRST_ROOT_EVENT_MASK);
+      final boolean created = firstEvent == FIRST_ROOT_INSERT;
+      final boolean deleted = firstEvent == FIRST_ROOT_DELETE;
+      final boolean structuralEnter = (provenance & STRUCTURAL_ENTER) != 0;
+      final boolean structuralExit = (provenance & STRUCTURAL_EXIT) != 0;
+      final boolean provenStructuralCreation = firstEvent == 0
+          && structuralEntriesWithoutPriorMembership != null
+          && structuralEntriesWithoutPriorMembership.contains(recordKey);
+
+      if (!persisted) {
+        if (current) {
+          if (!created && !provenStructuralCreation) {
+            return false; // a missing locator/fence row is never inferred to be a new record
           }
-        }
-        if (!found) {
+          insertions.add(recordKey);
+        } else if (!created && !provenStructuralCreation) {
+          // FIRST_DELETE proves this was pre-existing, so its missing persistent row is corruption;
+          // mere field dirtiness has the same fail-closed answer. Only a first INSERT or an
+          // explicitly observed outside→inside entry can prove an absent→absent net no-op.
           return false;
         }
+        continue;
       }
-      touchedSlots.sort(null);
+
+      // This maintenance pass observed the identity as newly entering the record set, yet a row for
+      // it already exists. A prior apply clears both event and structural state, so this cannot be a
+      // legitimate retry; accepting it would preserve or manufacture a duplicate identity.
+      if (created || provenStructuralCreation) {
+        return false;
+      }
+
+      if (!current) {
+        if (!deleted && !structuralExit) {
+          return false;
+        }
+        removals.add(recordKey);
+        continue;
+      }
+
+      if (structuralEnter || structuralExit) {
+        removals.add(recordKey);
+        insertions.add(recordKey);
+        movedRecords.add(recordKey);
+      } else {
+        final int slot = ProjectionPersistedRecordLookup.slot(location);
+        mergeChangedColumns(changedColumnsBySlot, slot, dirtyColumnWords.get(recordKey));
+      }
+    }
+
+    final Long2LongOpenHashMap predecessorByInsertion = new Long2LongOpenHashMap();
+    final Long2LongOpenHashMap successorByInsertion = new Long2LongOpenHashMap();
+    predecessorByInsertion.defaultReturnValue(Long.MIN_VALUE);
+    successorByInsertion.defaultReturnValue(Long.MIN_VALUE);
+    final LongOpenHashSet selfExcluded = new LongOpenHashSet(1);
+    for (final LongIterator iterator = insertions.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      selfExcluded.clear();
+      selfExcluded.add(recordKey);
+      predecessorByInsertion.put(recordKey, nearestPreviousRecord(recordKey, selfExcluded));
+      successorByInsertion.put(recordKey, nearestFollowingRecord(recordKey, selfExcluded));
+    }
+
+    final Long2LongOpenHashMap nextInsertion = new Long2LongOpenHashMap();
+    nextInsertion.defaultReturnValue(Long.MIN_VALUE);
+    final LongArrayList insertionStarts = new LongArrayList();
+    for (final LongIterator iterator = insertions.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      final long predecessor = predecessorByInsertion.get(recordKey);
+      if (predecessor == Long.MIN_VALUE) {
+        return false;
+      }
+      if (nextInsertion.putIfAbsent(predecessor, recordKey) != Long.MIN_VALUE) {
+        return false; // two projected records cannot have the same immediate predecessor
+      }
+      if (!insertions.contains(predecessor)) {
+        insertionStarts.add(recordKey);
+      }
+    }
+
+    final Int2ObjectOpenHashMap<LeafEdit> edits = new Int2ObjectOpenHashMap<>();
+    final IntArrayList editOrder = new IntArrayList();
+    final IntOpenHashSet membershipSlots = new IntOpenHashSet();
+    int rowGroupsRead = 0;
+    for (final LongIterator iterator = removals.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      final long location = locationByRecord.get(recordKey);
+      final int slot = ProjectionPersistedRecordLookup.slot(location);
+      final LeafEdit edit = loadLeafEdit(storage, fences, slot, true, persistedKinds,
+          edits, editOrder, locality);
+      rowGroupsRead += edit.markReadOnce();
+      final int row = edit.indexOf(recordKey);
+      if (row < 0 || edit.orderExceptions.getBoolean(row)
+          != ProjectionPersistedRecordLookup.orderException(location)) {
+        return false;
+      }
+      edit.recordKeys.removeLong(row);
+      edit.orderExceptions.removeBoolean(row);
+      edit.keysChanged = true;
+      membershipSlots.add(slot);
+      if (ProjectionPersistedRecordLookup.orderException(location) && !insertions.contains(recordKey)) {
+        locator.remove(recordKey);
+      }
+    }
+
+    final LongOpenHashSet insertedOrMoved = new LongOpenHashSet(insertions);
+    final LongOpenHashSet insertedVisited = new LongOpenHashSet();
+    for (int startIndex = 0; startIndex < insertionStarts.size(); startIndex++) {
+      final LongArrayList chain = new LongArrayList();
+      long recordKey = insertionStarts.getLong(startIndex);
+      while (recordKey != Long.MIN_VALUE) {
+        if (!insertions.contains(recordKey) || !insertedVisited.add(recordKey)) {
+          return false;
+        }
+        chain.add(recordKey);
+        final long next = nextInsertion.get(recordKey);
+        if (next != Long.MIN_VALUE && successorByInsertion.get(recordKey) != next) {
+          return false;
+        }
+        recordKey = next;
+      }
+
+      final long stablePredecessor = predecessorByInsertion.get(chain.getLong(0));
+      final int targetSlot;
+      final int insertionOffset;
+      final LeafEdit target;
+      if (stablePredecessor == NO_RECORD_KEY) {
+        if (fences.liveRowGroupCount() == 0) {
+          targetSlot = fences.bootstrapFirstBase();
+          target = loadLeafEdit(storage, fences, targetSlot, false, persistedKinds,
+              edits, editOrder, locality);
+        } else {
+          targetSlot = fences.documentHead();
+          target = loadLeafEdit(storage, fences, targetSlot, true, persistedKinds,
+              edits, editOrder, locality);
+          rowGroupsRead += target.markReadOnce();
+        }
+        insertionOffset = 0;
+      } else {
+        long predecessorLocation = locationByRecord.get(stablePredecessor);
+        if (predecessorLocation == ProjectionPersistedRecordLookup.ABSENT
+            && !locationByRecord.containsKey(stablePredecessor)) {
+          predecessorLocation = persistedLookup.find(stablePredecessor);
+          locationByRecord.put(stablePredecessor, predecessorLocation);
+        }
+        if (predecessorLocation == ProjectionPersistedRecordLookup.ABSENT) {
+          return false;
+        }
+        targetSlot = ProjectionPersistedRecordLookup.slot(predecessorLocation);
+        target = loadLeafEdit(storage, fences, targetSlot, true, persistedKinds,
+            edits, editOrder, locality);
+        rowGroupsRead += target.markReadOnce();
+        final int predecessorRow = target.indexOf(stablePredecessor);
+        if (predecessorRow < 0) {
+          return false;
+        }
+        insertionOffset = predecessorRow + 1;
+      }
+
+      final long last = chain.getLong(chain.size() - 1);
+      final boolean documentTail = successorByInsertion.get(last) == NO_RECORD_KEY;
+      int offset = insertionOffset;
+      for (int chainIndex = 0; chainIndex < chain.size(); chainIndex++) {
+        final long key = chain.getLong(chainIndex);
+        if (target.indexOf(key) >= 0) {
+          return false;
+        }
+        boolean orderException = true;
+        if (!movedRecords.contains(key) && documentTail
+            && fences.canExtendLastBaseFrom(targetSlot, key)) {
+          fences.extendLastBaseUpper(key);
+          orderException = false;
+        }
+        target.recordKeys.add(offset, key);
+        target.orderExceptions.add(offset, orderException);
+        target.keysChanged = true;
+        offset++;
+      }
+      membershipSlots.add(targetSlot);
+    }
+    if (insertedVisited.size() != insertions.size()) {
+      return false; // cycle or a chain with no stable/document-head start
     }
 
     final long savedNodeKey = rtx.getNodeKey();
+    final LongOpenHashSet changedLeafSlots = new LongOpenHashSet();
+    final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf = new Long2ObjectOpenHashMap<>();
+    // Lazily allocated only for membership maintenance, then reused across every bounded
+    // (<= MAX_ROWS) output group. Column-only commits retain their zero-allocation fast path.
+    @Nullable LongOpenHashSet rewrittenRecordKeys = null;
     try {
       final ProjectionIndexRowExtractor extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
-      final LongOpenHashSet located = new LongOpenHashSet();
-      int newRowGroupCount = rowGroupCount;
-      ProjectionIndexRowGroupPage tail = null;
-      long tailSlot = -1;
+      for (int editIndex = 0; editIndex < editOrder.size(); editIndex++) {
+        final LeafEdit edit = edits.get(editOrder.getInt(editIndex));
+        if (!edit.keysChanged) {
+          continue;
+        }
+        if (rewrittenRecordKeys == null) {
+          rewrittenRecordKeys = new LongOpenHashSet(ProjectionIndexRowGroupPage.MAX_ROWS);
+        }
+        if (edit.oldPage != null) {
+          adjustSetValueRowCounts(setValueRowCounts, edit.oldPage, -1L, allColumnWords);
+        }
+        final int rows = edit.recordKeys.size();
+        if (rows == 0 && fences.canRecycle(edit.slot)) {
+          fences.recycle(edit.slot);
+          storage.tombstoneRowGroupAsColumnSegmentSlots(edit.slot);
+          changedLeafSlots.add(edit.slot);
+          changedColumnsByLeaf.put(edit.slot, allColumnWords.clone());
+          continue;
+        }
 
-      // Phase 1 — rebuild each touched leaf by re-extraction: every row is
-      // re-read from the transaction's current state, so updates pick up
-      // their new values and deleted records drop out.
-      for (int t = 0; t < touchedSlots.size(); t++) {
-        final long slot = touchedSlots.getLong(t);
-        final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(slot);
-        if (raw == null) {
-          return false; // declared leaf missing — inconsistent, rebuild
-        }
-        final ProjectionIndexRowGroupPage old = ProjectionIndexRowGroupPage.deserialize(raw);
-        final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(defKinds);
-        final long[] recordKeys = old.recordKeys();
-        final int rowCount = old.getRowCount();
-        for (int i = 0; i < rowCount; i++) {
-          final long recordKey = recordKeys[i];
-          if (dirty.contains(recordKey)) {
-            located.add(recordKey);
+        final int groups = Math.max(1,
+            (rows + ProjectionIndexRowGroupPage.MAX_ROWS - 1) / ProjectionIndexRowGroupPage.MAX_ROWS);
+        final int smallerGroupSize = rows / groups;
+        final int largerGroups = rows % groups;
+        int from = 0;
+        int previousSlot = edit.slot;
+        for (int group = 0; group < groups; group++) {
+          final int groupSize = smallerGroupSize + (group < largerGroups ? 1 : 0);
+          final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
+          page.setGlobalDictionaries(globalDictionaries);
+          for (int index = from; index < from + groupSize; index++) {
+            final long key = edit.recordKeys.getLong(index);
+            if (!extractInto(extractor, rtx, key)
+                || !extractor.appendTo(page, key, edit.orderExceptions.getBoolean(index))) {
+              return false;
+            }
           }
-          if (!extractor.extractInto(rtx, recordKey)) {
-            continue; // record deleted — drop the row
+          final int physicalSlot = group == 0 ? edit.slot : fences.allocateSlot();
+          updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
+          validateRewrittenRowGroup(page, physicalSlot, locator, rewrittenRecordKeys);
+          writeRowGroup(storage, physicalSlot, page, fences, changedLeafSlots,
+              changedColumnsByLeaf, allColumnWords, true, group == 0 && edit.priorExists);
+          adjustSetValueRowCounts(setValueRowCounts, page, 1L, allColumnWords);
+          if (group > 0) {
+            fences.linkAfter(previousSlot, physicalSlot);
           }
-          extractor.appendTo(rebuilt, recordKey); // capacity: <= old rowCount
-        }
-        if (slot == rowGroupCount) {
-          // Defer the tail leaf's write — appends may still land on it.
-          tail = rebuilt;
-          tailSlot = slot;
-        } else {
-          writeRowGroup(storage, slot, rebuilt, firsts, lasts);
+          previousSlot = physicalSlot;
+          from += groupSize;
         }
       }
 
-      // Every pre-existing dirty key must have been located in its leaf;
-      // an unlocated one means the snapshot never indexed a record it
-      // should have — rebuild. (Keys of records both created and deleted
-      // by this transaction are in the append partition and are skipped
-      // harmlessly there.)
-      for (int i = 0; i < appendFrom; i++) {
-        if (!located.contains(keys[i])) {
+      validateTouchedNormalBounds(fences, changedLeafSlots);
+
+      for (final LongIterator iterator = changedColumnsBySlot.keySet().iterator(); iterator.hasNext();) {
+        final int slot = Math.toIntExact(iterator.nextLong());
+        if (membershipSlots.contains(slot)) {
+          continue; // membership rewrite already refreshed every column exactly once
+        }
+        final ProjectionPersistedRecordLookup.Keys cachedKeys = persistedLookup.keys(slot);
+        if (!applyColumnOnlyUpdate(storage, slot, changedColumnsBySlot.get(slot), persistedKinds,
+            globalDictionaries, setValueRowCounts, extractor, rtx, cachedKeys,
+            changedLeafSlots, changedColumnsByLeaf, locality)) {
           return false;
         }
       }
 
-      // Phase 2 — append new records to the tail leaf, spilling into fresh
-      // leaves. Append keys are ascending and greater than every indexed
-      // key, preserving the ascending leaf-range invariant.
-      if (appendFrom < keys.length) {
-        if (tail == null) {
-          if (rowGroupCount == 0) {
-            tail = new ProjectionIndexRowGroupPage(defKinds);
-            tailSlot = 1;
-            newRowGroupCount = 1;
-            firsts = Arrays.copyOf(firsts, 2);
-            lasts = Arrays.copyOf(lasts, 2);
-          } else {
-            final byte[] rawTail = storage.getRowGroupFromColumnSegmentSlots(rowGroupCount);
-            if (rawTail == null) {
-              return false; // declared tail leaf missing — rebuild
-            }
-            tail = ProjectionIndexRowGroupPage.deserialize(rawTail);
-            tailSlot = rowGroupCount;
-          }
-        }
-        for (int i = appendFrom; i < keys.length; i++) {
-          final long recordKey = keys[i];
-          if (!extractor.extractInto(rtx, recordKey)) {
-            continue; // created and deleted within this transaction
-          }
-          if (!extractor.appendTo(tail, recordKey)) {
-            writeRowGroup(storage, tailSlot, tail, firsts, lasts);
-            newRowGroupCount++;
-            if (newRowGroupCount + 1 > firsts.length) {
-              // A fresh slot — grow the fence arrays before its write.
-              firsts = Arrays.copyOf(firsts, Math.max(newRowGroupCount + 1, firsts.length * 2));
-              lasts = Arrays.copyOf(lasts, firsts.length);
-            }
-            tail = new ProjectionIndexRowGroupPage(defKinds);
-            tailSlot = newRowGroupCount;
-            extractor.appendTo(tail, recordKey);
-          }
-        }
-      }
-      if (tail != null) {
-        writeRowGroup(storage, tailSlot, tail, firsts, lasts);
+      locality.descriptorsRead = persistedLookup.descriptorsRead();
+      locality.keySegmentsRead = persistedLookup.keySegmentsRead();
+
+      final int newRowGroupCount = fences.liveRowGroupCount();
+      if (changedLeafSlots.isEmpty()) {
+        recordMaintenanceTelemetry(dirty.size(), rowGroupsRead, 0, 0, fences, setValueRowCounts,
+            new ProjectionBloomChunks.RewriteStats(0, 0, 0L, 0L));
+        return true;
       }
 
-      // Refresh the metadata: the committing revision becomes the new build
-      // revision (re-keying the catalog's decoded-leaf cache). The updated
-      // per-leaf fences go to their carry-forward chunks — only the chunks
-      // whose leaves actually moved re-persist; the rest are byte-identical
-      // no-ops. Maintenance only ever grows rowGroupCount (shrinks go through the
-      // full rebuild), so no fence chunk is orphaned here.
-      // The layout flag MUST be re-stamped: it is sticky per store, and the public constructor
-      // defaults it to the descriptor layout — dropping it here would make every later read
-      // reinterpret this store's slot keys under the wrong layout.
+      final int dictionarySegments = pendingMaintenanceDictionarySegments(globalDictionaries);
+      final long[] valueDictionaryHeaderKeys = flushMaintenanceGlobalDictionaries(meta, globalDictionaries);
+      final Map<Integer, Map<String, Long>> persistedSetSummaries = setValueRowCounts.flush(persistedKinds);
       final ProjectionIndexMetadata refreshed = new ProjectionIndexMetadata(meta.rootPath(), meta.fieldPaths(),
-          meta.fieldNames(), meta.columnKinds(), newRowGroupCount, rtx.getRevisionNumber());
+          meta.fieldNames(), persistedKinds, newRowGroupCount, rtx.getRevisionNumber(), persistedSetSummaries,
+          valueDictionaryHeaderKeys);
+      fences.flush(newRowGroupCount);
+      final ProjectionBloomChunks.RewriteStats bloomStats = ProjectionBloomChunks.rewriteTouchedChunks(storage,
+          persistedKinds, newRowGroupCount, fences.physicalRowGroupCount(), changedColumnsByLeaf,
+          newRowGroupCount != priorRowGroupCount);
+      // Slot 0 is the authoritative visibility marker. Publish it only after every row group,
+      // locator, dictionary, summary, fence and Bloom unit it describes has been written. A failure
+      // anywhere above therefore leaves the previous metadata in force and the transaction
+      // rollback-only; it cannot expose a partially described projection snapshot.
       storage.putBlob(0, refreshed.serialize());
-      final long[] fenceFirsts = new long[newRowGroupCount];
-      final long[] fenceLasts = new long[newRowGroupCount];
-      System.arraycopy(firsts, 1, fenceFirsts, 0, newRowGroupCount);
-      System.arraycopy(lasts, 1, fenceLasts, 0, newRowGroupCount);
-      ProjectionIndexFences.write(storage, newRowGroupCount, fenceFirsts, fenceLasts, rowGroupCount);
+      if (HFT_TELEMETRY_ENABLED) {
+        HFT_METADATA_WRITES.incrementAndGet();
+      }
+      recordMaintenanceTelemetry(dirty.size(), rowGroupsRead, changedLeafSlots.size(), dictionarySegments,
+          fences, setValueRowCounts, bloomStats);
       return true;
     } finally {
+      LAST_MAINTENANCE_LOCALITY = locality.snapshot();
       if (!rtx.moveTo(savedNodeKey)) {
-        rtx.moveToDocumentRoot();
+        ((NodeCursor) rtx).moveToDocumentRoot();
+      }
+    }
+  }
+
+  private static @Nullable LongOpenHashSet validateStructuralProvenance(
+      final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas,
+      final @Nullable Long2ByteOpenHashMap rootProvenance) {
+    if (completedStructuralDeltas == null) {
+      return null;
+    }
+    if (rootProvenance == null) {
+      throw new IllegalStateException("projection structural deltas have no root provenance");
+    }
+    final LongOpenHashSet observedMembership = new LongOpenHashSet();
+    final LongOpenHashSet entriesWithoutPriorMembership = new LongOpenHashSet();
+    for (final StructuralDelta delta : completedStructuralDeltas) {
+      validateStructuralSnapshot(delta.before());
+      validateStructuralSnapshot(delta.after());
+      for (final LongIterator iterator = delta.before().contained().iterator(); iterator.hasNext();) {
+        final long key = iterator.nextLong();
+        observedMembership.add(key);
+        if ((rootProvenance.get(key) & STRUCTURAL_EXIT) == 0) {
+          throw new IllegalStateException("projection structural exit provenance missing for record " + key);
+        }
+      }
+      for (final LongIterator iterator = delta.after().contained().iterator(); iterator.hasNext();) {
+        final long key = iterator.nextLong();
+        if (observedMembership.add(key)) {
+          entriesWithoutPriorMembership.add(key);
+        }
+        if ((rootProvenance.get(key) & STRUCTURAL_ENTER) == 0) {
+          throw new IllegalStateException("projection structural enter provenance missing for record " + key);
+        }
+      }
+    }
+    return entriesWithoutPriorMembership;
+  }
+
+  private static void validateStructuralSnapshot(final StructuralSnapshot snapshot) {
+    if (snapshot.contained().size() != snapshot.containedInDocumentOrder().size()
+        || snapshot.contained().contains(snapshot.predecessorRecordKey())
+        || snapshot.contained().contains(snapshot.successorRecordKey())) {
+      throw new IllegalStateException("projection structural snapshot has inconsistent positional anchors");
+    }
+  }
+
+  private static LeafEdit loadLeafEdit(final ProjectionIndexHOTStorage storage,
+      final ProjectionIndexFences.Accessor fences, final int slot, final boolean priorExists,
+      final byte[] persistedKinds, final Int2ObjectOpenHashMap<LeafEdit> edits,
+      final IntArrayList editOrder, final MaintenanceLocalityAccumulator locality) {
+    final LeafEdit cached = edits.get(slot);
+    if (cached != null) {
+      if (cached.priorExists != priorExists) {
+        throw new IllegalStateException("projection physical leaf " + slot + " changed existence within one edit");
+      }
+      return cached;
+    }
+    final ProjectionIndexRowGroupPage oldPage;
+    if (priorExists) {
+      final byte[] raw = storage.getRowGroupFromColumnSegmentSlots(slot);
+      if (raw == null) {
+        throw new IllegalStateException("projection physical leaf " + slot + " has no row-group payload");
+      }
+      locality.fullRowGroupsRead++;
+      oldPage = ProjectionIndexRowGroupPage.deserialize(raw);
+      if (oldPage.getColumnCount() != persistedKinds.length
+          || oldPage.firstRecordKey() != fences.first(slot)
+          || oldPage.lastRecordKey() != fences.last(slot)) {
+        throw new IllegalStateException("projection row-group/fence mirror mismatch at physical leaf " + slot);
+      }
+      for (int column = 0; column < persistedKinds.length; column++) {
+        if (oldPage.columnKind(column) != persistedKinds[column]) {
+          throw new IllegalStateException("projection column kind drift at physical leaf " + slot);
+        }
+      }
+    } else {
+      oldPage = null;
+    }
+    final int rows = oldPage == null ? 0 : oldPage.getRowCount();
+    final LongArrayList keys = new LongArrayList(rows);
+    final BooleanArrayList exceptions = new BooleanArrayList(rows);
+    for (int row = 0; row < rows; row++) {
+      keys.add(oldPage.recordKeys()[row]);
+      exceptions.add(oldPage.orderExceptionAt(row));
+    }
+    final LeafEdit loaded = new LeafEdit(slot, priorExists, oldPage, keys, exceptions);
+    edits.put(slot, loaded);
+    editOrder.add(slot);
+    return loaded;
+  }
+
+  private static void updateExceptionLocators(final ProjectionRecordLocator.Accessor locator,
+      final ProjectionIndexRowGroupPage page, final int physicalSlot, final int originalSlot,
+      final LongOpenHashSet insertedOrMoved) {
+    for (int row = 0; row < page.getRowCount(); row++) {
+      if (!page.orderExceptionAt(row)) {
+        continue;
+      }
+      final long recordKey = page.recordKeys()[row];
+      if (physicalSlot != originalSlot || insertedOrMoved.contains(recordKey)) {
+        locator.put(recordKey, physicalSlot);
+      }
+    }
+  }
+
+  /**
+   * Validate the two identity invariants local to one rewritten physical row group before its
+   * metadata can be published.  The caller reuses {@code uniqueRecordKeys} across groups, so the
+   * check is linear, primitive-only, and bounded by the 1024-row page capacity.
+   *
+   * <p>An exception locator stores the physical slot rather than a row ordinal.  Once keys are
+   * unique within the page, {@code locator -> physicalSlot -> exact KEYS scan} resolves to exactly
+   * the row inspected here.  Checking every exception bit, rather than only inserted or relocated
+   * rows, catches a missing or misdirected locator on an unchanged exceptional row carried through
+   * a membership rewrite.</p>
+   */
+  static void validateRewrittenRowGroup(final ProjectionIndexRowGroupPage page,
+      final int physicalSlot, final ProjectionRecordLocator.Accessor locator,
+      final LongOpenHashSet uniqueRecordKeys) {
+    uniqueRecordKeys.clear();
+    final long[] recordKeys = page.recordKeys();
+    for (int row = 0; row < page.getRowCount(); row++) {
+      final long recordKey = recordKeys[row];
+      if (!uniqueRecordKeys.add(recordKey)) {
+        throw new IllegalStateException("projection record " + recordKey
+            + " occurs more than once in rewritten physical leaf " + physicalSlot);
+      }
+      if (page.orderExceptionAt(row)) {
+        final int locatedSlot = locator.find(recordKey);
+        if (locatedSlot != physicalSlot) {
+          throw new IllegalStateException("projection exception locator " + recordKey
+              + " resolves to physical leaf " + locatedSlot + " instead of rewritten leaf "
+              + physicalSlot + " row " + row);
+        }
+      }
+    }
+  }
+
+  private static void validateTouchedNormalBounds(final ProjectionIndexFences.Accessor fences,
+      final LongOpenHashSet changedLeafSlots) {
+    for (final LongIterator iterator = changedLeafSlots.iterator(); iterator.hasNext();) {
+      final int slot = Math.toIntExact(iterator.nextLong());
+      if (!fences.isLivePhysicalSlot(slot)) {
+        continue;
+      }
+      fences.validateTouchedNormalBounds(slot);
+    }
+  }
+
+  private static final class LeafEdit {
+    private final int slot;
+    private final boolean priorExists;
+    private final @Nullable ProjectionIndexRowGroupPage oldPage;
+    private final LongArrayList recordKeys;
+    private final BooleanArrayList orderExceptions;
+    private boolean keysChanged;
+    private boolean readCounted;
+
+    private LeafEdit(final int slot, final boolean priorExists,
+        final @Nullable ProjectionIndexRowGroupPage oldPage, final LongArrayList recordKeys,
+        final BooleanArrayList orderExceptions) {
+      this.slot = slot;
+      this.priorExists = priorExists;
+      this.oldPage = oldPage;
+      this.recordKeys = recordKeys;
+      this.orderExceptions = orderExceptions;
+    }
+
+    private int indexOf(final long recordKey) {
+      for (int row = 0; row < recordKeys.size(); row++) {
+        if (recordKeys.getLong(row) == recordKey) {
+          return row;
+        }
+      }
+      return -1;
+    }
+
+    private int markReadOnce() {
+      if (oldPage == null || readCounted) {
+        return 0;
+      }
+      readCounted = true;
+      return 1;
+    }
+  }
+
+
+  /**
+   * Update-only path: preserve KEYS and every untouched column segment, rebuilding only the selected
+   * columns from masked extraction.  Re-extracting the selected columns across the leaf is necessary
+   * with the V0 aggregate provenance flags: a one-cell replacement may remove the only
+   * unrepresentable/non-integral/non-double-source witness, and V0 stores no per-row witness bits.
+   */
+  private static boolean applyColumnOnlyUpdate(final ProjectionIndexHOTStorage storage, final int slot,
+      final long[] changedColumnWords, final byte[] persistedKinds,
+      final MaintenanceGlobalDictionary @Nullable [] globalDictionaries,
+      final ProjectionSetSummaryChunks.Accessor setValueRowCounts, final ProjectionIndexRowExtractor extractor,
+      final NodeReadOnlyTrx rtx, final ProjectionPersistedRecordLookup.Keys cachedKeys,
+      final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
+      final MaintenanceLocalityAccumulator locality) {
+    final byte[] descriptor = cachedKeys.descriptor();
+    if (descriptor == null || RowGroupDescriptor.columnCount(descriptor) != persistedKinds.length) {
+      return false;
+    }
+    final long[] recordKeys = cachedKeys.view().recordKeys();
+    if (recordKeys.length != RowGroupDescriptor.rowCount(descriptor)) {
+      return false;
+    }
+
+    final ProjectionIndexRowGroupPage[] rebuiltColumns = new ProjectionIndexRowGroupPage[persistedKinds.length];
+    final ProjectionColumnStore.ColumnSlice[] priorSlices =
+        new ProjectionColumnStore.ColumnSlice[persistedKinds.length];
+    int selectedColumns = 0;
+    for (int column = 0; column < persistedKinds.length; column++) {
+      if (!columnSelected(changedColumnWords, column)) {
+        continue;
+      }
+      selectedColumns++;
+      final byte[] body = storage.getVerifiedColumnSegment(slot, descriptor,
+          ProjectionIndexColumnSegmentCodec.bodyColumnSegmentId(column),
+          ProjectionIndexColumnSegmentCodec.SEG_KIND_BODY);
+      if (body == null) {
+        return false;
+      }
+      locality.bodySegmentsRead++;
+      final byte kind = persistedKinds[column];
+      final ProjectionColumnStore.ColumnSlice priorSlice;
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+          || kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        final byte[] dictionary = storage.getVerifiedColumnSegment(slot, descriptor,
+            ProjectionIndexColumnSegmentCodec.dictColumnSegmentId(column),
+            ProjectionIndexColumnSegmentCodec.SEG_KIND_DICT);
+        if (dictionary == null) {
+          return false;
+        }
+        locality.dictionarySegmentsRead++;
+        priorSlice = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+            ? ProjectionIndexColumnSegmentCodec.decodeStringSlice(descriptor, body, dictionary, column)
+            : ProjectionIndexColumnSegmentCodec.decodeStringSetSlice(descriptor, body, dictionary, column);
+      } else {
+        priorSlice = ProjectionIndexColumnSegmentCodec.decodeBodySlice(descriptor, body, column);
+      }
+      if (priorSlice.rowCount() != recordKeys.length) {
+        return false;
+      }
+      priorSlices[column] = priorSlice;
+      final ProjectionIndexRowGroupPage rebuilt = new ProjectionIndexRowGroupPage(new byte[] {kind});
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+        if (globalDictionaries == null || globalDictionaries[column] == null) {
+          return false;
+        }
+        rebuilt.setGlobalDictionaries(new GlobalValueDictionaryEncoder[] {globalDictionaries[column]});
+      }
+      rebuiltColumns[column] = rebuilt;
+    }
+    if (selectedColumns == 0) {
+      return true;
+    }
+
+    for (final long recordKey : recordKeys) {
+      if (!extractInto(extractor, rtx, recordKey, changedColumnWords)) {
+        return false;
+      }
+      for (int column = 0; column < persistedKinds.length; column++) {
+        final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+        if (rebuilt != null && !extractor.appendColumnTo(rebuilt, recordKey, column)) {
+          return false;
+        }
+      }
+    }
+
+    byte[] currentDescriptor = descriptor;
+    final long[] actuallyChanged = new long[changedColumnWords.length];
+    final ProjectionIndexColumnSegmentCodec.EncodeWorkspace workspace =
+        new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
+    boolean anyChanged = false;
+    for (int column = 0; column < persistedKinds.length; column++) {
+      final ProjectionIndexRowGroupPage rebuilt = rebuiltColumns[column];
+      if (rebuilt == null) {
+        continue;
+      }
+      final ProjectionIndexColumnSegmentCodec.EncodedColumn encoded =
+          ProjectionIndexColumnSegmentCodec.encodeColumnReferencedOnly(rebuilt, column, workspace);
+      locality.columnSegmentsEncoded += encoded.columnSegmentIds().length;
+      final byte[] patchedDescriptor =
+          ProjectionIndexColumnSegmentCodec.spliceReferencedColumn(currentDescriptor, encoded);
+      final ProjectionIndexHOTStorage.ColumnPatchResult patch =
+          storage.putColumnPatch(slot, currentDescriptor, patchedDescriptor, encoded);
+      if (!patch.changed()) {
+        continue;
+      }
+      anyChanged = true;
+      currentDescriptor = patchedDescriptor;
+      actuallyChanged[column >>> 6] |= 1L << (column & 63);
+      locality.columnSegmentsWritten += patch.segmentsWritten() + patch.segmentsTombstoned();
+      locality.descriptorsWritten++;
+      if (persistedKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        adjustSetValueRowCounts(setValueRowCounts, column, priorSlices[column], -1L);
+        adjustSetValueRowCounts(setValueRowCounts, column, rebuilt, 1L);
+      }
+    }
+    if (anyChanged) {
+      changedLeafSlots.add(slot);
+      mergeChangedColumns(changedColumnsByLeaf, slot, actuallyChanged);
+      locality.rowGroupsColumnPatched++;
+    }
+    return true;
+  }
+
+  private boolean isCurrentRecordRoot(final long recordKey) {
+    final ImmutableNode record = readNode(recordKey);
+    if (record == null) {
+      return false;
+    }
+    final long resolved = resolveRecordKey(recordKey, record.getKind(), record.getParentKey(),
+        pathNodeKeyOf(record));
+    if (resolved == UNRESOLVED) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot determine final record-set membership for node " + recordKey);
+    }
+    return resolved == recordKey;
+  }
+
+  private static boolean extractInto(final ProjectionIndexRowExtractor extractor,
+      final NodeReadOnlyTrx rtx, final long recordKey) {
+    return extractInto(extractor, rtx, recordKey, null);
+  }
+
+  private static boolean extractInto(final ProjectionIndexRowExtractor extractor,
+      final NodeReadOnlyTrx rtx, final long recordKey, final long @Nullable [] selectedColumns) {
+    if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
+      return extractor.extractInto(jsonRtx, recordKey, selectedColumns);
+    }
+    if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
+      return extractor.extractInto(xmlRtx, recordKey, selectedColumns);
+    }
+    throw new IllegalArgumentException("projection maintenance requires a JSON or XML node transaction");
+  }
+
+  private MaintenanceGlobalDictionary @Nullable [] createMaintenanceGlobalDictionaries(
+      final ProjectionIndexMetadata meta) {
+    final byte[] kinds = meta.columnKinds();
+    int globalColumnCount = 0;
+    for (final byte kind : kinds) {
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) globalColumnCount++;
+    }
+    final long totalBudget = ProjectionIndexBuilder.globalDictionaryBudgetBytes();
+    final long columnBudget = globalColumnCount == 0 || totalBudget == Long.MAX_VALUE
+        ? totalBudget
+        : totalBudget / globalColumnCount;
+    if (globalColumnCount > 0 && columnBudget < GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES) {
+      throw new IllegalStateException("global dictionary transaction budget cannot retain "
+          + globalColumnCount + " empty dictionaries");
+    }
+    MaintenanceGlobalDictionary[] dictionaries = null;
+    try {
+      for (int c = 0; c < kinds.length; c++) {
+        if (kinds[c] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          continue;
+        }
+        final long headerKey = meta.valueDictionaryHeaderKey(c);
+        if (headerKey <= 0) {
+          throw new IllegalStateException("global projection column " + c + " has no value dictionary anchor");
+        }
+        if (dictionaries == null) {
+          dictionaries = new MaintenanceGlobalDictionary[kinds.length];
+        }
+        dictionaries[c] = new MaintenanceGlobalDictionary(c, headerKey, storageEngineWriter,
+            columnBudget);
+      }
+      return dictionaries;
+    } catch (final RuntimeException failure) {
+      releaseMaintenanceGlobalDictionaries(dictionaries);
+      throw failure;
+    }
+  }
+
+  private long @Nullable [] flushMaintenanceGlobalDictionaries(final ProjectionIndexMetadata meta,
+      final MaintenanceGlobalDictionary @Nullable [] dictionaries) {
+    final long[] current = meta.valueDictionaryHeaderKeys();
+    if (dictionaries == null) {
+      return current == null ? null : current.clone();
+    }
+    final long[] refreshed = current == null ? new long[dictionaries.length] : current.clone();
+    for (int c = 0; c < dictionaries.length; c++) {
+      final MaintenanceGlobalDictionary dictionary = dictionaries[c];
+      if (dictionary != null) {
+        refreshed[c] = dictionary.flush();
+      }
+    }
+    return refreshed;
+  }
+
+  private static void releaseMaintenanceGlobalDictionaries(
+      final MaintenanceGlobalDictionary @Nullable [] dictionaries) {
+    if (dictionaries == null) {
+      return;
+    }
+    for (final MaintenanceGlobalDictionary dictionary : dictionaries) {
+      if (dictionary != null) {
+        dictionary.release();
+      }
+    }
+  }
+
+  private static int pendingMaintenanceDictionarySegments(
+      final MaintenanceGlobalDictionary @Nullable [] dictionaries) {
+    if (dictionaries == null) {
+      return 0;
+    }
+    int count = 0;
+    for (final MaintenanceGlobalDictionary dictionary : dictionaries) {
+      if (dictionary != null && dictionary.hasAdditions()) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private static long pendingMaintenanceDictionaryBytes(
+      final MaintenanceGlobalDictionary @Nullable [] dictionaries) {
+    if (dictionaries == null) {
+      return 0L;
+    }
+    long bytes = 0L;
+    for (final MaintenanceGlobalDictionary dictionary : dictionaries) {
+      if (dictionary != null) {
+        bytes = Math.addExact(bytes, dictionary.pendingBytes());
+      }
+    }
+    return bytes;
+  }
+
+  private static void recordMaintenanceTelemetry(final int dirtyRecords, final int rowGroupsRead,
+      final int rowGroupsWritten, final int dictionarySegments, final ProjectionIndexFences.Accessor fences,
+      final ProjectionSetSummaryChunks.Accessor setSummaries,
+      final ProjectionBloomChunks.RewriteStats bloomStats) {
+    if (!HFT_TELEMETRY_ENABLED) {
+      return;
+    }
+    HFT_COMMITS.incrementAndGet();
+    HFT_DIRTY_RECORDS.addAndGet(dirtyRecords);
+    HFT_ROW_GROUPS_READ.addAndGet(rowGroupsRead);
+    HFT_ROW_GROUPS_WRITTEN.addAndGet(rowGroupsWritten);
+    HFT_DICTIONARY_SEGMENTS.addAndGet(dictionarySegments);
+    HFT_FENCE_CHUNKS_READ.addAndGet(fences.chunksRead());
+    HFT_FENCE_CHUNKS_WRITTEN.addAndGet(fences.chunksWritten());
+    HFT_SET_CHUNKS_READ.addAndGet(setSummaries.chunksRead());
+    HFT_SET_CHUNKS_WRITTEN.addAndGet(setSummaries.chunksWritten());
+    HFT_BLOOM_ROW_GROUPS_READ.addAndGet(bloomStats.rowGroupsRead());
+    HFT_BLOOM_CHUNKS_WRITTEN.addAndGet(bloomStats.chunksWritten());
+  }
+
+  private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
+      final ProjectionIndexRowGroupPage leaf, final long sign, final long[] changedColumnWords) {
+    final Map<Integer, Map<String, Long>> leafCounts = new LinkedHashMap<>();
+    ProjectionIndexBuilder.accumulateSetValueRowCounts(leaf, leafCounts);
+    for (final Map.Entry<Integer, Map<String, Long>> column : leafCounts.entrySet()) {
+      if (columnSelected(changedColumnWords, column.getKey())) {
+        totals.adjust(column.getKey(), column.getValue(), sign);
+      }
+    }
+  }
+
+  private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
+      final int persistedColumn, final ProjectionColumnStore.ColumnSlice prior, final long sign) {
+    final int[] countsByRow = prior.setCounts();
+    final int[] ids = prior.stringDictIds();
+    final byte[] dictionary = prior.dictBytes();
+    final int[] offsets = prior.dictOffsets();
+    if (countsByRow == null || ids == null || dictionary == null || offsets == null) {
+      throw new IllegalStateException("decoded string-set column is incomplete");
+    }
+    final long[] counts = ProjectionIndexColumnSegmentCodec.valueRowCounts(prior.dictSize(), countsByRow, ids,
+        prior.rowCount());
+    if (counts == null) {
+      return;
+    }
+    final Map<String, Long> values = new LinkedHashMap<>();
+    for (int id = 0; id < counts.length; id++) {
+      if (counts[id] > 0) {
+        values.put(new String(dictionary, offsets[id], offsets[id + 1] - offsets[id], StandardCharsets.UTF_8),
+            counts[id]);
+      }
+    }
+    totals.adjust(persistedColumn, values, sign);
+  }
+
+  private static void adjustSetValueRowCounts(final ProjectionSetSummaryChunks.Accessor totals,
+      final int persistedColumn, final ProjectionIndexRowGroupPage rebuiltColumn, final long sign) {
+    final Map<Integer, Map<String, Long>> counts = new LinkedHashMap<>();
+    ProjectionIndexBuilder.accumulateSetValueRowCounts(rebuiltColumn, counts);
+    final Map<String, Long> values = counts.get(0);
+    if (values != null) {
+      totals.adjust(persistedColumn, values, sign);
+    }
+  }
+
+  private static void mergeChangedColumns(final Long2ObjectOpenHashMap<long[]> changedColumnsBySlot,
+      final long slot, final long[] changedColumnWords) {
+    Objects.requireNonNull(changedColumnWords, "changed column mask is required");
+    final long[] existing = changedColumnsBySlot.get(slot);
+    if (existing == null) {
+      changedColumnsBySlot.put(slot, changedColumnWords.clone());
+      return;
+    }
+    for (int word = 0; word < existing.length; word++) {
+      existing[word] |= changedColumnWords[word];
+    }
+  }
+
+  private static boolean columnSelected(final long[] changedColumnWords, final int column) {
+    final int word = column >>> 6;
+    return word < changedColumnWords.length
+        && (changedColumnWords[word] & (1L << (column & 63))) != 0L;
+  }
+
+  private static final class MaintenanceGlobalDictionary implements GlobalValueDictionaryEncoder {
+
+    private final int column;
+    private final long headerKey;
+    private final StorageEngineWriter storageEngineWriter;
+    private final ValueDictionaryHeaderNode baseHeader;
+    private final int baseEntryCount;
+    private final long budgetBytes;
+    private @Nullable GlobalValueDictionaryWriter additions;
+
+    private MaintenanceGlobalDictionary(final int column, final long headerKey,
+        final StorageEngineWriter storageEngineWriter, final long budgetBytes) {
+      final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, storageEngineWriter);
+      if (header == null || !header.isDirectoryComplete()) {
+        throw new IllegalStateException("global projection column " + column + " has an unreadable value dictionary");
+      }
+      this.column = column;
+      this.headerKey = headerKey;
+      this.storageEngineWriter = storageEngineWriter;
+      this.baseHeader = header;
+      this.baseEntryCount = header.getEntryCount();
+      this.budgetBytes = budgetBytes;
+    }
+
+    @Override
+    public int intern(final String value) {
+      Objects.requireNonNull(value, "value must not be null");
+      final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
+          GlobalValueDictionaryWriter.MAX_VALUE_BYTES);
+      if (encodedLength > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
+        throw new IllegalStateException("global projection column " + column
+            + " cannot materialise a UTF-8 value above the safe V0 limit of "
+            + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+      }
+      final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+      return intern(utf8, 0, utf8.length);
+    }
+
+    @Override
+    public int intern(final byte[] source, final int offset, final int length) {
+      Objects.checkFromIndexSize(offset, length, source.length);
+      if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
+        throw new IllegalStateException("global projection column " + column
+            + " cannot persist a value above the safe V0 limit of "
+            + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+      }
+      final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length,
+          storageEngineWriter);
+      if (HFT_TELEMETRY_ENABLED) {
+        HFT_DICTIONARY_PROBES.incrementAndGet();
+      }
+      if (existing > 0) {
+        return existing;
+      }
+      if (existing == GlobalValueDictionary.ID_UNKNOWN) {
+        throw new IllegalStateException("global projection column " + column + " cannot probe its value dictionary");
+      }
+      if (additions == null) {
+        additions = new GlobalValueDictionaryWriter(column, budgetBytes,
+            GlobalValueDictionaryWriter.AdmissionPolicy.FAIL_CLOSED);
+      }
+      final int localId = additions.intern(source, offset, length);
+      final long id = (long) baseEntryCount + localId;
+      if (id > Integer.MAX_VALUE) {
+        throw new IllegalStateException("global projection column " + column + " exhausted dictionary ids");
+      }
+      return (int) id;
+    }
+
+    private long flush() {
+      if (additions == null || additions.entryCount() == 0) {
+        return headerKey;
+      }
+      return additions.flushAppend(baseHeader,
+          storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage()),
+          GlobalValueDictionary.databaseTypeOf(storageEngineWriter), storageEngineWriter,
+          storageEngineWriter.getLog());
+    }
+
+    private boolean hasAdditions() {
+      return additions != null && additions.entryCount() > 0;
+    }
+
+    private long pendingBytes() {
+      return additions == null ? 0L : additions.logicalPersistedBytes();
+    }
+
+    private void release() {
+      if (additions != null) {
+        additions.release();
+        additions = null;
       }
     }
   }
@@ -852,39 +2407,45 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * page carry forward untouched) and segments that vanished from the rebuilt row group are
    * tombstoned — the same CoW sharing the descriptor layout gets from {@code putRowGroup}.
    */
-  private static void writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
-      final ProjectionIndexRowGroupPage leaf, final long[] firsts, final long[] lasts) {
-    firsts[(int) slot] = leaf.firstRecordKey();
-    lasts[(int) slot] = leaf.lastRecordKey();
+  private static long writeRowGroup(final ProjectionIndexHOTStorage storage, final long slot,
+      final ProjectionIndexRowGroupPage leaf, final ProjectionIndexFences.Accessor fences,
+      final LongOpenHashSet changedLeafSlots, final Long2ObjectOpenHashMap<long[]> changedColumnsByLeaf,
+      final long[] changedColumnWords, final boolean keysChanged, final boolean priorSlotExists) {
+    // The page mirror and fence metadata are one invariant. Rowless and exception-only leaves carry
+    // MAX/MIN sentinels; retaining a deleted key here would manufacture a normal fence for no row.
+    final long firstRecordKey = leaf.firstRecordKey();
+    final long lastRecordKey = leaf.lastRecordKey();
     final byte[] raw = leaf.serialize();
-    storage.putRowGroupAsColumnSegmentSlots(slot, ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw));
-  }
-
-  /** Whether the non-empty leaf ranges are ascending and non-overlapping. */
-  private static boolean zoneMapsAscending(final long[] firsts, final long[] lasts, final int rowGroupCount) {
-    long prevLast = Long.MIN_VALUE;
-    for (int slot = 1; slot <= rowGroupCount; slot++) {
-      if (firsts[slot] > lasts[slot]) {
-        continue; // empty leaf — degenerate range
-      }
-      if (firsts[slot] <= prevLast) {
-        return false;
-      }
-      prevLast = lasts[slot];
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
+        ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(raw);
+    final boolean changed = priorSlotExists
+        ? storage.putRowGroupAsColumnSegmentSlots(slot, encoded, changedColumnWords, keysChanged)
+        : storage.putRowGroupAsColumnSegmentSlots(slot, encoded);
+    if (!changed) {
+      return 0L;
     }
-    return true;
+    if (keysChanged || !priorSlotExists) {
+      fences.set((int) slot, firstRecordKey, lastRecordKey);
+    }
+    changedLeafSlots.add(slot);
+    changedColumnsByLeaf.put(slot, changedColumnWords.clone());
+    long bytes = encoded.descriptor().length;
+    for (final byte[] segment : encoded.segments()) {
+      bytes += segment.length;
+    }
+    return bytes;
   }
 
   /**
    * Corruption valve (and the legacy invalidation-only contract): overwrite slot 0 with the stale
    * tombstone so every reader falls back to the generic pipeline until a manual
    * {@code jn:create-projection-index} re-run. Regular maintenance never calls this — unattributable
-   * changes degrade to {@link #rebuildFully()} instead.
+   * changes fail the owning transaction instead.
    */
   private void invalidate() {
     invalidated = true;
-    rebuildPending = false;
     dirtyRecordKeys = null;
+    dirtyColumnWordsByRecord = null;
     maintenanceEpoch++;
     // The tombstone rides the write transaction: invisible to readers of
     // committed revisions until commit, discarded entirely on rollback.
@@ -899,23 +2460,20 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   /**
-   * Metadata blob of the definition's sub-tree, or {@code null} for absent, legacy-layout, or corrupt
-   * slot-0 payloads — every one of which means "no live snapshot to maintain" and degrades to the
-   * rebuild/no-op ladder rather than throwing mid-commit.
-   *
-   * <p>
-   * Catches every {@link RuntimeException}, not just {@link IllegalStateException}: the read descends
-   * real pages, so it can also raise {@code SirixIOException}. {@link #invalidate()} calls this to
-   * recover the store's layout, and the corruption valve must never itself throw — escaping from
-   * there would fail the user's commit in exactly the scenario the valve exists to survive (and, in
-   * invalidation-only mode, would abort the transaction from the {@code listen} hot path).
+   * Metadata blob of the definition's sub-tree, or {@code null} for an absent or metadata-less
+   * slot-0 payload. A malformed current metadata payload fails the owning transaction.
    */
   private @Nullable ProjectionIndexMetadata readMetadata(final ProjectionIndexHOTStorage storage) {
-    try {
-      return ProjectionIndexMetadata.parse(storage.getBlob(0));
-    } catch (final RuntimeException legacyCorruptOrIoFailure) {
-      return null;
+    final byte[] payload = storage.getBlob(0);
+    if (HFT_TELEMETRY_ENABLED && payload != null) {
+      HFT_METADATA_READS.incrementAndGet();
     }
+    final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(payload);
+    if (metadata == null && payload != null && payload.length >= Integer.BYTES
+        && ProjectionIndexRowGroupCodec.getIntLE(payload, 0) == ProjectionIndexMetadata.MAGIC) {
+      throw new IllegalStateException("unsupported projection metadata version for index " + indexDef.getID());
+    }
+    return metadata;
   }
 
   /** Trailing object-key step of each projected field path — the registry column names. */

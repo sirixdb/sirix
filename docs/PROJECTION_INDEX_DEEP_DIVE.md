@@ -13,6 +13,8 @@ Authoritative companion documents:
 
 - `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md` — the design/spec of record
   for the segment-directory storage layout (cited as §n below).
+- `docs/PROJECTION_INDEX_INCREMENTAL_MAINTENANCE.md` — exact record lookup,
+  document-order routing, and local update/delete/insert/move maintenance.
 - `docs/DISK_FORMAT.md` — on-disk format reference.
 - Class javadoc under
   `bundles/sirix-core/src/main/java/io/sirix/index/projection/` — the
@@ -153,8 +155,13 @@ answered from the column.
 ## 2. The logical model: leaves of 1024 rows
 
 The unit of everything — extraction, encoding, maintenance, SIMD masks — is
-the **logical leaf**: up to `MAX_ROWS = 1024` consecutive records in
-ascending record-key (node-key) order.
+the **logical leaf**: up to `MAX_ROWS = 1024` consecutive records in document
+order. Stable record keys are identities, not positions. The `KEYS` segment
+therefore stores every key in document order, while a one-bit classification
+keeps the increasing subsequence on the normal fence backbone and marks key
+inversions as sparse order exceptions. An exception is located by its exact
+persisted `recordKey -> physical row-group` entry; it never needs a global
+renumbering or a rebuild of the suffix that follows it.
 
 ```mermaid
 flowchart TB
@@ -163,7 +170,7 @@ flowchart TB
         L1["rowGroupId 1 — leaf 0<br/>rows 0..1023<br/>descriptor + its segments,<br/>one slot each"]
         L2["rowGroupId 2 — leaf 1<br/>rows 1024..2047"]
         LN["rowGroupId N — leaf N-1<br/>tail rows"]
-        F["slots 2^42 + c<br/>fence chunks<br/>512 leaves each"]
+        F["slots 2^42 + c<br/>order/fence chunks<br/>32 physical leaves each"]
         B["slots 16 + c<br/>fingerprint blocks<br/>one Bloom-filter blob per string column"]
     end
     M -.->|"bounds every read:<br/>rowGroupCount = N"| LN
@@ -371,7 +378,7 @@ Four magics, all little-endian; every payload is self-describing:
 | `0x44584950` | `PIXD` | HOT slot value | leaf descriptor |
 | `0x53584950` | `PIXS` | segment page payload | one encoded segment |
 | `0x42584950` | `PIXB` | HOT blob slot value | blob marker (metadata + fence chunks; payload inline or referenced) |
-| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape + optional set-column membership counts, VERSION 1) |
+| `0x4D585049` | `PIXM` | blob payload of slot 0 | projection metadata (shape + set-summary capabilities, VERSION 0) |
 
 ### 5.1 `PIXD` — the row-group descriptor
 
@@ -438,7 +445,7 @@ Common 6-byte header, then a kind-specific payload:
 
 ```text
  0   4   MAGIC "PIXS"
- 4   1   SEGMENT_VERSION = 1
+ 4   1   SEGMENT_VERSION = 0
  5   1   segKind: 0=KEYS  1=BODY  2=DICT
 ```
 
@@ -506,7 +513,7 @@ the write path picks inline for payloads ≤ 512 B:
 
 ```text
  0  4  MAGIC "PIXB"
- 4  1  version
+ 4  1  version = 0
  5  4  byteLen        ┐ high bit = INLINE flag; low 31 bits = exact length
  9  8  XXH3-64 hash   ┘ integrity for the payload (segment pages self-checksum nothing)
 [inline only] 17..17+byteLen  the payload bytes
@@ -520,27 +527,22 @@ The `PIXM` metadata payload is the projection's **shape and bounds
 authority**: root path, per-column field paths/names/kinds (hydration reads
 the shape from *here*, never trusting a caller's argument list — a
 same-arity re-create with different fields must not silently mislabel
-columns), `leafCount` (bounds every read; higher slots are stale remnants),
-`buildRevision`, and the **stale flag** — the update-time invalidation
-valve. Since VERSION 1 it may also carry **index-wide set-column membership
-counts** — per set value, the number of rows whose set contains it, summed
-from the per-leaf counts — so a bare membership `count(...)` is a map probe
-on a blob every covering lookup reads anyway. The counts section is capped
-(`-Dsirix.projection.metadataSetCountsBytes`, default 1024 B); a column
-whose counts do not fit is simply not summarised and the reader falls back.
+columns), the live `rowGroupCount`, `buildRevision`, and the **stale flag** — the update-time invalidation
+valve. VERSION 0 carries explicit **set-summary capability columns**. Each
+capable column's counts live in an independent chunk at `1 << 44 | column`,
+including an explicit empty chunk, so empty-to-nonempty maintenance remains
+servable and one touched column never copies every other summary.
 
-The shape alone is a few hundred bytes, so it inlines: opening a projection
+The shape is normally a few hundred bytes, so it inlines: opening a projection
 reads its shape from the one slot value, with **no extra random read** for a
-metadata page. A summarised set column can push the blob past the 512 B
-inline threshold, spilling it to an `OverflowPage` — one extra page read per
-open, the accepted price of scan-free membership counts.
+metadata page. Exact set counts never inflate this blob: slot 0 carries only
+the capability-column ids, while every capable column's bounded counts occupy
+its independent `1 << 44 | column` chunk. Only an unusually large shape itself
+can push slot 0 past the 512 B inline threshold and into an `OverflowPage`.
 
-`PIXM` is **VERSION 1**, and exactly one version is ever supported — the
-current one. A blob with any other version byte (an older store: a
-pre-membership-counts blob, or the early layouts that carried the per-leaf
-record-key fences inline before they moved to their own chunks, §5.4) parses
-to *nothing* and the reader rebuilds — the graceful-degradation contract
-every unknown version already had.
+`PIXM` is **VERSION 0**, and exactly one version is supported. Any other
+version fails closed: serving declines and ordinary maintenance rejects the
+owning transaction instead of interpreting shifted fields.
 
 Slot-0 states are deliberately distinct:
 
@@ -549,45 +551,41 @@ Slot-0 states are deliberately distinct:
 | Valid metadata | `PIXB` → current-version `PIXM`, stale bit clear | projection serves |
 | Stale tombstone | `PIXB` → tiny `PIXM` with `FLAG_STALE` | invalidated; rebuild on next use |
 | Truthful empty store | valid metadata, `leafCount = 0` | zero-record root; still valid |
-| Legacy layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ current | older store → rebuild (§12) |
+| Unsupported/corrupt layout | slot-0 bytes are not `PIXB`, or `PIXM` version ≠ 0 | decline; maintenance fails closed |
 
-### 5.4 The fence chunks — a carry-forward zone map
+### 5.4 The order/fence chunks — local routing units
 
-Incremental maintenance needs, once per commit, the `(firstRecordKey,
-lastRecordKey)` range of every leaf: the ascending **zone map** it two-pointer
--merges dirty record keys against to find which leaves a write touched (§6.3).
-That is 16 bytes per leaf — ~1.5 MB at 100k leaves.
+Incremental maintenance needs two independent facts: the physical leaves in
+document order, and the numeric ranges of only the normal routing-backbone
+rows. V0 stores both explicitly. Initial-build leaves are immutable base
+heads; locally allocated split leaves are linked after them in document order
+and into a bounded numeric skip tower when they contain at least one normal
+row. Exception-only leaves remain in the document chain with the sentinel
+fence `[MAX_VALUE, MIN_VALUE]` and are reached only through exact locators.
 
-Keeping it inside the slot-0 blob meant every commit re-persisted the whole
-array (one leaf moved → the blob's hash changed → the entire 1.5 MB was
-rewritten), and copy-on-write history keeps each rewrite forever: ~1.5 MB of
-permanent growth *per commit*. So the fences live in their own fixed-size
-**chunks** instead:
+Keeping this state in one slot-0 array would make every local splice rewrite
+the whole index-order map, and copy-on-write history would retain every copy.
+It therefore lives in fixed-size persistent units:
 
-- One chunk per **512 row groups** (8 KiB of raw `(first, last)` longs), stored
-  as a `PIXB` blob at reserved slot key `(1 << 42) + chunkIndex`. That base has
-  to clear every row-group slot: with a composite key of `rowGroupId << 16` and
-  `rowGroupId` bounded at 2^24, the highest leaf slot is 2^40, so the old 2^40
-  base — chosen when the shift was 8 bits — would have aliased. 2^42 sits above
-  both layouts' ranges and still below the side map's 2^47 owner-slot ceiling,
-  so a fence chunk that spills to an `OverflowPage` keys legally. Row-group
-  probing, which stops at the first empty descriptor slot, never reaches the
-  chunks.
+- One chunk per **32 physical row groups**, stored as a `PIXB` blob at reserved
+  slot key `(1 << 42) + chunkIndex`. That base clears every composite row-group
+  slot and stays below the side map's owner-slot ceiling. Each 144-byte entry
+  carries normal first/last keys, previous/next document links, the immutable
+  base owner, numeric skip links, the base high-water boundary, and a free-list
+  link. A 32-entry chunk is about 4.5 KiB.
 - Writing a chunk goes through the same `putBlob` carry-forward: an unchanged
   chunk (same length + hash) is a **no-op**, its `OverflowPage` shared by
-  reference. A commit that touches a handful of leaves rewrites only the one or
-  two chunks those leaves fall in (plus the tail chunk for appends) — a
-  pure-append commit rewrites just the tail chunk (8 KiB). Per-commit growth
-  drops from ~1.5 MB to ~8–24 KB (≈ 65–195×).
-- Chunks stay **referenced** (not inline): at 8 KiB, inlining them would bloat
-  the HOT leaf pages that hold the fence slots, defeating the point.
+  reference. A commit rewrites only chunks containing links or fences that it
+  actually changed; there is no whole-fence-array rewrite.
+- Chunks stay **referenced** (not inline): at about 4.5 KiB, inlining them would
+  bloat the HOT leaf pages that hold the slots, defeating the point.
 
-The fences are a **writer-only** zone map — the builder writes them, the change
-listener reads and rewrites them, and nothing on the query/hydrate path ever
-touches them. A missing or wrong-sized chunk therefore never returns a wrong
-answer: the reader reports it as unreadable and maintenance falls back to a
-full rebuild. Implementation: `ProjectionIndexFences` (`write`/`read`, plus
-orphan-chunk tombstoning when a rebuild shrinks the leaf count).
+The change listener reads these chunks lazily for exact placement; hydration
+reads their explicit physical document order before assembling row groups. A
+missing, malformed, cyclic, duplicate, or incomplete order fails closed—it is
+never replaced by physical-slot or numeric-key order. Implementation:
+`ProjectionIndexFences` (`Accessor` for lazy lookup/touched writes, plus
+`write`/`readPhysicalOrder` for creation and hydration).
 
 ---
 
@@ -617,8 +615,8 @@ sequenceDiagram
         B->>B: accumulate fence pair
     end
     B->>S: tombstone orphan slots<br/>above new leafCount
-    B->>M: putBlob(slot 0, PIXM shape)<br/>written LAST
     B->>S: ProjectionIndexFences.write<br/>(fence chunks, carry-forward)
+    B->>M: putBlob(slot 0, PIXM shape)<br/>written STRICTLY LAST
 ```
 
 Writing metadata **last** means a crash mid-build leaves the old metadata
@@ -674,10 +672,10 @@ Details that make this correct under versioning:
   residency** (`moveSegmentRefsAfterSplit`) — correct even for the
   discriminative-bit splits, whose partition is not contiguous in key
   order.
-- HOT structural rebuild paths that don't carry refs (subtree merge,
-  two-leaf migration, hoist-and-reroute) carry loud
-  `segmentRefCount > 0` backstops — they throw rather than silently drop a
-  reference.
+- A projection writer never invokes the generic arbitrary-subtree rebuild
+  path. Bounded local split/splice code routes every referenced segment by its
+  owner slot and re-encodes only the affected leaves and ancestor spine; loud
+  backstops reject any path that cannot prove reference preservation.
 
 ### 6.3 Hash-based no-op sharing
 
@@ -697,8 +695,8 @@ Determinism makes this sound: dictionary interning is append-only
 first-occurrence order, extraction replay is order-stable, and FSST
 symbol-table training is deterministic given identical input — so an
 untouched column re-encodes to byte-identical output and hashes equal.
-Consequence: even a **full rebuild** shares every unchanged leaf's segments
-by reference; only genuinely-changed bytes hit the disk.
+Consequence: explicit re-creation can share unchanged leaf segments by
+reference; ordinary maintenance never performs that global walk.
 
 ### 6.4 Update containment, honestly scoped
 
@@ -783,7 +781,7 @@ negative cache prevents re-probing per query.
 
 ---
 
-## 8. Incremental maintenance and the degradation ladder
+## 8. Incremental maintenance and bounded ownership
 
 `ProjectionIndexChangeListener` hooks every commit of a resource with
 projections:
@@ -791,28 +789,30 @@ projections:
 ```mermaid
 flowchart TD
     C["commit with N modified nodes"] --> A["attribute dirty nodes to records<br/>under the projection root"]
-    A -- "unattributable<br/>(subtree moves...)" --> RB
-    A --> F["read fence chunks<br/>(reassemble zone map)"]
-    F --> M["two-pointer merge dirty keys<br/>vs per-leaf fence ranges"]
-    M --> T["re-extract each touched leaf<br/>from the document"]
-    T --> E["re-encode; hash-compare;<br/>write only changed segments"]
-    E --> S["rewrite slot 0 (shape) +<br/>changed fence chunks only"]
-    F -- "chunk missing / wrong size" --> RB
-    M -- "> maxIncrementalRecords<br/>or non-ascending fences" --> RB["same-commit rebuildFully()"]
-    RB -- "rebuild throws<br/>(e.g. nested-root shape)" --> TS["stale tombstone over slot 0<br/>(corruption valve)"]
-    T -- "inconsistency detected" --> RB
+    A -- "unattributable<br/>(subtree moves...)" --> FC["fail transaction before commit"]
+    A --> F["lazily read fence chunks"]
+    F --> M["binary-search dirty keys<br/>in chunked fences"]
+    M --> T["re-extract changed rows/columns<br/>within touched leaves"]
+    T --> E["re-encode only dirty columns;<br/>write only changed segments"]
+    E --> S["rewrite touched locator/fence,<br/>Bloom, summary, dictionary units"]
+    S --> P["publish slot 0 metadata<br/>STRICTLY LAST"]
+    F -- "chunk missing / wrong size" --> FC
+    T -- "inconsistency detected" --> FC
 ```
 
 Properties worth naming:
 
-- **Appends always classify cleanly**: record keys are monotone (node-key
-  allocation is monotone — an explicit invariant), so new records always
-  land at the tail.
-- The ladder never blocks a commit: the worst case is a tombstone, which
-  degrades queries to the fallback until the next
-  `jn:create-projection-index` (or first-use rebuild).
-- The rebuild rung, routed through hash-compare no-op writes, shares every
-  unchanged leaf's segments — softening the `maxIncrementalRecords` cliff.
+- **First, middle, and tail changes are positional**: allocation makes a new
+  record key fresh, but says nothing about its document position. Maintenance
+  derives predecessor/successor anchors from the document, resolves existing
+  rows through exact locator-or-fence lookup, and splices only the affected
+  bounded row groups. A new middle row and a moved normal row become sparse
+  exceptions; only a proven high-key tail row extends the normal backbone.
+- There is no dirty-count cliff or ordinary full-rebuild rung. Work and
+  transient state remain proportional to touched persistent units.
+- Subtree moves snapshot record roots and their outside anchors before and
+  after pointer surgery. The same local remove/splice machinery handles
+  reordering and moves into or out of the projected record set.
 
 ### 8.1 Time travel: what sharing looks like across revisions
 
@@ -1022,7 +1022,7 @@ Three storage classes, two versioning behaviours:
 |---|---|---|
 | **Descriptor slots and inline segment slots** | HOT slot values: the zone-map-only `PIXD` directory at `slotKind 0` (§5.1), and every segment ≤ 512 B riding its own slot behind a discriminator byte | **Rides the algorithm (§8.3).** A slot value is a fragment-versioned unit — a non-FULL commit writes a sparse HOT fragment for touched slots; a read combines up to `revsToRestore` fragments newest-first. Small columns version as slots of their own, next to the descriptor rather than inside it. |
 | **Referenced large segments** | any segment over 512 B: its bytes go to an `OverflowPage` (the retired `ProjectionSegmentPage`'s replacement) hung off the side map, its slot keeps only the discriminator | **No fragment versioning.** Offset identity — immutable once written, keyed by file offset, never merged; shared across revisions purely by reference, reuse decided by content hash (§6.3), independent of the algorithm. |
-| **Fence chunks** | the writer-only per-row-group key-range zone map, 512 row groups/chunk in an `OverflowPage` (§5.4) | **Carry-forward, off the read path.** An unchanged chunk is a hash no-op; a touched commit rewrites only its one or two chunks. Never reconstructed at query time. |
+| **Order/fence chunks** | explicit document links plus normal-backbone routing metadata, 32 physical row groups/chunk in an `OverflowPage` (§5.4) | **Carry-forward.** An unchanged chunk is a hash no-op; a touched commit rewrites only chunks containing changed links/fences. Hydration reads the validated document order, while maintenance lazily reads numeric routing. |
 
 For the running 3-column example every segment is tiny (~149 B total) so **all
 five inline** into their slots: the row group is a ~187 B descriptor plus five
@@ -1253,10 +1253,11 @@ day-to-day behavior:
   contiguous). `getLeaf` returns null only for the former; the
   truncated-store check counts descriptors, so mid-store empty leaves never
   trip fail-soft.
-- **Contiguity is enforced, not assumed**: the full read validates that the
-  descriptor slots it scanned are exactly `{1..rowGroupCount}` and fails loudly
-  on a gap, a duplicate, or an orphan above the count — any of those means
-  storage corruption, not a sparse store.
+- **Physical order is explicit and validated**: base slots start contiguous,
+  but local splits and recycling may leave a live physical slot above the live
+  row-group count. The order header and chunk links must account for every
+  physical slot exactly once as live or free, with no gap, duplicate, cycle,
+  or broken previous link. Hydration follows that validated order.
 - **The column cap** (`3c + 2 ≤ 65535` → 21 844) fails fast at creation, and
   the segment-id math (`checkColumn`) refuses out-of-range columns before a
   narrowing cast could silently wrap one column's segment onto another's. It
@@ -1271,42 +1272,13 @@ day-to-day behavior:
   cache invalidation), so a drop → recreate with fewer leaves can never
   resolve old segment pages through stale descriptors.
 
-## 12. Migration from the interim chunked layout
+## 12. V0 format identity and failure policy
 
-No version bump — detection is **structural** (§6 of the redesign; project
-convention: no deployed databases, and the version gate is reserved for
-future wire changes):
-
-```mermaid
-flowchart TD
-    O["open store, probe slot 0"] --> P{"slot-0 payload<br/>starts with PIXB?"}
-    P -- yes --> N["new layout: read PIXM, serve"]
-    P -- no --> L["legacy chunked store detected"]
-    L --> R["storage.resetTree():<br/>swap the definition's sub-tree<br/>for a fresh empty one"]
-    R --> RB["rebuild on first use<br/>(always-maintained contract)"]
-```
-
-Selective in-place conversion is impossible by design: legacy composite
-chunk keys (`leafIndex << 8 | chunkIdx`) and new slot keys are
-indistinguishable at the HOT layer, and value sniffing is forbidden — so
-the whole sub-tree is swapped. Old pages stay on disk (append-only store);
-only a resource copy/re-import sheds them.
-
-The same reset covers a sub-tree written before the descriptor layout was
-retired in favour of segment ⇔ slot (§3). Such a store holds its row groups at
-**raw** slot ids, which the segment-slot layout never writes, so a raw-keyed
-slot 1 is an unambiguous witness and `priorMetadata` resets on it. It has to:
-a rebuild writing composite-keyed row groups into a raw-keyed sub-tree leaks
-the old ones below 65 536 row groups, and at or above that raw slot 65536
-aliases *exactly* onto composite key `(rowGroupId=1, slotKind=0)`, after which
-every read throws "mixed storage layouts in one sub-tree" with no way back.
-Since the descriptor layout has no code path left, no future store can be
-written in it — this is a one-way door that is now closed behind us.
-
-An orphan-recovery path covers the pathological case of tombstoned
-metadata over live row groups: `probeLiveRowGroupCount` walks descriptor slots
-directly (bounded at 2²⁴) so a rebuild can tombstone stale remnants it can no
-longer enumerate via metadata.
+No older projection-format reader or migration bridge is implemented. Every
+current projection envelope and payload emits version zero; unknown version
+bytes decline at serving boundaries and fail ordinary maintenance before
+publication. Explicit index creation or recreation constructs a fresh CoW
+sub-tree and does not define an on-open migration contract.
 
 ## 13. Performance positioning
 
@@ -1359,15 +1331,15 @@ noted)*
 
 | Term | Meaning |
 |---|---|
-| **Record / record key** | One JSON object under the projection's root path; its record key is the document node key — a stable 64-bit id that never changes, assigned in ascending order. |
+| **Record / record key** | One JSON node (commonly an array item) or XML element matching the projection root; its record key is the document node key — a stable 64-bit identity allocated monotonically in time, **not** a document-order label. Rows stay in explicit document order; inversions use sparse order-exception bits and exact locators. |
 | **Leaf (logical leaf) / row group** | Up to 1024 consecutive records' worth of columns — the unit of extraction, encoding, and maintenance. Not to be confused with a HOT leaf *page*. This document says *leaf*; the code says **row group** (`RowGroupDescriptor`, `ProjectionIndexRowGroupPage`, `rowGroupId`). Same thing. |
 | **Descriptor (`PIXD`)** | The ~100–200 byte summary of one row group, stored as the HOT slot value at `slotKind 0`: row count, column kinds, fences, and one entry (id, length, hash, stats) per segment. Zone map only — it names and vouches for segments, it does not hold their bytes. |
 | **Segment** | One column's `n` rows for a single row group (`n` = its row count, ≤ 1024) — *not* the whole column, which is sliced into ~one segment per row group. Forms: `KEYS` (the record-key "column"), `BODY(c)` (column `c`'s flags + presence + values), or `DICT(c)` (a string column's dictionary). Every segment gets **its own HOT slot** (1:1), inline in that slot's value when small, else in its own referenced page. |
 | **Segment storage (inline vs referenced)** | A small segment (≤ 512 B) rides its own slot's value behind a discriminator byte; a larger one lives in an `OverflowPage`, identified by file offset, immutable once written, shared across revisions by reference. |
-| **Slot key** | `(rowGroupId << 16) \| slotKind` — `slotKind 0` is the row group's descriptor, `slotKind segmentId + 1` that segment's bytes. Slot 0 is the `PIXM` metadata; keys at or above `1 << 42` are fence chunks. One row group's slots are key-adjacent, which is what lets a full read be one range scan. |
+| **Slot key** | `(physicalRowGroupSlot << 16) \| slotKind` — `slotKind 0` is the row group's descriptor, `slotKind segmentId + 1` that segment's bytes. Slot 0 is the `PIXM` metadata; keys at or above `1 << 42` are order/fence chunks. One physical row group's segments are key-adjacent; logical document order comes from the validated order links. |
 | **Side map** | A small map on the HOT leaf page — `(ownerSlot, subId) → PageReference` — connecting a *referenced* segment slot to the page holding its bytes. Serialized with the page but outside slot values. |
 | **HOT trie** | Height Optimized Trie — the ordered key→value index structure that maps slot keys to descriptors. One per projection definition. |
-| **Fences** | The first and last record key of a leaf. Maintenance uses them to find which leaves a commit touched with one metadata read. |
+| **Fences** | The first and last non-exception record key of a physical leaf. Normal lookup uses the base high-water table and local numeric skip links; exception lookup uses an exact sparse locator. |
 | **Zone map** | Per-column min/max kept in the descriptor and BODY segment; lets queries skip whole leaves without reading values. |
 | **Presence bitmap** | One bit per row per column: is the field present on this record? Missing fields are first-class (JSON is sparse). |
 | **Provenance flags** | Per-column sticky truth bits (`UNREPRESENTABLE`, `NON_INTEGRAL`, …) recording anything that would make fast-path answers inexact. Serving gates read them and decline rather than risk a wrong answer. |

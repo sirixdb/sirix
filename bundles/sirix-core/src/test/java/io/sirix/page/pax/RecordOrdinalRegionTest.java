@@ -3,12 +3,15 @@ package io.sirix.page.pax;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Random;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -72,6 +75,65 @@ final class RecordOrdinalRegionTest {
     for (int i = 0; i < 3; i++) {
       assertEquals(0, RecordOrdinalRegion.ordinalAt(seg, h, i));
     }
+  }
+
+  @Test
+  @DisplayName("encodeInto is wire-identical across width-10/width-0 scratch reuse")
+  void encodeIntoIsWireIdenticalAcrossScratchReuse() {
+    final long[] maximum = new long[1024];
+    for (int i = 0; i < maximum.length; i++) {
+      maximum[i] = BASE + i;
+    }
+    final long[] singleRecord = onPage(7, 7, 7);
+    final byte[] expectedMaximum = RecordOrdinalRegion.encode(maximum, BASE, maximum.length);
+    final byte[] expectedSingle = RecordOrdinalRegion.encode(singleRecord, BASE, singleRecord.length);
+    final byte[] reusable = new byte[RecordOrdinalRegion.maxEncodedSize()];
+
+    int length = RecordOrdinalRegion.encodeInto(maximum, BASE, maximum.length, reusable);
+    assertEquals(expectedMaximum.length, length);
+    assertArrayEquals(expectedMaximum, Arrays.copyOf(reusable, length));
+
+    Arrays.fill(reusable, (byte) 0x7F);
+    length = RecordOrdinalRegion.encodeInto(singleRecord, BASE, singleRecord.length, reusable);
+    assertEquals(expectedSingle.length, length);
+    assertArrayEquals(expectedSingle, Arrays.copyOf(reusable, length),
+        "the zero-width payload must not retain packed bits from the maximum-width page");
+
+    Arrays.fill(reusable, (byte) 0x55);
+    length = RecordOrdinalRegion.encodeInto(maximum, BASE, maximum.length, reusable);
+    assertArrayEquals(expectedMaximum, Arrays.copyOf(reusable, length));
+  }
+
+  @Test
+  @DisplayName("encodeInto retains the exact V1 little-endian packed wire layout")
+  void encodeIntoMatchesFixedWireFixture() {
+    final byte[] expected = {1, 6, 0, 0, 0, 3, 0, 2, 0x50, 0x0A};
+    final byte[] reusable = new byte[expected.length];
+
+    final int length = RecordOrdinalRegion.encodeInto(
+        onPage(0, 0, 3, 3, 6, 6), BASE, 6, reusable);
+
+    assertEquals(expected.length, length);
+    assertArrayEquals(expected, reusable);
+  }
+
+  @Test
+  @DisplayName("encodeInto preserves refusal semantics and validates capacity")
+  void encodeIntoRefusalAndCapacityValidation() {
+    final byte[] reusable = new byte[RecordOrdinalRegion.maxEncodedSize()];
+    assertEquals(RecordOrdinalRegion.ENCODE_FAILED,
+        RecordOrdinalRegion.encodeInto(null, BASE, 4, reusable));
+    assertNull(RecordOrdinalRegion.encode(new long[0], BASE, 0),
+        "the legacy encoder refuses an empty ordinal column");
+    assertEquals(RecordOrdinalRegion.ENCODE_FAILED,
+        RecordOrdinalRegion.encodeInto(new long[] {BASE - 5, BASE - 5}, BASE, 2, reusable));
+    assertEquals(RecordOrdinalRegion.ENCODE_FAILED,
+        RecordOrdinalRegion.encodeInto(new long[] {BASE, BASE, BASE - 5, BASE + 3}, BASE, 4, reusable));
+
+    final long[] parentKeys = onPage(0, 0, 3, 3, 6, 6);
+    final int required = RecordOrdinalRegion.encodedSize(parentKeys.length, 3);
+    assertThrows(IllegalArgumentException.class,
+        () -> RecordOrdinalRegion.encodeInto(parentKeys, BASE, parentKeys.length, new byte[required - 1]));
   }
 
   /**

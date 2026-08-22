@@ -64,7 +64,8 @@ import org.jspecify.annotations.Nullable;
  *
  * @author Johannes Lichtenberger
  */
-public final class ObjectNode extends AbstractFlyweightNode implements StructNode, ImmutableJsonNode, FlyweightNode {
+public final class ObjectNode extends AbstractFlyweightNode
+    implements StructNode, ImmutableJsonNode, FlyweightNode, DeltaVarIntCodec.FieldEncoder {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -122,6 +123,23 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   private KeyValueLeafPage ownerPage;
 
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_FIELD_COUNT;
+
+  /** No synchronous field resize is currently using this flyweight as its primitive encoder. */
+  private static final int NO_RESIZE_FIELD = -1;
+
+  /**
+   * Field selected for one synchronous {@link KeyValueLeafPage#resizeRecordField} call.
+   *
+   * <p>The new primitive lives in {@link #resizeValueScratch} until the owner page publishes the new
+   * directory entry. Only then is the corresponding Java cache field updated. Using the flyweight
+   * itself as the encoder removes the captured {@code FieldEncoder} object formerly allocated on
+   * every varint-width change. Object nodes and their owner pages are transaction-thread confined;
+   * no callback state is shared between nodes or threads.</p>
+   */
+  private int resizeFieldIndex = NO_RESIZE_FIELD;
+
+  /** Primitive value for the one synchronous resize selected by {@link #resizeFieldIndex}. */
+  private long resizeValueScratch;
 
   /**
    * Constructor for flyweight binding.
@@ -437,9 +455,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeParentKey(final long parentKey) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_PARENT_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
+    resizeBoundField(NodeFieldLayout.OBJECT_PARENT_KEY, parentKey);
   }
 
   @Override
@@ -498,9 +514,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizePreviousRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_PREV_REVISION, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
+    resizeBoundField(NodeFieldLayout.OBJECT_PREV_REVISION, revision);
   }
 
   @Override
@@ -522,9 +536,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLastModifiedRevision(final int revision) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_LAST_MOD_REVISION, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
+    resizeBoundField(NodeFieldLayout.OBJECT_LAST_MOD_REVISION, revision);
   }
 
   @Override
@@ -596,9 +608,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeRightSiblingKey(final long rightSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
+    resizeBoundField(NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, rightSibling);
   }
 
   @Override
@@ -627,9 +637,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLeftSiblingKey(final long leftSibling) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_LEFT_SIB_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
+    resizeBoundField(NodeFieldLayout.OBJECT_LEFT_SIB_KEY, leftSibling);
   }
 
   @Override
@@ -658,9 +666,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeFirstChildKey(final long firstChild) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, firstChild, nodeKey));
+    resizeBoundField(NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, firstChild);
   }
 
   @Override
@@ -689,9 +695,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeLastChildKey(final long lastChild) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_LAST_CHILD_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, lastChild, nodeKey));
+    resizeBoundField(NodeFieldLayout.OBJECT_LAST_CHILD_KEY, lastChild);
   }
 
   @Override
@@ -723,9 +727,7 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeChildCount(final long childCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_CHILD_COUNT, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
+    resizeBoundField(NodeFieldLayout.OBJECT_CHILD_COUNT, childCount);
   }
 
   @Override
@@ -757,9 +759,114 @@ public final class ObjectNode extends AbstractFlyweightNode implements StructNod
   }
 
   private void resizeDescendantCount(final long descendantCount) {
-    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJECT_DESCENDANT_COUNT, NodeFieldLayout.OBJECT_FIELD_COUNT,
-        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
+    resizeBoundField(NodeFieldLayout.OBJECT_DESCENDANT_COUNT, descendantCount);
+  }
+
+  /**
+   * Resize one bound primitive without allocating a captured encoder.
+   *
+   * <p>The owner publishes the copied record and rebinds this flyweight synchronously. The semantic
+   * Java field is updated only after that publication succeeds. On every failure the old bound page
+   * therefore remains the getter/wire source, and the {@code finally} block makes the encoder safe
+   * for the next mutation.</p>
+   */
+  private void resizeBoundField(final int fieldIndex, final long value) {
+    final KeyValueLeafPage owner = armBoundFieldResize(fieldIndex, value);
+    try {
+      owner.resizeRecordField(this, nodeKey, slotIndex, fieldIndex, FIELD_COUNT, this);
+      publishResizedField(fieldIndex, value);
+    } finally {
+      clearBoundFieldResize();
+    }
+  }
+
+  /**
+   * Exercise the exceptional owner-call edge without putting a hook, volatile read, or callback
+   * branch on the production resize path. The supplied attempt must throw before publication.
+   */
+  void exerciseFailingResizeForTest(final int fieldIndex, final long value,
+      final Runnable failingResizeAttempt) {
+    Objects.requireNonNull(failingResizeAttempt);
+    armBoundFieldResize(fieldIndex, value);
+    try {
+      failingResizeAttempt.run();
+      throw new AssertionError("The injected ObjectNode resize attempt must fail");
+    } finally {
+      clearBoundFieldResize();
+    }
+  }
+
+  private KeyValueLeafPage armBoundFieldResize(final int fieldIndex, final long value) {
+    if (resizeFieldIndex != NO_RESIZE_FIELD) {
+      throw new IllegalStateException(
+          "Reentrant ObjectNode field resize: active=" + resizeFieldIndex + ", requested=" + fieldIndex);
+    }
+    final KeyValueLeafPage owner = ownerPage;
+    if (owner == null) {
+      throw new IllegalStateException("Bound ObjectNode has no owner page for field resize");
+    }
+    if (!isResizableField(fieldIndex)) {
+      throw new IllegalArgumentException("ObjectNode field " + fieldIndex + " is not variable-width");
+    }
+
+    resizeFieldIndex = fieldIndex;
+    resizeValueScratch = value;
+    return owner;
+  }
+
+  private void clearBoundFieldResize() {
+    resizeValueScratch = 0L;
+    resizeFieldIndex = NO_RESIZE_FIELD;
+  }
+
+  private static boolean isResizableField(final int fieldIndex) {
+    return fieldIndex == NodeFieldLayout.OBJECT_PARENT_KEY
+        || fieldIndex == NodeFieldLayout.OBJECT_RIGHT_SIB_KEY
+        || fieldIndex == NodeFieldLayout.OBJECT_LEFT_SIB_KEY
+        || fieldIndex == NodeFieldLayout.OBJECT_FIRST_CHILD_KEY
+        || fieldIndex == NodeFieldLayout.OBJECT_LAST_CHILD_KEY
+        || fieldIndex == NodeFieldLayout.OBJECT_PREV_REVISION
+        || fieldIndex == NodeFieldLayout.OBJECT_LAST_MOD_REVISION
+        || fieldIndex == NodeFieldLayout.OBJECT_CHILD_COUNT
+        || fieldIndex == NodeFieldLayout.OBJECT_DESCENDANT_COUNT;
+  }
+
+  /** Publish the Java-side cache only after the page has atomically installed the resized record. */
+  private void publishResizedField(final int fieldIndex, final long value) {
+    switch (fieldIndex) {
+      case NodeFieldLayout.OBJECT_PARENT_KEY -> parentKey = value;
+      case NodeFieldLayout.OBJECT_RIGHT_SIB_KEY -> rightSiblingKey = value;
+      case NodeFieldLayout.OBJECT_LEFT_SIB_KEY -> leftSiblingKey = value;
+      case NodeFieldLayout.OBJECT_FIRST_CHILD_KEY -> firstChildKey = value;
+      case NodeFieldLayout.OBJECT_LAST_CHILD_KEY -> lastChildKey = value;
+      case NodeFieldLayout.OBJECT_PREV_REVISION -> previousRevision = (int) value;
+      case NodeFieldLayout.OBJECT_LAST_MOD_REVISION -> lastModifiedRevision = (int) value;
+      case NodeFieldLayout.OBJECT_CHILD_COUNT -> childCount = value;
+      case NodeFieldLayout.OBJECT_DESCENDANT_COUNT -> descendantCount = value;
+      default -> throw new AssertionError("Unexpected ObjectNode resize field " + fieldIndex);
+    }
+  }
+
+  /** Encode the armed primitive directly into the owner's new record body. */
+  @Override
+  public int encode(final MemorySegment target, final long offset) {
+    final int fieldIndex = resizeFieldIndex;
+    final long value = resizeValueScratch;
+    return switch (fieldIndex) {
+      case NodeFieldLayout.OBJECT_PARENT_KEY,
+           NodeFieldLayout.OBJECT_RIGHT_SIB_KEY,
+           NodeFieldLayout.OBJECT_LEFT_SIB_KEY,
+           NodeFieldLayout.OBJECT_FIRST_CHILD_KEY,
+           NodeFieldLayout.OBJECT_LAST_CHILD_KEY ->
+          DeltaVarIntCodec.writeDeltaToSegment(target, offset, value, nodeKey);
+      case NodeFieldLayout.OBJECT_PREV_REVISION,
+           NodeFieldLayout.OBJECT_LAST_MOD_REVISION ->
+          DeltaVarIntCodec.writeSignedToSegment(target, offset, (int) value);
+      case NodeFieldLayout.OBJECT_CHILD_COUNT,
+           NodeFieldLayout.OBJECT_DESCENDANT_COUNT ->
+          DeltaVarIntCodec.writeSignedLongToSegment(target, offset, value);
+      default -> throw new IllegalStateException("ObjectNode resize encoder is not armed");
+    };
   }
 
   @Override

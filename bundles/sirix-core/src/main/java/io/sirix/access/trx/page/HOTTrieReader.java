@@ -277,7 +277,18 @@ public final class HOTTrieReader implements AutoCloseable {
     // on what "read-only snapshot" means — the intent-log test is the property that actually
     // matters, and it is strictly the more conservative of the two.
     this.firstKeyCacheEnabled = !storageEngineReader.hasTrxIntentLog();
+    // Span-hint capability, resolved once: a backend advertising a prefetch batch takes the
+    // ZERO-THREAD advisory route (one batched WILLNEED/ring submit per sibling window) instead
+    // of the virtual-thread read pool — the vthread route stays as the opt-in for backends
+    // without the primitive (see the NativeThreadSet lock findings above PREFETCH_LIMIT).
+    this.spanPrefetchCapable = storageEngineReader.recordPagePrefetchBatch() > 0;
   }
+
+  /** See the constructor. */
+  private final boolean spanPrefetchCapable;
+
+  /** Scratch for the span-hint sibling window (transaction-confined, like this reader). */
+  private final PageReference[] spanScratch = new PageReference[PREFETCH_WINDOW];
 
   /** See the constructor — memoized first-key probes are restricted to read-only snapshots. */
   private final boolean firstKeyCacheEnabled;
@@ -1317,6 +1328,21 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx, final int numChildren) {
     final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
+    if (spanPrefetchCapable) {
+      // One batched span hint for the whole window: zero threads, zero locks, and the
+      // backend coalesces (WILLNEED readahead on mmap; one ring submit on io_uring).
+      int n = 0;
+      for (int i = startIdx; i < end; i++) {
+        final PageReference ref = parent.getChildReference(i);
+        if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
+          spanScratch[n++] = ref;
+        }
+      }
+      if (n > 0) {
+        storageEngineReader.prefetchPageSpans(spanScratch, n);
+      }
+      return;
+    }
     for (int i = startIdx; i < end; i++) {
       final PageReference ref = parent.getChildReference(i);
       if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
@@ -1444,6 +1470,24 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
+   * Resolve {@code ref} to its page — the public form of the descent's page load, for consumers that
+   * enumerate a subtree's references themselves instead of walking it with a cursor.
+   *
+   * <p>
+   * A resolved {@link HOTLeafPage} becomes this reader's current leaf with its optimistic stamp
+   * snapshotted, so the caller reads its content under the same discipline the cursor uses:
+   * {@link #validateCurrentLeaf()} before any result escapes, {@link #recoverTorn} to re-read on a
+   * freshly reloaded copy. An indirect page carries no stamp — it is never closed by eviction, only
+   * de-swizzled.
+   *
+   * @return the page, or {@code null} when the reference resolves to nothing
+   */
+  public @Nullable Page resolvePage(final PageReference ref) {
+    Objects.requireNonNull(ref);
+    return loadPage(ref);
+  }
+
+  /**
    * Whether every read of {@link #currentLeaf}'s content since {@link #loadPage} resolved it saw
    * stable bytes. One call covers the whole batch of reads since the snapshot.
    */
@@ -1502,6 +1546,13 @@ public final class HOTTrieReader implements AutoCloseable {
    * </p>
    */
   private void prefetchPage(PageReference ref) {
+    if (spanPrefetchCapable) {
+      // Zero-thread advisory route: a single-ref span hint (madvise/ring submit) replaces the
+      // virtual-thread read — same skip-safe contract, no permits, no thread churn.
+      spanScratch[0] = ref;
+      storageEngineReader.prefetchPageSpans(spanScratch, 1);
+      return;
+    }
     final Semaphore limit = PREFETCH_LIMIT;
     if (!limit.tryAcquire()) {
       // Either (a) prefetching disabled (N=0 permits) or (b) cap reached.

@@ -93,6 +93,13 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    */
   private volatile SirixVectorizedExecutor autoExecutor;
 
+  /** Set before teardown starts so a concurrent compile cannot publish an executor after close. */
+  private volatile boolean closed;
+
+  /** Terminal fence and bounded lazy-result cursor pool shared by every revision executor. */
+  private final SirixVectorizedExecutor.ExecutionLifecycle executorLifecycle =
+      new SirixVectorizedExecutor.ExecutionLifecycle();
+
   /** Sentinel: resolve the auto-executor revision to the session's most recent at first compile. */
   private static final int MOST_RECENT_REVISION = -1;
 
@@ -356,7 +363,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // A session-bound chain already knows its resource; only a store-only chain has to read it off
     // the query.
     this.storeBoundExecutors = autoWire && AUTO_VECTORIZE_ENABLED && autoExecutorSession == null
-        ? new StoreBoundExecutorCache(this.jsonItemStore)
+        ? new StoreBoundExecutorCache(this.jsonItemStore, executorLifecycle)
         : null;
   }
 
@@ -367,7 +374,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * than rebuilding.
    */
   private SirixVectorizedExecutor ensureAutoExecutor() {
-    if (autoExecutorSession == null)
+    if (autoExecutorSession == null || closed && !executorLifecycle.isEnteredByCurrentThread())
       return null;
     SirixVectorizedExecutor exec = autoExecutor;
     // A chain pinned to an explicit revision keeps one executor for its whole life; that revision
@@ -376,9 +383,12 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       if (exec != null)
         return exec;
       synchronized (this) {
+        if (closed && !executorLifecycle.isEnteredByCurrentThread()) {
+          return null;
+        }
         exec = autoExecutor;
         if (exec == null) {
-          exec = new SirixVectorizedExecutor(autoExecutorSession, autoExecutorRevision);
+          exec = new SirixVectorizedExecutor(autoExecutorSession, autoExecutorRevision, executorLifecycle);
           autoExecutor = exec;
         }
       }
@@ -389,30 +399,31 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     // columns — so holding on to the one built before a commit makes every later query on this
     // chain answer from the pre-commit state. It reads as a stale cache long after the write that
     // invalidated it, and only for callers that used the auto-wiring.
-    final int mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
+    int mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
     if (exec != null && exec.getRevision() == mostRecent)
       return exec;
+    SirixVectorizedExecutor superseded = null;
     synchronized (this) {
+      if (closed && !executorLifecycle.isEnteredByCurrentThread()) {
+        return null;
+      }
+      // A compile can wait here while another compile publishes a newer revision. Re-read after
+      // acquiring the monitor so the delayed compile cannot replace that executor with the stale
+      // "latest" revision it observed before waiting.
+      mostRecent = autoExecutorSession.getMostRecentRevisionNumber();
       exec = autoExecutor;
       if (exec == null || exec.getRevision() != mostRecent) {
-        final SirixVectorizedExecutor superseded = exec;
-        exec = new SirixVectorizedExecutor(autoExecutorSession, mostRecent);
+        superseded = exec;
+        exec = new SirixVectorizedExecutor(autoExecutorSession, mostRecent, executorLifecycle);
         autoExecutor = exec;
-        // Retire the one it replaces. Dropping the reference instead leaked a worker pool per
-        // revision advance — a long-lived chain compiling after each of N commits kept N-1 pools
-        // alive for its whole life, since close() only ever reached whatever autoExecutor held at
-        // the end. Closing is safe because a closed executor degrades rather than breaks: its scans
-        // run on the calling thread and its record transaction reopens, so a query already compiled
-        // against it keeps answering from the revision it was compiled for.
-        if (superseded != null) {
-          try {
-            superseded.close();
-          } catch (final Exception ignored) {
-            // Best-effort retirement — never fail a compile over it.
-          }
-        }
       }
     }
+    // Retire the one it replaces after releasing the chain monitor. Dropping the reference instead
+    // leaked a worker pool per revision advance, while retiring it under the monitor lets a slow
+    // warm-up teardown serialize every compile on this chain. Retirement leaves the shared
+    // admission/cursor lifecycle open: old compiled scans degrade inline and old lazy results
+    // rebind the chain's bounded consumer cursor to their immutable revision on demand.
+    retireExecutorQuietly(superseded);
     return exec;
   }
 
@@ -429,7 +440,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       // capture outlives the compile, and an executor is pinned to one revision, so a query
       // compiled once and executed again after a commit would otherwise keep answering from
       // before the write.
-      SequentialPipelineStrategy.setThreadVectorizedExecutor(new RevisionTrackingExecutor(this::ensureAutoExecutor));
+      SequentialPipelineStrategy.setThreadVectorizedExecutor(
+          new RevisionTrackingExecutor(this::ensureAutoExecutor, executorLifecycle));
       try {
         return super.compile(query);
       } finally {
@@ -476,8 +488,10 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     final StoreBoundExecutorCache.DocumentSource source = named != null
         ? named
         : BoundDocumentHint.peek();
-    if (source == null || storeBoundExecutors.resolve(source) == null) {
-      // Nothing to bind, or the document cannot be opened — compile the generic pipeline.
+    if (source == null) {
+      // Nothing to bind — compile the generic pipeline. Do not eagerly resolve here: every
+      // resolver-backed capability/gate below is lifecycle-admitted before it touches a session,
+      // and an unavailable document simply makes that wrapper decline the fast path.
       return ast;
     }
     // The compiled expression captures the indirection, so it re-resolves the document's CURRENT
@@ -488,7 +502,8 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
         new RevisionTrackingExecutor(() -> storeBoundExecutors.resolve(source),
             ref -> storeBoundExecutors.resolve(ref) == null
                 ? null
-                : () -> storeBoundExecutors.resolve(ref)));
+                : () -> storeBoundExecutors.resolve(ref),
+            executorLifecycle));
     return ast;
   }
 
@@ -541,21 +556,56 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   @Override
   public void close() {
-    final SirixVectorizedExecutor exec = autoExecutor;
-    if (exec != null) {
-      try {
-        exec.close();
-      } catch (final Exception ignored) {
-        // Best-effort close — don't mask store-close failures.
+    if (executorLifecycle.isEnteredByCurrentThread()) {
+      throw new IllegalStateException("Cannot close a Sirix compile chain from its admitted query work");
+    }
+    synchronized (this) {
+      if (closed) {
+        return;
       }
+      closed = true;
+    }
+    // One fence covers cached, current and already-evicted executors. It rejects work reaching a
+    // retired inline executor after terminal close and drains top-level calls admitted beforehand.
+    executorLifecycle.closeAndAwait();
+    final SirixVectorizedExecutor exec;
+    synchronized (this) {
+      // An admitted most-recent resolver is allowed to publish after terminal publication. The
+      // lifecycle drain above waits for it; capture only afterwards so that late executor is both
+      // closed and unlinked rather than retained by an already-closed chain.
+      exec = autoExecutor;
       autoExecutor = null;
     }
-    // Executors hold the resource sessions' shared read-only transactions, so they have to go
-    // before the stores that own those sessions.
+    closeExecutorQuietly(exec);
+    // Fence executor-owned warm-ups and pools before stores close their sessions.
     if (storeBoundExecutors != null) {
       storeBoundExecutors.close();
     }
     nodeStore.close();
     jsonItemStore.close();
+  }
+
+  /** Best-effort terminal executor close; always called after the shared chain fence. */
+  private static void closeExecutorQuietly(final SirixVectorizedExecutor executor) {
+    if (executor == null) {
+      return;
+    }
+    try {
+      executor.close();
+    } catch (final Exception ignored) {
+      // An executor teardown must not mask compilation or store-close failures.
+    }
+  }
+
+  /** Best-effort executor retirement; the shared chain lifecycle deliberately remains open. */
+  private static void retireExecutorQuietly(final SirixVectorizedExecutor executor) {
+    if (executor == null) {
+      return;
+    }
+    try {
+      executor.retire();
+    } catch (final Exception ignored) {
+      // Retirement must not mask compilation. Terminal chain close still owns the shared fence.
+    }
   }
 }

@@ -912,7 +912,12 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   }
 
   @Override
-  public synchronized void init(long maxBufferSize) {
+  public synchronized void init(long requestedBufferSize) {
+    final long maxBufferSize = MemorySegmentAllocator.clampToPhysicalHeadroom(requestedBufferSize);
+    if (maxBufferSize < requestedBufferSize) {
+      LOGGER.warn("Off-heap arena clamped from {} MB to {} MB to leave headroom for the heap and the OS",
+          requestedBufferSize / (1024 * 1024), maxBufferSize / (1024 * 1024));
+    }
     if (isInitialized.get()) {
       // Already initialized - just update max buffer size if needed
       long currentBufferSize = this.maxBufferSize.get();

@@ -26,9 +26,9 @@ import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
 import io.sirix.access.trx.node.json.objectvalue.NullValue;
-import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
@@ -96,6 +96,13 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
   /** Reusable value wrapper for pre-encoded UTF-8 string bytes (object record path). */
   private final ByteStringValue reusableByteStringValue = new ByteStringValue();
+
+  /**
+   * Reusable carrier for numeric object-record insertion. The transaction consumes the carrier
+   * synchronously; integral values stay primitive through the fused record writer, while rare
+   * decimal and big-number values retain the existing {@link Number} fallback.
+   */
+  private final ReusableNumberValue reusableNumberValue = new ReusableNumberValue();
 
   /** Reusable encode buffer — grows as needed, never shrinks. */
   private byte[] encodeBuf = new byte[256];
@@ -405,7 +412,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   private JsonToken processNumber() throws IOException {
-    final var number = JsonNumber.stringToNumber(parser.getText());
+    final var number = JsonNumber.fromJsonParser(parser);
     final var next = parser.nextToken();
     final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
     final var key = insertNumberValue(number, nextIsParent);
@@ -489,7 +496,10 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   private JsonToken processName() throws IOException {
-    final var name = parser.getText();
+    // currentName() returns Jackson's symbol-table canonical String for FIELD_NAME tokens.
+    // getText() materializes the token's TextBuffer as a fresh String (and backing byte[]) for
+    // every field occurrence, defeating name canonicalization on repetitive analytical rows.
+    final var name = parser.currentName();
     final var valueToken = parser.nextToken();
     return addObjectRecord(name, valueToken);
   }
@@ -795,8 +805,20 @@ public final class JacksonJsonShredder implements Callable<Long> {
       case VALUE_TRUE -> value = BooleanValue.of(true);
       case VALUE_FALSE -> value = BooleanValue.of(false);
       case VALUE_NULL -> value = NullValue.INSTANCE;
-      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT ->
-          value = new NumberValue(JsonNumber.stringToNumber(parser.getText()));
+      case VALUE_NUMBER_INT -> {
+        switch (parser.getNumberType()) {
+          case INT -> reusableNumberValue.setInt(parser.getIntValue());
+          case LONG -> reusableNumberValue.setLong(parser.getLongValue());
+          case BIG_INTEGER -> reusableNumberValue.set(JsonNumber.fromJsonParser(parser));
+          default -> throw new IllegalStateException(
+              "Unexpected integral number type: " + parser.getNumberType());
+        }
+        value = reusableNumberValue;
+      }
+      case VALUE_NUMBER_FLOAT -> {
+        reusableNumberValue.set(JsonNumber.fromJsonParser(parser));
+        value = reusableNumberValue;
+      }
       default -> throw new AssertionError("Unexpected value token: " + valueToken);
     }
 
@@ -938,6 +960,60 @@ public final class JacksonJsonShredder implements Callable<Long> {
    */
   public static JsonFactory getJsonFactory() {
     return JSON_FACTORY;
+  }
+
+  /**
+   * Mutable, shredder-local numeric value carrier. {@link JacksonJsonShredder} is deliberately
+   * single-threaded and object-record insertion does not retain an {@link ObjectRecordValue}, so
+   * the next parser token may safely replace the payload after the insertion call returns.
+   */
+  private static final class ReusableNumberValue implements PrimitiveNumberValue {
+
+    private byte primitiveType;
+    private long primitiveValue;
+    private Number value;
+
+    private void set(final Number value) {
+      this.value = requireNonNull(value);
+      primitiveType = NONE;
+    }
+
+    private void setInt(final int value) {
+      primitiveValue = value;
+      primitiveType = INT;
+      this.value = null;
+    }
+
+    private void setLong(final long value) {
+      primitiveValue = value;
+      primitiveType = LONG;
+      this.value = null;
+    }
+
+    @Override
+    public Number getValue() {
+      return switch (primitiveType) {
+        case INT -> Integer.valueOf((int) primitiveValue);
+        case LONG -> Long.valueOf(primitiveValue);
+        case NONE -> value;
+        default -> throw new IllegalStateException("Unknown primitive number type: " + primitiveType);
+      };
+    }
+
+    @Override
+    public byte primitiveType() {
+      return primitiveType;
+    }
+
+    @Override
+    public long primitiveValue() {
+      return primitiveValue;
+    }
+
+    @Override
+    public NodeKind getKind() {
+      return NodeKind.NUMBER_VALUE;
+    }
   }
 
   // ==================== Main Method ====================

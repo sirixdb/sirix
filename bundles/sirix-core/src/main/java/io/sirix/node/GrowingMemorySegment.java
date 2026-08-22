@@ -3,6 +3,7 @@ package io.sirix.node;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.Arrays;
 
 /**
  * A wrapper around MemorySegment that automatically grows when writes exceed the current capacity.
@@ -20,10 +21,29 @@ public class GrowingMemorySegment {
   private static final long ALIGNMENT = 8; // 8-byte alignment for arena-backed segments
   private static final MemorySegment EMPTY_SEGMENT = MemorySegment.ofArray(new byte[0]);
 
+  /**
+   * Exact used-length views up to this size are cached after a writer observes more than one
+   * length. Sixteen covers every primitive number encoding (type byte plus at most ten varint
+   * bytes) while keeping the lazily allocated cache small for general-purpose writers.
+   */
+  private static final int SMALL_USED_VIEW_CACHE_LIMIT = 16;
+
   private final Arena arena;
   private MemorySegment segment;
   private long position;
   private long capacity;
+
+  /** Most recently requested exact used-length view. */
+  private MemorySegment lastUsedView;
+
+  /** Logical length represented by {@link #lastUsedView}. */
+  private long lastUsedViewSize = -1;
+
+  /**
+   * Exact views for recurring small logical lengths. Allocated only after two different small
+   * lengths are requested, so one-shot serializers pay no extra array allocation.
+   */
+  private MemorySegment[] smallUsedViews;
 
   // Flag to indicate if we're using heap-backed segments (no arena management needed)
   private final boolean heapBacked;
@@ -139,6 +159,7 @@ public class GrowingMemorySegment {
     // Update references (old segment is GC'd for heap-backed, or stays in arena)
     this.segment = newSegment;
     this.capacity = newCapacity;
+    invalidateUsedViews();
   }
 
   /**
@@ -207,16 +228,69 @@ public class GrowingMemorySegment {
   }
 
   /**
-   * Get a slice of the segment from 0 to the current logical size. The returned segment maintains the
-   * 8-byte alignment of the base.
-   * 
-   * @return a MemorySegment slice containing only the used portion
+   * Get an exact, bounds-preserving view of the segment from zero to the current logical size.
+   *
+   * <p>The returned segment deliberately is not the capacity-sized base segment: callers use
+   * {@link MemorySegment#byteSize()} as the encoded length, and exposing spare capacity would make
+   * trailing bytes readable and persistable. Creating that exact view with {@code asSlice} normally
+   * allocates a wrapper on every call. This method therefore reuses the last view and lazily caches
+   * the small recurring lengths used by primitive-number serialization. Cache entries remain valid
+   * across reset and overwrite because they are live views of the same base segment; a grow swaps
+   * the base and invalidates every cached view.
+   *
+   * @return a MemorySegment view containing exactly the used portion
    */
   public MemorySegment getUsedSegment() {
-    if (position == 0) {
+    final long usedSize = position;
+    if (usedSize == 0) {
       return EMPTY_SEGMENT;
     }
-    return segment.asSlice(0, position);
+
+    // Preserve MemorySegment's bounds checks and exception semantics for an invalid externally set
+    // position. In particular, do not index the small-view cache with a negative value.
+    if (usedSize < 0 || usedSize > capacity) {
+      return segment.asSlice(0, usedSize);
+    }
+
+    final MemorySegment recent = lastUsedView;
+    if (recent != null && lastUsedViewSize == usedSize) {
+      return recent;
+    }
+
+    MemorySegment[] cachedViews = smallUsedViews;
+    if (usedSize <= SMALL_USED_VIEW_CACHE_LIMIT && cachedViews != null) {
+      final MemorySegment cached = cachedViews[(int) usedSize];
+      if (cached != null) {
+        lastUsedView = cached;
+        lastUsedViewSize = usedSize;
+        return cached;
+      }
+    }
+
+    final MemorySegment view = segment.asSlice(0, usedSize);
+    if (usedSize <= SMALL_USED_VIEW_CACHE_LIMIT) {
+      if (cachedViews == null && recent != null && lastUsedViewSize > 0
+          && lastUsedViewSize <= SMALL_USED_VIEW_CACHE_LIMIT) {
+        cachedViews = new MemorySegment[SMALL_USED_VIEW_CACHE_LIMIT + 1];
+        cachedViews[(int) lastUsedViewSize] = recent;
+        smallUsedViews = cachedViews;
+      }
+      if (cachedViews != null) {
+        cachedViews[(int) usedSize] = view;
+      }
+    }
+    lastUsedView = view;
+    lastUsedViewSize = usedSize;
+    return view;
+  }
+
+  /** Drop exact views backed by the segment that was replaced during growth. */
+  private void invalidateUsedViews() {
+    lastUsedView = null;
+    lastUsedViewSize = -1;
+    if (smallUsedViews != null) {
+      Arrays.fill(smallUsedViews, null);
+    }
   }
 
   /**

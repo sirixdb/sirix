@@ -134,10 +134,11 @@ final class KeyedTrieWriter {
       newReference.setKey(reference.getKey());
       newReference.setLogKey(reference.getLogKey());
       newReference.setActiveTilGeneration(reference.getActiveTilGeneration());
+      newReference.shareTransactionLogReference(reference);
       newReference.setDatabaseId(reference.getDatabaseId());
       newReference.setResourceId(reference.getResourceId());
       newReference.setPage(reference.getPage());
-      newReference.setHash(reference.getHash());
+      newReference.copyHashFrom(reference);
       // Copy the fragment list, never alias it: the new reference lives in a new revision and its
       // fragment list must be able to diverge from the source's.
       newReference.setPageFragments(new ArrayList<>(reference.getPageFragments()));

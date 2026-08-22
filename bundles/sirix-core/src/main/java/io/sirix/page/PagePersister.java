@@ -72,17 +72,33 @@ public final class PagePersister {
   }
 
   /**
+   * Deserialize a page, leaving the records a caller has not asked for unexpanded where the page kind
+   * supports it. See {@link PageKind#deserializePageLazily}; every other kind decodes whole.
+   *
+   * @param resourceConfiguration the resource configuration
+   * @param source source to read from
+   * @param type the serialization type
+   * @param decompressionResult optional decompression result for zero-copy (may be null)
+   * @return {@link Page} instance
+   * @throws IOException if an exception during deserialization of a page occurs
+   */
+  public Page deserializePageLazily(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+      final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) throws IOException {
+    return PageKind.getKind(source.readByte())
+                   .deserializePageLazily(resourceConfiguration, source, type, decompressionResult);
+  }
+
+  /**
    * Deserialize only the PAX regions of a record page — the columns, without the record heap.
    *
    * @param resourceConfiguration the resource configuration
-   * @param source                source to read from
-   * @param regionKindMask        bitmask of region kinds to read
-   * @param regionDeferMask       subset left compressed until first use
+   * @param source source to read from
+   * @param regionKindMask bitmask of region kinds to read
+   * @param regionDeferMask subset left compressed until first use
    * @return the decoded regions, or {@code null} when the page kind carries none
    */
   /** See {@link PageKind#probeRegionTableOffset}. Returns {@code -1} for non-record pages. */
-  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out,
-      final long @Nullable [] bitmapOut) {
+  public long probeRegionTableOffset(final BytesIn<?> source, final long[] out, final long @Nullable [] bitmapOut) {
     final PageKind kind = PageKind.getKind(source.readByte());
     if (kind != PageKind.KEYVALUELEAFPAGE) {
       return -1L;
@@ -95,17 +111,14 @@ public final class PagePersister {
       final BytesIn<?> source, final long pageKey, final int revision, final int populatedCount,
       final long fsstSymbolTableId, final int regionKindMask, final int regionDeferMask,
       final long @Nullable [] slotBitmap) {
-    return PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(resourceConfiguration, source, pageKey,
-                                                              revision, populatedCount,
-                                                              fsstSymbolTableId, regionKindMask,
-                                                              regionDeferMask, slotBitmap);
+    return PageKind.KEYVALUELEAFPAGE.deserializeRegionTableAt(resourceConfiguration, source, pageKey, revision,
+        populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
   }
 
   public RegionsOnlyPage deserializeRegionsOnlyPage(final ResourceConfiguration resourceConfiguration,
       final BytesIn<?> source, final int regionKindMask, final int regionDeferMask) {
     return PageKind.getKind(source.readByte())
-                   .deserializeRegionsOnlyPage(resourceConfiguration, source, regionKindMask,
-                                               regionDeferMask);
+                   .deserializeRegionsOnlyPage(resourceConfiguration, source, regionKindMask, regionDeferMask);
   }
 
   /**

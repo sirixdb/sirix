@@ -129,4 +129,50 @@ public final class JsonResourceCopyTest {
       }
     }
   }
+
+  @Test
+  public void test_copy_all_revisions_replays_fused_update_and_numeric_insert() {
+    JsonTestHelper.createTestDocument();
+
+    final var sourceDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var destinationDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+
+    try (final var sourceSession = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var sourceWtx = sourceSession.beginNodeTrx()) {
+      // Revision 2 changes both halves of one fused OBJECT_NAMED_STRING record. The sidecar must
+      // retain and replay the name and value in the same update operation.
+      assertTrue(sourceWtx.moveTo(9));
+      sourceWtx.setObjectKeyName("renamed-baz");
+      sourceWtx.setStringValue("updated-value");
+      sourceWtx.commit();
+
+      // Revision 3 exercises primitive numeric insertion replay. Node 2 is the fused named array
+      // for the top-level "foo" field in the standard fixture.
+      assertTrue(sourceWtx.moveTo(2));
+      sourceWtx.insertNumberValueAsFirstChild(42);
+      sourceWtx.commit();
+    }
+
+    try (final var sourceSession = sourceDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var sourceRtx = sourceSession.beginNodeReadOnlyTrx(1);
+        final var destinationSession = destinationDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var destinationWtx = destinationSession.beginNodeTrx()) {
+      new JsonResourceCopy.Builder(destinationWtx, sourceRtx, InsertPosition.AS_FIRST_CHILD)
+          .commitAfterwards()
+          .copyAllRevisionsUpToMostRecent()
+          .build()
+          .call();
+
+      assertEquals(3, sourceSession.getMostRecentRevisionNumber());
+      assertEquals(sourceSession.getMostRecentRevisionNumber(), destinationSession.getMostRecentRevisionNumber());
+
+      try (final var sourceJson = new StringWriter(); final var destinationJson = new StringWriter()) {
+        JsonSerializer.newBuilder(sourceSession, sourceJson).build().call();
+        JsonSerializer.newBuilder(destinationSession, destinationJson).build().call();
+        assertEquals(sourceJson.toString(), destinationJson.toString());
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      }
+    }
+  }
 }

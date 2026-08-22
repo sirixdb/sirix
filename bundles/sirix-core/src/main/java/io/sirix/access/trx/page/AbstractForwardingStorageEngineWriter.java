@@ -46,6 +46,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public <V extends DataRecord> V prepareRecordForModificationDocument(final long recordKey) {
+    return delegate().prepareRecordForModificationDocument(recordKey);
+  }
+
+  @Override
   public void persistRecord(DataRecord record, IndexType indexType, int index) {
     delegate().persistRecord(record, indexType, index);
   }
@@ -84,6 +89,11 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public boolean stageUncommittedOverflowPage(final PageReference reference) {
+    return delegate().stageUncommittedOverflowPage(reference);
+  }
+
+  @Override
   public UberPage commitWritePages(String commitMessage, Instant commitTimeStamp,
       boolean isIntermediateCommit) {
     return delegate().commitWritePages(commitMessage, commitTimeStamp, isIntermediateCommit);
@@ -100,8 +110,28 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public boolean isAsyncFlushLogBoundaryReached() {
+    return delegate().isAsyncFlushLogBoundaryReached();
+  }
+
+  @Override
+  public void recordAsyncFlushForegroundNanos(final long elapsedNanos) {
+    delegate().recordAsyncFlushForegroundNanos(elapsedNanos);
+  }
+
+  @Override
   public void awaitPendingAsyncFlush() {
     delegate().awaitPendingAsyncFlush();
+  }
+
+  @Override
+  public void markTransactionRollbackOnly(final Throwable cause) {
+    delegate().markTransactionRollbackOnly(cause);
+  }
+
+  @Override
+  public void assertTransactionWritable() {
+    delegate().assertTransactionWritable();
   }
 
   @Override

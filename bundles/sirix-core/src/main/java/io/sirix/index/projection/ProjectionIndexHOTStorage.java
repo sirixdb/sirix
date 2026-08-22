@@ -12,6 +12,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.AbstractHOTIndexWriter;
 import io.sirix.index.hot.PathKeySerializer;
+import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.io.filechannel.FileChannelReader;
 import io.sirix.node.LE;
@@ -19,6 +20,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.OverflowPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -31,9 +33,12 @@ import java.lang.foreign.ValueLayout;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RecursiveAction;
+import java.util.function.Consumer;
 
 /**
  * HOT-backed persistent storage for projection-index leaf payloads in the <b>segment-slot
@@ -47,10 +52,12 @@ import java.util.concurrent.RecursiveAction;
  * 8-byte BE, so unsigned byte comparison preserves signed-long order). {@code slotKind 0} is the
  * row group's zone-map descriptor, {@code slotKind
  *       columnSegmentId + 1} that segment's bytes — so one row group's slots are key-adjacent and a
- * range scan reads them in one descent. Live descriptor slots are contiguous from 1 (invariant
- * 5.1-11); {@link #readAllRowGroupsFromColumnSegmentSlots} enforces this and fails loudly on gaps,
- * because positional consumers (the catalog matches leaves to metadata fences by position) would
- * silently mislabel every following leaf.</li>
+ * range scan reads them in one descent. A fresh build assigns contiguous ids from 1; incremental
+ * splits and deletes may later reuse ids or leave physical gaps. Document order is therefore the
+ * explicit order stored with the fence chunks, and
+ * {@link #readAllRowGroupsFromColumnSegmentSlots(StorageEngineReader, int, int, int[])} validates
+ * that exact ordered descriptor set rather than inferring position from numeric id order. A missing,
+ * duplicate, or extra descriptor fails loudly instead of silently mislabelling following rows.</li>
  * <li><b>Descriptor slot value = RowGroupDescriptor (PIXD)</b> — a zone-map-only directory of the
  * leaf's semantic segments (KEYS, per-column BODY/DICT), each entry carrying columnSegmentId,
  * byteLen and an XXH3-64 content hash. It holds no segment bytes: the hashes are what a later
@@ -87,6 +94,14 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   private static final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(ProjectionIndexHOTStorage.class));
 
+  /**
+   * Shared upper bound for the segment-slot row-group id space. Composite row-group slots use
+   * {@code rowGroupId << 16}; bounding the id at 2^24 makes the exact maximum composite key
+   * {@code (2^24 << 16) | 0xffff = 2^40 + 65535}, safely below the fence (2^42) and Bloom-chunk
+   * (2^43) namespaces.
+   */
+  public static final int MAX_ROW_GROUPS = 1 << 24;
+
   /** Diagnostic switch shared with the executor's {@code sirix.projDiag}. */
   private static final boolean DIAG = Boolean.getBoolean("sirix.projDiag");
 
@@ -98,9 +113,30 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   private final PathKeySerializer keySerializer = PathKeySerializer.INSTANCE;
 
+  /** Whether fresh side refs may enter the bounded pre-publication append pipeline. */
+  private final boolean stageFreshSidePages;
+
   public ProjectionIndexHOTStorage(final StorageEngineWriter storageEngineWriter, final int indexNumber) {
+    this(storageEngineWriter, indexNumber, false);
+  }
+
+  private ProjectionIndexHOTStorage(final StorageEngineWriter storageEngineWriter, final int indexNumber,
+      final boolean stageFreshSidePages) {
     super(storageEngineWriter, IndexType.PROJECTION, indexNumber);
+    this.stageFreshSidePages = stageFreshSidePages;
     initializeProjectionIndex();
+  }
+
+  /**
+   * Create storage for an append-oriented bulk build.
+   *
+   * <p>Only genuinely fresh side-map keys are staged; a rebuild/update that replaces an existing
+   * reference stays resident until final commit, so an intermediate append cannot become a
+   * permanent hole inside a successfully published revision.</p>
+   */
+  public static ProjectionIndexHOTStorage forBulkBuild(final StorageEngineWriter storageEngineWriter,
+      final int indexNumber) {
+    return new ProjectionIndexHOTStorage(storageEngineWriter, indexNumber, true);
   }
 
   private void initializeProjectionIndex() {
@@ -112,6 +148,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       projPage.createProjectionIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
     }
     rootReference = projPage.getOrCreateReference(indexNumber);
+  }
+
+  @Override
+  protected boolean allowsSubtreeRebuild() {
+    return false;
   }
 
   /** The writer's private CoW copy of the projection container page (task #57 discipline). */
@@ -132,12 +173,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return projPage;
   }
 
-  /**
-   * Discard this definition's ENTIRE sub-tree and start a fresh empty one — the v1→v2 migration
-   * primitive: a rebuild over a pre-descriptor (chunked) store must not inherit its composite chunk
-   * slots, which would poison descriptor enumeration with mixed-layout errors forever. Earlier
-   * revisions keep their own sub-tree (CoW); the current transaction continues on the fresh root.
-   */
+  /** Discard this definition's sub-tree and start a fresh empty one. */
   public void resetTree() {
     final ProjectionIndexPage projPage = prepareWritableProjectionIndexPage();
     projPage.resetProjectionIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
@@ -219,23 +255,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * @param knownLiveCount row groups already known live (the metadata's declared count)
    */
   public int probeLiveRowGroupCountFrom(final int knownLiveCount) {
-    if (knownLiveCount < 0) {
-      throw new IllegalArgumentException("knownLiveCount must be >= 0, got " + knownLiveCount);
+    if (knownLiveCount < 0 || knownLiveCount > MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException(
+          "knownLiveCount out of range [0, " + MAX_ROW_GROUPS + "]: " + knownLiveCount);
     }
     int count = knownLiveCount;
-    for (long slot = knownLiveCount + 1L; slot <= MAX_PROBED_LEAVES; slot++) {
+    for (long slot = knownLiveCount + 1L; slot <= MAX_ROW_GROUPS; slot++) {
       final byte[] value = readSlotValueForWrite(rowGroupDescriptorSlotKey(slot));
       if (value == null || value.length == 0) {
         return count;
       }
       count++;
     }
-    throw new IllegalStateException("More than " + MAX_PROBED_LEAVES
+    throw new IllegalStateException("More than " + MAX_ROW_GROUPS
         + " contiguous projection leaves — implausible store, refusing to probe further");
   }
-
-  /** Safety bound for {@link #probeLiveRowGroupCount} (16M leaves ≈ 16G rows — far beyond scale). */
-  private static final int MAX_PROBED_LEAVES = 1 << 24;
 
   /**
    * Shared slow path for slot writes: place {@code sized} under {@code keyBuf} when the in-place fast
@@ -305,7 +339,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** Blob marker magic for slot values that reference one opaque segment ("PIXB" LE). */
   private static final int BLOB_MAGIC = 0x42584950;
-  private static final byte BLOB_VERSION = 1;
+  private static final byte BLOB_VERSION = 0;
   private static final int BLOB_MARKER_BYTES = 4 + 1 + 4 + 8;
   private static final int BLOB_SEGMENT_ID = 0;
 
@@ -368,6 +402,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /** slotKind 0 — the zone-map descriptor slot for {@code rowGroupId}. */
   static long rowGroupDescriptorSlotKey(final long rowGroupId) {
+    checkRowGroupId(rowGroupId);
     return rowGroupId << 16;
   }
 
@@ -376,6 +411,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * {@code rowGroupId}.
    */
   static long columnSegmentSlotKey(final long rowGroupId, final int columnSegmentId) {
+    checkRowGroupId(rowGroupId);
     // columnSegmentId+1 must fit the 16-bit slotKind; columnSegmentId==0xFFFF would alias the NEXT
     // leaf's descriptor slot.
     if (columnSegmentId < 0 || columnSegmentId >= HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID) {
@@ -384,6 +420,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
               + columnSegmentId);
     }
     return (rowGroupId << 16) | (columnSegmentId + 1);
+  }
+
+  private static void checkRowGroupId(final long rowGroupId) {
+    if (rowGroupId < 1 || rowGroupId > MAX_ROW_GROUPS) {
+      throw new IllegalArgumentException(
+          "rowGroupId out of range [1, " + MAX_ROW_GROUPS + "]: " + rowGroupId);
+    }
   }
 
   /**
@@ -402,17 +445,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * every row-group walker already skips the whole space, so the block is invisible to them.
    */
   public static long bloomBlockSlotKey(final int column) {
-    if (column < 0 || column >= 0xFFF0) {
+    if (column < 0 || column >= RowGroupDescriptor.MAX_COLUMNS) {
       throw new IllegalArgumentException("column out of bloom-block key range: " + column);
     }
     return 16L + column;
   }
 
   /**
-   * Tombstone every fingerprint block. Called by incremental maintenance BEFORE it patches leaves:
-   * the blocks are derived from the per-leaf segments, and a stale filter could otherwise prove a
-   * freshly added value "absent" — a wrong answer, not a slow one. The next full build rewrites them;
-   * until then readers fall back to the per-leaf chain.
+   * Tombstone every fingerprint manifest before explicit creation publishes its replacement. The
+   * blocks are derived from per-leaf segments, so a stale root may never survive publication.
    */
   public void removeBloomBlocks(final int columnCount) {
     for (int c = 0; c < columnCount; c++) {
@@ -428,11 +469,113 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
   }
 
-  public void putRowGroupAsColumnSegmentSlots(final long rowGroupId,
+  public boolean putRowGroupAsColumnSegmentSlots(final long rowGroupId,
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded) {
-    if (rowGroupId < 1) {
-      throw new IllegalArgumentException("rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
+    return putRowGroupAsColumnSegmentSlots(rowGroupId, encoded, null, true);
+  }
+
+  /** Physical writes performed by one descriptor-and-column patch. */
+  record ColumnPatchResult(boolean changed, int segmentsWritten, int segmentsTombstoned) {
+    private static final ColumnPatchResult UNCHANGED = new ColumnPatchResult(false, 0, 0);
+  }
+
+  /**
+   * Publish one independently encoded column while carrying every other segment slot forward without
+   * reading its bytes.  The caller supplies the descriptor it read and the descriptor produced by
+   * {@link ProjectionIndexColumnSegmentCodec#spliceReferencedColumn}; an intervening same-transaction
+   * mutation therefore fails loudly instead of patching against stale metadata.
+   */
+  ColumnPatchResult putColumnPatch(final long rowGroupId, final byte[] priorDescriptor,
+      final byte[] patchedDescriptor, final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn) {
+    checkRowGroupId(rowGroupId);
+    if (priorDescriptor == null || patchedDescriptor == null || encodedColumn == null) {
+      throw new IllegalArgumentException("prior descriptor, patched descriptor, and encoded column are required");
     }
+    final byte[] current = getVerifiedRowGroupDescriptor(rowGroupId);
+    if (current == null || !Arrays.equals(current, priorDescriptor)) {
+      throw new IllegalStateException("projection row group " + rowGroupId + " changed during its column patch");
+    }
+    final byte[] next = RowGroupDescriptor.toZoneMapOnly(patchedDescriptor);
+    validateColumnPatchDescriptor(priorDescriptor, next, encodedColumn);
+    if (Arrays.equals(priorDescriptor, next)) {
+      return ColumnPatchResult.UNCHANGED;
+    }
+
+    int tombstoned = 0;
+    final int priorCount = RowGroupDescriptor.columnSegmentCount(priorDescriptor);
+    for (int i = 0; i < priorCount; i++) {
+      final int id = RowGroupDescriptor.entryColumnSegmentId(priorDescriptor, i);
+      if (ProjectionIndexColumnSegmentCodec.columnOfColumnSegment(id) == encodedColumn.column()
+          && Arrays.binarySearch(encodedColumn.columnSegmentIds(), id) < 0) {
+        tombstoneBlobSlot(columnSegmentSlotKey(rowGroupId, id));
+        tombstoned++;
+      }
+    }
+
+    putBlob(rowGroupDescriptorSlotKey(rowGroupId), next);
+    int written = 0;
+    final int[] ids = encodedColumn.columnSegmentIds();
+    final byte[][] segments = encodedColumn.segments();
+    for (int i = 0; i < ids.length; i++) {
+      final int priorEntry = RowGroupDescriptor.entryIndexOf(priorDescriptor, ids[i]);
+      final int nextEntry = RowGroupDescriptor.entryIndexOf(next, ids[i]);
+      final boolean unchanged = priorEntry >= 0
+          && RowGroupDescriptor.entryByteLen(priorDescriptor, priorEntry)
+              == RowGroupDescriptor.entryByteLen(next, nextEntry)
+          && RowGroupDescriptor.entryContentHash(priorDescriptor, priorEntry)
+              == RowGroupDescriptor.entryContentHash(next, nextEntry);
+      if (!unchanged) {
+        putColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, ids[i]), segments[i]);
+        written++;
+      }
+    }
+    return new ColumnPatchResult(true, written, tombstoned);
+  }
+
+  private static void validateColumnPatchDescriptor(final byte[] prior, final byte[] next,
+      final ProjectionIndexColumnSegmentCodec.EncodedColumn encodedColumn) {
+    RowGroupDescriptor.validate(prior);
+    RowGroupDescriptor.validate(next);
+    final int column = encodedColumn.column();
+    if (RowGroupDescriptor.rowCount(prior) != RowGroupDescriptor.rowCount(next)
+        || RowGroupDescriptor.firstRecordKey(prior) != RowGroupDescriptor.firstRecordKey(next)
+        || RowGroupDescriptor.lastRecordKey(prior) != RowGroupDescriptor.lastRecordKey(next)
+        || RowGroupDescriptor.columnCount(prior) != RowGroupDescriptor.columnCount(next)) {
+      throw new IllegalStateException("column patch changed row-group keys or shape");
+    }
+    for (int c = 0; c < RowGroupDescriptor.columnCount(prior); c++) {
+      if (RowGroupDescriptor.kind(prior, c) != RowGroupDescriptor.kind(next, c)) {
+        throw new IllegalStateException("column patch changed persisted kind " + c);
+      }
+    }
+    final long[] changedWords = new long[(RowGroupDescriptor.columnCount(prior) + 63) >>> 6];
+    changedWords[column >>> 6] = 1L << (column & 63);
+    validateColumnScopedChanges(next, prior, changedWords, false);
+
+    int nextOwned = 0;
+    for (int i = 0; i < RowGroupDescriptor.columnSegmentCount(next); i++) {
+      final int id = RowGroupDescriptor.entryColumnSegmentId(next, i);
+      if (ProjectionIndexColumnSegmentCodec.columnOfColumnSegment(id) == column) {
+        nextOwned++;
+        if (Arrays.binarySearch(encodedColumn.columnSegmentIds(), id) < 0) {
+          throw new IllegalStateException("patched descriptor contains unsupplied segment " + id);
+        }
+      }
+    }
+    if (nextOwned != encodedColumn.columnSegmentIds().length) {
+      throw new IllegalStateException("patched descriptor does not contain every replacement segment");
+    }
+    for (int i = 0; i < encodedColumn.columnSegmentIds().length; i++) {
+      final int id = encodedColumn.columnSegmentIds()[i];
+      ProjectionIndexColumnSegmentCodec.verifyColumnSegment(next, encodedColumn.segments()[i], id,
+          ProjectionIndexColumnSegmentCodec.expectedSegmentKind(id));
+    }
+  }
+
+  boolean putRowGroupAsColumnSegmentSlots(final long rowGroupId,
+      final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
+      final long @Nullable [] changedColumnWords, final boolean keysChanged) {
+    checkRowGroupId(rowGroupId);
     if (encoded == null) {
       throw new IllegalArgumentException("encoded leaf must not be null — use tombstoneRowGroupAsColumnSegmentSlots");
     }
@@ -452,6 +595,15 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // nothing can describe.
     final byte[] prior = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
     final boolean priorIsDescriptor = prior != null && RowGroupDescriptor.isDescriptor(prior);
+    if (changedColumnWords != null && !priorIsDescriptor) {
+      throw new IllegalStateException("cannot validate a column-scoped projection update without a prior descriptor");
+    }
+    if (priorIsDescriptor && Arrays.equals(prior, descriptor)) {
+      return false;
+    }
+    if (changedColumnWords != null) {
+      validateColumnScopedChanges(descriptor, prior, changedColumnWords, keysChanged);
+    }
 
     // ORDER: tombstone the vanished slots BEFORE anything is overwritten. Both remaining steps can
     // throw (a split that cannot place a value, an allocation failure), and a caller that catches
@@ -468,6 +620,56 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     writeChangedColumnSegmentSlots(rowGroupId, descriptor, columnSegmentIds, segments, priorIsDescriptor
         ? prior
         : null);
+    return true;
+  }
+
+  private static void validateColumnScopedChanges(final byte[] descriptor, final byte[] prior,
+      final long[] changedColumnWords, final boolean keysChanged) {
+    final int priorCount = RowGroupDescriptor.columnSegmentCount(prior);
+    final int nextCount = RowGroupDescriptor.columnSegmentCount(descriptor);
+    int priorIndex = 0;
+    int nextIndex = 0;
+    while (priorIndex < priorCount || nextIndex < nextCount) {
+      final int priorId = priorIndex < priorCount
+          ? RowGroupDescriptor.entryColumnSegmentId(prior, priorIndex)
+          : Integer.MAX_VALUE;
+      final int nextId = nextIndex < nextCount
+          ? RowGroupDescriptor.entryColumnSegmentId(descriptor, nextIndex)
+          : Integer.MAX_VALUE;
+      final int changedId;
+      final boolean changed;
+      if (priorId == nextId) {
+        changedId = priorId;
+        changed = RowGroupDescriptor.entryByteLen(prior, priorIndex)
+            != RowGroupDescriptor.entryByteLen(descriptor, nextIndex)
+            || RowGroupDescriptor.entryContentHash(prior, priorIndex)
+            != RowGroupDescriptor.entryContentHash(descriptor, nextIndex);
+        priorIndex++;
+        nextIndex++;
+      } else if (priorId < nextId) {
+        changedId = priorId;
+        changed = true;
+        priorIndex++;
+      } else {
+        changedId = nextId;
+        changed = true;
+        nextIndex++;
+      }
+      if (changed && !columnSegmentMayChange(changedId, changedColumnWords, keysChanged)) {
+        throw new IllegalStateException("projection update changed unmarked column segment " + changedId);
+      }
+    }
+  }
+
+  private static boolean columnSegmentMayChange(final int columnSegmentId,
+      final long[] changedColumnWords, final boolean keysChanged) {
+    final int column = ProjectionIndexColumnSegmentCodec.columnOfColumnSegment(columnSegmentId);
+    if (column < 0) {
+      return keysChanged;
+    }
+    final int word = column >>> 6;
+    return word < changedColumnWords.length
+        && (changedColumnWords[word] & (1L << (column & 63))) != 0L;
   }
 
   /**
@@ -533,9 +735,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * Write one segment's bytes into its own BARE slot — no blob marker/hash. Small payloads (≤
    * {@link #BLOB_INLINE_MAX}) go inline (leading {@link #SEG_KIND_INLINE} byte + raw bytes, no page);
    * larger ones go referenced (a lone {@link #SEG_KIND_REF} byte in the slot value + one
-   * {@link OverflowPage}). The slot value is written BEFORE the page ({@link #putSegmentPage}'s
-   * owner-slot-residency precondition); a referenced→inline shrink drops the now-orphan page, an
-   * inline→referenced growth's prior (page-less) slot just gets overwritten.
+   * {@link OverflowPage}). A referenced value writes its slot BEFORE the page
+   * ({@link #putSegmentPage}'s owner-slot-residency precondition). A referenced→inline shrink fully
+   * allocates the inline value, then removes the old resolved ref before installing it; a pending
+   * bulk ref fails before either structure changes. An inline→referenced growth's prior (page-less)
+   * slot just gets overwritten.
    */
   public void putColumnSegmentSlot(final long slotKey, final byte[] bytes) {
     if (bytes == null) {
@@ -547,8 +751,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final byte[] value = new byte[1 + bytes.length];
       value[0] = SEG_KIND_INLINE;
       System.arraycopy(bytes, 0, value, 1, bytes.length);
-      writeSlotValue(slotKey, value);
+      // Check/remove first: a pending bulk ref is append-only and must fail before the inline value
+      // replaces its owner marker. The value is fully allocated above, so OOME cannot strand a
+      // resolved ref between removal and the owner-slot update.
       removeSegmentPage(slotKey, BLOB_SEGMENT_ID); // no-op unless the prior segment was referenced
+      writeSlotValue(slotKey, value);
     } else {
       writeSlotValue(slotKey, SEG_REF_VALUE);
       putSegmentPage(slotKey, BLOB_SEGMENT_ID, bytes);
@@ -578,9 +785,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
-    return inline != null
+    final byte[] segment = inline != null
         ? inline
         : getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID);
+    return segment;
   }
 
   /** Reader-side (committed) bare segment read; {@code null} when absent/tombstoned. */
@@ -591,24 +799,48 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] value =
-          readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readColumnSegmentSlot");
-      if (value == null) {
-        return null;
+      final byte[] keyBuf = KEY_BUFFER.get();
+      final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        byte @Nullable [] value;
+        PageReference ref = null;
+        try {
+          final int idx = leaf.findEntry(keyBuf);
+          value = idx < 0
+              ? null
+              : leaf.getValue(idx);
+          if (value != null && value.length != 0 && value[0] == SEG_KIND_REF) {
+            ref = leaf.getPageReference(refKey);
+          }
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (value == null || value.length == 0) {
+          return null;
+        }
+        final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
+        if (inline != null) {
+          return inline;
+        }
+        if (ref == null) {
+          return null;
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        return page == null
+            ? null
+            : page.getDataBytes();
       }
-      final byte[] inline = inlineColumnSegmentPayload(value, slotKey);
-      if (inline != null) {
-        return inline;
-      }
-      final PageReference ref =
-          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-      if (ref == null) {
-        return null;
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      return page == null
-          ? null
-          : page.getDataBytes();
+      throw HOTTrieReader.stampRetriesExhausted("readColumnSegmentSlot(slot " + slotKey + ")");
     }
   }
 
@@ -617,9 +849,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * descriptor, then the descriptor slot itself.
    */
   public void tombstoneRowGroupAsColumnSegmentSlots(final long rowGroupId) {
-    if (rowGroupId < 1) {
-      throw new IllegalArgumentException("rowGroupId must be >= 1 (slot 0 is the metadata blob): " + rowGroupId);
-    }
+    checkRowGroupId(rowGroupId);
     // Lenient for the same reason as putRowGroupAsColumnSegmentSlots: this runs during a rebuild's
     // orphan reclamation, so it must make progress over damage rather than fail on it. Segment slots
     // left behind by an unreadable descriptor are reclaimed by the builder's sub-tree reset.
@@ -669,6 +899,44 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         columnSegmentId -> getColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, columnSegmentId)));
   }
 
+  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId,
+      final int columnSegmentId, final byte expectedKind) {
+    checkRowGroupId(rowGroupId);
+    final byte[] descriptor = getVerifiedRowGroupDescriptor(rowGroupId);
+    return descriptor == null ? null : getVerifiedColumnSegment(rowGroupId, descriptor, columnSegmentId, expectedKind);
+  }
+
+  /** Read and structurally validate one writer-visible zone-map descriptor without fetching segments. */
+  byte @Nullable [] getVerifiedRowGroupDescriptor(final long rowGroupId) {
+    checkRowGroupId(rowGroupId);
+    final byte[] descriptor = getBlobIfReadable(rowGroupDescriptorSlotKey(rowGroupId));
+    if (descriptor == null || !RowGroupDescriptor.isDescriptor(descriptor)) {
+      return null;
+    }
+    RowGroupDescriptor.validate(descriptor);
+    return descriptor;
+  }
+
+  /** Resolve one segment against a descriptor the caller already fetched. */
+  byte @Nullable [] getVerifiedColumnSegment(final long rowGroupId, final byte[] descriptor,
+      final int columnSegmentId, final byte expectedKind) {
+    checkRowGroupId(rowGroupId);
+    if (descriptor == null) {
+      throw new IllegalArgumentException("descriptor is required");
+    }
+    final int entry = RowGroupDescriptor.entryIndexOf(descriptor, columnSegmentId);
+    if (entry < 0) {
+      return null;
+    }
+    final byte[] segment = RowGroupDescriptor.entryIsInline(descriptor, entry)
+        ? RowGroupDescriptor.inlineColumnSegmentBytesAt(descriptor, entry,
+            RowGroupDescriptor.inlineDataOffset(descriptor, entry))
+        : getColumnSegmentSlot(columnSegmentSlotKey(rowGroupId, columnSegmentId));
+    ProjectionIndexColumnSegmentCodec.verifyColumnSegment(descriptor, segment,
+        columnSegmentId, expectedKind, entry);
+    return segment;
+  }
+
   /**
    * Descriptor-only row count for the segment-slot layout: reads slotKind 0 alone, touching no
    * segment slots. {@code -1} when the descriptor is absent — the count/pruning path never pays for
@@ -708,8 +976,196 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * segment raw), or {@code marker}+{@code offset} (a committed reference batch-resolved after the
    * walk; {@code marker} is non-null only for descriptors, which still hash-verify).
    */
-  private record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker,
-      long offset, long slotKey) {
+  record RawBlobSlot(long rowGroupId, int slotKind, byte[] inlineValue, byte[] resolved, byte[] marker, long offset,
+      long slotKey) {
+  }
+
+  /**
+   * Deferred, content-verified blob locations captured by one HOT range scan. Referenced payloads
+   * retain only their durable offset plus the PIXB marker's exact length/hash; inline payloads are
+   * verified and retained directly. Arrays are index-aligned with {@code firstSlotKey + i}.
+   */
+  static final class BlobLocators {
+    private final long firstSlotKey;
+    private final long[] offsets;
+    private final int[] lengths;
+    private final long[] hashes;
+    private final byte[][] inlinePayloads;
+
+    private BlobLocators(final long firstSlotKey, final int count) {
+      this.firstSlotKey = firstSlotKey;
+      offsets = new long[count];
+      Arrays.fill(offsets, Constants.NULL_ID_LONG);
+      lengths = new int[count];
+      Arrays.fill(lengths, -1);
+      hashes = new long[count];
+      inlinePayloads = new byte[count][];
+    }
+
+    int size() {
+      return offsets.length;
+    }
+
+    long slotKey(final int index) {
+      Objects.checkIndex(index, offsets.length);
+      return firstSlotKey + index;
+    }
+
+    long offset(final int index) {
+      return offsets[index];
+    }
+
+    int length(final int index) {
+      return lengths[index];
+    }
+
+    long hash(final int index) {
+      return hashes[index];
+    }
+
+    byte @Nullable [] inlinePayload(final int index) {
+      return inlinePayloads[index];
+    }
+
+    long retainedBytes() {
+      // Primitive arrays plus one object-reference array. Charge references pessimistically at
+      // eight bytes so the cache weight remains safe with or without compressed oops.
+      long bytes = 64L + (long) offsets.length * (Long.BYTES + Integer.BYTES + Long.BYTES + Long.BYTES);
+      for (final byte[] inline : inlinePayloads) {
+        if (inline != null) {
+          bytes += inline.length;
+        }
+      }
+      return bytes;
+    }
+
+    private void put(final int index, final BlobLocatorCapture capture) {
+      offsets[index] = capture.offset;
+      lengths[index] = capture.length;
+      hashes[index] = capture.hash;
+      inlinePayloads[index] = capture.inlinePayload;
+    }
+  }
+
+  /** Reused while a range cursor optimistically reads one blob slot. */
+  private static final class BlobLocatorCapture {
+    private boolean skip;
+    private long offset;
+    private int length;
+    private long hash;
+    private byte @Nullable [] inlinePayload;
+
+    private void reset() {
+      skip = false;
+      offset = Constants.NULL_ID_LONG;
+      length = -1;
+      hash = 0L;
+      inlinePayload = null;
+    }
+  }
+
+  /**
+   * Capture {@code count} adjacent blob slots without reading referenced payload pages. One bounded
+   * HOT range walk replaces a root descent per slot; malformed/missing entries remain empty locators
+   * so derived accelerations can fail open locally.
+   */
+  static BlobLocators collectBlobLocators(final StorageEngineReader reader, final int indexNumber,
+      final long firstSlotKey, final int count) {
+    // The two callers are the <=13,104 manifest family and one <=65,536 Bloom-chunk family. Keep
+    // this generic primitive bounded at that proven ceiling so damaged metadata can never request a
+    // corpus-sized/object-sized allocation here.
+    final int maxLocatorCount = ProjectionIndexHOTStorage.MAX_ROW_GROUPS / ProjectionBloomChunks.CHUNK_LEAVES;
+    if (firstSlotKey < 0) {
+      throw new IllegalArgumentException("blob locator range must not enter the negative record-locator namespace");
+    }
+    if (count < 0 || count > maxLocatorCount) {
+      throw new IllegalArgumentException("count out of range [0, " + maxLocatorCount + "]: " + count);
+    }
+    final BlobLocators out = new BlobLocators(firstSlotKey, count);
+    if (count == 0) {
+      return out;
+    }
+    final long lastSlotKey;
+    try {
+      lastSlotKey = Math.addExact(firstSlotKey, count - 1L);
+    } catch (final ArithmeticException overflow) {
+      throw new IllegalArgumentException("blob locator key range overflows long", overflow);
+    }
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return out;
+    }
+    final BlobLocatorCapture capture = new BlobLocatorCapture();
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader);
+        HOTRangeCursor cursor = trieReader.range(rootRef, slotKeyBytes(firstSlotKey), slotKeyBytes(lastSlotKey))) {
+      int tornRounds = 0;
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIndex = cursor.currentEntryIndex();
+        long slotKey = firstSlotKey;
+        RuntimeException stableFailure = null;
+        capture.reset();
+        try {
+          slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
+          readBlobLocatorSlot(leaf, entryIndex, slotKey, capture);
+        } catch (final RuntimeException failure) {
+          stableFailure = failure;
+        }
+        if (!cursor.validateLeaf()) {
+          cursor.recoverTorn(++tornRounds);
+          continue;
+        }
+        tornRounds = 0;
+        // Stable corruption is absence for a derived Bloom acceleration. The authoritative row-group
+        // segment remains available through the per-leaf chain, so throwing here would lose a whole
+        // projection merely because an optional locator is damaged.
+        if (stableFailure == null && !capture.skip && slotKey >= firstSlotKey && slotKey <= lastSlotKey) {
+          out.put((int) (slotKey - firstSlotKey), capture);
+        }
+        cursor.advance();
+      }
+    }
+    return out;
+  }
+
+  /** Same bounded locator walk against this writer's uncommitted CoW view. */
+  BlobLocators collectBlobLocatorsForWrite(final long firstSlotKey, final int count) {
+    return collectBlobLocators(storageEngineWriter, indexNumber, firstSlotKey, count);
+  }
+
+  /** Decode one PIXB marker directly from a HOT leaf without materializing referenced payload. */
+  private static void readBlobLocatorSlot(final HOTLeafPage leaf, final int entryIndex, final long slotKey,
+      final BlobLocatorCapture capture) {
+    final long valueRef = leaf.valueRef(entryIndex);
+    final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
+    if (valueSize == 0) {
+      capture.skip = true;
+      return;
+    }
+    if (valueSize < BLOB_MARKER_BYTES || leaf.refIntLEAt(valueRef, 0) != BLOB_MAGIC
+        || leaf.refByteAt(valueRef, Integer.BYTES) != BLOB_VERSION) {
+      throw new IllegalStateException("Slot " + slotKey + " does not hold a blob marker");
+    }
+    final int encodedLength = leaf.refIntLEAt(valueRef, 5);
+    final boolean inline = (encodedLength & BLOB_INLINE_FLAG) != 0;
+    final int length = encodedLength & ~BLOB_INLINE_FLAG;
+    if (length < 0) {
+      throw new IllegalStateException("Blob slot " + slotKey + " has negative payload length " + length);
+    }
+    capture.length = length;
+    capture.hash = leaf.refLongLEAt(valueRef, 9);
+    if (inline) {
+      capture.inlinePayload = verifyInlineBlobFromSlot(leaf, valueRef, valueSize, slotKey);
+      return;
+    }
+    if (valueSize != BLOB_MARKER_BYTES) {
+      throw new IllegalStateException("Referenced blob slot " + slotKey + " has marker length " + valueSize
+          + " instead of " + BLOB_MARKER_BYTES);
+    }
+    capture.offset = resolvedSegmentPageOffset(leaf, slotKey);
+    if (capture.offset == Constants.NULL_ID_LONG) {
+      capture.skip = true;
+    }
   }
 
   /**
@@ -720,8 +1176,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   }
 
   /**
-   * Reader-side enumeration of ALL leaves in the segment-slot layout, ascending rowGroupId
-   * {@code 1..rowGroupCount}, each assembled byte-identically to
+   * Reader-side enumeration of ALL live leaves in the segment-slot layout, emitted in the explicit
+   * physical document order, each assembled byte-identically to
    * {@link #readRowGroupFromColumnSegmentSlots}.
    *
    * <p>
@@ -735,8 +1191,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * The walk makes NO assumption about slot VISIT order — like {@link #readAllRowGroups} (whose
    * topology order "can diverge from key order after splits") it collects everything first and
    * resolves positions afterward, so a leaf's segment slot seen before its descriptor is fine.
-   * Loud-on-gap and loud-on-orphan both fall out of validating the descriptor key set is exactly
-   * {@code {1..rowGroupCount}} — checked before the committed segment BATCH — and a segment for a
+   * Loud-on-gap and loud-on-orphan both fall out of validating the descriptor key set against the
+   * exact live physical ids named by that order — checked before the committed segment BATCH — and a segment for a
    * non-existent leaf, or with no matching descriptor entry, throws unambiguously. (An uncommitted
    * blob is read in-walk, so its page read precedes validation, but still throws just as loudly.)
    *
@@ -747,9 +1203,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * take the coalesced batch — so a same-transaction build-then-query still serves from the store.
    */
   /**
-   * ONE trie range scan over a projection sub-tree, returning the row groups' DESCRIPTOR slots
-   * positionally ({@code [i]} describes rowGroupId {@code i + 1}) with the key set already validated
-   * as exactly {@code {1..rowGroupCount}}.
+   * ONE trie range scan over a projection sub-tree, returning the row groups' DESCRIPTOR slots in
+   * the supplied logical order with the physical key set already validated against that order.
    *
    * <p>
    * This is the shared front half of every full read. Doing it as a range scan rather than
@@ -771,14 +1226,29 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    *        descriptor-tier count cheap
    */
   private static RawBlobSlot[] orderedDescriptorSlots(final StorageEngineReader reader, final int indexNumber,
-      final int rowGroupCount, final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+      final int rowGroupCount, final int[] physicalOrder,
+      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
+    final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
+    collectSlotsRange(reader, indexNumber, rowGroupCount, -1, -1, descriptors, segmentSlotsOut);
+    return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber, physicalOrder);
+  }
+
+  /**
+   * The slot walk over ONE row-group id range, {@code [fromRowGroup, toRowGroup]} inclusive — the
+   * unit a PARALLEL materialization partitions across per-thread readers (each range touches
+   * mostly-disjoint trie leaves, so the page decodes the cursor forces run concurrently into the
+   * shared buffer manager). Negative bounds = the historical UNBOUNDED walk.
+   */
+  static void collectSlotsRange(final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final long fromRowGroup, final long toRowGroup, final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       if (rowGroupCount != 0) {
         throw new IllegalStateException("segment-slot sub-tree missing but metadata declares " + rowGroupCount
             + " leaves (indexNumber=" + indexNumber + ")");
       }
-      return NO_DESCRIPTOR_SLOTS;
+      return;
     }
     // UNBOUNDED, not [0x00..8, 0xFF..8]: both name the whole trie, but explicit bounds make the
     // cursor lex-compare every key against the upper bound on every step — a comparison that,
@@ -786,10 +1256,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // bound check and start at the leftmost leaf directly (measured: 0.687 -> 0.659 ms over 977
     // row groups, 3 forks x 10 iterations). A key longer than 8 bytes, which the bounded form
     // would have quietly ended the scan on, now reaches decodeKey8BE and fails loudly — the
-    // better outcome for a store that must contain only 8-byte slot keys.
-    final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
+    // better outcome for a store that must contain only 8-byte slot keys. RANGED calls pay the
+    // bound compare; they exist to be run in parallel, where it is noise.
+    final byte[] fromKey = fromRowGroup < 0
+        ? null
+        : slotKeyBytes(fromRowGroup << 16);
+    final byte[] toKey = toRowGroup < 0
+        ? null
+        : slotKeyBytes((toRowGroup << 16) | 0xFFFFL);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
-        HOTRangeCursor cursor = trieReader.range(rootRef, null, null)) {
+        HOTRangeCursor cursor = trieReader.range(rootRef, fromKey, toKey)) {
       // The walk reads UNPINNED leaves under optimistic stamps: each slot's read batch — key
       // decode, value slice, capture copy — is validated before its outcome is committed to the
       // collections; a torn batch re-evaluates the SAME slot on a refreshed leaf copy.
@@ -817,7 +1293,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           // above any rowGroupId<<16). Both are skipped; tombstones are zero-length. The DESCRIPTOR
           // slot (slotKind 0) is a hashed blob; SEGMENT slots (slotKind >= 1) are BARE (discriminator
           // byte).
-          if (valueSize != 0 && rowGroupId != 0 && slotKey < ProjectionIndexFences.CHUNK_SLOT_BASE) {
+          if (valueSize != 0 && slotKey > 0 && rowGroupId != 0
+              && slotKey < ProjectionIndexFences.CHUNK_SLOT_BASE) {
             final int slotKind = (int) (slotKey & 0xFFFF);
             if (slotKind == 0) {
               descriptorSlot =
@@ -850,30 +1327,98 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         cursor.advance();
       }
     }
-    // Validate the descriptor key set is exactly {1..rowGroupCount} BEFORE any page I/O: a size
-    // mismatch is a gap/truncation/leaked-orphan, a non-1..N key is a contiguity break.
+  }
+
+  /** BE-encoded trie key of one slot key (the walk's decode, inverted). */
+  private static byte[] slotKeyBytes(final long slotKey) {
+    final long flipped = slotKey ^ 0x8000_0000_0000_0000L;
+    final byte[] key = new byte[8];
+    for (int i = 0; i < 8; i++) {
+      key[i] = (byte) (flipped >>> (56 - 8 * i));
+    }
+    return key;
+  }
+
+  /** Validation + positional drain shared by the serial walk and the parallel partitions' merge. */
+  static RawBlobSlot[] drainOrderedDescriptors(final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final int rowGroupCount, final int indexNumber) {
+    return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber, identityPhysicalOrder(rowGroupCount));
+  }
+
+  static RawBlobSlot[] drainOrderedDescriptors(final Long2ObjectRBTreeMap<RawBlobSlot> descriptors,
+      final int rowGroupCount, final int indexNumber, final int[] physicalOrder) {
+    if (descriptors.isEmpty() && rowGroupCount == 0) {
+      return NO_DESCRIPTOR_SLOTS;
+    }
+    // Validate the descriptor key set against the explicit live physical order BEFORE any page I/O:
+    // a size mismatch is a gap/truncation/leaked orphan; a key absent from that order is unexpected.
     if (descriptors.size() != rowGroupCount) {
       throw new IllegalStateException(
           "segment-slot store has " + descriptors.size() + " live descriptors but metadata declares " + rowGroupCount
               + " (indexNumber=" + indexNumber + ") — truncated, stale, or leaked orphan");
     }
-    // Drain the (key-ordered) descriptor map into a positional array while validating contiguity —
-    // one pass, no per-leaf tree probes downstream. descArr[i] is the descriptor for rowGroupId i+1.
+    final int[] logicalByPhysical = logicalSlotsByPhysical(physicalOrder, rowGroupCount);
     final RawBlobSlot[] descArr = new RawBlobSlot[rowGroupCount];
-    long expected = 1;
     for (final Long2ObjectMap.Entry<RawBlobSlot> e : descriptors.long2ObjectEntrySet()) {
       final long slot = e.getLongKey();
-      if (slot != expected) {
+      if (slot < 1 || slot >= logicalByPhysical.length || logicalByPhysical[(int) slot] < 0) {
         if (DIAG) {
           System.err.println(describeDescriptorKeySet(descriptors, rowGroupCount));
         }
-        throw new IllegalStateException("segment-slot leaves are not contiguous: expected leaf " + expected + ", found "
-            + slot + " (indexNumber=" + indexNumber + ")");
+        throw new IllegalStateException("segment-slot store names unexpected physical leaf " + slot
+            + " (indexNumber=" + indexNumber + ")");
       }
-      descArr[(int) (expected - 1)] = e.getValue();
-      expected++;
+      descArr[logicalByPhysical[(int) slot]] = e.getValue();
     }
     return descArr;
+  }
+
+  private static int[] identityPhysicalOrder(final int rowGroupCount) {
+    final int[] order = new int[rowGroupCount];
+    for (int index = 0; index < rowGroupCount; index++) {
+      order[index] = index + 1;
+    }
+    return order;
+  }
+
+  private static int[] persistedPhysicalOrder(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount) {
+    if (readBlob(reader, indexNumber, ProjectionIndexFences.ORDER_HEADER_SLOT) == null) {
+      return identityPhysicalOrder(rowGroupCount);
+    }
+    return ProjectionIndexFences.readPhysicalOrder(reader, indexNumber, rowGroupCount);
+  }
+
+  private static int[] logicalSlotsByPhysical(final int[] physicalOrder, final int rowGroupCount) {
+    if (physicalOrder == null || physicalOrder.length != rowGroupCount) {
+      throw new IllegalArgumentException("physical row-group order must cover exactly " + rowGroupCount + " leaves");
+    }
+    final int physicalUpperBound = physicalSlotUpperBound(physicalOrder);
+    final int[] logicalByPhysical = new int[physicalUpperBound + 1];
+    Arrays.fill(logicalByPhysical, -1);
+    for (int logical = 0; logical < rowGroupCount; logical++) {
+      final int physical = physicalOrder[logical];
+      if (physical < 1 || physical > MAX_ROW_GROUPS || logicalByPhysical[physical] >= 0) {
+        throw new IllegalStateException("physical row-group order is not a permutation at leaf " + physical);
+      }
+      logicalByPhysical[physical] = logical;
+    }
+    return logicalByPhysical;
+  }
+
+  /** Largest live physical row-group id named by an order vector (zero for an empty index). */
+  static int physicalSlotUpperBound(final int[] physicalOrder) {
+    if (physicalOrder == null) {
+      throw new NullPointerException("physicalOrder is required");
+    }
+    int maximum = 0;
+    for (final int physical : physicalOrder) {
+      if (physical < 1 || physical > MAX_ROW_GROUPS) {
+        throw new IllegalStateException("physical row-group slot out of range: " + physical);
+      }
+      maximum = Math.max(maximum, physical);
+    }
+    return maximum;
   }
 
   /**
@@ -910,24 +1455,73 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   public static List<byte[]> readAllRowGroupsFromColumnSegmentSlots(final StorageEngineReader reader,
       final int indexNumber, final int rowGroupCount) {
+    return readAllRowGroupsFromColumnSegmentSlots(reader, indexNumber, rowGroupCount,
+        persistedPhysicalOrder(reader, indexNumber, rowGroupCount));
+  }
+
+  public static List<byte[]> readAllRowGroupsFromColumnSegmentSlots(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount, final int[] physicalOrder) {
     final ArrayList<RawBlobSlot> segmentSlots = new ArrayList<>();
-    // Phases 1-2 — one walk, then validate the descriptor key set is exactly {1..rowGroupCount}.
-    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, segmentSlots);
-    // Phase 3 — resolve descriptors (referenced ones in one batch), then size each leaf's accum. The
-    // ordered array is indexed by rowGroupId-1 (keys were just validated contiguous 1..rowGroupCount).
+    // Phases 1-2 — one walk, then validate descriptors against the explicit live physical order.
+    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, physicalOrder,
+        segmentSlots);
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots, physicalOrder);
+  }
+
+  /**
+   * Phases 3-5 over an already-collected slot set — the shared tail of the serial walk above and the
+   * catalog's PARALLEL collection (partitioned {@link #collectSlotsRange} calls merged by the
+   * caller). Batch I/O (descriptor resolution, committed segment refs) runs on the ONE reader passed
+   * here; the per-leaf assembly fans out as before.
+   */
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots) {
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots,
+        identityPhysicalOrder(rowGroupCount), null);
+  }
+
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
+      final int[] physicalOrder) {
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots,
+        physicalOrder, null);
+  }
+
+  /**
+   * {@code parallelReaders}: pre-opened extra readers for PARTITIONED committed-segment resolution
+   * (the caller owns their transactions). {@code null} keeps the single-reader batch.
+   */
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
+      final StorageEngineReader @Nullable [] parallelReaders) {
+    return assembleRowGroupsFromSlots(reader, indexNumber, rowGroupCount, descArr, segmentSlots,
+        identityPhysicalOrder(rowGroupCount), parallelReaders);
+  }
+
+  static List<byte[]> assembleRowGroupsFromSlots(final StorageEngineReader reader, final int indexNumber,
+      final int rowGroupCount, final RawBlobSlot[] descArr, final ArrayList<RawBlobSlot> segmentSlots,
+      final int[] physicalOrder, final StorageEngineReader @Nullable [] parallelReaders) {
+    final long p3 = DIAG
+        ? System.nanoTime()
+        : 0L;
+    // Phase 3 — resolve descriptors (referenced ones in one batch), then size each leaf's accum.
+    // The descriptor array is already logical-order positional; physical segment ids map through
+    // the persisted fence order below.
     final ColumnSegmentSlotRowGroupAccum[] ordered = new ColumnSegmentSlotRowGroupAccum[rowGroupCount];
     resolveDescriptors(reader, descArr, ordered);
+    final int[] logicalByPhysical = logicalSlotsByPhysical(physicalOrder, rowGroupCount);
     // Phase 4 — resolve segment positions (order-agnostic) and fill; referenced ones in one batch.
     final ArrayList<PendingSegRef> pendingSeg = new ArrayList<>();
     for (final RawBlobSlot s : segmentSlots) {
       // A segment naming a leaf past rowGroupCount is a leaked orphan (rowGroupId is an unsigned >>>16 of
       // a
       // non-zero, sub-CHUNK_SLOT_BASE key, so it is always >= 1). Caught before this segment's I/O.
-      if (s.rowGroupId() > rowGroupCount) {
+      if (s.rowGroupId() >= logicalByPhysical.length
+          || logicalByPhysical[(int) s.rowGroupId()] < 0) {
         throw new IllegalStateException("segment-slot segment slot " + s.slotKey() + " names leaf " + s.rowGroupId()
-            + " beyond rowGroupCount " + rowGroupCount + " (leaked orphan, indexNumber=" + indexNumber + ")");
+            + " outside the live physical order (leaked orphan, indexNumber=" + indexNumber + ")");
       }
-      final ColumnSegmentSlotRowGroupAccum accum = ordered[(int) (s.rowGroupId() - 1)];
+      final ColumnSegmentSlotRowGroupAccum accum = ordered[logicalByPhysical[(int) s.rowGroupId()]];
       final int columnSegmentId = s.slotKind() - 1;
       final int pos = indexOf(accum.columnSegmentIds, columnSegmentId);
       if (pos < 0) {
@@ -942,14 +1536,34 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         accum.payloads[pos] = s.resolved();
       } else if (s.inlineValue() != null) {
         accum.payloads[pos] = s.inlineValue();
-      } else {
+      } else if (columnSegmentId < ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE) {
         pendingSeg.add(new PendingSegRef(accum.payloads, pos, s.offset(), s.slotKey()));
       }
+      // A referenced DICT_HASHES segment is deliberately NOT fetched here: the raw scan form
+      // reassembles from KEYS/BODY/DICT alone, so its bytes would be pages read and thrown away —
+      // and on a high-cardinality string column that is the largest chain in the leaf after the
+      // dictionary itself. Its descriptor entry is still validated above; assembleRaw never asks
+      // for the id, and the column-sliced fill fetches the chain on its own when a fold needs it.
     }
-    resolvePending(reader, pendingSeg);
+    final long p4 = DIAG
+        ? System.nanoTime()
+        : 0L;
+    if (parallelReaders != null && parallelReaders.length > 1 && pendingSeg.size() >= 1024) {
+      resolvePendingParallel(parallelReaders, pendingSeg);
+    } else {
+      resolvePending(reader, pendingSeg);
+    }
+    final long p5 = DIAG
+        ? System.nanoTime()
+        : 0L;
     // Phase 5 — assemble each (independent) leaf; fan out for large stores.
     final byte[][] assembled = new byte[ordered.length][];
     assembleColumnSegmentSlotRowGroups(ordered, assembled, ordered.length >= PARALLEL_ASSEMBLE_MIN);
+    if (DIAG) {
+      System.err.println("[hot] assemble phases: descriptors+fill=" + (p4 - p3) / 1_000_000 + "ms resolvePending="
+          + (p5 - p4) / 1_000_000 + "ms (" + pendingSeg.size() + " refs) assemble="
+          + (System.nanoTime() - p5) / 1_000_000 + "ms");
+    }
     final ArrayList<byte[]> out = new ArrayList<>(assembled.length);
     Collections.addAll(out, assembled);
     return out;
@@ -1068,6 +1682,55 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * → a loud "Missing segment bytes" there). {@code indexNumber} is unused — kept out of the hot
    * loop.
    */
+  /**
+   * {@link #resolvePending} partitioned across pre-opened readers. The refs sort by OFFSET first and
+   * each reader takes a CONTIGUOUS run of the sorted order, so per-thread reads keep the coalescing
+   * locality the single-reader batch had — cold storage sees T mostly-sequential streams instead of
+   * one.
+   */
+  private static void resolvePendingParallel(final StorageEngineReader[] readers,
+      final ArrayList<PendingSegRef> pending) {
+    if (pending.isEmpty()) {
+      return;
+    }
+    pending.sort(java.util.Comparator.comparingLong(PendingSegRef::offset));
+    final int lanes = Math.min(readers.length, Math.max(1, pending.size() / 512));
+    if (lanes <= 1) {
+      resolvePending(readers[0], pending);
+      return;
+    }
+    final int chunk = (pending.size() + lanes - 1) / lanes;
+    ForkJoinPool.commonPool().invoke(new RecursiveAction() {
+      @Override
+      protected void compute() {
+        final RecursiveAction[] subs = new RecursiveAction[lanes];
+        for (int l = 0; l < lanes; l++) {
+          final int lane = l;
+          subs[l] = new RecursiveAction() {
+            @Override
+            protected void compute() {
+              final int from = lane * chunk;
+              final int to = Math.min(from + chunk, pending.size());
+              if (from >= to) {
+                return;
+              }
+              final long[] offsets = new long[to - from];
+              for (int i = from; i < to; i++) {
+                offsets[i - from] = pending.get(i).offset();
+              }
+              final byte[][] pages = readSegmentBytesBatch(readers[lane], offsets);
+              for (int i = from; i < to; i++) {
+                final PendingSegRef p = pending.get(i);
+                p.target()[p.idx()] = pages[i - from];
+              }
+            }
+          };
+        }
+        invokeAll(subs);
+      }
+    });
+  }
+
   private static void resolvePending(final StorageEngineReader reader, final ArrayList<PendingSegRef> pending) {
     if (pending.isEmpty()) {
       return;
@@ -1146,7 +1809,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
   /**
    * Descriptor-tier row count for the segment-slot layout: sums {@code rowCount} across the
-   * descriptor slots (slotKind 0) of leaves {@code 1..rowGroupCount}, reading NO segment slots.
+   * descriptor slots (slotKind 0) of all live physical leaves, reading NO segment slots.
    *
    * <p>
    * This serves counting queries WITHOUT hydrating, so it has to be cheap in page touches, not just
@@ -1163,7 +1826,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static long sumRowsFromColumnSegmentSlots(final StorageEngineReader reader, final int indexNumber,
       final int rowGroupCount) {
-    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount, null);
+    final RawBlobSlot[] descArr = orderedDescriptorSlots(reader, indexNumber, rowGroupCount,
+        persistedPhysicalOrder(reader, indexNumber, rowGroupCount), null);
     long total = 0;
     for (final byte[] descriptor : resolveDescriptorPayloads(reader, descArr)) {
       // isDescriptor only guarantees the 4-byte magic; rowCount reads a 4-byte field at offset 5.
@@ -1293,6 +1957,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
       final StorageEngineReader reader, final int indexNumber, final int rowGroupCount) {
+    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount,
+        persistedPhysicalOrder(reader, indexNumber, rowGroupCount));
+  }
+
+  public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final int[] physicalOrder) {
     final PageReference rootRef = rootReference(reader, indexNumber);
     if (rootRef == null) {
       return rowGroupCount == 0
@@ -1300,12 +1971,545 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           : null;
     }
     final RowGroupDirectory[] out = new RowGroupDirectory[rowGroupCount];
-    final DirectoryWalk walk = new DirectoryWalk(out, rowGroupCount, indexNumber);
+    final DirectoryWalk walk = new DirectoryWalk(out, rowGroupCount, indexNumber, physicalOrder);
     if (!collectRowGroupDirectorySlots(reader, indexNumber, rootRef, walk)) {
       return null; // an unresolved page — offset-lazy fetching cannot serve it
     }
     walk.finish();
     return Arrays.asList(out);
+  }
+
+  /**
+   * {@link #readAllRowGroupDirectoriesFromColumnSegmentSlots(StorageEngineReader, int, int)} with the
+   * per-leaf page decode fanned out across {@code workerReaders}' leases.
+   *
+   * <p>
+   * The serial form is one HOT range scan that demand-faults every leaf page in turn and pays that
+   * page's decompress+expand before it can look at the next reference — strictly serial CPU over
+   * strictly serial I/O. Measured on a 977-row-group ClickBench projection: 160 ms, the single
+   * largest item of a cold serve. Nothing about the walk needs order (see {@link DirectoryWalk} — row
+   * groups are completed in place and emitted together), so the leaf pages can be decoded
+   * independently and replayed afterwards.
+   *
+   * <p>
+   * <b>Committed read-only contexts only.</b> A writer's reader resolves through a transaction intent
+   * log whose read path mutates shared state (reference rebinding), so it keeps the serial cursor
+   * walk — as does every caller that passes no {@code workerReaders}. This is the same line
+   * {@code decodeRowGroups(StorageEngineReader, IndexDef)} draws for the eager hydrate.
+   *
+   * <p>
+   * <b>Fail-soft.</b> Anything the parallel machinery itself gets wrong — an unexpected page type, a
+   * worker that could not be run — falls back to the full serial walk and returns its result.
+   * Verified-content corruption ({@link IllegalStateException} from the decode and verify helpers)
+   * propagates instead, exactly as it does from the serial walk, so the catalog still marks the index
+   * unusable rather than silently re-reading it.
+   *
+   * @param workerReaders opens one short-lived read-only reader per worker, or {@code null} to force
+   *        the serial walk
+   */
+  public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final @Nullable ParallelWalkReaders workerReaders) {
+    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount,
+        persistedPhysicalOrder(reader, indexNumber, rowGroupCount), workerReaders);
+  }
+
+  public static @Nullable List<RowGroupDirectory> readAllRowGroupDirectoriesFromColumnSegmentSlots(
+      final StorageEngineReader reader, final int indexNumber, final int rowGroupCount,
+      final int[] physicalOrder, final @Nullable ParallelWalkReaders workerReaders) {
+    if (workerReaders != null && PARALLEL_DIRECTORY_WALK && !reader.hasTrxIntentLog()) {
+      List<RowGroupDirectory> parallel;
+      try {
+        parallel = parallelRowGroupDirectories(reader, indexNumber, rowGroupCount, physicalOrder, workerReaders);
+      } catch (final IllegalStateException corrupt) {
+        throw corrupt; // verified-content corruption — the serial walk would fail identically
+      } catch (final RuntimeException infrastructure) {
+        LOGGER.debug("Parallel projection directory walk failed for indexNumber=" + indexNumber
+            + " — falling back to the serial walk (" + infrastructure + ")");
+        parallel = PARALLEL_WALK_DECLINED;
+      }
+      if (parallel != PARALLEL_WALK_DECLINED) {
+        return parallel;
+      }
+    }
+    return readAllRowGroupDirectoriesFromColumnSegmentSlots(reader, indexNumber, rowGroupCount, physicalOrder);
+  }
+
+  /**
+   * Opens one short-lived read-only reader for a parallel directory-walk worker and closes it again
+   * when the worker returns. Implemented by the caller, which owns the session and the revision — a
+   * worker must never share the coordinating reader (page resolution keeps per-reader positional
+   * state).
+   */
+  @FunctionalInterface
+  public interface ParallelWalkReaders {
+    /** Runs {@code worker} against a fresh reader, closing that reader before returning. */
+    void runWithReader(Consumer<StorageEngineReader> worker);
+  }
+
+  /**
+   * Master switch for the parallel directory walk, {@code -Dsirix.projection.parallelWalk=false} to
+   * disable. Resolved once: it is a JVM-lifetime switch, and reading it per walk would put a lookup
+   * in the JDK's synchronized system-properties table on a path that also runs under a read lock.
+   * Tests exercise the two routes by entry point rather than by property.
+   */
+  private static final boolean PARALLEL_DIRECTORY_WALK =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.parallelWalk", "true"));
+
+  /**
+   * Worker ceiling. The walk is one-per-(resource, revision) and bounded by page I/O, not by cores;
+   * past a handful of concurrent readers the device is saturated and the extra threads only add
+   * transaction-open cost and lock traffic on the shared buffer manager.
+   */
+  private static final int MAX_DIRECTORY_WALK_WORKERS = 8;
+
+  /**
+   * Two partitions already halve a cold walk whose cost is per-leaf page expansion (measured: a
+   * 977-row-group store is FIVE fat leaves under one root — ~33 ms of decode each, 165 ms serial), so
+   * the only shape worth declining is the one that cannot be split at all.
+   */
+  private static final int MIN_PARTITIONS_FOR_PARALLEL_WALK = 2;
+
+  /** Partitions to aim for before handing the frontier to the workers — see {@link #walkFrontier}. */
+  private static final int PARTITIONS_PER_WORKER = 8;
+
+  /** Page references per batched {@link StorageEngineReader#prefetchPageSpans} hint. */
+  private static final int WALK_PREFETCH_BATCH = 128;
+
+  /** Mirrors {@code HOTTrieReader.MAX_TREE_HEIGHT}: a descent past it means a corrupt trie. */
+  private static final int MAX_WALK_DEPTH = 64;
+
+  /** Names the parallel walk in {@link HOTTrieReader#recoverTorn} exhaustion diagnostics. */
+  private static final String PARALLEL_WALK_OP = "projection parallel directory walk";
+
+  /** Decline/engage diagnostics for the parallel walk, off unless {@code -Dsirix.projDiag=true}. */
+  private static final boolean WALK_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /**
+   * Distinguishes "the parallel walk did not run" from its two real answers (a directory list, or
+   * {@code null} for an unresolved page). A private instance, so no legitimate empty result can be
+   * mistaken for it.
+   */
+  private static final List<RowGroupDirectory> PARALLEL_WALK_DECLINED =
+      Collections.unmodifiableList(new ArrayList<>(0));
+
+  /**
+   * The parallel walk proper: enumerate a frontier of subtree references without decoding leaves,
+   * decode each partition of it on its own reader, then replay the captures into one
+   * {@link DirectoryWalk}.
+   *
+   * @return the directories, {@code null} for an unresolved page, or {@link #PARALLEL_WALK_DECLINED}
+   *         when this store is not worth (or not shaped for) the parallel route
+   */
+  private static @Nullable List<RowGroupDirectory> parallelRowGroupDirectories(final StorageEngineReader reader,
+      final int indexNumber, final int rowGroupCount, final int[] physicalOrder,
+      final ParallelWalkReaders workerReaders) {
+    if (rowGroupCount <= 0) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final int cores = Math.min(Runtime.getRuntime().availableProcessors(), MAX_DIRECTORY_WALK_WORKERS);
+    if (cores < 2) {
+      return PARALLEL_WALK_DECLINED;
+    }
+    final PageReference[] frontier;
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      frontier = walkFrontier(reader, trieReader, rootRef, cores * PARTITIONS_PER_WORKER);
+    }
+    if (frontier == null || frontier.length < MIN_PARTITIONS_FOR_PARALLEL_WALK) {
+      if (WALK_DIAG) {
+        System.err.println("[parwalk] DECLINED: frontier " + (frontier == null
+            ? "null (unresolved page)"
+            : frontier.length + " < " + MIN_PARTITIONS_FOR_PARALLEL_WALK));
+      }
+      return PARALLEL_WALK_DECLINED;
+    }
+    if (WALK_DIAG) {
+      System.err.println("[parwalk] ENGAGED: frontier=" + frontier.length + " workers~" + cores);
+    }
+    final int chunk = (frontier.length + Math.min(cores, frontier.length) - 1) / Math.min(cores, frontier.length);
+    // Re-derive the worker count from the chunk size: a ceiling division can leave the last
+    // partitions empty (9 references over 8 workers is 5 chunks of 2), and an empty partition
+    // still costs a thread and a read transaction.
+    final int workers = (frontier.length + chunk - 1) / chunk;
+    final DirectoryWalkWorker[] tasks = new DirectoryWalkWorker[workers];
+    final Thread[] threads = new Thread[workers];
+    final Throwable[] failures = new Throwable[workers];
+    for (int w = 0; w < workers; w++) {
+      final int from = w * chunk;
+      final DirectoryWalkWorker task =
+          new DirectoryWalkWorker(frontier, from, Math.min(from + chunk, frontier.length), indexNumber);
+      final int slot = w;
+      tasks[w] = task;
+      final Thread thread = new Thread(() -> {
+        try {
+          workerReaders.runWithReader(task);
+        } catch (final Throwable failure) {
+          failures[slot] = failure;
+        }
+      }, "sirix-projection-dirwalk-" + w);
+      thread.setDaemon(true);
+      threads[w] = thread;
+      thread.start();
+    }
+    // Every worker is joined before anything it produced is read, so its buffer, its unresolved
+    // flag and its failure slot are all published by the join's happens-before edge — no volatile
+    // and no synchronization on the per-worker state.
+    boolean interrupted = false;
+    for (final Thread thread : threads) {
+      try {
+        thread.join();
+      } catch (final InterruptedException e) {
+        interrupted = true;
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+      return PARALLEL_WALK_DECLINED;
+    }
+    IllegalStateException corrupt = null;
+    Throwable infrastructure = null;
+    for (final Throwable failure : failures) {
+      if (failure == null) {
+        continue;
+      }
+      if (failure instanceof Error error) {
+        throw error;
+      }
+      if (failure instanceof IllegalStateException stateFailure) {
+        corrupt = stateFailure;
+      } else if (infrastructure == null) {
+        infrastructure = failure;
+      }
+    }
+    if (corrupt != null) {
+      throw corrupt; // slot content that failed a verify — must reach the catalog, not be re-read
+    }
+    if (infrastructure != null) {
+      LOGGER.debug("Parallel projection directory walk worker failed for indexNumber=" + indexNumber
+          + " — falling back to the serial walk (" + infrastructure + ")");
+      return PARALLEL_WALK_DECLINED;
+    }
+    for (final DirectoryWalkWorker task : tasks) {
+      if (task.unresolved) {
+        return null; // an unresolved page — offset-lazy fetching cannot serve it
+      }
+    }
+    final RowGroupDirectory[] out = new RowGroupDirectory[rowGroupCount];
+    final DirectoryWalk walk = new DirectoryWalk(out, rowGroupCount, indexNumber, physicalOrder);
+    // Partition order, not completion order: the walk is order-agnostic, but a deterministic
+    // replay keeps a corrupt store failing with the same message on every run.
+    for (final DirectoryWalkWorker task : tasks) {
+      task.buffer.replayInto(walk);
+    }
+    walk.finish();
+    return Arrays.asList(out);
+  }
+
+  /**
+   * The set of subtree references the workers partition: descend the trie one level at a time from
+   * the root, widening the frontier until it holds at least {@code target} references.
+   *
+   * <p>
+   * The point is to reach the leaf level WITHOUT decoding a leaf, since decoding one is the very cost
+   * being parallelized. A reference's page kind is only knowable by resolving it, so the expansion of
+   * a level stops the moment a resolved page turns out to be a leaf: at most ONE leaf is decoded
+   * serially, and that one is left swizzled for its worker. The frontier is then whatever the current
+   * level holds — leaves in the ordinary case, subtree roots when the trie is deeper than
+   * {@code target} needed, and a mix of the two on a ragged level. Workers descend whatever they are
+   * handed, so this stays correct for all three; only the balance of the partitions varies.
+   *
+   * <p>
+   * Each level is offset-sorted before it is prefetched and handed on, so the batched span hints —
+   * and the workers' contiguous slices of the result — read the file in mostly ascending order
+   * instead of in trie order.
+   *
+   * @return the frontier, or {@code null} when a page is unresolved or of an unexpected kind
+   */
+  private static PageReference @Nullable [] walkFrontier(final StorageEngineReader reader,
+      final HOTTrieReader trieReader, final PageReference rootRef, final int target) {
+    PageReference[] frontier = {rootRef};
+    int frontierCount = 1;
+    for (int level = 0; level < MAX_WALK_DEPTH && frontierCount < target; level++) {
+      PageReference[] next = new PageReference[Math.max(32, frontierCount << 2)];
+      int nextCount = 0;
+      boolean leafLevelReached = false;
+      for (int i = 0; i < frontierCount; i++) {
+        final Page page = trieReader.resolvePage(frontier[i]);
+        if (page == null) {
+          return null;
+        }
+        if (page instanceof HOTLeafPage) {
+          leafLevelReached = true;
+          break;
+        }
+        if (!(page instanceof HOTIndirectPage indirect)) {
+          return null;
+        }
+        final int children = indirect.getNumChildren();
+        for (int c = 0; c < children; c++) {
+          // A null child reference is skipped rather than rejected, mirroring the cursor's
+          // sibling walk: its right-hand siblings are still live subtrees.
+          final PageReference child = indirect.getChildReference(c);
+          if (child == null) {
+            continue;
+          }
+          if (nextCount == next.length) {
+            next = Arrays.copyOf(next, nextCount << 1);
+          }
+          next[nextCount++] = child;
+        }
+      }
+      if (leafLevelReached || nextCount == 0) {
+        break;
+      }
+      frontier = next;
+      frontierCount = nextCount;
+      Arrays.sort(frontier, 0, frontierCount, Comparator.comparingLong(PageReference::getKey));
+      prefetchWalkFrontier(reader, frontier, frontierCount);
+    }
+    return frontierCount == frontier.length
+        ? frontier
+        : Arrays.copyOf(frontier, frontierCount);
+  }
+
+  /**
+   * Test hook: how many partitions {@link #parallelRowGroupDirectories} would fan this store out
+   * over. A store whose frontier is narrower than {@link #MIN_PARTITIONS_FOR_PARALLEL_WALK} takes the
+   * serial walk, so a differential test needs this to know it is exercising the route it names.
+   */
+  static int parallelWalkPartitionsForTest(final StorageEngineReader reader, final int indexNumber) {
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return 0;
+    }
+    final int cores = Math.min(Runtime.getRuntime().availableProcessors(), MAX_DIRECTORY_WALK_WORKERS);
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final PageReference[] frontier = walkFrontier(reader, trieReader, rootRef, cores * PARTITIONS_PER_WORKER);
+      return frontier == null
+          ? 0
+          : frontier.length;
+    }
+  }
+
+  /**
+   * Batched read-ahead hints for a whole frontier level; a no-op on backends without the primitive.
+   */
+  private static void prefetchWalkFrontier(final StorageEngineReader reader, final PageReference[] refs,
+      final int count) {
+    if (reader.recordPagePrefetchBatch() <= 0) {
+      return;
+    }
+    final PageReference[] batch = new PageReference[WALK_PREFETCH_BATCH];
+    int fill = 0;
+    for (int i = 0; i < count; i++) {
+      final PageReference ref = refs[i];
+      if (ref.getPage() != null || ref.getKey() < 0) {
+        continue; // already resident, or log-resident — nothing for the device to read ahead
+      }
+      batch[fill++] = ref;
+      if (fill == batch.length) {
+        reader.prefetchPageSpans(batch, fill);
+        fill = 0;
+      }
+    }
+    if (fill > 0) {
+      reader.prefetchPageSpans(batch, fill);
+    }
+  }
+
+  /**
+   * One partition of the frontier, decoded on its own reader. Holds no shared state: the captures go
+   * into its own buffer and are replayed by the coordinator after the join.
+   */
+  private static final class DirectoryWalkWorker implements Consumer<StorageEngineReader> {
+    private final PageReference[] frontier;
+    private final int from;
+    private final int to;
+    private final int indexNumber;
+
+    /** Captured slots, in visit order. Read by the coordinator only after {@link Thread#join()}. */
+    final DirectorySlotBuffer buffer = new DirectorySlotBuffer();
+
+    /** Set when a referenced segment or descriptor page could not be resolved. */
+    boolean unresolved;
+
+    DirectoryWalkWorker(final PageReference[] frontier, final int from, final int to, final int indexNumber) {
+      this.frontier = frontier;
+      this.from = from;
+      this.to = to;
+      this.indexNumber = indexNumber;
+    }
+
+    @Override
+    public void accept(final StorageEngineReader reader) {
+      final SlotCapture capture = new SlotCapture();
+      try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+        for (int i = from; i < to; i++) {
+          if (!walkDirectorySubtree(reader, trieReader, indexNumber, frontier[i], 0, capture, buffer)) {
+            unresolved = true;
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Decode every leaf under {@code ref} into {@code out}. Handles a frontier entry that turns out to
+   * be an inner node — the frontier is built without proving each entry's page kind.
+   *
+   * @return {@code false} as soon as a page is unresolved, matching
+   *         {@link #collectRowGroupDirectorySlots}'s early return
+   */
+  private static boolean walkDirectorySubtree(final StorageEngineReader reader, final HOTTrieReader trieReader,
+      final int indexNumber, final PageReference ref, final int depth, final SlotCapture capture,
+      final DirectorySlotBuffer out) {
+    if (depth >= MAX_WALK_DEPTH) {
+      throw new IllegalStateException(
+          "segment-slot trie exceeds the maximum height of " + MAX_WALK_DEPTH + " (indexNumber=" + indexNumber + ")");
+    }
+    final Page page = trieReader.resolvePage(ref);
+    if (page == null) {
+      return false;
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      return captureLeafDirectorySlots(reader, trieReader, indexNumber, leaf, capture, out);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      return false;
+    }
+    final int children = indirect.getNumChildren();
+    for (int c = 0; c < children; c++) {
+      final PageReference child = indirect.getChildReference(c);
+      if (child == null) {
+        continue;
+      }
+      if (!walkDirectorySubtree(reader, trieReader, indexNumber, child, depth + 1, capture, out)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Every live slot of ONE leaf, captured into {@code out} under the same optimistic-stamp discipline
+   * the cursor walk uses: each entry's reads are a batch, the stamp is validated before the capture
+   * is kept, and a torn batch is re-read on a freshly reloaded copy of the leaf.
+   *
+   * <p>
+   * The validation is NOT redundant on a committed snapshot. Page CONTENT per reference is immutable,
+   * but the off-heap slot backing this page object is not owned by this reader: the ClockSweeper can
+   * reclaim it mid-read, which is precisely what the stamp detects. {@code entryCount} survives a
+   * reload for the same reason the cursor's entry index does — content per reference is immutable, so
+   * the fresh copy has the identical entries.
+   */
+  private static boolean captureLeafDirectorySlots(final StorageEngineReader reader, final HOTTrieReader trieReader,
+      final int indexNumber, final HOTLeafPage resolved, final SlotCapture capture, final DirectorySlotBuffer out) {
+    HOTLeafPage leaf = resolved;
+    int tornRounds = 0;
+    int entryCount;
+    while (true) {
+      try {
+        entryCount = leaf.getEntryCount();
+      } catch (final RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e; // stable bytes — genuine corruption, not a torn read
+        }
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      break;
+    }
+    tornRounds = 0;
+    for (int entryIndex = 0; entryIndex < entryCount;) {
+      try {
+        readDirectorySlot(reader, indexNumber, leaf, entryIndex, capture);
+      } catch (final RuntimeException e) {
+        if (trieReader.validateCurrentLeaf()) {
+          throw e;
+        }
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      if (!trieReader.validateCurrentLeaf()) {
+        leaf = reloadTornLeaf(trieReader, ++tornRounds);
+        continue;
+      }
+      tornRounds = 0;
+      if (!capture.skip) {
+        if (capture.unresolved) {
+          return false;
+        }
+        out.add(capture);
+      }
+      entryIndex++;
+    }
+    return true;
+  }
+
+  /** Reload the current leaf after a failed stamp validation and re-adopt the fresh page object. */
+  private static HOTLeafPage reloadTornLeaf(final HOTTrieReader trieReader, final int round) {
+    trieReader.recoverTorn(round, PARALLEL_WALK_OP);
+    final HOTLeafPage refreshed = trieReader.currentLeafPage();
+    if (refreshed == null) {
+      throw new IllegalStateException(PARALLEL_WALK_OP + ": reloaded page is no longer a leaf");
+    }
+    return refreshed;
+  }
+
+  /**
+   * One walking thread's captures, as parallel primitive arrays — the coordinator replays them into
+   * the {@link DirectoryWalk} after the join, so nothing here is allocated per slot beyond the
+   * payload arrays that are handed on anyway.
+   */
+  private static final class DirectorySlotBuffer {
+    private static final int INITIAL_CAPACITY = 4096;
+
+    private long[] rowGroupIds = new long[INITIAL_CAPACITY];
+    private int[] slotKinds = new int[INITIAL_CAPACITY];
+    private long[] offsets = new long[INITIAL_CAPACITY];
+    private byte[][] payloads = new byte[INITIAL_CAPACITY][];
+    private int count;
+
+    void add(final SlotCapture capture) {
+      if (count == rowGroupIds.length) {
+        final int grown = count << 1;
+        rowGroupIds = Arrays.copyOf(rowGroupIds, grown);
+        slotKinds = Arrays.copyOf(slotKinds, grown);
+        offsets = Arrays.copyOf(offsets, grown);
+        payloads = Arrays.copyOf(payloads, grown);
+      }
+      rowGroupIds[count] = capture.rowGroupId;
+      slotKinds[count] = capture.slotKind;
+      offsets[count] = capture.segmentOffset;
+      payloads[count] = capture.slotKind == 0
+          ? capture.descriptor
+          : capture.inlinePayload;
+      count++;
+    }
+
+    /** The same call sequence {@link #emitDirectorySlot} makes, deferred. */
+    void replayInto(final DirectoryWalk walk) {
+      for (int i = 0; i < count; i++) {
+        final int slotKind = slotKinds[i];
+        final byte[] payload = payloads[i];
+        if (slotKind == 0) {
+          walk.beginRowGroup(rowGroupIds[i], payload);
+        } else if (payload != null) {
+          walk.putInline(rowGroupIds[i], slotKind - 1, payload);
+        } else {
+          walk.putOffset(rowGroupIds[i], slotKind - 1, offsets[i]);
+        }
+      }
+    }
   }
 
 
@@ -1344,6 +2548,8 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     private final RowGroupDirectory[] out;
     private final int rowGroupCount;
     private final int indexNumber;
+    private final int[] physicalOrder;
+    private final int[] logicalByPhysical;
 
     /** Per-row-group state, indexed by {@code rowGroupId - 1}; null until its descriptor arrives. */
     private final byte[][] descriptors;
@@ -1367,10 +2573,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     private static final int[] EMPTY_INTS = new int[0];
     private static final byte[][] EMPTY_PAYLOADS = new byte[0][];
 
-    DirectoryWalk(final RowGroupDirectory[] out, final int rowGroupCount, final int indexNumber) {
+    DirectoryWalk(final RowGroupDirectory[] out, final int rowGroupCount, final int indexNumber,
+        final int[] physicalOrder) {
       this.out = out;
       this.rowGroupCount = rowGroupCount;
       this.indexNumber = indexNumber;
+      this.physicalOrder = physicalOrder.clone();
+      this.logicalByPhysical = logicalSlotsByPhysical(this.physicalOrder, rowGroupCount);
       this.descriptors = new byte[rowGroupCount][];
       this.segmentIds = new int[rowGroupCount][];
       this.offsets = new long[rowGroupCount][];
@@ -1469,11 +2678,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
 
     /** Validate a row group id and turn it into an index into the per-row-group arrays. */
     private int slotOf(final long rowGroupId) {
-      if (rowGroupId < 1 || rowGroupId > rowGroupCount) {
+      if (rowGroupId < 1 || rowGroupId >= logicalByPhysical.length
+          || logicalByPhysical[(int) rowGroupId] < 0) {
         throw new IllegalStateException("segment-slot store names leaf " + rowGroupId + " but metadata declares "
-            + rowGroupCount + " (indexNumber=" + indexNumber + ")");
+            + rowGroupCount + " live leaves in a different physical order (indexNumber=" + indexNumber + ")");
       }
-      return (int) rowGroupId - 1;
+      return logicalByPhysical[(int) rowGroupId];
     }
 
     /**
@@ -1531,12 +2741,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           final byte[][] inline = inlineBytes[slot];
           for (int i = 0; i < ids.length; i++) {
             if (offsets[slot][i] == Constants.NULL_ID_LONG && (inline == null || inline[i] == null)) {
-              throw new IllegalStateException("segment-slot leaf " + (slot + 1) + " segment " + ids[i]
+              throw new IllegalStateException("segment-slot leaf " + physicalOrder[slot] + " segment " + ids[i]
                   + " missing (indexNumber=" + indexNumber + ")");
             }
           }
         }
-        out[slot] = new RowGroupDirectory(slot + 1L, descriptors[slot], ids, offsets[slot], inlineBytes[slot]);
+        out[slot] = new RowGroupDirectory(physicalOrder[slot], descriptors[slot], ids, offsets[slot],
+            inlineBytes[slot]);
       }
     }
   }
@@ -1566,54 +2777,13 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       // effects cannot be retracted) or the unresolved-page early return. A torn batch
       // re-evaluates the SAME slot on a refreshed leaf copy.
       int tornRounds = 0;
+      final SlotCapture capture = new SlotCapture();
       while (cursor.hasNext()) {
+        // Re-read per round: a torn recovery re-adopts the SAME position on a NEW page object.
         final HOTLeafPage leaf = cursor.currentLeafPage();
         final int entryIndex = cursor.currentEntryIndex();
-        long rowGroupId = 0;
-        int slotKind = 0;
-        boolean skip = false;
-        boolean unresolved = false;
-        byte[] descriptor = null;
-        byte[] inlinePayload = null;
-        long segmentOffset = Constants.NULL_ID_LONG;
         try {
-          final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
-          rowGroupId = slotKey >>> 16;
-          // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
-          // need only their size plus a discriminator byte, and materializing a MemorySegment per
-          // slot made the walk's largest allocation a set of objects it immediately threw away.
-          // Every read below reuses this one handle. A malformed slot reports length -1, which the
-          // tombstone branch already covers.
-          final long valueRef = leaf.valueRef(entryIndex);
-          final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
-          if (valueSize > leaf.slotCapacity()) {
-            // Never let a length no slot can hold size an allocation: torn (validation fails —
-            // retried) or genuine corruption (it holds — the throw escapes).
-            throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
-          }
-          // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
-          // documented on readAllRowGroupsFromColumnSegmentSlots.
-          if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
-            skip = true;
-          } else {
-            slotKind = (int) (slotKey & 0xFFFF);
-            if (slotKind == 0) {
-              descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
-              unresolved = descriptor == null;
-            } else {
-              final byte kind = leaf.refByteAt(valueRef, 0);
-              if (kind == SEG_KIND_INLINE) {
-                inlinePayload = new byte[valueSize - 1];
-                leaf.copyRefInto(valueRef, 1, inlinePayload, 0, valueSize - 1);
-              } else if (kind != SEG_KIND_REF) {
-                throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown"
-                    + " discriminator " + kind + " (indexNumber=" + indexNumber + ")");
-              } else {
-                segmentOffset = resolvedSegmentPageOffset(leaf, slotKey);
-                unresolved = segmentOffset == Constants.NULL_ID_LONG;
-              }
-            }
-          }
+          readDirectorySlot(reader, indexNumber, leaf, entryIndex, capture);
         } catch (RuntimeException e) {
           if (cursor.validateLeaf()) {
             throw e; // stable bytes — genuine corruption, not a torn read
@@ -1626,22 +2796,115 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           continue;
         }
         tornRounds = 0;
-        if (!skip) {
-          if (unresolved) {
+        if (!capture.skip) {
+          if (capture.unresolved) {
             return false;
           }
-          if (slotKind == 0) {
-            walk.beginRowGroup(rowGroupId, descriptor);
-          } else if (inlinePayload != null) {
-            walk.putInline(rowGroupId, slotKind - 1, inlinePayload);
-          } else {
-            walk.putOffset(rowGroupId, slotKind - 1, segmentOffset);
-          }
+          emitDirectorySlot(capture, walk);
         }
         cursor.advance();
       }
     }
     return true;
+  }
+
+  /**
+   * One slot's captured content. Reused across the entries of a walk — a walking thread allocates
+   * exactly one of these, and only the payload arrays it hands on are per-slot.
+   */
+  private static final class SlotCapture {
+    long rowGroupId;
+    int slotKind;
+    boolean skip;
+    boolean unresolved;
+    byte @Nullable [] descriptor;
+    byte @Nullable [] inlinePayload;
+    long segmentOffset;
+
+    void reset() {
+      rowGroupId = 0;
+      slotKind = 0;
+      skip = false;
+      unresolved = false;
+      descriptor = null;
+      inlinePayload = null;
+      segmentOffset = Constants.NULL_ID_LONG;
+    }
+  }
+
+  /**
+   * Read ONE entry of {@code leaf} into {@code capture}: which row group it belongs to, and either
+   * its descriptor bytes, its bare inline payload, or its referenced segment's durable page offset
+   * (CAPTURED, never fetched).
+   *
+   * <p>
+   * Deliberately does no stamp validation and no torn-read recovery: the leaf is unpinned, so the
+   * caller owns the validate-then-commit boundary — the serial walk validates through its cursor, the
+   * parallel walk through its own trie reader, and neither may let a capture reach a consumer whose
+   * effects cannot be retracted before the batch has been proven stable. Keeping the decode itself in
+   * one place is what stops the two routes from drifting apart.
+   */
+  private static void readDirectorySlot(final StorageEngineReader reader, final int indexNumber, final HOTLeafPage leaf,
+      final int entryIndex, final SlotCapture capture) {
+    capture.reset();
+    final long slotKey = leaf.decodeKey8BE(entryIndex) ^ 0x8000_0000_0000_0000L;
+    if (slotKey < 0) {
+      capture.skip = true;
+      return;
+    }
+    final long rowGroupId = slotKey >>> 16;
+    capture.rowGroupId = rowGroupId;
+    // The value's LOCATION, resolved once, not a slice of it: nine of every ten slots here
+    // need only their size plus a discriminator byte, and materializing a MemorySegment per
+    // slot made the walk's largest allocation a set of objects it immediately threw away.
+    // Every read below reuses this one handle. A malformed slot reports length -1, which the
+    // tombstone branch already covers.
+    final long valueRef = leaf.valueRef(entryIndex);
+    final int valueSize = Math.max(HOTLeafPage.refLength(valueRef), 0);
+    if (valueSize > leaf.slotCapacity()) {
+      // Never let a length no slot can hold size an allocation: torn (validation fails —
+      // retried) or genuine corruption (it holds — the throw escapes).
+      throw new IllegalStateException("segment-slot value of " + valueSize + " bytes exceeds the slot capacity");
+    }
+    // Skip tombstones, the slot-0 metadata and the fence chunks — see the key families
+    // documented on readAllRowGroupsFromColumnSegmentSlots.
+    if (valueSize == 0 || rowGroupId == 0 || slotKey >= ProjectionIndexFences.CHUNK_SLOT_BASE) {
+      capture.skip = true;
+      return;
+    }
+    final int slotKind = (int) (slotKey & 0xFFFF);
+    capture.slotKind = slotKind;
+    if (slotKind == 0) {
+      final byte[] descriptor = resolveDirectoryDescriptorSlot(reader, leaf, valueRef, valueSize, slotKey);
+      capture.descriptor = descriptor;
+      capture.unresolved = descriptor == null;
+      return;
+    }
+    final byte kind = leaf.refByteAt(valueRef, 0);
+    if (kind == SEG_KIND_INLINE) {
+      final byte[] inlinePayload = new byte[valueSize - 1];
+      leaf.copyRefInto(valueRef, 1, inlinePayload, 0, valueSize - 1);
+      capture.inlinePayload = inlinePayload;
+      return;
+    }
+    if (kind != SEG_KIND_REF) {
+      throw new IllegalStateException("segment-slot segment slot " + slotKey + " has an unknown" + " discriminator "
+          + kind + " (indexNumber=" + indexNumber + ")");
+    }
+    final long segmentOffset = resolvedSegmentPageOffset(leaf, slotKey);
+    capture.segmentOffset = segmentOffset;
+    capture.unresolved = segmentOffset == Constants.NULL_ID_LONG;
+  }
+
+  /** Hand one captured, stamp-validated slot to the builder. */
+  private static void emitDirectorySlot(final SlotCapture capture, final DirectoryWalk walk) {
+    if (capture.slotKind == 0) {
+      walk.beginRowGroup(capture.rowGroupId, capture.descriptor);
+    } else if (capture.inlinePayload != null) {
+      walk.putInline(capture.rowGroupId, capture.slotKind - 1, capture.inlinePayload);
+    } else {
+      walk.putOffset(capture.rowGroupId, capture.slotKind - 1, capture.segmentOffset);
+    }
   }
 
 
@@ -1792,6 +3055,9 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final boolean priorWasReferencedBlob = prior != null && prior.length == BLOB_MARKER_BYTES
         && ProjectionIndexRowGroupCodec.getIntLE(prior, 0) == BLOB_MAGIC
         && (ProjectionIndexRowGroupCodec.getIntLE(prior, 5) & BLOB_INLINE_FLAG) == 0;
+    if (priorWasReferencedBlob) {
+      rejectPendingSidePageMutation(slotKey, BLOB_SEGMENT_ID, "replace");
+    }
     if (inline) {
       final byte[] value = new byte[BLOB_MARKER_BYTES + payload.length];
       RowGroupDescriptor.putIntLE(value, 0, BLOB_MAGIC);
@@ -1827,10 +3093,74 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (value == null || value.length == 0) {
       return null;
     }
-    if (isInlineBlob(value)) {
-      return verifyInlineBlob(value, slotKey);
+    final byte[] payload = isInlineBlob(value)
+        ? verifyInlineBlob(value, slotKey)
+        : verifyBlob(value, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+    return payload;
+  }
+
+  /** Writer-side read of one raw HOT slot (no PIXB framing), for the sparse record locator. */
+  byte @Nullable [] getRawSlot(final long slotKey) {
+    final byte[] value = readSlotValueForWrite(slotKey);
+    return value == null || value.length == 0 ? null : value;
+  }
+
+  /** Writer-side raw HOT slot put; callers own their compact value format and validation. */
+  void putRawSlot(final long slotKey, final byte[] value) {
+    if (slotKey >= 0) {
+      throw new IllegalArgumentException("raw sparse-locator slot must be negative: " + slotKey);
     }
-    return verifyBlob(value, getSegmentPageBytes(slotKey, BLOB_SEGMENT_ID), slotKey);
+    if (value == null || value.length == 0) {
+      throw new IllegalArgumentException("raw sparse-locator value must be non-empty");
+    }
+    writeSlotValue(slotKey, value);
+  }
+
+  /** Tombstone one raw sparse-locator slot without creating an entry for an absent key. */
+  void tombstoneRawSlot(final long slotKey) {
+    if (slotKey >= 0) {
+      throw new IllegalArgumentException("raw sparse-locator slot must be negative: " + slotKey);
+    }
+    final byte[] prior = readSlotValueForWrite(slotKey);
+    if (prior != null && prior.length > 0) {
+      writeSlotValue(slotKey, TOMBSTONE);
+    }
+  }
+
+  /** Reader-side committed read of one raw HOT slot (no blob/segment interpretation). */
+  static byte @Nullable [] readRawSlot(final StorageEngineReader reader, final int indexNumber,
+      final long slotKey) {
+    if (slotKey >= 0) {
+      throw new IllegalArgumentException("raw sparse-locator slot must be negative: " + slotKey);
+    }
+    final PageReference rootRef = rootReference(reader, indexNumber);
+    if (rootRef == null) {
+      return null;
+    }
+    try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
+      final byte[] keyBuf = KEY_BUFFER.get();
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        byte @Nullable [] value;
+        try {
+          final int index = leaf.findEntry(keyBuf);
+          value = index < 0 ? null : leaf.getValue(index);
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        return value == null || value.length == 0 ? null : value;
+      }
+      throw HOTTrieReader.stampRetriesExhausted("readRawSlot(slot " + slotKey + ")");
+    }
   }
 
   /**
@@ -1839,15 +3169,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    *
    * <p>
    * The descriptor-directory write paths read their prior descriptor with the raw, never-throwing
-   * {@link #readSlotValueForWrite}, so a damaged prior simply fails the {@code isDescriptor} test and
-   * the write proceeds (or maintenance returns {@code false} and a full rebuild repairs the store).
-   * The segment-slot twins keep their descriptor in a verified blob, so using {@link #getBlob} there
-   * made the same condition fatal instead of self-healing: the throw escapes into the change
-   * listener's corruption valve, which tombstones; {@code rebuildFully} then returns early on a stale
-   * marker, and a fresh create re-enters this very read and throws again — a permanently dead index
-   * where the descriptor layout would have rebuilt cleanly. Treating it as "no usable prior" restores
-   * that parity: the caller overwrites, and the worst case is an orphaned segment page rather than an
-   * unusable index.
+   * {@link #readSlotValueForWrite}, so a damaged prior simply fails the {@code isDescriptor} test.
+   * The segment-slot twins keep their descriptor in a verified blob. Treating an unreadable prior as
+   * absent lets explicit creation overwrite it; bounded maintenance still validates authoritative
+   * row-group reads before publishing refreshed metadata.
    * </p>
    */
   private byte @Nullable [] getBlobIfReadable(final long slotKey) {
@@ -1868,22 +3193,47 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       return null;
     }
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
-      final byte[] value = readValidatedSlotValue(trieReader, rootRef, slotKey, KEY_BUFFER.get(), "readBlob");
-      if (value == null) {
-        return null;
+      final byte[] keyBuf = KEY_BUFFER.get();
+      final long refKey = HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID);
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        byte @Nullable [] value;
+        PageReference ref = null;
+        try {
+          final int idx = leaf.findEntry(keyBuf);
+          value = idx < 0
+              ? null
+              : leaf.getValue(idx);
+          if (value != null && value.length != 0 && !isInlineBlob(value)) {
+            ref = leaf.getPageReference(refKey);
+          }
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (value == null || value.length == 0) {
+          return null;
+        }
+        if (isInlineBlob(value)) {
+          return verifyInlineBlob(value, slotKey);
+        }
+        if (ref == null) {
+          return verifyBlob(value, null, slotKey);
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        return verifyBlob(value, page == null
+            ? null
+            : page.getDataBytes(), slotKey);
       }
-      if (isInlineBlob(value)) {
-        return verifyInlineBlob(value, slotKey);
-      }
-      final PageReference ref =
-          trieReader.currentLeafPage().getPageReference(HOTLeafPage.overflowPageRefKey(slotKey, BLOB_SEGMENT_ID));
-      if (ref == null) {
-        return verifyBlob(value, null, slotKey);
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      return verifyBlob(value, page == null
-          ? null
-          : page.getDataBytes(), slotKey);
+      throw HOTTrieReader.stampRetriesExhausted("readBlob(slot " + slotKey + ")");
     }
   }
 
@@ -1939,61 +3289,34 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
       final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
-      if (leaf == null) {
-        return Constants.NULL_ID_LONG;
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
+        if (leaf == null) {
+          return Constants.NULL_ID_LONG;
+        }
+        long offset;
+        try {
+          final PageReference ref = leaf.getPageReference(refKey);
+          offset = ref == null
+              ? Constants.NULL_ID_LONG
+              : ref.getKey();
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        return offset;
       }
-      final PageReference ref = leaf.getPageReference(refKey);
-      return ref == null
-          ? Constants.NULL_ID_LONG
-          : ref.getKey();
+      throw HOTTrieReader.stampRetriesExhausted(
+          "segmentPageOffset(slot " + ownerSlotKey + ", segment " + columnSegmentId + ")");
     }
   }
 
   // ==================== descriptor-layout internals ====================
-
-  /**
-   * Navigate to {@code slotKey}'s leaf and read its raw value under the optimistic-stamp protocol:
-   * the found/absent decision and the value copy are both validated before anything is derived from
-   * them, and a torn batch re-descends on freshly reloaded copies. Shared by the two reader-side slot
-   * reads, which differ only in how they interpret the bytes — restating this scaffolding per caller
-   * meant a fix to the validation discipline had to be applied twice, 1300 lines apart.
-   *
-   * <p>
-   * The leaf the value came from is NOT returned: {@code loadPage} installs every leaf it resolves as
-   * the reader's current leaf, so the caller reads it back with {@code trieReader.currentLeafPage()}
-   * and no per-read holder has to be allocated.
-   *
-   * @return the validated value bytes, or {@code null} when the slot is absent or tombstoned
-   */
-  private static byte @Nullable [] readValidatedSlotValue(final HOTTrieReader trieReader, final PageReference rootRef,
-      final long slotKey, final byte[] keyBuf, final String operation) {
-    for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, slotKey, keyBuf);
-      if (leaf == null) {
-        return null;
-      }
-      final byte[] value;
-      try {
-        final int idx = leaf.findEntry(keyBuf);
-        value = idx < 0
-            ? null
-            : leaf.getValue(idx);
-      } catch (RuntimeException e) {
-        if (trieReader.validateCurrentLeaf()) {
-          throw e; // stable bytes — genuine corruption, not a torn read
-        }
-        continue;
-      }
-      if (!trieReader.validateCurrentLeaf()) {
-        continue;
-      }
-      return value == null || value.length == 0
-          ? null
-          : value;
-    }
-    throw HOTTrieReader.stampRetriesExhausted(operation + "(slot " + slotKey + ")");
-  }
 
   /**
    * Shared navigation preamble of the reader-side descriptor-layout statics: serialize the slot key
@@ -2075,9 +3398,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    * rollback simply never writes it.
    *
    * <p>
-   * Re-attaching the same {@code (ownerSlotKey, columnSegmentId)} replaces the reference —
-   * whole-segment last-writer-wins. An unchanged segment is shared across revisions by NOT
-   * re-attaching it (the carried-forward reference keeps its resolved key).
+   * Re-attaching the same {@code (ownerSlotKey, columnSegmentId)} replaces a resolved reference —
+   * whole-segment last-writer-wins. A reference still owned by the append-only bulk batch cannot be
+   * replaced: its old payload would still be written but no revision could reach it, permanently
+   * stranding space inside an otherwise successful commit. An unchanged segment is shared across
+   * revisions by NOT re-attaching it (the carried-forward reference keeps its resolved key).
    */
   public void putSegmentPage(final long ownerSlotKey, final int columnSegmentId, final byte[] bytes) {
     if (rootReference == null) {
@@ -2100,9 +3425,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           + indexNumber + ") — write the owning slot before"
           + " attaching its segments, or the reference cannot follow it across splits.");
     }
+    final PageReference previousReference = navResult.leaf().getPageReference(refKey);
+    if (previousReference != null && previousReference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation("replace", ownerSlotKey, columnSegmentId);
+    }
     final PageReference ref = new PageReference();
     ref.setPage(new OverflowPage(bytes));
     navResult.leaf().setPageReference(refKey, ref);
+
+    // Projection row groups are immutable once emitted. Keeping every referenced segment byte[]
+    // reachable through transaction-long pinned HOT leaves made the live set grow with the corpus
+    // (~1.9 GiB after 10M ClickBench rows). A bulk build therefore stages only NEW side-map keys in
+    // the writer's bounded, single-owner append pipeline. Replacements deliberately stay resident:
+    // prewriting a value that is superseded before the root is published would leave a permanent
+    // hole inside an otherwise successful revision. Unsupported backends return false and likewise
+    // fall back to the ordinary recursive final commit.
+    if (stageFreshSidePages && previousReference == null) {
+      storageEngineWriter.stageUncommittedOverflowPage(ref);
+    }
   }
 
   /**
@@ -2121,11 +3461,41 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     // on an empty trie it would even create a spurious root leaf. Only pay the CoW when the
     // reference actually exists.
     final HOTLeafPage probeLeaf = getLeafForRead(keyBuf);
-    if (probeLeaf == null || probeLeaf.getPageReference(refKey) == null) {
+    if (probeLeaf == null) {
       return;
+    }
+    final PageReference existingReference = probeLeaf.getPageReference(refKey);
+    if (existingReference == null) {
+      return;
+    }
+    if (existingReference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation("remove", ownerSlotKey, columnSegmentId);
     }
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, 8);
     navResult.leaf().removePageReference(refKey);
+  }
+
+  private IllegalStateException pendingSidePageMutation(final String operation, final long ownerSlotKey,
+      final int columnSegmentId) {
+    return new IllegalStateException("Cannot " + operation + " pending projection side page (ownerSlotKey="
+        + ownerSlotKey + ", columnSegmentId=" + columnSegmentId + ", indexNumber=" + indexNumber
+        + "): bulk-staged side keys are append-only until foreground publication; abort the transaction instead");
+  }
+
+  /** Fail before an owning slot is rewritten when its side reference still belongs to the append batch. */
+  private void rejectPendingSidePageMutation(final long ownerSlotKey, final int columnSegmentId,
+      final String operation) {
+    final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    PathKeySerializer.INSTANCE.serialize(ownerSlotKey, keyBuf, 0);
+    final HOTLeafPage leaf = getLeafForRead(keyBuf);
+    if (leaf == null) {
+      return;
+    }
+    final PageReference reference = leaf.getPageReference(refKey);
+    if (reference != null && reference.hasPendingPageWrite()) {
+      throw pendingSidePageMutation(operation, ownerSlotKey, columnSegmentId);
+    }
   }
 
   /**
@@ -2168,19 +3538,34 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final long refKey = HOTLeafPage.overflowPageRefKey(ownerSlotKey, columnSegmentId);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader)) {
       final byte[] keyBuf = KEY_BUFFER.get();
-      final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
-      if (leaf == null) {
-        return null;
+      for (int attempt = 0; attempt <= HOTTrieReader.MAX_STAMP_RETRIES; attempt++) {
+        final HOTLeafPage leaf = navigateToSlotLeaf(trieReader, rootRef, ownerSlotKey, keyBuf);
+        if (leaf == null) {
+          return null;
+        }
+        PageReference ref;
+        try {
+          ref = leaf.getPageReference(refKey);
+        } catch (final RuntimeException failure) {
+          if (trieReader.validateCurrentLeaf()) {
+            throw failure;
+          }
+          continue;
+        }
+        if (!trieReader.validateCurrentLeaf()) {
+          continue;
+        }
+        if (ref == null) {
+          return null;
+        }
+        final OverflowPage page = reader.readSideOverflowPage(ref);
+        // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
+        return page == null
+            ? null
+            : page.getDataBytes();
       }
-      final PageReference ref = leaf.getPageReference(refKey);
-      if (ref == null) {
-        return null;
-      }
-      final OverflowPage page = reader.readSideOverflowPage(ref);
-      // Zero-copy contract: shared page backing store — callers MUST NOT mutate.
-      return page == null
-          ? null
-          : page.getDataBytes();
+      throw HOTTrieReader.stampRetriesExhausted(
+          "readSegmentPageBytes(slot " + ownerSlotKey + ", segment " + columnSegmentId + ")");
     }
   }
 

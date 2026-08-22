@@ -4,8 +4,11 @@ import io.sirix.node.LE;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteBuffer;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * PAX number-region codec. Packs the numeric payload of all
@@ -46,6 +49,11 @@ import java.nio.ByteOrder;
  * 64-bit load + shift + mask.
  */
 public final class NumberRegion {
+
+  private static final VarHandle INT_LE =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
   public static final byte ENC_PLAIN_LONG = 0;
   public static final byte ENC_BIT_PACKED = 1;
@@ -300,6 +308,26 @@ public final class NumberRegion {
 
   // ───────────────────────────────────────────────────────────── encoding
 
+  /** Bytes before the per-tag arrays in the plain/bit-packed outer header. */
+  private static final int PLAIN_FIXED_HEADER_BYTES = 1 + 1 + 4 + 8 + 8 + 8 + 1 + 4;
+
+  /** Bytes before the per-tag arrays in the compact/delta outer header. */
+  private static final int NESTED_FIXED_HEADER_BYTES = 1 + 1 + 4 + 8 + 8 + 4;
+
+  /** Dict, start, count, minimum and maximum bytes contributed by one distinct tag. */
+  private static final int BYTES_PER_TAG = 4 + 4 + 4 + 8 + 8;
+
+  /** Public compatibility calls at or below one leaf page reuse bounded thread-local work storage. */
+  private static final int MAX_RETAINED_COMPAT_COUNT = 1024;
+
+  /**
+   * Compatibility entry points still promise a new, caller-owned byte array. Their work buffers are
+   * nevertheless thread-confined and reused, so the promised result is the only array allocated per
+   * call. Production serialization uses its own {@link Encoder} and copies only the valid prefix.
+   */
+  private static final ThreadLocal<Encoder> COMPAT_ENCODER =
+      ThreadLocal.withInitial(() -> new Encoder(MAX_RETAINED_COMPAT_COUNT));
+
   /**
    * Legacy 3-arg entry point. Encodes with {@link #TAG_KIND_NAME}: dict holds
    * parent OBJECT_KEY nameKeys. Kept for test and callers that don't have
@@ -320,260 +348,283 @@ public final class NumberRegion {
    */
   public static byte[] encode(final long[] values, final int[] parentTags, final int count,
       final byte tagKind) {
-    // Build parent-tag dictionary (in-place, grow if needed)
-    int[] dict = new int[count == 0 ? 1 : Math.min(count, 16)];
-    int dictSize = 0;
-    final int[] localIds = count == 0 ? new int[0] : new int[count];
-    for (int i = 0; i < count; i++) {
-      final int nk = parentTags[i];
-      int found = -1;
-      for (int j = 0; j < dictSize; j++) {
-        if (dict[j] == nk) { found = j; break; }
-      }
-      if (found < 0) {
-        if (dictSize == dict.length) {
-          final int[] grown = new int[dict.length << 1];
-          System.arraycopy(dict, 0, grown, 0, dictSize);
-          dict = grown;
-        }
-        found = dictSize;
-        dict[dictSize++] = nk;
-      }
-      localIds[i] = found;
-    }
-
-    // Compute per-tag counts then convert to starts (exclusive-scan style).
-    final int[] tagCount = new int[dictSize];
-    for (int i = 0; i < count; i++) {
-      tagCount[localIds[i]]++;
-    }
-    final int[] tagStart = new int[dictSize];
-    {
-      int running = 0;
-      for (int t = 0; t < dictSize; t++) {
-        tagStart[t] = running;
-        running += tagCount[t];
-      }
-    }
-
-    // Scatter values into their tag's slot of the sorted output; track per-tag min/max.
-    final long[] sortedValues = count == 0 ? new long[0] : new long[count];
-    final long[] tagMin = new long[dictSize];
-    final long[] tagMax = new long[dictSize];
-    for (int t = 0; t < dictSize; t++) {
-      tagMin[t] = Long.MAX_VALUE;
-      tagMax[t] = Long.MIN_VALUE;
-    }
-    final int[] cursor = tagStart.clone();
-    for (int i = 0; i < count; i++) {
-      final int t = localIds[i];
-      final long v = values[i];
-      sortedValues[cursor[t]++] = v;
-      if (v < tagMin[t]) tagMin[t] = v;
-      if (v > tagMax[t]) tagMax[t] = v;
-    }
-
-    // Global min/max is the fold over per-tag bounds.
-    long min = 0, max = 0;
-    if (count > 0) {
-      min = Long.MAX_VALUE;
-      max = Long.MIN_VALUE;
-      for (int t = 0; t < dictSize; t++) {
-        if (tagCount[t] == 0) continue;
-        if (tagMin[t] < min) min = tagMin[t];
-        if (tagMax[t] > max) max = tagMax[t];
-      }
-    }
-    final long spread = count == 0 ? 0 : (max - min);
-    // Bit-pack up to the vector plans' ceiling ({@link BitUnpackSimd#MAX_BIT_WIDTH}): a spread
-    // that fits 56 bits packs at a width every SIMD kernel serves in-register, saving up to 8
-    // bytes per value of storage and scan bandwidth over plain longs. FOR never packs wider —
-    // widths 57..64 would drop every scan to the scalar unpack AND straddle the single-word
-    // funnel, a strictly worse trade than the vectorized 64-bit loads plain columns get — so a
-    // wider spread goes to the delta bake-off below (which may still win with narrow residuals)
-    // and otherwise stays PLAIN. The spread >= 0 check keeps ranges that overflow the
-    // subtraction (crossing more than half the long domain) off the packed path too.
-    final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
-
-    // Delta-of-delta bake-off. Two conditions must both hold:
-    //   1. Structure: the delta-of-delta residual width is *strictly* narrower
-    //      than the FOR/plain per-value width. This is what separates a genuine
-    //      temporal column (near-constant stride ⇒ tiny residuals) from random
-    //      data, where delta-of-delta is as wide or wider. Without it a wide
-    //      random column would switch to delta to shave a few header bytes —
-    //      a bad trade, since delta forfeits SIMD scans and O(1) random access.
-    //   2. Size: the delta value region is actually smaller (guards the small-
-    //      count case where the two 8-byte anchors outweigh the width saving).
-    // The outer header (dict, tag directory, zone maps) is identical across
-    // ENC_BIT_PACKED_ZM/ENC_DELTA_ZM, so only the value regions are compared:
-    // FOR+BP writes 9 outer bytes (valueBase + width) plus the packed body;
-    // delta writes its self-describing nested payload.
-    if (deltaWriteEnabled() && count >= MIN_DELTA_COUNT) {
-      final int forBitWidth = bitPacked ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread)) : 64;
-      final int deltaBitWidth = NumberRegionDelta.computeBitWidth(sortedValues, count);
-      if (deltaBitWidth < forBitWidth) {
-        final long forValueRegionBytes = 9L + bitsToBytes((long) count * forBitWidth);
-        final long deltaRegionBytes = NumberRegionDelta.headerBytes(count)
-            + NumberRegionDelta.bodyBytes(count, deltaBitWidth);
-        if (deltaRegionBytes < forValueRegionBytes) {
-          return encodeDeltaZM(sortedValues, count, dict, dictSize, tagStart, tagCount,
-              tagMin, tagMax, min, max, tagKind);
-        }
-      }
-    }
-
-    if (bitPacked && compactWriteEnabled()) {
-      return encodeCompactZM(sortedValues, count, dict, dictSize, tagStart, tagCount,
-          tagMin, tagMax, min, max, tagKind);
-    }
-    // Zone-map-carrying encoding kinds (2/3). The non-ZM kinds (0/1) remain legacy-
-    // readable but are no longer written.
-    final byte encodingKind = bitPacked ? ENC_BIT_PACKED_ZM : ENC_PLAIN_LONG_ZM;
-    final long valueBase = bitPacked ? min : 0L;
-    final byte valueBitWidth = bitPacked
-        ? (byte) Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
-        : (byte) 64;
-
-    final int headerBytes = 1 + 1 + 4 + 8 + 8 + 8 + 1 + 4
-        + (4 * dictSize)   // dict
-        + (4 * dictSize)   // tagStart
-        + (4 * dictSize)   // tagCount
-        + (8 * dictSize)   // tagMin
-        + (8 * dictSize);  // tagMax
-    final int valueBytes = bitsToBytes((long) count * valueBitWidth);
-    final byte[] out = new byte[headerBytes + valueBytes];
-    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(encodingKind);
-    bb.put(tagKind);
-    bb.putInt(count);
-    bb.putLong(min);
-    bb.putLong(max);
-    bb.putLong(valueBase);
-    bb.put(valueBitWidth);
-    bb.putInt(dictSize);
-    for (int i = 0; i < dictSize; i++) bb.putInt(dict[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagStart[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagCount[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMin[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMax[i]);
-
-    final int valueOff = bb.position();
-    if (!bitPacked) {
-      for (int i = 0; i < count; i++) {
-        writeLittleEndianLong(out, valueOff + (i << 3), sortedValues[i]);
-      }
-    } else {
-      bitPackLongs(out, valueOff, sortedValues, count, valueBase, valueBitWidth);
-    }
-    return out;
-  }
-
-  /**
-   * Build an {@link #ENC_COMPACT_ZM} payload. Outer layout is:
-   * <pre>
-   * byte encodingKind(4), byte tagKind, int count,
-   * long valueMin, long valueMax,
-   * int dictSize, int[dictSize] dict, int[dictSize] tagStart,
-   * int[dictSize] tagCount, long[dictSize] tagMin, long[dictSize] tagMax,
-   * NumberRegionCompact payload (its own header: version, bitWidth,
-   * varint count, minValue, bit-packed body).
-   * </pre>
-   *
-   * <p>Trade-off vs {@link #ENC_BIT_PACKED_ZM}: saves 8 B (no outer valueBase)
-   * + 1 B (no outer valueBitWidth) = 9 B. Adds compact header: 1 (version) +
-   * 1 (bitWidth) + varint(count) + 8 (minValue) = ~11 B. Net: ~+2 B per
-   * region. Potential win is a cleaner scan decoder that handles constant-run
-   * ({@code bitWidth == 0}) branchlessly via the compact API, which matters
-   * when value scans dominate cold CPU.
-   */
-  private static byte[] encodeCompactZM(final long[] sortedValues, final int count,
-      final int[] dict, final int dictSize, final int[] tagStart, final int[] tagCount,
-      final long[] tagMin, final long[] tagMax, final long min, final long max,
-      final byte tagKind) {
-    // Pre-size: outer (no valueBase/valueBitWidth) + compact size.
-    final int outerHeaderBytes = 1 /* encodingKind */ + 1 /* tagKind */ + 4 /* count */
-        + 8 /* valueMin */ + 8 /* valueMax */ + 4 /* dictSize */
-        + (4 * dictSize)   // dict
-        + (4 * dictSize)   // tagStart
-        + (4 * dictSize);  // tagCount
-    final int zoneMapBytes = (8 + 8) * dictSize;
-    final long compactSize = NumberRegionCompact.maxEncodedSize(sortedValues, count);
-    final int totalBytes = outerHeaderBytes + zoneMapBytes + (int) compactSize;
-    final byte[] out = new byte[totalBytes];
-    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(ENC_COMPACT_ZM);
-    bb.put(tagKind);
-    bb.putInt(count);
-    bb.putLong(min);
-    bb.putLong(max);
-    bb.putInt(dictSize);
-    for (int i = 0; i < dictSize; i++) bb.putInt(dict[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagStart[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagCount[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMin[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMax[i]);
-
-    final int compactStart = bb.position();
-    final MemorySegment view = MemorySegment.ofArray(out);
-    final long written = NumberRegionCompact.writeCompact(view, compactStart, sortedValues, count);
-    // The compact writer returns actual bytes; if we over-sized the byte[]
-    // we must trim. maxEncodedSize is exact for the bit-packed body size so
-    // this should always equal compactSize, but be defensive.
-    final int actualTotal = compactStart + (int) written;
-    if (actualTotal == out.length) {
-      return out;
-    }
-    final byte[] trimmed = new byte[actualTotal];
-    System.arraycopy(out, 0, trimmed, 0, actualTotal);
-    return trimmed;
-  }
-
-  /**
-   * Build an {@link #ENC_DELTA_ZM} payload. Outer layout matches
-   * {@link #encodeCompactZM} (no outer {@code valueBase}/{@code valueBitWidth});
-   * the value region is a {@link NumberRegionDelta} payload with its own
-   * header (version, ddBitWidth, varint count, first value, first delta,
-   * bit-packed residuals).
-   */
-  private static byte[] encodeDeltaZM(final long[] sortedValues, final int count,
-      final int[] dict, final int dictSize, final int[] tagStart, final int[] tagCount,
-      final long[] tagMin, final long[] tagMax, final long min, final long max,
-      final byte tagKind) {
-    final int outerHeaderBytes = 1 /* encodingKind */ + 1 /* tagKind */ + 4 /* count */
-        + 8 /* valueMin */ + 8 /* valueMax */ + 4 /* dictSize */
-        + (4 * dictSize)   // dict
-        + (4 * dictSize)   // tagStart
-        + (4 * dictSize);  // tagCount
-    final int zoneMapBytes = (8 + 8) * dictSize;
-    final long deltaSize = NumberRegionDelta.maxEncodedSize(sortedValues, count);
-    final int totalBytes = outerHeaderBytes + zoneMapBytes + (int) deltaSize;
-    final byte[] out = new byte[totalBytes];
-    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
-    bb.put(ENC_DELTA_ZM);
-    bb.put(tagKind);
-    bb.putInt(count);
-    bb.putLong(min);
-    bb.putLong(max);
-    bb.putInt(dictSize);
-    for (int i = 0; i < dictSize; i++) bb.putInt(dict[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagStart[i]);
-    for (int i = 0; i < dictSize; i++) bb.putInt(tagCount[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMin[i]);
-    for (int i = 0; i < dictSize; i++) bb.putLong(tagMax[i]);
-
-    final int deltaStart = bb.position();
-    final MemorySegment view = MemorySegment.ofArray(out);
-    final long written = NumberRegionDelta.writeDelta(view, deltaStart, sortedValues, count);
-    final int actualTotal = deltaStart + (int) written;
-    if (actualTotal == out.length) {
-      return out;
-    }
-    final byte[] trimmed = new byte[actualTotal];
-    System.arraycopy(out, 0, trimmed, 0, actualTotal);
-    return trimmed;
+    validateEncodeInput(values, parentTags, count, tagKind);
+    // The generic API is not page-size-limited. Do not let one exceptional caller pin eight huge
+    // work arrays and its output in a long-lived pool thread; only page-bounded calls use the TL.
+    final Encoder encoder = count <= MAX_RETAINED_COMPAT_COUNT
+        ? COMPAT_ENCODER.get()
+        : new Encoder(count);
+    final int encodedLength = encoder.encodeInto(values, parentTags, count, tagKind);
+    return Arrays.copyOf(encoder.output(), encodedLength);
   }
 
   // ───────────────────────────────────────────────────────────── decoding
+
+  /**
+   * Thread-confined reusable number-region encoder. One instance may serve any number of pages on
+   * one thread, but it must not be shared or entered recursively. The output array is scratch: only
+   * {@code [0, encodeInto(...))} is valid, and the next encode overwrites it.
+   *
+   * <p>The page writer must copy that prefix into page-owned storage before another encode. In
+   * particular, a heap {@link MemorySegment} view of {@link #output()} must never be installed through
+   * {@link RegionTable#setSegment(byte, MemorySegment)} because later pages would overwrite it.
+   */
+  public static final class Encoder {
+    private int[] dict;
+    private int[] localIds;
+    private int[] tagCount;
+    private int[] tagStart;
+    private int[] cursor;
+    private long[] sortedValues;
+    private long[] tagMin;
+    private long[] tagMax;
+    private byte[] output;
+    private MemorySegment outputView;
+    private int encodedLength;
+
+    public Encoder(final int initialCapacity) {
+      if (initialCapacity < 0) {
+        throw new IllegalArgumentException("initialCapacity=" + initialCapacity);
+      }
+      allocate(Math.max(1, initialCapacity));
+    }
+
+    /**
+     * Encode into this instance's reusable output buffer.
+     *
+     * @return exact encoded length; only this prefix of {@link #output()} is valid
+     */
+    public int encodeInto(final long[] values, final int[] parentTags, final int count,
+        final byte tagKind) {
+      encodedLength = 0;
+      validateEncodeInput(values, parentTags, count, tagKind);
+      ensureCapacity(count);
+
+      // A zero dictSize makes every stale dictionary entry unreachable. Only active count ranges are
+      // reset below; full-capacity clears would turn a small page into fixed O(1024) memory traffic.
+      int dictSize = 0;
+      for (int i = 0; i < count; i++) {
+        final int tag = parentTags[i];
+        int found = -1;
+        for (int j = 0; j < dictSize; j++) {
+          if (dict[j] == tag) {
+            found = j;
+            break;
+          }
+        }
+        if (found < 0) {
+          found = dictSize;
+          dict[dictSize++] = tag;
+        }
+        localIds[i] = found;
+      }
+
+      Arrays.fill(tagCount, 0, dictSize, 0);
+      for (int i = 0; i < count; i++) {
+        tagCount[localIds[i]]++;
+      }
+      int running = 0;
+      for (int tag = 0; tag < dictSize; tag++) {
+        tagStart[tag] = running;
+        running += tagCount[tag];
+        tagMin[tag] = Long.MAX_VALUE;
+        tagMax[tag] = Long.MIN_VALUE;
+      }
+      System.arraycopy(tagStart, 0, cursor, 0, dictSize);
+
+      for (int i = 0; i < count; i++) {
+        final int tag = localIds[i];
+        final long value = values[i];
+        sortedValues[cursor[tag]++] = value;
+        if (value < tagMin[tag]) {
+          tagMin[tag] = value;
+        }
+        if (value > tagMax[tag]) {
+          tagMax[tag] = value;
+        }
+      }
+
+      long min = 0L;
+      long max = 0L;
+      if (count > 0) {
+        min = Long.MAX_VALUE;
+        max = Long.MIN_VALUE;
+        for (int tag = 0; tag < dictSize; tag++) {
+          if (tagMin[tag] < min) {
+            min = tagMin[tag];
+          }
+          if (tagMax[tag] > max) {
+            max = tagMax[tag];
+          }
+        }
+      }
+
+      final long spread = count == 0 ? 0L : max - min;
+      final boolean bitPacked =
+          count > 0 && spread >= 0 && spread < (1L << BitUnpackSimd.MAX_BIT_WIDTH);
+
+      // Delta-of-delta must win on both residual width and exact encoded bytes because selecting it
+      // trades away random access and SIMD scans.
+      if (deltaWriteEnabled() && count >= MIN_DELTA_COUNT) {
+        final int forBitWidth = bitPacked ? Math.max(1, 64 - Long.numberOfLeadingZeros(spread)) : 64;
+        final int deltaBitWidth = NumberRegionDelta.computeBitWidth(sortedValues, count);
+        if (deltaBitWidth < forBitWidth) {
+          final long forValueRegionBytes = 9L + bitsToBytes((long) count * forBitWidth);
+          final long deltaRegionBytes =
+              NumberRegionDelta.headerBytes(count) + NumberRegionDelta.bodyBytes(count, deltaBitWidth);
+          if (deltaRegionBytes < forValueRegionBytes) {
+            return encodeNested(ENC_DELTA_ZM, count, dictSize, min, max, tagKind);
+          }
+        }
+      }
+
+      if (bitPacked && compactWriteEnabled()) {
+        return encodeNested(ENC_COMPACT_ZM, count, dictSize, min, max, tagKind);
+      }
+      return encodePlain(count, dictSize, min, max, spread, bitPacked, tagKind);
+    }
+
+    /** Mutable scratch buffer. The next call to {@link #encodeInto} overwrites it. */
+    public byte[] output() {
+      return output;
+    }
+
+    /** Exact length returned by the most recent successful encode, or zero after a failed attempt. */
+    public int encodedLength() {
+      return encodedLength;
+    }
+
+    private int encodePlain(final int count, final int dictSize, final long min, final long max,
+        final long spread, final boolean bitPacked, final byte tagKind) {
+      final byte encodingKind = bitPacked ? ENC_BIT_PACKED_ZM : ENC_PLAIN_LONG_ZM;
+      final long valueBase = bitPacked ? min : 0L;
+      final byte valueBitWidth = bitPacked
+          ? (byte) Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
+          : (byte) 64;
+      final int valueBytes = bitsToBytes((long) count * (valueBitWidth & 0xFF));
+      final int totalBytes = checkedEncodedLength(
+          (long) PLAIN_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + valueBytes);
+      ensureOutputCapacity(totalBytes);
+
+      int position = 0;
+      output[position++] = encodingKind;
+      output[position++] = tagKind;
+      putInt(output, position, count);
+      position += Integer.BYTES;
+      putLong(output, position, min);
+      position += Long.BYTES;
+      putLong(output, position, max);
+      position += Long.BYTES;
+      putLong(output, position, valueBase);
+      position += Long.BYTES;
+      output[position++] = valueBitWidth;
+      putInt(output, position, dictSize);
+      position += Integer.BYTES;
+      position = writeTagMetadata(output, position, dictSize);
+
+      if (!bitPacked) {
+        for (int i = 0; i < count; i++) {
+          putLong(output, position + (i << 3), sortedValues[i]);
+        }
+      } else {
+        bitPackLongs(output, position, sortedValues, count, valueBase, valueBitWidth & 0xFF);
+      }
+      encodedLength = totalBytes;
+      return totalBytes;
+    }
+
+    private int encodeNested(final byte encodingKind, final int count, final int dictSize,
+        final long min, final long max, final byte tagKind) {
+      final long nestedBytes = encodingKind == ENC_COMPACT_ZM
+          ? NumberRegionCompact.maxEncodedSize(sortedValues, count)
+          : NumberRegionDelta.maxEncodedSize(sortedValues, count);
+      final int totalBytes = checkedEncodedLength(
+          (long) NESTED_FIXED_HEADER_BYTES + (long) BYTES_PER_TAG * dictSize + nestedBytes);
+      ensureOutputCapacity(totalBytes);
+
+      int position = 0;
+      output[position++] = encodingKind;
+      output[position++] = tagKind;
+      putInt(output, position, count);
+      position += Integer.BYTES;
+      putLong(output, position, min);
+      position += Long.BYTES;
+      putLong(output, position, max);
+      position += Long.BYTES;
+      putInt(output, position, dictSize);
+      position += Integer.BYTES;
+      position = writeTagMetadata(output, position, dictSize);
+
+      // The 57..63-bit nested writers use read/modify/write words. A reusable buffer may carry bits
+      // beyond the logical body from the preceding page, including unused high bits of the last byte;
+      // clearing the exact nested range restores the zero-initialized-array invariant of the wire.
+      Arrays.fill(output, position, totalBytes, (byte) 0);
+      final long written = encodingKind == ENC_COMPACT_ZM
+          ? NumberRegionCompact.writeCompact(outputView, position, sortedValues, count)
+          : NumberRegionDelta.writeDelta(outputView, position, sortedValues, count);
+      if (written != nestedBytes || (long) position + written != totalBytes) {
+        throw new IllegalStateException(
+            "nested number codec size mismatch: expected=" + nestedBytes + " written=" + written);
+      }
+      encodedLength = totalBytes;
+      return totalBytes;
+    }
+
+    private int writeTagMetadata(final byte[] target, int position, final int dictSize) {
+      for (int i = 0; i < dictSize; i++) {
+        putInt(target, position, dict[i]);
+        position += Integer.BYTES;
+      }
+      for (int i = 0; i < dictSize; i++) {
+        putInt(target, position, tagStart[i]);
+        position += Integer.BYTES;
+      }
+      for (int i = 0; i < dictSize; i++) {
+        putInt(target, position, tagCount[i]);
+        position += Integer.BYTES;
+      }
+      for (int i = 0; i < dictSize; i++) {
+        putLong(target, position, tagMin[i]);
+        position += Long.BYTES;
+      }
+      for (int i = 0; i < dictSize; i++) {
+        putLong(target, position, tagMax[i]);
+        position += Long.BYTES;
+      }
+      return position;
+    }
+
+    private void ensureCapacity(final int count) {
+      if (count <= dict.length) {
+        return;
+      }
+      final int doubled = dict.length <= (Integer.MAX_VALUE >>> 1) ? dict.length << 1 : Integer.MAX_VALUE;
+      allocate(Math.max(count, doubled));
+    }
+
+    private void allocate(final int capacity) {
+      dict = new int[capacity];
+      localIds = new int[capacity];
+      tagCount = new int[capacity];
+      tagStart = new int[capacity];
+      cursor = new int[capacity];
+      sortedValues = new long[capacity];
+      tagMin = new long[capacity];
+      tagMax = new long[capacity];
+      final int outputCapacity = checkedEncodedLength(64L + 36L * capacity);
+      output = new byte[outputCapacity];
+      outputView = MemorySegment.ofArray(output);
+    }
+
+    private void ensureOutputCapacity(final int required) {
+      if (required <= output.length) {
+        return;
+      }
+      final long doubled = Math.min((long) Integer.MAX_VALUE, (long) output.length << 1);
+      output = new byte[checkedEncodedLength(Math.max((long) required, doubled))];
+      outputView = MemorySegment.ofArray(output);
+    }
+  }
 
   /**
    * Decode the value at {@code index} (absolute within the sorted payload).
@@ -640,6 +691,34 @@ public final class NumberRegion {
 
   // ──────────────────────────────────────────────────────── bit pack/unpack
 
+  private static void validateEncodeInput(final long[] values, final int[] parentTags, final int count,
+      final byte tagKind) {
+    Objects.requireNonNull(values, "values");
+    Objects.requireNonNull(parentTags, "parentTags");
+    if (count < 0 || count > values.length || count > parentTags.length) {
+      throw new IllegalArgumentException(
+          "count=" + count + " values.length=" + values.length + " parentTags.length=" + parentTags.length);
+    }
+    if (tagKind != TAG_KIND_NAME && tagKind != TAG_KIND_PATH_NODE) {
+      throw new IllegalArgumentException("tagKind=" + tagKind);
+    }
+  }
+
+  private static int checkedEncodedLength(final long length) {
+    if (length < 0L || length > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("encoded number region is too large: " + length + " bytes");
+    }
+    return (int) length;
+  }
+
+  private static void putInt(final byte[] target, final int offset, final int value) {
+    INT_LE.set(target, offset, value);
+  }
+
+  private static void putLong(final byte[] target, final int offset, final long value) {
+    LONG_LE.set(target, offset, value);
+  }
+
   private static int bitsToBytes(final long bits) {
     return (int) ((bits + 7L) >>> 3);
   }
@@ -698,14 +777,4 @@ public final class NumberRegion {
     return off < data.byteSize() ? (data.get(ValueLayout.JAVA_BYTE, off) & 0xFFL) : 0L;
   }
 
-  private static void writeLittleEndianLong(final byte[] data, final int off, final long v) {
-    data[off]     = (byte)  v;
-    data[off + 1] = (byte) (v >>>  8);
-    data[off + 2] = (byte) (v >>> 16);
-    data[off + 3] = (byte) (v >>> 24);
-    data[off + 4] = (byte) (v >>> 32);
-    data[off + 5] = (byte) (v >>> 40);
-    data[off + 6] = (byte) (v >>> 48);
-    data[off + 7] = (byte) (v >>> 56);
-  }
 }

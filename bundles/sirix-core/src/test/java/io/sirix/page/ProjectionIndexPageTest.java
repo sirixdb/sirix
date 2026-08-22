@@ -3,7 +3,9 @@
  */
 package io.sirix.page;
 
+import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
+import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import org.junit.jupiter.api.Test;
@@ -87,6 +89,16 @@ final class ProjectionIndexPageTest {
   void getIndirectPageReference_returnsNonNull() {
     final ProjectionIndexPage page = new ProjectionIndexPage();
     assertNotNull(page.getIndirectPageReference(0));
+  }
+
+  @Test
+  void referenceCreationGrowsAcrossBothDelegateThresholds() {
+    final ProjectionIndexPage page = new ProjectionIndexPage();
+    for (int index = 0; index <= BitmapReferencesPage.THRESHOLD; index++) {
+      assertNotNull(page.getIndirectPageReference(index), "projection index " + index);
+    }
+    assertEquals(Constants.INP_REFERENCE_COUNT, page.getReferencesCount(),
+        "crossing the bitmap threshold must promote to the fixed-capacity full delegate");
   }
 
   @Test

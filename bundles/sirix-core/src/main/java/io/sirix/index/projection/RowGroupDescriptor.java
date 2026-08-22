@@ -87,15 +87,21 @@ public final class RowGroupDescriptor {
   public static final byte VERSION = 0;
 
   /**
-   * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key:
-   * {@code SEGMENTS_PER_COLUMN · c + 4 ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID} (sub-id +4, the bloom segment,
-   * is the largest of the per-column stride). Derived — not restated — from the id-scheme constants
-   * so the invariant has a single authority (a further per-column segment kind automatically tightens
-   * this cap). With a 16-bit sub-id this is {@code (65535-2)/4 = 16383} columns (was 84 at 8 bits);
+   * Column cap imposed by the 16-bit columnSegmentId space of the HOT side-map composite key: every
+   * column claims {@link ProjectionIndexColumnSegmentCodec#SEGMENT_ID_SLOTS_PER_COLUMN} ids — the
+   * four of its contiguous stride (body, dict, set-counts, bloom) plus one in the disjoint
+   * {@link ProjectionIndexColumnSegmentCodec#DICT_HASH_SEGMENT_BASE} region — and the largest of them
+   * must stay {@code ≤ MAX_OVERFLOW_PAGE_REF_SUB_ID}. Derived — not restated — from the id-scheme
+   * constants so the invariant has a single authority (a further segment kind automatically tightens
+   * this cap). With a 16-bit sub-id this is {@code (65535-10)/5 = 13105} columns (was 84 at 8 bits);
    * the on-disk entry columnSegmentId field is 2 bytes to match.
+   *
+   * <p>
+   * Tightening it does NOT renumber anything: the four stride formulas are unchanged, so a projection
+   * written under the wider cap is still read at the ids it was written with.
    */
   public static final int MAX_COLUMNS =
-      (HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID - 2) / ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN;
+      (HOTLeafPage.MAX_OVERFLOW_PAGE_REF_SUB_ID - 10) / ProjectionIndexColumnSegmentCodec.SEGMENT_ID_SLOTS_PER_COLUMN;
 
   /**
    * Fixed size of one segment entry (2-byte columnSegmentId + int byteLen + long hash + byte flags +

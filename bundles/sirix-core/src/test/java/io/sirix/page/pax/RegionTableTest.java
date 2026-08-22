@@ -7,10 +7,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -139,6 +141,73 @@ final class RegionTableTest {
     assertArrayEquals(numberPayload, PaxTestSegments.bytes(roundTripped.payload(RegionTable.KIND_NUMBER)));
     assertArrayEquals(stringPayload, PaxTestSegments.bytes(roundTripped.payload(RegionTable.KIND_STRING)));
     assertNull(PaxTestSegments.bytes(roundTripped.payload(RegionTable.KIND_STRUCT)));
+  }
+
+  @Test
+  @DisplayName("prefix set copies caller storage before it can be reused")
+  void prefixSetTakesOwnershipByCopy() {
+    final byte[] reusable = {9, 8, 7, 6, 5, 4};
+    final RegionTable table = new RegionTable();
+
+    table.set(RegionTable.KIND_NUMBER_ZONEMAP, reusable, 4);
+    Arrays.fill(reusable, (byte) 0);
+
+    assertEquals(4, table.payload(RegionTable.KIND_NUMBER_ZONEMAP).byteSize());
+    assertArrayEquals(new byte[] {9, 8, 7, 6},
+        PaxTestSegments.bytes(table.payload(RegionTable.KIND_NUMBER_ZONEMAP)));
+
+    table.set(RegionTable.KIND_NUMBER_ZONEMAP, null, 0);
+    assertNull(table.payload(RegionTable.KIND_NUMBER_ZONEMAP));
+  }
+
+  @Test
+  @DisplayName("prefix set validates kind and length before publishing")
+  void prefixSetValidatesBounds() {
+    final RegionTable table = new RegionTable();
+    final byte[] payload = {1, 2, 3};
+
+    assertThrows(IllegalArgumentException.class,
+        () -> table.set(RegionTable.KIND_NUMBER, payload, -1));
+    assertThrows(IllegalArgumentException.class,
+        () -> table.set(RegionTable.KIND_NUMBER, payload, payload.length + 1));
+    assertThrows(IllegalArgumentException.class,
+        () -> table.set(RegionTable.KIND_NUMBER, null, 1));
+    assertThrows(IllegalArgumentException.class,
+        () -> table.set((byte) -1, payload, payload.length));
+    assertThrows(IllegalArgumentException.class,
+        () -> table.set((byte) RegionTable.KIND_COUNT, payload, payload.length));
+    assertTrue(table.isEmpty(), "a rejected prefix must not publish a region");
+  }
+
+  @Test
+  @DisplayName("confined writer table closes its native payloads deterministically")
+  void confinedWriterTableClosesNativePayloads() {
+    final RegionTable table = RegionTable.newConfinedWriterTable();
+    table.set(RegionTable.KIND_NUMBER, new byte[] {1, 2, 3, 4});
+    final MemorySegment payload = table.payload(RegionTable.KIND_NUMBER);
+
+    assertNotNull(payload);
+    assertTrue(payload.isNative());
+    assertTrue(payload.scope().isAlive());
+
+    table.close();
+
+    assertFalse(payload.scope().isAlive(), "close must reclaim the confined arena synchronously");
+    assertNull(table.payload(RegionTable.KIND_NUMBER));
+    assertTrue(table.isEmpty());
+    table.close(); // Explicit writer close is idempotent.
+  }
+
+  @Test
+  @DisplayName("ordinary automatic tables cannot be closed through the writer-only contract")
+  void automaticTableRejectsExplicitClose() {
+    final RegionTable table = new RegionTable();
+    table.set(RegionTable.KIND_NUMBER, new byte[] {5, 6, 7});
+    final MemorySegment payload = table.payload(RegionTable.KIND_NUMBER);
+
+    assertThrows(UnsupportedOperationException.class, table::close);
+    assertTrue(payload.scope().isAlive(), "a rejected close must leave shared automatic payloads valid");
+    assertArrayEquals(new byte[] {5, 6, 7}, PaxTestSegments.bytes(payload));
   }
 
   @Test

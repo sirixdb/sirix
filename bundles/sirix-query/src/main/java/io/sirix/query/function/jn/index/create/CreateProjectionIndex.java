@@ -78,8 +78,9 @@ import java.util.function.Consumer;
  * <b>Experimental.</b> The projection is a static snapshot maintained by <em>invalidation</em>: an
  * update transaction that touches the record set tombstones the persisted columns, queries at later
  * revisions fall back to the always-correct generic pipeline, and re-running this function
- * rebuilds. The resource must be created with a path summary. Column lookup is by trailing field
- * name, so creation rejects field names that resolve ambiguously under the record set.
+ * rebuilds. The resource must be created with a path summary. Column lookup is by the declared path
+ * relative to the record set, so nested declarations that merely share a trailing name with another
+ * path are accepted; see {@link #assertUnambiguousFieldNames} for the one shape still rejected.
  *
  * @author Johannes Lichtenberger
  */
@@ -263,15 +264,41 @@ public final class CreateProjectionIndex extends AbstractFunction {
   }
 
   /**
-   * Column lookup in the executor is by trailing field name. If a projected name also exists at a
-   * DIFFERENT path under the record set (e.g. both {@code /[]/age} and {@code /[]/address/age}),
-   * queries touching the other occurrence would silently read the projected column — reject the
-   * creation as ambiguous instead.
+   * Rejects declarations the executor could not tell apart at lookup time.
+   *
+   * <p>
+   * Column lookup matches a projected column by its declared path <em>relative to the record set
+   * root</em> — {@code ProjectionIndexRegistry.Handle#columnOf} compares the {@code fieldChains} the
+   * catalog derives from the definition, so a query dereferencing {@code $r.address.age} produces the
+   * token {@code address/age} and simply finds no column when only {@code /[]/age} is projected. A
+   * trailing name recurring elsewhere under the record set is therefore NOT ambiguous, and rejecting
+   * it would make whole corpora unprojectable for a hazard that no longer exists: the Bluesky corpus
+   * of JSONBench carries {@code did} at six paths below {@code commit.record}, none of which any
+   * query reads.
+   *
+   * <p>
+   * One case still resolves by bare trailing name: a declared path that is not relativizable against
+   * the declared root. {@code ProjectionIndexMetadata#relativeFieldChain} returns {@code null} for
+   * it, the chain array carries {@code null} at that slot, and {@code columnOf} degrades to the
+   * historical name comparison — so exactly those declarations still have to be name-unambiguous, and
+   * exactly those are checked here.
+   *
+   * <p>
+   * Two declared fields may still not share a trailing name; that is a separate rule, enforced by the
+   * caller, because the column name is part of the projection's identity rather than of its lookup.
    */
   private static void assertUnambiguousFieldNames(final PathSummaryReader pathSummary, final Path<QNm> rootPath,
       final List<Path<QNm>> fieldPaths, final List<String> fieldNames) {
-    final LongSet rootPcrs = pathSummary.getPCRsForPaths(Set.of(rootPath));
+    final String declaredRoot = rootPath.toString();
+    LongSet rootPcrs = null;
     for (int i = 0; i < fieldPaths.size(); i++) {
+      if (ProjectionIndexMetadata.relativeFieldChain(declaredRoot, fieldPaths.get(i).toString()) != null) {
+        // Path-qualified: the declared chain is what lookup compares, so it disambiguates itself.
+        continue;
+      }
+      if (rootPcrs == null) {
+        rootPcrs = pathSummary.getPCRsForPaths(Set.of(rootPath));
+      }
       final String name = fieldNames.get(i);
       // A set column is declared at the ARRAY LAYER (`/[]/genres/[]`) while the name resolves to
       // the FIELD node (`/[]/genres`) — different path-summary nodes for one column. Both are

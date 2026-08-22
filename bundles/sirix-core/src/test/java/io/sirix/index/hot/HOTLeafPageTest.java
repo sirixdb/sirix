@@ -6,9 +6,11 @@
 package io.sirix.index.hot;
 
 import io.sirix.cache.Allocators;
+import io.sirix.cache.FrameReusedException;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.PageReference;
 import io.sirix.utils.OS;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +24,9 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -210,6 +215,55 @@ class HOTLeafPageTest {
     assertEquals(0, page.getGuardCount());
 
     page.close();
+  }
+
+  @Test
+  void testCloseImmediatelyReleasesRetainedReferencesWhenUnguarded() {
+    HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    HOTLeafPage completePage = new HOTLeafPage(2L, 1, IndexType.CAS);
+    page.setCompletePageRef(completePage);
+    for (int key = 0; key < 128; key++) {
+      page.setPageReference(key, new PageReference().setKey(key + 1L));
+    }
+
+    assertEquals(128, page.segmentRefCount());
+    assertSame(completePage, page.getCompletePageRef());
+
+    page.close();
+
+    assertTrue(page.isClosed());
+    assertEquals(0, page.getGuardCount());
+    assertThrows(FrameReusedException.class, page::segmentRefCount);
+    assertNull(page.getCompletePageRef());
+    assertThrows(FrameReusedException.class, () -> page.getPageReference(0L));
+    completePage.close();
+  }
+
+  @Test
+  void testCloseDefersRetainedReferenceReleaseUntilLastGuard() {
+    HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.CAS);
+    HOTLeafPage completePage = new HOTLeafPage(2L, 1, IndexType.CAS);
+    page.setCompletePageRef(completePage);
+    for (int key = 0; key < 128; key++) {
+      page.setPageReference(key, new PageReference().setKey(key + 1L));
+    }
+    assertTrue(page.acquireGuard());
+
+    page.close();
+
+    assertFalse(page.isClosed());
+    assertEquals(1, page.getGuardCount());
+    assertEquals(128, page.segmentRefCount());
+    assertSame(completePage, page.getCompletePageRef());
+
+    page.releaseGuard();
+
+    assertTrue(page.isClosed());
+    assertEquals(0, page.getGuardCount());
+    assertThrows(FrameReusedException.class, page::segmentRefCount);
+    assertNull(page.getCompletePageRef());
+    assertThrows(FrameReusedException.class, () -> page.getPageReference(0L));
+    completePage.close();
   }
 
   @Test
@@ -564,4 +618,3 @@ class HOTLeafPageTest {
     }
   }
 }
-

@@ -47,12 +47,12 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Verify page checksum for non-KeyValueLeafPage pages.
-   * 
+   * Verify the parent reference's page hash against the payload as it sits on disk.
+   *
    * <p>
-   * For non-KVLP pages, the hash is computed on compressed bytes, so verification happens BEFORE
-   * decompression. For KVLP pages, verification must happen after decompression (handled in PageKind
-   * deserialization).
+   * The hash covers the compressed payload for every page kind, {@code KeyValueLeafPage} included —
+   * the writer computes it over the serialized, byte-handler-processed bytes — so verification always
+   * happens BEFORE the payload is decoded, and nothing re-verifies a page afterwards.
    * </p>
    *
    * @param compressedData the compressed page data
@@ -66,16 +66,17 @@ public abstract class AbstractReader implements Reader {
       return; // Verification disabled or no config
     }
 
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
+    if (!reference.hasHash()) {
       return; // No hash to verify
     }
 
     // All page types use hash computed on compressed data
-    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verify(compressedData, expectedHash, hashAlgorithm)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedData, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
+    final long expectedHash = reference.getHashAsLong();
+    final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verifyLong(compressedData, expectedHash, hashAlgorithm)) {
+      final long actualHash = PageHasher.computeLong(compressedData, hashAlgorithm);
+      throw new SirixCorruptionException(reference.getKey(), "compressed",
+          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -97,16 +98,17 @@ public abstract class AbstractReader implements Reader {
       return;
     }
 
-    byte[] expectedHash = reference.getHash();
-    if (expectedHash == null || expectedHash.length == 0) {
+    if (!reference.hasHash()) {
       return;
     }
 
     // All page types use hash computed on compressed data (zero-copy for native segments)
-    HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
-    if (!PageHasher.verify(compressedSegment, expectedHash, hashAlgorithm)) {
-      byte[] actualHash = PageHasher.computeActualHash(compressedSegment, hashAlgorithm);
-      throw new SirixCorruptionException(reference.getKey(), "compressed", expectedHash, actualHash);
+    final long expectedHash = reference.getHashAsLong();
+    final HashAlgorithm hashAlgorithm = resourceConfig.hashAlgorithm;
+    if (!PageHasher.verifyLong(compressedSegment, expectedHash, hashAlgorithm)) {
+      final long actualHash = PageHasher.computeLong(compressedSegment, hashAlgorithm);
+      throw new SirixCorruptionException(reference.getKey(), "compressed",
+          HashAlgorithm.longToBytes(expectedHash), HashAlgorithm.longToBytes(actualHash));
     }
 
     if (LOGGER.isTraceEnabled()) {
@@ -115,27 +117,26 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Build the synthetic {@link PageReference} used to integrity-check a RevisionRootPage body on
-   * the {@code readRevisionRootPage} path (which has no real parent reference). The stored page
-   * hash is a {@code long} read from the revisions record; it is converted to the SAME canonical
-   * 8-byte form the writer produced ({@link HashAlgorithm#longToBytes(long)} — big-endian, exactly
-   * what {@code PageHasher.compute} emits) so {@link #verifyChecksumIfNeeded} compares like for
-   * like, independent of the little-endian way the record stores it.
+   * Build the synthetic {@link PageReference} used to integrity-check a RevisionRootPage body on the
+   * {@code readRevisionRootPage} path (which has no real parent reference). The stored page hash is a
+   * {@code long} read from the revisions record; it is stored directly in the synthetic reference
+   * so {@link #verifyChecksumIfNeeded} can compare primitives without allocating a byte array.
    *
-   * <p>This is the single place both readers (FileChannel + MemoryMapped) build the reference, so
-   * the byte-order contract can never diverge between them. A {@code storedPageHash} of {@code 0}
-   * (legacy beta1 record, or a backend that does not persist page bytes) yields a reference with no
-   * hash, which {@link #verifyChecksumIfNeeded} treats as "nothing to verify".
+   * <p>
+   * This is the single place both readers (FileChannel + MemoryMapped) build the reference, so the
+   * byte-order contract can never diverge between them. A {@code storedPageHash} of {@code 0} (legacy
+   * beta1 record, or a backend that does not persist page bytes) yields a reference with no hash,
+   * which {@link #verifyChecksumIfNeeded} treats as "nothing to verify".
    *
    * @param dataFileOffset the RevisionRootPage offset (becomes the reference key, for error msgs)
    * @param storedPageHash the record's hash field ({@code 0} = no hash / legacy)
-   * @return a reference carrying the canonical hash bytes, or no hash when {@code storedPageHash == 0}
+   * @return a reference carrying the primitive hash, or no hash when {@code storedPageHash == 0}
    */
   protected static PageReference revisionRootReference(final long dataFileOffset, final long storedPageHash) {
     final PageReference reference = new PageReference();
     reference.setKey(dataFileOffset);
     if (storedPageHash != 0L) {
-      reference.setHash(HashAlgorithm.longToBytes(storedPageHash));
+      reference.setHash(storedPageHash);
     }
     return reference;
   }
@@ -156,10 +157,21 @@ public abstract class AbstractReader implements Reader {
    */
   public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference)
       throws IOException {
+    return deserialize(resourceConfiguration, page, reference, false);
+  }
+
+  /**
+   * Deserialize a page, optionally leaving a record page's records unexpanded until read.
+   *
+   * @param lazyRecordPage request the lazy variant; see {@link Reader#readRecordPageLazily}. Ignored
+   *        by every page kind but a chunk-framed record page.
+   */
+  public Page deserialize(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference,
+      boolean lazyRecordPage) throws IOException {
     // Use MemorySegment path if supported (zero-copy decompression)
     if (byteHandler.supportsMemorySegments()) {
       MemorySegment segment = MemorySegment.ofArray(page);
-      return deserializeFromSegment(resourceConfiguration, segment, reference);
+      return deserializeFromSegment(resourceConfiguration, segment, reference, lazyRecordPage);
     }
 
     // Fallback to stream-based approach for non-MemorySegment ByteHandlers
@@ -169,8 +181,10 @@ public abstract class AbstractReader implements Reader {
     }
 
     // Zero-copy wrap: MemorySegment backed directly by the byte array
-    final var deserializedPage =
-        pagePersister.deserializePage(resourceConfiguration, Bytes.wrapForRead(decompressedBytes), type);
+    final var source = Bytes.wrapForRead(decompressedBytes);
+    final var deserializedPage = lazyRecordPage
+        ? pagePersister.deserializePageLazily(resourceConfiguration, source, type, null)
+        : pagePersister.deserializePage(resourceConfiguration, source, type);
 
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page.
     // This follows PostgreSQL pattern where BufferTag context (tablespace, database, relation)
@@ -217,6 +231,17 @@ public abstract class AbstractReader implements Reader {
    */
   public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, MemorySegment compressedPage,
       PageReference reference) throws IOException {
+    return deserializeFromSegment(resourceConfiguration, compressedPage, reference, false);
+  }
+
+  /**
+   * Zero-copy deserialization, optionally leaving a record page's records unexpanded until read.
+   *
+   * @param lazyRecordPage request the lazy variant; see {@link Reader#readRecordPageLazily}. Ignored
+   *        by every page kind but a chunk-framed record page.
+   */
+  public Page deserializeFromSegment(ResourceConfiguration resourceConfiguration, MemorySegment compressedPage,
+      PageReference reference, boolean lazyRecordPage) throws IOException {
     if (!byteHandler.supportsMemorySegments()) {
       throw new UnsupportedOperationException("ByteHandler does not support MemorySegment operations");
     }
@@ -228,9 +253,10 @@ public abstract class AbstractReader implements Reader {
       MemorySegment uncompressedSegment = decompressionResult.segment();
 
       // Pass DecompressionResult to enable zero-copy for KeyValueLeafPages
-      Page deserializedPage = pagePersister.deserializePage(resourceConfiguration,
-          new MemorySegmentBytesIn(uncompressedSegment), type, decompressionResult // For zero-copy ownership transfer
-      );
+      final var source = new MemorySegmentBytesIn(uncompressedSegment);
+      Page deserializedPage = lazyRecordPage
+          ? pagePersister.deserializePageLazily(resourceConfiguration, source, type, decompressionResult)
+          : pagePersister.deserializePage(resourceConfiguration, source, type, decompressionResult);
 
       // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
       if (resourceConfiguration != null) {
@@ -249,9 +275,10 @@ public abstract class AbstractReader implements Reader {
    * Decode only the PAX regions from an already-read page image — see
    * {@link Reader#readRegionsOnly(PageReference, ResourceConfiguration, int)}.
    *
-   * <p>Shares the outer decompression with the full path (the default pipeline is a no-op, so this
-   * is typically a wrap rather than a copy); what it does not share is the body blob, which is
-   * stepped over by its length prefix instead of being expanded into a record heap.
+   * <p>
+   * Shares the outer decompression with the full path (the default pipeline is a no-op, so this is
+   * typically a wrap rather than a copy); what it does not share is the body blob, which is stepped
+   * over by its length prefix instead of being expanded into a record heap.
    *
    * @param resourceConfiguration resource configuration
    * @param compressedPage the page image as read from storage
@@ -274,29 +301,36 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Bytes fetched from the front of a page to learn where its region table starts. The header is
-   * ~190 bytes at most; the rest of this is slack so the probe is one read even if the format grows.
+   * Bytes fetched from the front of a page to learn where its region table starts. The header is ~190
+   * bytes at most; the rest of this is slack so the probe is one read even if the format grows.
    */
   protected static final int REGION_PROBE_BYTES = 256;
 
   /**
-   * Bytes fetched from the region table on the first attempt. A scan's columns — values, field
-   * names, the dictionary sketch — sit at the front of the table (see {@code RegionTable}'s write
-   * order) and run to about 1.5 KB on the reference corpus, so this covers them with room to spare
-   * while still being a fraction of a ~26 KB page. Tunable for workloads with wider columns.
+   * Bytes fetched from the region table on the first attempt. A scan's columns — values, field names,
+   * the dictionary sketch — sit at the front of the table (see {@code RegionTable}'s write order) and
+   * run to about 1.5 KB on the reference corpus, so this covers them with room to spare while still
+   * being a fraction of a ~26 KB page. Tunable for workloads with wider columns.
    */
-  protected static final int REGION_CHUNK_BYTES =
-      Integer.getInteger("sirix.page.regionChunkBytes", 4096);
+  protected static final int REGION_CHUNK_BYTES = Integer.getInteger("sirix.page.regionChunkBytes", 4096);
 
-  /** Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount]}. */
-  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[3]);
+  /**
+   * Per-thread scratch holding the probe's {@code [pageKey, revision, populatedCount, fsstDictId]}.
+   *
+   * <p>
+   * The dictionary id is the reason a bounded read can ever serve an FSST resource: on a monolith
+   * page it sits in the tail, behind everything the probe is trying not to read, so those pages have
+   * to decline; a chunked page carries it in the body prefix, which the probe passes through anyway.
+   */
+  protected static final ThreadLocal<long[]> PROBE_OUT = ThreadLocal.withInitial(() -> new long[4]);
 
   /**
    * Per-thread scratch for the probe's slot bitmap.
    *
-   * <p>Copied out before it reaches a page, since the page outlives the call: the chunk path
-   * previously discarded the bitmap entirely, which left every chunk-read fragment unusable for
-   * the versioned column merge.
+   * <p>
+   * Copied out before it reaches a page, since the page outlives the call: the chunk path previously
+   * discarded the bitmap entirely, which left every chunk-read fragment unusable for the versioned
+   * column merge.
    */
   protected static final ThreadLocal<long[]> PROBE_BITMAP =
       ThreadLocal.withInitial(() -> new long[PageLayout.BITMAP_WORDS]);
@@ -311,10 +345,11 @@ public abstract class AbstractReader implements Reader {
    * Number of column-only pages served from a bounded chunk read since the last
    * {@link #resetRegionChunkStats()}.
    *
-   * <p>Unconditional rather than gated behind a diagnostic flag, unlike the byte accounting in
-   * {@code PageKind}. A chunk read costs two positional reads; a striped counter increment is
-   * three orders of magnitude below that, so the measurement is free at this granularity — and a
-   * flag nobody sets is precisely how this path came to be silently disabled twice. The chunk read
+   * <p>
+   * Unconditional rather than gated behind a diagnostic flag, unlike the byte accounting in
+   * {@code PageKind}. A chunk read costs two positional reads; a striped counter increment is three
+   * orders of magnitude below that, so the measurement is free at this granularity — and a flag
+   * nobody sets is precisely how this path came to be silently disabled twice. The chunk read
    * declines by returning {@code null} and letting the whole-page read answer, which is correct,
    * produces identical results, and is therefore invisible except as a slowdown. This counter and
    * {@link #regionChunkFallbacks()} are what make "is the fast path actually on" answerable — by a
@@ -348,20 +383,18 @@ public abstract class AbstractReader implements Reader {
   /**
    * Decode a region table out of a partial page image.
    *
-   * <p>{@code headerImage} must start at the page's first byte; {@code regionImage} must start at
-   * the region table (the offset {@code probeRegionTableOffset} reported). Returns {@code null}
-   * when the requested regions do not fit in {@code regionImage}, which the caller answers by
-   * fetching more — the table is self-describing, so running out of bytes is detected, never
-   * misread.
+   * <p>
+   * {@code headerImage} must start at the page's first byte; {@code regionImage} must start at the
+   * region table (the offset {@code probeRegionTableOffset} reported). Returns {@code null} when the
+   * requested regions do not fit in {@code regionImage}, which the caller answers by fetching more —
+   * the table is self-describing, so running out of bytes is detected, never misread.
    */
   protected RegionsOnlyPage deserializeRegionTableFromChunk(ResourceConfiguration resourceConfiguration,
-      MemorySegment regionImage, long pageKey, int revision, int populatedCount,
-      long fsstSymbolTableId, int regionKindMask, int regionDeferMask,
-      final long @Nullable [] slotBitmap) {
+      MemorySegment regionImage, long pageKey, int revision, int populatedCount, long fsstSymbolTableId,
+      int regionKindMask, int regionDeferMask, final long @Nullable [] slotBitmap) {
     try {
-      return pagePersister.deserializeRegionTableAt(resourceConfiguration,
-          new MemorySegmentBytesIn(regionImage), pageKey, revision, populatedCount,
-          fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
+      return pagePersister.deserializeRegionTableAt(resourceConfiguration, new MemorySegmentBytesIn(regionImage),
+          pageKey, revision, populatedCount, fsstSymbolTableId, regionKindMask, regionDeferMask, slotBitmap);
     } catch (final IndexOutOfBoundsException | IllegalStateException e) {
       // Ran off the end of the chunk: the caller re-reads with the full page.
       return null;
@@ -386,18 +419,18 @@ public abstract class AbstractReader implements Reader {
         primaryException.addSuppressed(secondaryException);
         // Rethrowing the primary's exception as-is buried the fact that BOTH copies failed —
         // wrap with a headline stating it, keeping the primary as cause (secondary suppressed).
-        throw new SirixIOException(
-            "Both UberPage beacon copies are corrupt — unrecoverable (primary: " + primaryException.getMessage()
-                + "; secondary: " + secondaryException.getMessage() + ")", primaryException);
+        throw new SirixIOException("Both UberPage beacon copies are corrupt — unrecoverable (primary: "
+            + primaryException.getMessage() + "; secondary: " + secondaryException.getMessage() + ")",
+            primaryException);
       }
     }
   }
 
   /**
    * Reads, integrity-checks, and deserializes one uber beacon slot:
-   * {@code [u32 len][payload][u64 xxh3]}. The beacons have no parent reference to carry a page
-   * hash, so before this trailer existed "valid" meant "deserialization didn't throw" — about
-   * three effective bytes of validation on the root of the whole resource.
+   * {@code [u32 len][payload][u64 xxh3]}. The beacons have no parent reference to carry a page hash,
+   * so before this trailer existed "valid" meant "deserialization didn't throw" — about three
+   * effective bytes of validation on the root of the whole resource.
    */
   private PageReference readVerifiedBeacon(final long offset) {
     final java.nio.ByteBuffer slot = readBeaconSlot(offset);
@@ -418,13 +451,13 @@ public abstract class AbstractReader implements Reader {
     }
     final byte[] payload = new byte[len];
     slot.get(payload);
-    final byte[] storedHash = new byte[Long.BYTES];
-    slot.get(storedHash);
-    // Same canonical byte form the writer emits (PageHasher) — no byte-order ambiguity.
-    final byte[] actualHash = PageHasher.compute(payload);
-    if (!java.util.Arrays.equals(storedHash, actualHash)) {
-      throw new SirixIOException("Beacon checksum mismatch at offset " + offset
-          + " — torn or corrupted uber-page copy");
+    // The slot remains little-endian for its framing fields, while the checksum trailer preserves
+    // the established canonical big-endian bytes. Reverse once at the primitive boundary.
+    final long storedHash = Long.reverseBytes(slot.getLong());
+    final long actualHash = PageHasher.computeLong(payload);
+    if (storedHash != actualHash) {
+      throw new SirixIOException(
+          "Beacon checksum mismatch at offset " + offset + " — torn or corrupted uber-page copy");
     }
     try {
       final PageReference ref = new PageReference();
@@ -438,15 +471,15 @@ public abstract class AbstractReader implements Reader {
   }
 
   /**
-   * Reads (at least) the {@code [u32 len][payload][u64 xxh3]} prefix of the beacon slot at the
-   * given offset. Implementations may return the whole {@link IOStorage#BEACON_SLOT_BYTES} slot.
+   * Reads (at least) the {@code [u32 len][payload][u64 xxh3]} prefix of the beacon slot at the given
+   * offset. Implementations may return the whole {@link IOStorage#BEACON_SLOT_BYTES} slot.
    */
   protected abstract java.nio.ByteBuffer readBeaconSlot(long offset);
 
   /**
-   * The revision number advertised by the beacon slot at the given offset, or {@code -1} when
-   * the slot is torn/corrupt/absent. Crash-recovery truncation uses this to detect (and repair)
-   * a slot left advertising a revision the truncation just removed.
+   * The revision number advertised by the beacon slot at the given offset, or {@code -1} when the
+   * slot is torn/corrupt/absent. Crash-recovery truncation uses this to detect (and repair) a slot
+   * left advertising a revision the truncation just removed.
    */
   public final int beaconRevisionOrMinusOne(final long offset) {
     try {

@@ -21,14 +21,15 @@
 
 package io.sirix.page.delegates;
 
-import io.sirix.utils.ToStringHelper;
 import io.sirix.node.BytesIn;
-import io.sirix.utils.GapList;
+import io.sirix.node.BytesOut;
 import io.sirix.page.DeserializedBitmapReferencesPageTuple;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import io.sirix.utils.GapList;
+import io.sirix.utils.ToStringHelper;
 
 import java.util.BitSet;
 import java.util.List;
@@ -143,6 +144,11 @@ public final class BitmapReferencesPage implements Page {
 
   public BitSet getBitmap() {
     return (BitSet) bitmap.clone();
+  }
+
+  /** Serialize through the trusted codec without creating and exposing a defensive bitmap clone. */
+  public void serializeReferences(final BytesOut<?> sink, final SerializationType type) {
+    type.serializeBitmapReferencesPage(sink, references, bitmap);
   }
 
   /**

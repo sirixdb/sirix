@@ -35,14 +35,22 @@ public interface VirtualMemory {
   /** Reserve {@code bytes} of stable virtual address space without committing physical memory. */
   MemorySegment reserve(long bytes);
 
-  /** Make a freshly handed-out slot writable; throws {@link OutOfMemoryError} when memory is exhausted. */
-  void commitFresh(MemorySegment slot);
+  /**
+   * Make a freshly handed-out slot writable.
+   *
+   * @return {@code true} when this call performed a native commit operation
+   */
+  boolean commitFresh(MemorySegment slot);
 
   /** Discard contents so the next read observes zeros; the address stays valid and committed. */
   void discardToZeros(MemorySegment segment);
 
-  /** Release a whole region reserved by {@link #reserve} (shutdown only). */
-  void release(MemorySegment region);
+  /**
+   * Release a whole region reserved by {@link #reserve} (shutdown only).
+   *
+   * @return {@code true} when this call performed a successful native release
+   */
+  boolean release(MemorySegment region);
 
   /** The backend for the OS this JVM runs on. */
   static VirtualMemory forCurrentPlatform() {

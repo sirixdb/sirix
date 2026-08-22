@@ -28,6 +28,13 @@ public abstract class AbstractForwardingReader extends ForwardingObject implemen
   }
 
   @Override
+  public Page readRecordPageLazily(PageReference reference, @Nullable ResourceConfiguration resourceConfiguration) {
+    // Forwarded rather than inherited: the interface default answers eagerly, which would silently
+    // strip laziness from every backend reached through a forwarder.
+    return delegate().readRecordPageLazily(reference, resourceConfiguration);
+  }
+
+  @Override
   public CompletableFuture<? extends Page> readAsync(PageReference reference,
       @Nullable ResourceConfiguration resourceConfiguration) {
     return delegate().readAsync(reference, resourceConfiguration);

@@ -3,6 +3,7 @@
  */
 package io.sirix.index.projection;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 /**
@@ -77,8 +78,47 @@ public final class ProjectionIndexScan {
       return new ColumnPredicate(column, Op.EQ, 0L, 0L, literal, null);
     }
 
+    /**
+     * {@code column != literal} on a BOOLEAN column. Folded to an equality against the complement
+     * rather than carried as an NE op: over a two-valued domain the two are identical for PRESENT
+     * cells, and presence is applied by the caller either way.
+     */
+    public static ColumnPredicate booleanNe(final int column, final boolean literal) {
+      return new ColumnPredicate(column, Op.EQ, 0L, 0L, !literal, null);
+    }
+
     public static ColumnPredicate stringEq(final int column, final byte[] literalUtf8) {
       return new ColumnPredicate(column, Op.EQ, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column != literal} on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringNe(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.NE, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column < literal} (string order) on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringLt(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.STR_LT, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column <= literal} (string order) on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringLe(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.STR_LE, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column > literal} (string order) on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringGt(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.STR_GT, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code column >= literal} (string order) on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringGe(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.STR_GE, 0L, 0L, false, literalUtf8);
+    }
+
+    /** {@code fn:contains(column, literal)} on a STRING_DICT column; missing cells do NOT match. */
+    public static ColumnPredicate stringContains(final int column, final byte[] literalUtf8) {
+      return new ColumnPredicate(column, Op.STR_CONTAINS, 0L, 0L, false, literalUtf8);
     }
 
     /**
@@ -112,6 +152,18 @@ public final class ProjectionIndexScan {
 
   public enum Op {
     GT, LT, GE, LE, EQ,
+    /**
+     * {@code v != lit}.
+     *
+     * <p>
+     * NOT the negation of {@link #EQ}: every leaf mask here is two-valued with <b>missing ⇒ false</b>,
+     * and {@code !EQ} would flip a missing cell to TRUE. In JSONiq a missing field dereferences to the
+     * empty sequence, {@code () != "x"} is the empty sequence, and a {@code where} treats that as false
+     * — so a record lacking the field must NOT match {@code != ""}, which is exactly what {@code !EQ}
+     * would get wrong. NE is therefore its own op, evaluated only over present cells, and never
+     * rewritten as a negation.
+     */
+    NE,
     /** Fused {@code lowLit < v < highLit}. */
     BETWEEN_GT_LT,
     /** Fused {@code lowLit < v <= highLit}. */
@@ -119,7 +171,30 @@ public final class ProjectionIndexScan {
     /** Fused {@code lowLit <= v < highLit}. */
     BETWEEN_GE_LT,
     /** Fused {@code lowLit <= v <= highLit}. */
-    BETWEEN_GE_LE
+    BETWEEN_GE_LE,
+    /**
+     * String ordering {@code v < lit} on a STRING_DICT column — its OWN op, never the numeric
+     * {@link #LT} with string bytes: the numeric switches assume long semantics (zone maps on a dict
+     * column hold dict IDS, so pruning by them on a string range drops matching leaves), and a distinct
+     * op makes every exhaustive switch a compile error instead of a silent wrong answer. Interpreter
+     * collation contract: {@code Str#cmp} is UTF-16 code-unit order; raw UTF-8 byte order diverges
+     * exactly when a 4-byte sequence (lead {@code >= 0xF0}) meets a BMP char in U+E000..U+FFFF —
+     * evaluators must detect that and fall back to decoded comparison. Missing cells do NOT match.
+     */
+    STR_LT,
+    /** String ordering {@code v <= lit}; see {@link #STR_LT} for the collation contract. */
+    STR_LE,
+    /** String ordering {@code v > lit}; see {@link #STR_LT} for the collation contract. */
+    STR_GT,
+    /** String ordering {@code v >= lit}; see {@link #STR_LT} for the collation contract. */
+    STR_GE,
+    /**
+     * Substring containment {@code fn:contains(v, lit)}. No collation subtlety (UTF-8 is
+     * self-synchronizing, a byte-wise needle match IS a codepoint substring match), but exact-value
+     * fingerprints must never prune it: a leaf whose every URL CONTAINS "google" fingerprints none of
+     * them as the whole string "google". Missing cells do NOT match.
+     */
+    STR_CONTAINS
   }
 
   /**
@@ -129,13 +204,16 @@ public final class ProjectionIndexScan {
    * <p>
    * <b>Program encoding.</b> {@code program} is a postfix (RPN) walk over leaf masks: an entry
    * {@code >= 0} pushes leaf {@code program[i]}'s mask; {@link #OP_AND} pops two masks and pushes
-   * their intersection; {@link #OP_OR} pushes their union. A well-formed program leaves exactly one
-   * mask on the stack. Leaf masks encode two-valued predicate truth with missing ⇒ {@code false}
-   * (presence AND) — under AND/OR composition this is exactly the interpreter's general-comparison
-   * semantics, which is why NOT is deliberately NOT representable here:
-   * {@code not(missing-comparison)} flips missing ⇒ {@code true}, a semantic the mask algebra must
-   * model explicitly before negation can be offered (callers fall back to the generic pipeline for
-   * NOT).
+   * their intersection; {@link #OP_OR} pushes their union; {@link #OP_NOT} pops one and pushes its
+   * complement. A well-formed program leaves exactly one mask on the stack. Leaf masks encode
+   * two-valued predicate truth with missing ⇒ {@code false} (presence AND) — under AND/OR composition
+   * this is exactly the interpreter's general-comparison semantics, and it is ALSO what makes
+   * {@link #OP_NOT} exact: the complement of {@code present AND matches} is
+   * {@code missing OR (present AND !matches)}, precisely {@code fn:not} over a comparison whose
+   * missing-deref operand made it false (an empty existential, {@code contains} over {@code ""}, a
+   * false EBV). The leaf null gate is load-bearing here: JSON-null cells order differently from
+   * missing under the interpreter's total order, so every leaf declines null-bearing columns BEFORE
+   * the algebra runs — with or without negation above it.
    *
    * <p>
    * Stack depth is bounded by {@link #MAX_LEAVES}; {@link #of} validates shape.
@@ -146,6 +224,7 @@ public final class ProjectionIndexScan {
 
     public static final byte OP_AND = -1;
     public static final byte OP_OR = -2;
+    public static final byte OP_NOT = -3;
 
     public final ColumnPredicate[] leaves;
     public final byte[] program;
@@ -180,6 +259,10 @@ public final class ProjectionIndexScan {
             throw new IllegalArgumentException("combinator underflow at depth " + depth);
           }
           depth--;
+        } else if (insn == OP_NOT) {
+          if (depth < 1) {
+            throw new IllegalArgumentException("negation underflow at depth " + depth);
+          }
         } else {
           throw new IllegalArgumentException("unknown program op " + insn);
         }
@@ -276,7 +359,7 @@ public final class ProjectionIndexScan {
         evalNumeric(leaf.numericColumn(p.column), rowCount, p.op, p.longLit, p.highLit, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN ->
         evalBoolean(leaf.booleanColumnBits(p.column), rowCount, p.boolLit, out);
-      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringEq(leaf, p, rowCount, out);
+      case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT -> evalStringDict(leaf, p, rowCount, out);
       case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET -> evalStringSetContains(leaf, p, rowCount, out);
       default -> throw new IllegalStateException("Unknown column kind " + kind);
     }
@@ -315,6 +398,12 @@ public final class ProjectionIndexScan {
             out[i >>> 6] |= 1L << (i & 63);
         }
       }
+      case NE -> {
+        for (int i = 0; i < rowCount; i++) {
+          if (col[i] != lit)
+            out[i >>> 6] |= 1L << (i & 63);
+        }
+      }
       case BETWEEN_GT_LT -> {
         for (int i = 0; i < rowCount; i++) {
           final long v = col[i];
@@ -343,6 +432,10 @@ public final class ProjectionIndexScan {
             out[i >>> 6] |= 1L << (i & 63);
         }
       }
+      // A statement switch swallows unlisted ops as a NO-OP — an all-false mask, i.e. a silent
+      // under-count. String ops on a numeric column are a routing defect: throw.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS ->
+        throw new IllegalStateException("string op on a numeric column: " + op);
     }
   }
 
@@ -362,41 +455,132 @@ public final class ProjectionIndexScan {
     }
   }
 
-  private static void evalStringEq(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p, final int rowCount,
-      final long[] out) {
-    final byte[][] dict = leaf.stringDictionary(p.column);
-    // Find the dict-id corresponding to the literal; -1 if absent →
-    // leaf has no matching rows.
-    int targetDictId = -1;
-    for (int i = 0; i < dict.length && dict[i] != null; i++) {
-      if (Arrays.equals(dict[i], p.stringLitBytes)) {
-        targetDictId = i;
-        break;
+  private static void evalStringDict(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p,
+      final int rowCount, final long[] out) {
+    final int dictSize = leaf.stringDictionarySize(p.column);
+    // Two-phase: evaluate the predicate ONCE per dictionary entry into an id bitset (dictSize
+    // string operations, bounded by rowCount by format invariant), then sweep the rows as one
+    // bit test each. The old single-target loop only expressed EQ/NE; the per-entry form serves
+    // every string op with one code path — and "NE with an absent literal matches every present
+    // row" falls out as a consequence instead of a special case.
+    final long[] idBits = new long[dictSize + 63 >>> 6];
+    boolean any = false;
+    final boolean litHasSupplementary = hasFourByteUtf8(p.stringLitBytes, 0, p.stringLitBytes.length);
+    for (int i = 0; i < dictSize; i++) {
+      if (stringDictEntryMatches(leaf.stringDictionaryEntryBacking(p.column, i),
+          leaf.stringDictionaryEntryOffset(p.column, i), leaf.stringDictionaryEntryLength(p.column, i), p.op,
+          p.stringLitBytes, litHasSupplementary)) {
+        idBits[i >>> 6] |= 1L << (i & 63);
+        any = true;
       }
     }
-    if (targetDictId < 0)
+    if (!any) {
       return;
+    }
     final int[] ids = leaf.stringDictIdColumn(p.column);
     for (int i = 0; i < rowCount; i++) {
-      if (ids[i] == targetDictId)
+      final int id = ids[i];
+      if ((idBits[id >>> 6] & 1L << (id & 63)) != 0L) {
         out[i >>> 6] |= 1L << (i & 63);
+      }
     }
+  }
+
+  /**
+   * Does one dictionary entry satisfy a string predicate? The single per-entry authority every dict
+   * kernel (hydrated, byte, sliced) evaluates through, so the op semantics cannot drift between
+   * paths.
+   *
+   * <p>
+   * Ordering ops honor the interpreter's collation ({@code Str#cmp} = {@code String.compareTo} =
+   * UTF-16 code-unit order): raw unsigned UTF-8 byte order equals CODEPOINT order, which diverges
+   * exactly when a supplementary character (4-byte UTF-8, lead {@code >= 0xF0}) meets a BMP character
+   * in U+E000..U+FFFF — so if EITHER side carries a 4-byte sequence, both decode and compare as
+   * Strings. {@code contains} needs no such gate: UTF-8 is self-synchronizing, a byte-wise needle
+   * match IS a codepoint substring match.
+   */
+  static boolean stringDictEntryMatches(final byte[] entry, final int off, final int len, final Op op, final byte[] lit,
+      final boolean litHasSupplementary) {
+    return switch (op) {
+      case EQ -> Arrays.equals(entry, off, off + len, lit, 0, lit.length);
+      case NE -> !Arrays.equals(entry, off, off + len, lit, 0, lit.length);
+      case STR_CONTAINS -> containsBytes(entry, off, len, lit);
+      case STR_LT, STR_LE, STR_GT, STR_GE -> {
+        final int cmp;
+        if (litHasSupplementary || hasFourByteUtf8(entry, off, len)) {
+          cmp = new String(entry, off, len, StandardCharsets.UTF_8).compareTo(new String(lit, StandardCharsets.UTF_8));
+        } else {
+          cmp = Arrays.compareUnsigned(entry, off, off + len, lit, 0, lit.length);
+        }
+        yield switch (op) {
+          case STR_LT -> cmp < 0;
+          case STR_LE -> cmp <= 0;
+          case STR_GT -> cmp > 0;
+          default -> cmp >= 0;
+        };
+      }
+      default -> throw new IllegalStateException("not a string op: " + op);
+    };
+  }
+
+  /** Byte-wise substring search — sound for UTF-8 (self-synchronizing). */
+  static boolean containsBytes(final byte[] hay, final int off, final int len, final byte[] needle) {
+    final int n = needle.length;
+    if (n == 0) {
+      return true;
+    }
+    if (n > len) {
+      return false;
+    }
+    final byte first = needle[0];
+    final int last = off + len - n;
+    outer: for (int i = off; i <= last; i++) {
+      if (hay[i] != first) {
+        continue;
+      }
+      for (int k = 1; k < n; k++) {
+        if (hay[i + k] != needle[k]) {
+          continue outer;
+        }
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /** Any 4-byte UTF-8 lead ({@code >= 0xF0}) in the slice — the supplementary-character gate. */
+  static boolean hasFourByteUtf8(final byte[] bytes, final int off, final int len) {
+    final int end = off + len;
+    for (int i = off; i < end; i++) {
+      if ((bytes[i] & 0xFF) >= 0xF0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
    * Set membership over a hydrated leaf — the in-memory twin of the byte and sliced kernels.
    *
    * <p>
-   * Same shape as {@link #evalStringEq}, with the row's element run in place of its single id: the
+   * Same shape as {@link #evalStringDict}, with the row's element run in place of its single id: the
    * literal resolves against the leaf dictionary once, an absent literal leaves the mask untouched,
    * and the cursor advances over every row's elements so the flat run stays aligned.
    */
   private static void evalStringSetContains(final ProjectionIndexRowGroupPage leaf, final ColumnPredicate p,
       final int rowCount, final long[] out) {
-    final byte[][] dict = leaf.stringDictionary(p.column);
+    if (p.op != Op.EQ) {
+      // Membership over a SEQUENCE-valued field is EQ-only; ordering/substring over a set is a
+      // different question no caller asks yet — fail loud, mirroring the byte kernel's guard.
+      throw new IllegalStateException("STRING_SET supports EQ membership only, got " + p.op);
+    }
     int targetDictId = -1;
-    for (int i = 0; i < dict.length && dict[i] != null; i++) {
-      if (Arrays.equals(dict[i], p.stringLitBytes)) {
+    final int dictSize = leaf.stringDictionarySize(p.column);
+    for (int i = 0; i < dictSize; i++) {
+      final byte[] backing = leaf.stringDictionaryEntryBacking(p.column, i);
+      final int offset = leaf.stringDictionaryEntryOffset(p.column, i);
+      final int length = leaf.stringDictionaryEntryLength(p.column, i);
+      if (Arrays.equals(backing, offset, offset + length, p.stringLitBytes, 0, p.stringLitBytes.length)) {
         targetDictId = i;
         break;
       }
@@ -443,6 +627,9 @@ public final class ProjectionIndexScan {
       case GE -> max < p.longLit;
       case LE -> min > p.longLit;
       case EQ -> p.longLit < min || p.longLit > max;
+      // Skippable only when the whole zone collapses onto the literal, so every value equals it and
+      // NE is false for the entire row group. See ProjectionIndexByteScan#zoneSkip.
+      case NE -> min == max && min == p.longLit;
       // BETWEEN zone-skip: OR of the two independent zone-skip
       // conditions. Strictly no more pessimistic than running each
       // bound as a separate predicate. See iter07-range-fusion-analysis.md.
@@ -450,6 +637,9 @@ public final class ProjectionIndexScan {
       case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
       case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
       case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
+      // NEVER prune string ops: a dict column's zone map holds min/max dict IDS — meaningless
+      // for value order or content, and a prune here silently drops matching rows.
+      case STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> false;
     };
   }
 }

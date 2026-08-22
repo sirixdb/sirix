@@ -10,7 +10,6 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
@@ -21,7 +20,7 @@ import static org.junit.Assert.assertNull;
  * {@link BitmapReferencesPage} and {@link FullReferencesPage} (issue #1079).
  * <p>
  * Every reference must be routed through the {@link PageReference} copy constructor: a manual
- * field-by-field copy dropped the page-fragment hash ({@code hashInBytes}), aliased the fragment
+ * field-by-field copy dropped the page-fragment hash, aliased the fragment
  * list, and eagerly copied the swizzled in-memory page pointer (which can go stale and be read
  * after free through recycled frames).
  */
@@ -29,7 +28,7 @@ public final class ReferencesPageCloneTest {
 
   private static final long PERSISTENT_KEY = 123L;
 
-  private static final byte[] HASH = {1, 2, 3, 4, 5};
+  private static final long HASH = 0x0102_0304_0506_0708L;
 
   /**
    * Configure a source reference: a persistent storage key, a hash, a page-fragments list and a
@@ -39,7 +38,7 @@ public final class ReferencesPageCloneTest {
    */
   private static void configureSourceReference(final PageReference reference) {
     reference.setKey(PERSISTENT_KEY);
-    reference.setHash(HASH.clone());
+    reference.setHash(HASH);
     final List<PageFragmentKey> pageFragments = new ArrayList<>(2);
     pageFragments.add(new PageFragmentKeyImpl(1, 42L, 7L, 8L));
     pageFragments.add(new PageFragmentKeyImpl(2, 43L, 7L, 8L));
@@ -60,8 +59,9 @@ public final class ReferencesPageCloneTest {
     assertNotSame("clone must be an independent PageReference instance", source, clone);
     assertEquals(PERSISTENT_KEY, clone.getKey());
 
-    // (a) The hash bytes must be copied (pre-fix: null on the clone).
-    assertArrayEquals("hash bytes must survive the clone", HASH, clone.getHash());
+    // (a) The primitive hash and its presence bit must be copied (pre-fix: absent on the clone).
+    assertEquals("hash must remain present on the clone", true, clone.hasHash());
+    assertEquals("hash must survive the clone", HASH, clone.getHashAsLong());
 
     // (b) The fragment list must be equal but must not alias the source list.
     assertEquals("page fragments must be equal", source.getPageFragments(), clone.getPageFragments());

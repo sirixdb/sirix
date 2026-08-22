@@ -12,6 +12,7 @@ import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.Dbl;
 import io.brackit.query.atomic.Dec;
+import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.Null;
 import io.brackit.query.atomic.QNm;
@@ -19,11 +20,14 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.SourceRef;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
+import io.brackit.query.expr.Cast;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Type;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.jsonitem.object.ArrayObject;
 import io.brackit.query.util.simd.VectorizedPredicate;
+import io.sirix.query.json.ComputedStrJsonItem;
 import io.sirix.access.trx.node.json.JsonIndexController;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -32,13 +36,19 @@ import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
 import io.sirix.settings.Fixed;
 import io.sirix.query.json.JsonDBItem;
+import io.sirix.query.json.ThreadSafeJsonReadOnlyTrx;
 import io.sirix.index.pageskip.PageSkipRegistry;
+import io.sirix.index.projection.DenseGlobalGroupAggTable;
+import io.sirix.index.projection.GroupDistinctBitmaps;
+import io.sirix.index.projection.NumericGroupAggTable;
+import io.sirix.index.projection.ProjectionColumnGroupScan;
 import io.sirix.index.projection.ProjectionColumnScan;
 import io.sirix.index.projection.ProjectionColumnStore;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionDoubleEncoding;
 import io.sirix.index.projection.ProjectionIndexRowGroupPage;
+import io.sirix.index.projection.GlobalValueDictionary;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.projection.ProjectionColumnSegmentFoldScan;
@@ -46,6 +56,7 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.NodeKind;
+import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RegionsOnlyPage;
@@ -64,11 +75,16 @@ import io.sirix.page.pax.StringDictSketch;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
+import it.unimi.dsi.fastutil.booleans.BooleanArrayList;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntArrays;
 import it.unimi.dsi.fastutil.ints.IntComparator;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2ObjectMap;
@@ -93,9 +109,16 @@ import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodHandles.Lookup;
 import java.lang.reflect.InvocationTargetException;
+import io.brackit.query.util.Regex;
+
 import java.math.BigDecimal;
+import io.brackit.query.atomic.Int;
+import io.brackit.query.atomic.Numeric;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.math.BigInteger;
 import java.math.RoundingMode;
+import java.util.regex.Pattern;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -105,13 +128,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.function.IntConsumer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
@@ -140,6 +166,342 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
+  /**
+   * Chain-wide lifetime shared by every revision-specific executor a compile chain creates.
+   *
+   * <p>The admission word's sign bit is the terminal-close flag and its remaining bits count
+   * accepted top-level executor calls. Retirement never closes this lifetime: an expression compiled
+   * against a retired executor is still allowed to run inline. Terminal chain close flips the bit,
+   * rejects later calls, and waits until every call accepted before the flip has left.
+   *
+   * <p>The same lifetime owns detached lazy-result cursors. There is at most one registered cursor
+   * per consuming thread, irrespective of how many revisions that thread visits. A revision switch
+   * closes the previous cursor before opening the requested one, so old lazy objects remain valid
+   * without growing the session's transaction maps by {@code revisions * materialization lanes}.
+   * Escaped lazy items remain readable across executor retirement and revision eviction while this
+   * lifecycle and its resource sessions are open. They are not themselves execution leases: callers
+   * must quiesce external lazy-item consumers before terminally closing the chain/store. Supporting a
+   * cursor operation concurrent with terminal close would require a lease on every forwarded node
+   * operation, adding synchronization to the record/navigation hot path. A lookup that observes
+   * terminal publication is rejected, and cold cursor registration is serialized with cursor close.
+   */
+  public static final class ExecutionLifecycle implements ThreadSafeJsonReadOnlyTrx.DetachedCursorProvider {
+    private static final long TERMINAL_BIT = Long.MIN_VALUE;
+    private static final long ACTIVE_MASK = Long.MAX_VALUE;
+
+    private final AtomicLong admissions = new AtomicLong();
+    private final Object terminalMonitor = new Object();
+    /** Executors whose pools/warm-up lanes have not completed retirement yet. */
+    private final ConcurrentHashMap<SirixVectorizedExecutor, Boolean> liveExecutors = new ConcurrentHashMap<>();
+    /** Cold registry used for retirement/terminal enumeration; hot lookup is exclusively ThreadLocal. */
+    private final ConcurrentHashMap<Long, RecordCursorSlot> recordCursors = new ConcurrentHashMap<>();
+    private final ReferenceQueue<Thread> retiredConsumerThreads = new ReferenceQueue<>();
+    private final ThreadLocal<ThreadState> threadState = ThreadLocal.withInitial(ThreadState::new);
+    private volatile boolean recordCursorsClosed;
+
+    public ExecutionLifecycle() {
+    }
+
+    /** Lock-free admission on the scan hot path. */
+    private boolean tryEnter() {
+      final ThreadState local = threadState.get();
+      if (local.admissionDepth != 0) {
+        local.admissionDepth++;
+        return true;
+      }
+      if (local.acceptedWorkDepth != 0) {
+        local.admissionDepth = 1;
+        local.admissionOwnsGlobalCount = false;
+        return true;
+      }
+      for (;;) {
+        final long state = admissions.get();
+        if ((state & TERMINAL_BIT) != 0) {
+          return false;
+        }
+        if (state == ACTIVE_MASK) {
+          throw new IllegalStateException("Too many concurrent vectorized executor calls");
+        }
+        if (admissions.compareAndSet(state, state + 1)) {
+          local.admissionDepth = 1;
+          local.admissionOwnsGlobalCount = true;
+          return true;
+        }
+      }
+    }
+
+    /**
+     * Admit work before it can touch a chain-owned executor resolver, resource session, or cursor.
+     * Reentrant admission on the same thread is a depth increment only; the outermost admission is
+     * the sole global counter update.
+     */
+    public void enter() {
+      if (!tryEnter()) {
+        throw new IllegalStateException("Vectorized executor lifecycle is closed");
+      }
+    }
+
+    /** Leave work admitted by {@link #enter()}. */
+    public void leave() {
+      final ThreadState local = threadState.get();
+      if (local.admissionDepth <= 0) {
+        throw new IllegalStateException("Unbalanced vectorized executor lifecycle admission");
+      }
+      if (--local.admissionDepth != 0) {
+        return;
+      }
+      if (!local.admissionOwnsGlobalCount) {
+        return;
+      }
+      local.admissionOwnsGlobalCount = false;
+      final long state = admissions.decrementAndGet();
+      if (state == TERMINAL_BIT) {
+        synchronized (terminalMonitor) {
+          terminalMonitor.notifyAll();
+        }
+      }
+    }
+
+    /** Whether this thread already owns or is executing work under an accepted admission. */
+    public boolean isEnteredByCurrentThread() {
+      final ThreadState local = threadState.get();
+      return local.admissionDepth != 0 || local.acceptedWorkDepth != 0;
+    }
+
+    private void enterAcceptedWork() {
+      threadState.get().acceptedWorkDepth++;
+    }
+
+    private void leaveAcceptedWork() {
+      final ThreadState local = threadState.get();
+      if (local.acceptedWorkDepth <= 0) {
+        throw new IllegalStateException("Unbalanced accepted vectorized executor work");
+      }
+      local.acceptedWorkDepth--;
+    }
+
+    private void releaseCursor(final long threadId) {
+      final RecordCursorSlot slot = recordCursors.remove(threadId);
+      if (slot != null) {
+        slot.closeQuietly();
+      }
+    }
+
+    /**
+     * Permanently reject new work, drain work admitted before the fence, and release detached
+     * consumer cursors after external lazy-item consumers have been quiesced. Idempotent and
+     * uninterruptible; an observed interrupt is restored.
+     */
+    public void closeAndAwait() {
+      if (isEnteredByCurrentThread()) {
+        throw new IllegalStateException("Cannot terminally close a vectorized lifecycle from its admitted work");
+      }
+      for (;;) {
+        final long state = admissions.get();
+        if ((state & TERMINAL_BIT) != 0 || admissions.compareAndSet(state, state | TERMINAL_BIT)) {
+          break;
+        }
+      }
+
+      boolean interrupted = false;
+      synchronized (terminalMonitor) {
+        while ((admissions.get() & ACTIVE_MASK) != 0) {
+          try {
+            terminalMonitor.wait();
+          } catch (final InterruptedException ignored) {
+            interrupted = true;
+          }
+        }
+      }
+      retireRegisteredExecutors();
+      closeRecordCursors();
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    @Override
+    public JsonNodeReadOnlyTrx cursor(final JsonResourceSession session, final int revision) {
+      Objects.requireNonNull(session, "session must not be null");
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        throw new IllegalStateException("Vectorized executor lifecycle is closed");
+      }
+      final ThreadState local = threadState.get();
+      final RecordCursorSlot cached = local.recordCursorSlot;
+      if (cached != null) {
+        // A single terminal read at operation entry is the escaped-item contract. Rechecking after
+        // this return cannot make a raw forwarded operation atomic with close, and would add another
+        // volatile read to every field/navigation call.
+        return cached.cursor(session, revision);
+      }
+      drainRetiredConsumerThreads();
+      final Thread thread = Thread.currentThread();
+      final long threadId = thread.threadId();
+      final RecordCursorSlot slot = new RecordCursorSlot(thread, threadId);
+      // Cold path only. Coordinate publication with closeRecordCursors so terminal close either
+      // sees this slot or rejects it before it can open a transaction. The ThreadLocal serves all
+      // later calls without boxing, a map lookup, queue polling, or a monitor.
+      synchronized (recordCursors) {
+        if (recordCursorsClosed || isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        recordCursors.put(threadId, slot);
+        local.recordCursorSlot = slot;
+      }
+      try {
+        final JsonNodeReadOnlyTrx cursor = slot.cursor(session, revision);
+        if (isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        return cursor;
+      } catch (final RuntimeException | Error failure) {
+        // A caller can pass the first terminal check immediately before close publishes the bit and
+        // clears the map. The slot's second check rejects; remove that late empty publication so a
+        // terminal lifecycle cannot retain a post-close map entry.
+        if (isClosed() && recordCursors.remove(threadId, slot)) {
+          slot.closeQuietly();
+        }
+        throw failure;
+      }
+    }
+
+    @Override
+    public boolean isClosed() {
+      return (admissions.get() & TERMINAL_BIT) != 0;
+    }
+
+    private boolean register(final SirixVectorizedExecutor executor) {
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        return false;
+      }
+      liveExecutors.put(executor, Boolean.TRUE);
+      // Close may have taken its snapshot between the first check and publication. Remove the late
+      // registration so a constructor cannot escape a terminal lifecycle with live pools. Work
+      // admitted before terminal publication may still construct its resolved executor: close is
+      // waiting for that admission and will retire the newly registered executor afterwards.
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        liveExecutors.remove(executor);
+        return false;
+      }
+      return true;
+    }
+
+    private void unregister(final SirixVectorizedExecutor executor) {
+      liveExecutors.remove(executor);
+    }
+
+    private void retireRegisteredExecutors() {
+      // Retirement unregisters only after both executor services terminate. Iterating the weakly
+      // consistent map is sufficient: terminal publication prevents a constructor from registering
+      // after this point, and a constructor racing publication removes itself on its second check.
+      while (!liveExecutors.isEmpty()) {
+        final SirixVectorizedExecutor[] snapshot =
+            liveExecutors.keySet().toArray(SirixVectorizedExecutor[]::new);
+        for (final SirixVectorizedExecutor executor : snapshot) {
+          executor.retire();
+        }
+      }
+    }
+
+    private void drainRetiredConsumerThreads() {
+      ConsumerThreadReference retired;
+      while ((retired = (ConsumerThreadReference) retiredConsumerThreads.poll()) != null) {
+        final RecordCursorSlot slot = retired.slot;
+        if (recordCursors.remove(retired.threadId, slot)) {
+          slot.closeQuietly();
+        }
+      }
+    }
+
+    private void closeRecordCursors() {
+      if (recordCursorsClosed) {
+        return;
+      }
+      synchronized (recordCursors) {
+        if (recordCursorsClosed) {
+          return;
+        }
+        recordCursorsClosed = true;
+        for (final RecordCursorSlot slot : recordCursors.values()) {
+          slot.closeQuietly();
+        }
+        recordCursors.clear();
+        while (retiredConsumerThreads.poll() != null) {
+          // Drop queued weak references while the lifecycle is terminal.
+        }
+      }
+    }
+
+    private final class RecordCursorSlot {
+      private final ConsumerThreadReference owner;
+      private volatile JsonResourceSession cursorSession;
+      private volatile int cursorRevision = Integer.MIN_VALUE;
+      private volatile JsonNodeReadOnlyTrx cursor;
+
+      private RecordCursorSlot(final Thread thread, final long threadId) {
+        owner = new ConsumerThreadReference(thread, threadId, this, retiredConsumerThreads);
+      }
+
+      private JsonNodeReadOnlyTrx cursor(final JsonResourceSession session, final int revision) {
+        final JsonNodeReadOnlyTrx current = cursor;
+        if (current != null && cursorSession == session && cursorRevision == revision) {
+          return current;
+        }
+        return rebindCursor(session, revision);
+      }
+
+      private synchronized JsonNodeReadOnlyTrx rebindCursor(final JsonResourceSession session, final int revision) {
+        if (isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        if (cursor == null || cursor.isClosed() || cursorSession != session || cursorRevision != revision) {
+          closeCursor();
+          cursor = session.beginNodeReadOnlyTrx(revision);
+          cursorSession = session;
+          cursorRevision = revision;
+        }
+        return cursor;
+      }
+
+      private synchronized void closeQuietly() {
+        try {
+          closeCursor();
+        } catch (final RuntimeException ignored) {
+          // Session teardown still owns the cursor as a final safety net.
+        }
+      }
+
+      private void closeCursor() {
+        final JsonNodeReadOnlyTrx toClose = cursor;
+        cursor = null;
+        cursorSession = null;
+        cursorRevision = Integer.MIN_VALUE;
+        if (toClose != null && !toClose.isClosed()) {
+          toClose.close();
+        }
+      }
+    }
+
+    private static final class ConsumerThreadReference extends WeakReference<Thread> {
+      private final long threadId;
+      private final RecordCursorSlot slot;
+
+      private ConsumerThreadReference(final Thread thread, final long threadId, final RecordCursorSlot slot,
+          final ReferenceQueue<Thread> queue) {
+        super(thread, queue);
+        this.threadId = threadId;
+        this.slot = slot;
+      }
+    }
+
+    private static final class ThreadState {
+      private int admissionDepth;
+      private boolean admissionOwnsGlobalCount;
+      private int acceptedWorkDepth;
+      private RecordCursorSlot recordCursorSlot;
+    }
+  }
+
   /** Node kind id for an OBJECT_KEY entry — the named child of an object. */
   private static final int OBJECT_KEY_KIND = 26;
 
@@ -161,6 +523,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private final JsonResourceSession session;
   private final int revision;
+  private final ExecutionLifecycle executionLifecycle;
+  private final boolean ownsExecutionLifecycle;
 
   /** The revision this executor is pinned to; its caches are only valid for that revision. */
   public int getRevision() {
@@ -353,6 +717,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
+  /**
+   * Every worker id ever created for this pool, including a rare replacement worker. Populated only
+   * by the cold thread factory and drained after pool termination; no query/record hot path touches
+   * it.
+   */
+  private final LongArrayList workerPoolThreadIds;
+  /** Serializes pool submission/degraded-inline execution against the close fence. */
+  private final Object workerPoolLifecycleLock = new Object();
+  /** Guarded by {@link #workerPoolLifecycleLock}; terminal close rejects all later calls. */
+  private boolean terminallyClosed;
+  /** Calls admitted locally and not yet returned, including degraded inline calls. */
+  private int activeCalls;
+  /**
+   * Executor-owned projection warm-up lane. Keeping advisory I/O off {@link #workerPool} preserves
+   * the configured scan parallelism (especially the one-thread case), while ownership gives
+   * {@link #close()} a completion fence that raw daemon threads cannot provide.
+   */
+  private final ExecutorService projectionWarmupPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
@@ -492,6 +874,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return GROUP_AGG_SERVED.sum();
   }
 
+  /** Of those, servings whose scan read column SLICES instead of whole-leaf payloads. */
+  private static final LongAdder GROUP_AGG_SLICED_SERVED = new LongAdder();
+
+  /** Test observability for {@link #GROUP_AGG_SLICED_SERVED}. */
+  public static long groupAggSlicedServedCount() {
+    return GROUP_AGG_SLICED_SERVED.sum();
+  }
+
+  /**
+   * Field-key resolutions that fell through to {@link #resolveFieldKeyByWalk}'s full-document scan.
+   * Test/ops observability: the walk and the path-summary probe return the SAME key, so nothing about
+   * an answer reveals that a query paid a whole-document scan per referenced field to get it.
+   */
+  private static final LongAdder FIELD_KEY_WALKS = new LongAdder();
+
+  /** Test observability for {@link #FIELD_KEY_WALKS}. */
+  public static long fieldKeyWalkCount() {
+    return FIELD_KEY_WALKS.sum();
+  }
+
   /**
    * Per-predicate cache of generated {@link BatchPredicate} instances. Key is
    * {@code predicateCacheKey} plus a field-layout suffix so two predicates with structurally
@@ -510,7 +912,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final Set<String> skipCompileSet = ConcurrentHashMap.newKeySet();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
-    this(session, revision, defaultThreadCount());
+    this(session, revision, defaultThreadCount(), null, new ExecutionLifecycle(), true);
   }
 
   /**
@@ -533,7 +935,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads) {
-    this(session, revision, threads, null);
+    this(session, revision, threads, null, new ExecutionLifecycle(), true);
+  }
+
+  /**
+   * Executor sharing the compile chain's terminal fence and detached-result cursor pool.
+   */
+  public SirixVectorizedExecutor(final JsonResourceSession session, final int revision,
+      final ExecutionLifecycle executionLifecycle) {
+    this(session, revision, defaultThreadCount(), null,
+        Objects.requireNonNull(executionLifecycle, "executionLifecycle must not be null"), false);
+  }
+
+  /**
+   * Executor sharing the compile chain's terminal fence and detached-result cursor pool.
+   */
+  public SirixVectorizedExecutor(final JsonResourceSession session, final int revision, final int threads,
+      final ExecutionLifecycle executionLifecycle) {
+    this(session, revision, threads, null,
+        Objects.requireNonNull(executionLifecycle, "executionLifecycle must not be null"), false);
   }
 
   /**
@@ -545,22 +965,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * reverts for as long as the transaction stays open, no re-construction needed.
    */
   public SirixVectorizedExecutor(final JsonNodeTrx wtx, final int threads) {
-    this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx);
+    this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx, new ExecutionLifecycle(), true);
   }
 
   private SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads,
-      final @Nullable JsonNodeTrx wtx) {
-    this.session = session;
+      final @Nullable JsonNodeTrx wtx, final ExecutionLifecycle executionLifecycle,
+      final boolean ownsExecutionLifecycle) {
+    this.session = Objects.requireNonNull(session, "session must not be null");
+    if (threads <= 0) {
+      throw new IllegalArgumentException("threads must be positive: " + threads);
+    }
     this.revision = revision;
     this.threads = threads;
     this.wtx = wtx;
+    this.executionLifecycle = executionLifecycle;
+    this.ownsExecutionLifecycle = ownsExecutionLifecycle;
     this.projectionRegistryKey = computeProjectionRegistryKey(session);
+    workerPoolThreadIds = new LongArrayList(threads);
     final ThreadFactory tf = r -> {
       Thread t = new Thread(r, "sirix-vec-exec");
       t.setDaemon(true);
+      synchronized (workerPoolThreadIds) {
+        workerPoolThreadIds.add(t.threadId());
+      }
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
+    this.projectionWarmupPool = Executors.newSingleThreadExecutor(r -> {
+      final Thread thread = new Thread(r, "sirix-projection-warmup");
+      thread.setDaemon(true);
+      return thread;
+    });
+    if (!executionLifecycle.register(this)) {
+      terminallyClosed = true;
+      projectionWarmupPool.shutdownNow();
+      workerPool.shutdownNow();
+      throw new IllegalStateException("Vectorized executor lifecycle is closed");
+    }
   }
 
   private static String computeProjectionRegistryKey(final JsonResourceSession session) {
@@ -572,47 +1013,139 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Release what this executor OWNS: its record transaction and its worker pool.
+   * Retire this revision-specific executor without invalidating expressions compiled against it.
    *
-   * <p>
-   * It deliberately does not touch the session's shared read-only transactions. Those are session
-   * state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)} for the
-   * whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
-   * revision, not this executor's. Calling it here closed transactions that a concurrently running
-   * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
-   * that scan; and closing became routine once executors are retired on a revision advance and
-   * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
-   * {@code workerThreads + 1} per revision in the meantime.
-   *
-   * <p>
-   * What remains after this is a DEGRADED executor, not a broken one: the pool is gone so scans run
-   * on the calling thread, and the record transaction is reopened on demand. A query compiled against
-   * an executor that has since been retired therefore keeps answering.
+   * <p>Accepted pool work and warm-ups are drained, then later scans degrade to inline execution.
+   * The chain-wide execution lifetime and lazy-result cursor pool remain open.
    */
-  public void close() {
-    // Sorted-scan record trx (stage 7b): executor-owned, one per lifetime.
+  public void retire() {
     try {
-      final JsonNodeReadOnlyTrx trx = recordTrx;
-      if (trx != null && !trx.isClosed()) {
-        trx.close();
-      }
-    } catch (Exception ignored) {
+      shutdownPoolsAndAwait(false);
+    } finally {
+      executionLifecycle.unregister(this);
     }
-    workerPool.shutdown();
   }
 
   /**
-   * Whether {@link #close()} has run. A closed executor keeps answering — the scan runs on the
-   * calling thread and the record transaction reopens — so this reports resource state, not
-   * usability.
+   * Terminally close this executor. Later parallel work is rejected and every locally accepted call
+   * is drained. A standalone executor also closes its private execution lifetime; chain-owned
+   * executors share a lifetime which {@link io.sirix.query.SirixCompileChain} closes once for all
+   * current and retired revisions.
    */
+  public void close() {
+    if (executionLifecycle.isEnteredByCurrentThread()) {
+      throw new IllegalStateException("Cannot close a vectorized executor from its admitted work");
+    }
+    try {
+      shutdownPoolsAndAwait(true);
+    } finally {
+      executionLifecycle.unregister(this);
+    }
+  }
+
+  private void shutdownPoolsAndAwait(final boolean terminal) {
+    boolean interrupted = false;
+    synchronized (workerPoolLifecycleLock) {
+      if (terminal) {
+        terminallyClosed = true;
+      }
+      final List<Runnable> cancelledWarmups = projectionWarmupPool.shutdownNow();
+      for (final Runnable cancelled : cancelledWarmups) {
+        if (cancelled instanceof ProjectionIndexRegistry.CancellableBackgroundTask task) {
+          try {
+            task.cancelBeforeExecution();
+          } catch (final RuntimeException ignored) {
+            // Keep draining every owned service. A cancellation hook cannot strand terminal close.
+          }
+        }
+      }
+      workerPool.shutdown();
+    }
+
+    // A private lifetime has no sibling executors, so terminal close owns its admission fence and
+    // detached cursors. A chain closes its shared lifetime before closing the cached executors.
+    if (terminal && ownsExecutionLifecycle) {
+      executionLifecycle.closeAndAwait();
+    }
+
+    // Never wait while holding workerPoolLifecycleLock. A currently running worker may itself use
+    // a nested parallel helper; after retirement that helper degrades inline and must be able to
+    // acquire the lock so the outer worker can terminate.
+    while (!projectionWarmupPool.isTerminated() || !workerPool.isTerminated()) {
+      try {
+        if (!projectionWarmupPool.isTerminated()) {
+          projectionWarmupPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        }
+        if (!workerPool.isTerminated()) {
+          workerPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+        }
+      } catch (final InterruptedException ignored) {
+        interrupted = true;
+      }
+    }
+    releaseWorkerPoolCursors();
+
+    if (terminal) {
+      synchronized (workerPoolLifecycleLock) {
+        while (activeCalls != 0) {
+          try {
+            workerPoolLifecycleLock.wait();
+          } catch (final InterruptedException ignored) {
+            interrupted = true;
+          }
+        }
+      }
+    }
+    if (interrupted) {
+      Thread.currentThread().interrupt();
+    }
+  }
+
+  /** Whether this executor's worker pool has been retired or terminally closed. */
   public boolean isClosed() {
     return workerPool.isShutdown();
   }
 
-  /** Borrow this thread's shared read-only trx — reused across calls, no per-call alloc. */
-  private JsonNodeReadOnlyTrx workerTrx() {
-    return session.getOrCreateSharedReadOnlyTrx(revision);
+  /**
+   * Admit one top-level forwarded query call. The matching {@link #leaveExecution()} is mandatory.
+   * Used by {@link RevisionTrackingExecutor} and direct translated expressions without allocating a
+   * per-call lease object.
+   */
+  public void enterExecution() {
+    final boolean reentrant = executionLifecycle.isEnteredByCurrentThread();
+    executionLifecycle.enter();
+    boolean admitted = false;
+    try {
+      synchronized (workerPoolLifecycleLock) {
+        if (terminallyClosed && !reentrant) {
+          throw new IllegalStateException("Vectorized executor is closed");
+        }
+        activeCalls++;
+        admitted = true;
+      }
+    } finally {
+      if (!admitted) {
+        executionLifecycle.leave();
+      }
+    }
+  }
+
+  /** Leave a call admitted by {@link #enterExecution()}. */
+  public void leaveExecution() {
+    synchronized (workerPoolLifecycleLock) {
+      if (activeCalls <= 0) {
+        throw new IllegalStateException("Unbalanced vectorized executor call admission");
+      }
+      if (--activeCalls == 0) {
+        workerPoolLifecycleLock.notifyAll();
+      }
+    }
+    executionLifecycle.leave();
+  }
+
+  /** Borrow this lifecycle's revision-rebindable cursor for the calling thread. */
+  JsonNodeReadOnlyTrx workerTrx() {
+    return executionLifecycle.cursor(session, revision);
   }
 
   @Override
@@ -687,8 +1220,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Fields the predicate compares with an ORDERING operator. Equality is left out on purpose: it is
-   * the one comparison whose null semantics the kernels already match.
+   * Fields the predicate compares with an operator whose JSON-null semantics the kernels do NOT
+   * reproduce.
+   *
+   * <p>
+   * Only {@code eq} is exempt, and only because it genuinely agrees: the interpreter answers
+   * {@code null eq "x"} with {@code leftIsNull && rightIsNull} — false — and the kernels read a JSON
+   * null as missing, which is also false.
+   *
+   * <p>
+   * {@code ne} is NOT exempt, though it looks equality-shaped. The interpreter answers
+   * {@code null ne "x"} with {@code !(leftIsNull && rightIsNull)} — <b>true</b> ({@code Cmp.java:88})
+   * — while the kernels read the null as missing and answer false, so a served {@code != } would
+   * silently DROP every null-valued row the interpreter counts. Exempting it was harmless only while
+   * no operator string {@code ne} could be produced; it became reachable the moment brackit's
+   * detection started emitting one.
    */
   private static void collectOrderedComparisonFields(final PredicateNode node, final Set<String> out) {
     switch (node) {
@@ -697,6 +1243,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.DecCmp n -> addIfOrdering(n.field(), n.op(), out);
       case PredicateNode.StrEq ignored -> {
       }
+      // NOT equality-shaped, despite the name. Per the JSONiq spec a JSON null SATISFIES
+      // `f ne "x"` ("foo" ne null => true), while the kernels read a null as missing and answer
+      // false — so serving it over a null-bearing column silently drops those rows. Collecting the
+      // field is what makes acceptsPredicate decline; leaving it out is a wrong answer.
+      case PredicateNode.StrNe n -> out.add(n.field());
+      // JSONiq's total order makes null the SMALLEST value, so `null le "x"` is TRUE while the
+      // kernels read null as missing-and-false. COLLECT — declining over a null-bearing column
+      // is the leaf's own contract.
+      case PredicateNode.StrCmp n -> out.add(n.field());
+      // The interpreter raises a type error for contains(null, "x"); the kernels would answer
+      // false. An error is not false — COLLECT, same contract.
+      case PredicateNode.StrContains n -> out.add(n.field());
       // Equality-shaped, like StrEq: no ordering, so nothing to collect.
       case PredicateNode.ArrayContains ignored -> {
       }
@@ -713,7 +1271,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private static void addIfOrdering(final String field, final String op, final Set<String> out) {
-    if (!"eq".equals(op) && !"ne".equals(op)) {
+    if (!"eq".equals(op)) {
       out.add(field);
     }
   }
@@ -953,6 +1511,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0)
       return null;
+    final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
+    // Kind dispatch, EXACT byte equality on each arm. NUMERIC_DOUBLE is byte-identical on
+    // disk but holds the order-preserving transform of the double bits, so reading it as a
+    // long would emit garbage keys; STRING_SET has no single value per row at all. Both — and
+    // every other kind — decline here rather than falling through to a kernel.
+    final byte groupKind = handle.columnKindOf(groupColumn);
+    if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      return projectionNumericGroupCounts(handle, emptyPreds, groupColumn, groupField);
+    }
+    if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      return null;
+    }
     // Sparse-evidence gate: the group column must carry presence data in
     // every leaf and never hold unrepresentable values (null/object/array/
     // kind mismatch) — otherwise missing-vs-default and null-vs-missing are
@@ -960,7 +1531,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
       return null;
     }
-    final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
     final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
     try {
@@ -987,6 +1557,104 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Sequence[] vals = {Null.INSTANCE, new Int64(missing[0])};
       outItems.add(new ArrayObject(keys, vals));
     }
+    return new ItemSequence(outItems.toArray(new Item[0]));
+  }
+
+  /**
+   * The ONE emit shim for a NUMERIC_LONG group-by-count served from a projection, shared by the
+   * unpredicated and the predicated entry point.
+   *
+   * <p>
+   * It exists so the type of the emitted key cannot be got right at one site and wrong at the other:
+   * both string siblings wrap the key in {@code new Str(...)}, and routing a numeric key through
+   * either of them would type it {@code xs:string} — a WRONG RESULT, not a degradation. Here the key
+   * is {@link Int64} and the missing-field group is {@link Null#INSTANCE}, matching the string
+   * sibling's null-key record exactly.
+   *
+   * @return the group records, or {@code null} to DECLINE (a gate said no, or a kernel found drift)
+   */
+  private Sequence projectionNumericGroupCounts(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn, final String groupField) {
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    // Gate 2 — presence tails everywhere, no present-but-unrepresentable cell (a JSON null,
+    // an object/array, a kind mismatch): otherwise missing-vs-default is indistinguishable.
+    if (!handle.columnSparseClean(groupColumn, fetcher, rowGroupMaterializer(handle))) {
+      return null;
+    }
+    // A GLOBAL string column reaches this shim too: its cells are dense dictionary ids in the same
+    // long lane, so the same kernel groups them and only the emitted KEY differs (below).
+    final boolean globalKey =
+        handle.columnKindOf(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+    final long globalDictionary = globalKey
+        ? handle.valueDictionaryHeaderKey(groupColumn)
+        : 0L;
+    if (globalKey && globalDictionary <= 0L) {
+      return null; // ids with no dictionary to name them — grouping would emit the ids themselves
+    }
+    // Gate 3 — provable integrality. This one gate subsumes every lossy mixture at once,
+    // because a NUMERIC_LONG cell sourced from ANY Double/Float is flagged non-integral
+    // regardless of value: 3-vs-3.0, the 2^53 integral-double plateau and -0.0 all decline
+    // here, as do out-of-range BigInteger/BigDecimal and fractional decimals. What survives
+    // is exactly what re-renders digit-for-digit as xs:integer. Skipped for ids: they are minted
+    // as dense positive integers, so a truncated double cannot be among them.
+    if (!globalKey && !handle.numericColumnIsIntegral(groupColumn, fetcher)) {
+      return null;
+    }
+    final long[] missing = new long[1];
+    final Long2LongOpenHashMap agg;
+    try {
+      agg = parallelConjunctiveCountByGroupNumeric(handle, preds, groupColumn, missing);
+    } catch (final IllegalStateException ise) {
+      // Counted, not silent: a THROW is a malformed leaf, not a gate decline, and a route that
+      // reads as "never taken" instead of "failing" hides exactly the drift worth seeing.
+      GROUP_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] numeric group-count serving failed, using generic pipeline: " + ise);
+      }
+      return null;
+    }
+    if (agg == null) {
+      return null;
+    }
+    final ArrayList<Item> outItems = new ArrayList<>(agg.size() + 1);
+    final QNm keyQnm = new QNm(groupField);
+    final QNm cntQnm = new QNm("count");
+    // One batch for every group's id, ascending, so the dictionary is walked in page order rather
+    // than probed per group.
+    final long[] groupIds = new long[agg.size()];
+    final long[] groupCounts = new long[agg.size()];
+    int n = 0;
+    final ObjectIterator<Long2LongMap.Entry> it = agg.long2LongEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final Long2LongMap.Entry e = it.next();
+      groupIds[n] = e.getLongKey();
+      groupCounts[n] = e.getLongValue();
+      n++;
+    }
+    String[] groupValues = null;
+    if (globalDictionary > 0L) {
+      final int[] ids = new int[n];
+      for (int i = 0; i < n; i++) {
+        ids[i] = (int) groupIds[i];
+      }
+      groupValues = resolveGlobalGroupKeys(globalDictionary, ids, i -> true);
+      if (groupValues == null) {
+        return null;
+      }
+    }
+    for (int i = 0; i < n; i++) {
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {groupValues == null
+          ? new Int64(groupIds[i])
+          : new Str(groupValues[i]), new Int64(groupCounts[i])};
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    if (missing[0] > 0) {
+      final QNm[] keys = {keyQnm, cntQnm};
+      final Sequence[] vals = {Null.INSTANCE, new Int64(missing[0])};
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    NUMERIC_GROUPBY_SERVED.increment();
     return new ItemSequence(outItems.toArray(new Item[0]));
   }
 
@@ -1382,7 +2050,87 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return tryProjectionAggregate(sourcePath, field, predicateOrNull, ProjectionColumnSegmentFoldScan.AGG_ALL);
   }
 
+  /**
+   * Projection-served {@code [count, sum, min, max]}, or {@code null} when no projection can answer.
+   *
+   * <p>
+   * The single place the aggregate kernels' exactness DECLINE lands. Every numeric-long kernel behind
+   * this route (the SIMD fold kernel's pre-flight zone-map bound, the scalar slice and byte kernels'
+   * {@code Math.addExact}, and {@link #mergeLongAgg}'s chunk merge) signals "this sum cannot be
+   * served in a long" by throwing {@link ArithmeticException} — {@code xs:integer} is arbitrary
+   * precision and the generic pipeline promotes to exact decimal, so declining is the only correct
+   * answer and it must not surface as a query error. Both callers wrap this in
+   * {@code catch (Exception) -> QueryException}, so without this catch a 64-bit id column would fail
+   * the query outright the moment a projection covering it existed.
+   *
+   * <p>
+   * The whole-leaf byte path is not retried after an overflow decline: it is the same fold over the
+   * same values, and reaching it would materialize every leaf first.
+   */
   private long[] tryProjectionAggregate(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull, final int aggMask) {
+    try {
+      final long[] served = projectionAggregateOrNull(sourcePath, field, predicateOrNull, aggMask);
+      if (served != null) {
+        PROJECTION_AGGREGATES_SERVED.increment();
+      }
+      return served;
+    } catch (final ArithmeticException overflow) {
+      PROJECTION_AGGREGATE_OVERFLOW_DECLINES.increment();
+      // The interpreter PROMOTES to big-integer arithmetic here — serve the identical
+      // result through the 128-bit-sum kernel instead of declining to the row path, whose
+      // first touch hydrates every record page (the cold-regime whale).
+      try {
+        final long[] wide = projectionAggregate128OrNull(sourcePath, field, predicateOrNull);
+        if (PROJ_DIAG) {
+          System.err.println("[proj] 128 retry field=" + field + " -> " + Arrays.toString(wide));
+        }
+        if (wide == null) {
+          return null;
+        }
+        PROJECTION_AGGREGATES_SERVED.increment();
+        // Widen to the TAGGED shape statsToSequence dispatches on — a bare 5-lane array is
+        // indistinguishable from the row path's [count, sum, min, max, visited] accumulator.
+        final long[] tagged = Arrays.copyOf(wide, 6);
+        tagged[5] = AGG128_TAG;
+        return tagged;
+      } catch (final RuntimeException declined) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] 128 retry THREW: " + declined);
+        }
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Projection aggregates answered from a projection index, and the exactness declines — a route that
+   * silently declines is indistinguishable from one that works, since the fallback returns the same
+   * (correct) answer, so these are what lets a test assert which of the two happened.
+   */
+  private static final LongAdder PROJECTION_AGGREGATES_SERVED = new LongAdder();
+
+  private static final LongAdder PROJECTION_AGGREGATE_OVERFLOW_DECLINES = new LongAdder();
+
+  /** Long-aggregates served from a projection index since the last reset. */
+  public static long projectionAggregatesServed() {
+    return PROJECTION_AGGREGATES_SERVED.sum();
+  }
+
+  /** Projection long-aggregates declined because the sum could not be exact in a long. */
+  public static long projectionAggregateOverflowDeclines() {
+    return PROJECTION_AGGREGATE_OVERFLOW_DECLINES.sum();
+  }
+
+  /**
+   * Reset {@link #projectionAggregatesServed()} and {@link #projectionAggregateOverflowDeclines()}.
+   */
+  public static void resetProjectionAggregateCounters() {
+    PROJECTION_AGGREGATES_SERVED.reset();
+    PROJECTION_AGGREGATE_OVERFLOW_DECLINES.reset();
+  }
+
+  private long[] projectionAggregateOrNull(final String[] sourcePath, final String field,
       final PredicateNode predicateOrNull, final int aggMask) {
     final String resourceKey = projectionRegistryKey;
     if (resourceKey == null)
@@ -1472,21 +2220,116 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         ProjectionIndexByteScan.conjunctiveAggregateNumeric(rowGroupPayloads.subList(from, to), preds, col, acc);
         perThread[idx] = acc;
       });
-      final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
-      for (final long[] a : perThread) {
-        if (a == null || a[0] == 0)
-          continue;
-        merged[0] += a[0];
-        merged[1] += a[1];
-        if (a[2] < merged[2])
-          merged[2] = a[2];
-        if (a[3] > merged[3])
-          merged[3] = a[3];
-      }
-      return merged;
+      // Shared with the slice/fold dispatch so the sum lane's exact merge cannot drift between them.
+      return mergeLongAgg(perThread);
     } catch (final IllegalStateException ise) {
       return null;
     }
+  }
+
+  /**
+   * The OVERFLOW retry: {@code [count, sumHi, sumLo(unsigned), min, max]} through the 128-bit-sum
+   * kernel, for columns whose exact long sum cannot fit. Re-runs the same gates (cheap — descriptor
+   * reads) and the eager byte scan only; the sliced path is what threw.
+   */
+  private long[] projectionAggregate128OrNull(final String[] sourcePath, final String field,
+      final PredicateNode predicateOrNull) {
+    final CompiledPredicate cp = predicateOrNull == null
+        ? null
+        : compile(predicateOrNull);
+    final String[] required = requiredFields(new String[] {field}, cp);
+    final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, required);
+    if (handle == null) {
+      return null;
+    }
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    final int col = handle.columnOf(field);
+    if (col < 0 || handle.rowGroupCount() == 0
+        || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (cp == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null; // tree shapes keep the row path for the overflow case (v1)
+      }
+      preds = fuseRangePredicates(extracted);
+    }
+    // SLICED first: only the aggregate + predicate columns' segments are read — the whole-leaf
+    // materialization below is the cold-start whale and exists only as the fallback.
+    final ProjectionColumnStore store = handle.columnStoreOrNull();
+    if (store != null && store.columnSliceable(col) && predsSliceable(store, preds)) {
+      try {
+        final int rgc = store.rowGroupCount();
+        final int effS = Math.min(threads, Math.max(1, (rgc + 63) / 64));
+        final long[][] perThreadS = new long[effS][];
+        final int chunkS = (rgc + effS - 1) / effS;
+        prefillColumns(store, preds, col, fetcher);
+        parallel(effS, idx -> {
+          final int from = idx * chunkS;
+          final int to = Math.min(from + chunkS, rgc);
+          if (from >= to)
+            return;
+          final long[] acc = {0, 0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+          ProjectionColumnScan.conjunctiveAggregateNumeric128(store, preds, col, acc, from, to, fetcher);
+          perThreadS[idx] = acc;
+        });
+        return mergeLongAgg128(perThreadS);
+      } catch (final IllegalStateException slicedFailed) {
+        // fall through to the whole-leaf path below
+      }
+    }
+    final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+    if (rowGroupPayloads == null) {
+      return null;
+    }
+    final int rowGroupCount = rowGroupPayloads.size();
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+    final long[][] perThread = new long[eff][];
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      final long[] acc = {0, 0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+      ProjectionIndexByteScan.conjunctiveAggregateNumeric128(rowGroupPayloads.subList(from, to), preds, col, acc);
+      perThread[idx] = acc;
+    });
+    return mergeLongAgg128(perThread);
+  }
+
+  /** Carry-exact merge of {@code [count, sumHi, sumLo, min, max]} chunk accumulators. */
+  private static long[] mergeLongAgg128(final long[][] perThread) {
+    long count = 0;
+    long sumHi = 0;
+    long sumLo = 0;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (final long[] acc : perThread) {
+      if (acc == null) {
+        continue;
+      }
+      count += acc[0];
+      final long lo = sumLo + acc[2];
+      sumHi += acc[1] + (((sumLo & acc[2]) | ((sumLo | acc[2]) & ~lo)) >>> 63);
+      sumLo = lo;
+      if (acc[3] < min) {
+        min = acc[3];
+      }
+      if (acc[4] > max) {
+        max = acc[4];
+      }
+    }
+    return new long[] {count, sumHi, sumLo, min, max};
   }
 
   /**
@@ -1616,14 +2459,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return mergeLongAgg(perThread);
   }
 
-  /** Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators. */
+  /**
+   * Exact integer merge of per-thread {@code [count, sum, min, max]} accumulators.
+   *
+   * <p>
+   * The sum lane merges with {@link Math#addExact}: each chunk's own total is proven to fit (by the
+   * fold kernel's zone-map bound, or exactly by the scalar kernels), but two chunks that each fit can
+   * still cross {@link Long#MAX_VALUE} together — without this the guard would end exactly where the
+   * parallel dispatch begins. Callers treat the exception as a DECLINE.
+   *
+   * @throws ArithmeticException when the merged sum leaves the signed 64-bit range
+   */
   private static long[] mergeLongAgg(final long[][] perThread) {
     final long[] merged = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
     for (final long[] a : perThread) {
       if (a == null || a[0] == 0)
         continue;
       merged[0] += a[0];
-      merged[1] += a[1];
+      merged[1] = Math.addExact(merged[1], a[1]);
       if (a[2] < merged[2])
         merged[2] = a[2];
       if (a[3] > merged[3])
@@ -1688,6 +2541,74 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * hydrating whole leaves, which used to be the one predicate kind that forced the whole-leaf byte
    * scan.
    */
+  /**
+   * Escape hatch for A/B timing: {@code -Dsirix.projection.groupSliced=false} forces the whole-leaf
+   * group route in the same build.
+   */
+  private static final boolean GROUP_SLICED_ENABLED =
+      !"false".equals(System.getProperty("sirix.projection.groupSliced"));
+
+  /**
+   * Sliced serves per handle before HOT promotion (materialize once, byte kernels take over). Above
+   * one cold pass's serve count (16 in the 43-query suite) so a one-shot stays pure sliced; a
+   * repeated-tries protocol crosses it and gets the faster warm scan.
+   */
+  private static final int SLICED_PROMOTE_AFTER = Integer.getInteger("sirix.projection.slicedPromoteAfter", 2);
+
+  /** Every listed column servable from slices (fail-closed gate for the sliced group route). */
+  private static boolean allColumnsSliceable(final ProjectionColumnStore store, final int[] cols) {
+    for (final int col : cols) {
+      if (!store.columnSliceable(col)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Tree serving gate: every leaf sliceable under the conjunctive rules; SET leaves stay whole-leaf
+   * (v1). Tree fills are FULL — keep-mask pruning is conjunction-only.
+   */
+  private static boolean treeSliceable(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree) {
+    if (!predsSliceable(store, tree.leaves)) {
+      return false;
+    }
+    for (final ProjectionIndexScan.ColumnPredicate leaf : tree.leaves) {
+      if (store.columnKind(leaf.column) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** FULL fills of every tree leaf's column, index-aligned with {@code tree.leaves}. */
+  private ProjectionColumnStore.ColumnSlice[][] resolveTreeCols(final ProjectionColumnStore store,
+      final ProjectionIndexScan.PredicateTree tree, final ProjectionColumnStore.ColumnSegmentFetcher fetcher) {
+    final ProjectionColumnStore.ColumnSlice[][] cols = new ProjectionColumnStore.ColumnSlice[tree.leaves.length][];
+    for (int i = 0; i < tree.leaves.length; i++) {
+      cols[i] = store.column(tree.leaves[i].column, fetcher);
+    }
+    return cols;
+  }
+
+  /**
+   * Whether aggregate block {@code a} is the COUNT(DISTINCT) operand in the ONE position that needs no
+   * dictionary bytes — so its column can be filled in distinct-identity mode (per-row ids beside the
+   * precomputed {@code SEG_KIND_DICT_HASHES} table) instead of paying for the dictionary chain.
+   *
+   * <p>
+   * The mode is chosen by the CONSUMER's need, never globally: the group key, a string-length operand,
+   * and every winner materialization read the entries themselves, and only this position does not. A
+   * column another consumer has already filled keeps the full slices — the store answers from that
+   * cache rather than fetching a second chain (hashing decoded entries is what the fold falls back to
+   * anyway).
+   */
+  private static boolean distinctIdentityOperand(final boolean cdStringDict, final int a, final int cdBlock,
+      final int column, final ProjectionColumnStore store) {
+    return cdStringDict && a == cdBlock && !store.columnFilled(column);
+  }
+
   private static boolean predsSliceable(final ProjectionColumnStore store,
       final ProjectionIndexScan.ColumnPredicate[] preds) {
     for (final ProjectionIndexScan.ColumnPredicate p : preds) {
@@ -1698,11 +2619,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // `stringLitBytes != null` guard below and the whole query dropped to the WHOLE-LEAF byte
       // scan, which hydrates every column of every leaf; the sliced path reads this column alone.
       final byte columnKind = store.columnKind(p.column);
-      final boolean stringColumn = columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-          || columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET;
-      if (stringColumn) {
+      if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        if (p.stringLitBytes == null) {
+          return false;
+        }
+        switch (p.op) {
+          case EQ, NE, STR_LT, STR_LE, STR_GT, STR_GE, STR_CONTAINS -> {
+            /* the sliced dict evaluator serves every per-value string op now */ }
+          default -> {
+            return false;
+          }
+        }
+      } else if (columnKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
         if (p.stringLitBytes == null || p.op != ProjectionIndexScan.Op.EQ) {
-          return false; // the sliced string kernel serves equality-with-literal, nothing else
+          return false; // membership only
         }
       } else if (p.stringLitBytes != null) {
         return false; // a string literal against a non-string column is the record path's case
@@ -1738,35 +2668,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
     final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
-    if (handle.rowGroupCount() == 0)
-      return null;
-    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE)
-      return null;
-    if (!handle.numericColumnIsIntegral(col, fetcher)) {
-      return null; // not provably value-exact — fail closed
-    }
-    if (!handle.columnSparseClean(col, fetcher, materializer)) {
+    if (!doubleColumnIsValueExact(handle, col, fetcher, materializer)) {
       return null;
     }
     final boolean pure = needsPurity && handle.doubleColumnPureSource(col, fetcher);
     if (needsPurity && !pure) {
       return null;
     }
-    final ProjectionIndexScan.ColumnPredicate[] preds;
-    if (cp == null) {
-      preds = new ProjectionIndexScan.ColumnPredicate[0];
-    } else {
-      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
-        return null;
-      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-      if (extracted == null)
-        return null;
-      preds = fuseRangePredicates(extracted);
+    final ProjectionIndexScan.ColumnPredicate[] preds = columnPredicatesForServing(cp, handle);
+    if (preds == null) {
+      return null;
     }
     final ProjectionColumnStore sliceStore = store != null && predsSliceable(store, preds)
         ? store
         : null;
     return new DoubleAggServing(handle, col, preds, sliceStore, pure, fetcher, materializer);
+  }
+
+  /**
+   * Whether a double column may be aggregated straight out of the projection: it must hold row
+   * groups, be a NUMERIC_DOUBLE column, be provably integral and carry clean sparse evidence.
+   * Anything unproven declines — the gate is fail-closed and runs before any leaf is touched.
+   */
+  private static boolean doubleColumnIsValueExact(final ProjectionIndexRegistry.Handle handle, final int col,
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher, final Supplier<List<byte[]>> materializer) {
+    if (handle.rowGroupCount() == 0)
+      return false;
+    if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE)
+      return false;
+    if (!handle.numericColumnIsIntegral(col, fetcher)) {
+      return false; // not provably value-exact — fail closed
+    }
+    if (!handle.columnSparseClean(col, fetcher, materializer)) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * The column predicates a compiled predicate contributes to a served aggregate: an empty array when
+   * there is no predicate at all, the fused conjunctive form when the projection covers and can
+   * express every leaf, and {@code null} when either fails — {@code null} means decline.
+   */
+  private ProjectionIndexScan.ColumnPredicate[] columnPredicatesForServing(final CompiledPredicate cp,
+      final ProjectionIndexRegistry.Handle handle) {
+    if (cp == null) {
+      return new ProjectionIndexScan.ColumnPredicate[0];
+    }
+    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames))
+      return null;
+    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+    if (extracted == null)
+      return null;
+    return fuseRangePredicates(extracted);
   }
 
   /**
@@ -1959,6 +2913,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     final int[] cols = new int[groupFields.length];
     final byte[] firstRowGroup = rowGroupPayloads.get(0);
+    // Single NUMERIC_LONG key: the composite kernels below are dict-only, so this shape used
+    // to leave the projection entirely. Composites MIXING a numeric with a string key still
+    // decline — they need a typed multi-kernel, which is a separate change.
+    if (groupFields.length == 1) {
+      final int numericCol = handle.columnOf(groupFields[0]);
+      if (numericCol >= 0 && firstRowGroup[24 + numericCol] == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        return numericSingleGroupCounts(handle, numericCol, cp, fetcher, materializer);
+      }
+    }
     for (int i = 0; i < groupFields.length; i++) {
       final int col = handle.columnOf(groupFields[i]);
       if (col < 0 || firstRowGroup[24 + col] != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
@@ -2049,6 +3012,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // this single catch covers both the serial and parallel branches.
       return null;
     }
+  }
+
+  /**
+   * Composite-encoded counts for a SINGLE NUMERIC_LONG group key: the same gates and driver the
+   * dedicated single-key entry points use, with the results encoded into the executor's typed
+   * composite key space ({@code 'l' + decimal + NUL}, {@code 'm'} for the missing-field group) so
+   * {@link #buildTypedGroupRecords}'s existing {@code 'l'} arm decodes them into {@link Int64}. No
+   * new tag, no new decoder case.
+   *
+   * @return the encoded counts, or {@code null} to DECLINE
+   */
+  private Object2LongOpenHashMap<String> numericSingleGroupCounts(final ProjectionIndexRegistry.Handle handle,
+      final int groupColumn, final CompiledPredicate cp, final ProjectionColumnStore.ColumnSegmentFetcher fetcher,
+      final Supplier<List<byte[]>> materializer) {
+    // Gates 2 and 3 — see projectionNumericGroupCounts for why these two suffice.
+    if (!handle.columnSparseClean(groupColumn, fetcher, materializer)
+        || !handle.numericColumnIsIntegral(groupColumn, fetcher)) {
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds;
+    if (cp == null) {
+      preds = new ProjectionIndexScan.ColumnPredicate[0];
+    } else {
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null;
+      }
+      preds = fuseRangePredicates(extracted);
+    }
+    final long[] missing = new long[1];
+    final Long2LongOpenHashMap counts;
+    try {
+      counts = parallelConjunctiveCountByGroupNumeric(handle, preds, groupColumn, missing);
+    } catch (final IllegalStateException ise) {
+      // See the twin site above: a malformed leaf must be countable, not invisible.
+      GROUP_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] numeric typed group-count serving failed, using generic pipeline: " + ise);
+      }
+      return null;
+    }
+    final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>(counts.size() + 1);
+    merged.defaultReturnValue(0L);
+    final StringBuilder kb = new StringBuilder(24);
+    final ObjectIterator<Long2LongMap.Entry> it = counts.long2LongEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final Long2LongMap.Entry e = it.next();
+      kb.setLength(0);
+      kb.append('l').append(e.getLongKey()).append('\u0000');
+      merged.put(kb.toString(), e.getLongValue());
+    }
+    if (missing[0] > 0) {
+      merged.put("m", missing[0]);
+    }
+    NUMERIC_GROUPBY_SERVED.increment();
+    return merged;
   }
 
   /**
@@ -2176,6 +3198,177 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * The typed grouping scan shared by {@link #typedGroupByCount} and the count-distinct redo: returns
    * composite-encoded group keys → counts.
    */
+  /**
+   * {@code fn:min} / {@code fn:max} over a field whose values are strings.
+   *
+   * <p>
+   * The numeric kernels skip non-numeric values, so a string column reaches their "no numeric value
+   * contributed" branch. That branch used to be terminal — every {@code min(EventDate)}-shaped query
+   * died with an internal error even though the interpreter answers it — but string extrema are
+   * perfectly well defined: {@code fn:min}/{@code fn:max} order {@code xs:string} by codepoint, which
+   * is what {@link String#compareTo} implements for the values a JSON document can hold.
+   *
+   * <p>
+   * The distinct values come from the typed group-key kernel, which already carries this file's
+   * page-boundary, sparse-anchor and FSST-decoding guards; taking the extremum over the distinct
+   * values equals taking it over all of them. The cost is a hash map of the column's distinct values,
+   * i.e. the same memory {@code count(distinct-values(...))} already pays, which is the right trade
+   * against declining a shape the caller cannot fall back from
+   * ({@code VectorizedGroupByExpr#requireSupported} turns a {@code null} into an error rather than
+   * into a generic-pipeline retry).
+   *
+   * @param sourcePath the scan source
+   * @param predicateOrNull an optional predicate restricting the rows
+   * @param field the aggregated field
+   * @param func {@code "min"} or {@code "max"}; anything else declines
+   * @return the extremum, or {@code null} when this is not a pure-string column and the caller must
+   *         keep failing loudly (mixed types, JSON nulls, booleans, or an aggregate other than
+   *         min/max, where XQuery's own semantics are an error rather than a value)
+   */
+  private Sequence stringMinMaxOrNull(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String field, final String func) throws Exception {
+    final boolean min = "min".equals(func);
+    if (!min && !"max".equals(func)) {
+      return null;
+    }
+    if (predicateOrNull == null) {
+      // Unfiltered: the projection's dictionaries answer without materializing a single row
+      // value — presence-gated, so a phantom entry interned by a missing row can never win.
+      final Sequence viaDict = tryProjectionStringMinMax(sourcePath, field, min);
+      if (viaDict != null) {
+        return viaDict;
+      }
+    }
+    final Object2LongOpenHashMap<String> groups =
+        typedGroupKeyCounts(sourcePath, predicateOrNull, new String[] {field});
+    String best = null;
+    for (final String encoded : groups.keySet()) {
+      if (encoded.isEmpty()) {
+        return null;
+      }
+      final char tag = encoded.charAt(0);
+      if (tag == 'm') {
+        // Records that do not carry the field contribute no item to the aggregated sequence.
+        continue;
+      }
+      if (tag != 's') {
+        // A null, boolean, or mixed-type column: fn:min's own semantics are a type error or a
+        // collation question this kernel must not answer.
+        return null;
+      }
+      final int colon = encoded.indexOf(':', 1);
+      if (colon < 0) {
+        return null;
+      }
+      final int length = Integer.parseInt(encoded.substring(1, colon));
+      final int end = colon + 1 + length;
+      if (end != encoded.length()) {
+        // Single group field: the value must run to the end of the key.
+        return null;
+      }
+      final String value = encoded.substring(colon + 1, end);
+      if (best == null || (min
+          ? value.compareTo(best) < 0
+          : value.compareTo(best) > 0)) {
+        best = value;
+      }
+    }
+    return best == null
+        ? null
+        : new ComputedStrJsonItem(best);
+  }
+
+  /** Scalar string MIN/MAX served from the projection dictionaries (test oracle). */
+  private static final LongAdder STRING_MINMAX_SERVED = new LongAdder();
+
+  /** Test observability for {@link #STRING_MINMAX_SERVED}. */
+  public static long stringMinMaxServedCount() {
+    return STRING_MINMAX_SERVED.sum();
+  }
+
+  /**
+   * Unfiltered scalar {@code min}/{@code max} over a STRING_DICT projection column, answered from the
+   * per-leaf dictionaries (presence-gated — see the kernel). {@code null} = decline; the typed
+   * row-scan fallback answers identically, only slower. {@code columnSparseClean} is the
+   * JSON-null/mixed-type gate: fn:min over a null-bearing column is the interpreter's type error,
+   * which this route must never replace with a value.
+   */
+  private Sequence tryProjectionStringMinMax(final String[] sourcePath, final String field, final boolean min) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable() || field == null) {
+        return null;
+      }
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(new String[] {field}, null));
+      if (handle == null) {
+        return null;
+      }
+      final int col = handle.columnOf(field);
+      if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      if (!handle.columnSparseClean(col, fetcher, materializer)) {
+        return null;
+      }
+      // SLICED first (regime-gated): the payload route hydrates every column of every leaf to
+      // read ONE dict column's entries — a first-touch materializer in a fresh process (Q6).
+      final ProjectionColumnStore mmStore = handle.columnStoreOrNull();
+      if (mmStore != null && !handle.payloadsMaterialized() && mmStore.columnSliceable(col)) {
+        try {
+          final ProjectionColumnStore.ColumnSlice[] mmSlices = mmStore.column(col, fetcher);
+          final int n = mmStore.rowGroupCount();
+          final int effS = Math.min(threads, Math.max(1, (n + 63) / 64));
+          final int chunkS = (n + effS - 1) / effS;
+          final byte[][] perThreadBest = new byte[effS][];
+          parallel(effS, idx -> {
+            final int from = idx * chunkS;
+            final int to = Math.min(from + chunkS, n);
+            if (from >= to)
+              return;
+            perThreadBest[idx] = ProjectionColumnScan.stringDictMinMax(mmSlices, from, to, min);
+          });
+          byte[] bestBytes = null;
+          for (final byte[] cand : perThreadBest) {
+            if (cand == null) {
+              continue;
+            }
+            if (bestBytes == null || ProjectionColumnScan.compareDictEntries(cand, bestBytes) * (min
+                ? 1
+                : -1) < 0) {
+              bestBytes = cand;
+            }
+          }
+          STRING_MINMAX_SERVED.increment();
+          return bestBytes == null
+              ? new ItemSequence()
+              : new ComputedStrJsonItem(new String(bestBytes, StandardCharsets.UTF_8));
+        } catch (final IllegalStateException slicedFailed) {
+          // corrupt/missing slices — the payload route below re-surfaces the condition
+        }
+      }
+      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
+      if (rowGroupPayloads == null) {
+        return null;
+      }
+      final String best = ProjectionIndexByteScan.stringDictMinMax(rowGroupPayloads, col, min);
+      if (best == null) {
+        // No present value anywhere: fn:min/max of the empty sequence IS the empty sequence,
+        // and the typed fallback would say the same — serve it directly.
+        STRING_MINMAX_SERVED.increment();
+        return new ItemSequence();
+      }
+      STRING_MINMAX_SERVED.increment();
+      return new ComputedStrJsonItem(best);
+    } catch (final RuntimeException e) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] string min/max serving failed, using typed scan: " + e);
+      }
+      return null;
+    }
+  }
+
   private Object2LongOpenHashMap<String> typedGroupKeyCounts(final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields) throws Exception {
     final PredicateNode effective = predicateOrNull == null
@@ -3749,7 +4942,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         if (projected != null) {
-          fresh = longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+          fresh = statsToSequence(func, projected);
         }
         if (fresh == null) {
           // Double-column branch, purity-gated (§11-8): value aggregates serve only when
@@ -3967,8 +5160,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       merged.merge(a);
     }
     if (merged.longCount + merged.decCount + merged.dblCount == 0 && sawNonNumeric[0]) {
-      // Matching rows carried the aggregate field, but never as a number —
-      // the interpreter applies string/error semantics here. Fail loudly.
+      // Matching rows carried the aggregate field, but never as a number. min/max over a
+      // string column is well defined (fn:min/fn:max order xs:string by codepoint) and the
+      // interpreter answers it, so serve it rather than failing; sum/avg over strings really
+      // is a type error, and a mixed-type column stays loud.
+      final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, predicate, aggField, func);
+      if (stringExtreme != null) {
+        return stringExtreme;
+      }
       throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
           "Vectorized %s over field '%s': matching records hold no numeric values — "
               + "string/boolean/null aggregation is not supported by the vectorized executor",
@@ -4035,25 +5234,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   private long computeTargetPathNodeKey(final String[] sourcePath, final String field) {
-    // Build the expected named-ancestor chain: sourcePath with "[]" entries
-    // stripped (array-descent nodes aren't materialised in the PathSummary),
-    // reversed so walking up getParent() from a candidate yields it in order.
-    final int srcLen = sourcePath == null
-        ? 0
-        : sourcePath.length;
-    int namedCount = 0;
-    for (int i = 0; i < srcLen; i++) {
-      final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg))
-        namedCount++;
-    }
-    final String[] expectedAncestors = new String[namedCount];
-    int w = 0;
-    for (int i = 0; i < srcLen; i++) {
-      final String seg = sourcePath[i];
-      if (seg != null && !"[]".equals(seg))
-        expectedAncestors[w++] = seg;
-    }
+    final String[] expectedAncestors = namedAncestorChain(sourcePath);
     // Ancestor chain is walked from deepest (closest to the candidate) upward;
     // compare against `expectedAncestors` in reverse order (last source-path
     // segment = closest ancestor).
@@ -4065,36 +5246,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return -1L;
         long onlyMatch = -1L;
         for (final PathNode candidate : candidates) {
-          PathNode cursor = candidate.getParent();
-          boolean ok = true;
-          for (int i = expectedAncestors.length - 1; i >= 0; i--) {
-            // Skip anonymous ancestors (array layers, non-ELEMENT/OBJECT_KEY roots).
-            while (cursor != null && resolvedLocalName(summary, cursor) == null) {
-              cursor = cursor.getParent();
-            }
-            if (cursor == null) {
-              ok = false;
-              break;
-            }
-            final String name = resolvedLocalName(summary, cursor);
-            if (!expectedAncestors[i].equals(name)) {
-              ok = false;
-              break;
-            }
-            cursor = cursor.getParent();
-          }
-          if (!ok)
+          if (!candidateMatchesAncestorChain(summary, candidate, expectedAncestors))
             continue;
-          // Post-condition: after consuming expectedAncestors, the remaining
-          // ancestor chain must contain NO more named ancestors (otherwise the
-          // candidate lives deeper than the query path — e.g. pet.dept when
-          // the query is $u.dept). Without this check, an empty
-          // expectedAncestors matches every candidate regardless of depth.
-          while (cursor != null && resolvedLocalName(summary, cursor) == null) {
-            cursor = cursor.getParent();
-          }
-          if (cursor != null)
-            continue; // extra named ancestor — too deep
           if (onlyMatch != -1L) {
             // Ambiguous — two PathNodes share the same qualified prefix.
             // Can't happen with a consistent summary; fail closed.
@@ -4116,6 +5269,70 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         summary.close();
       }
     }
+  }
+
+  /**
+   * The named ancestors a candidate path node must carry, in source-path order. Anonymous
+   * array-descent segments are dropped because the PathSummary does not materialise them.
+   */
+  private static String[] namedAncestorChain(final String[] sourcePath) {
+    // Build the expected named-ancestor chain: sourcePath with "[]" entries
+    // stripped (array-descent nodes aren't materialised in the PathSummary),
+    // reversed so walking up getParent() from a candidate yields it in order.
+    final int srcLen = sourcePath == null
+        ? 0
+        : sourcePath.length;
+    int namedCount = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg))
+        namedCount++;
+    }
+    final String[] expectedAncestors = new String[namedCount];
+    int w = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg))
+        expectedAncestors[w++] = seg;
+    }
+    return expectedAncestors;
+  }
+
+  /**
+   * Whether one candidate path node sits at EXACTLY the queried path: every expected named ancestor
+   * matches walking upward, and no further named ancestor remains above them.
+   */
+  private static boolean candidateMatchesAncestorChain(final PathSummaryReader summary, final PathNode candidate,
+      final String[] expectedAncestors) {
+    PathNode cursor = candidate.getParent();
+    boolean ok = true;
+    for (int i = expectedAncestors.length - 1; i >= 0; i--) {
+      // Skip anonymous ancestors (array layers, non-ELEMENT/OBJECT_KEY roots).
+      while (cursor != null && resolvedLocalName(summary, cursor) == null) {
+        cursor = cursor.getParent();
+      }
+      if (cursor == null) {
+        ok = false;
+        break;
+      }
+      final String name = resolvedLocalName(summary, cursor);
+      if (!expectedAncestors[i].equals(name)) {
+        ok = false;
+        break;
+      }
+      cursor = cursor.getParent();
+    }
+    if (!ok)
+      return false;
+    // Post-condition: after consuming expectedAncestors, the remaining
+    // ancestor chain must contain NO more named ancestors (otherwise the
+    // candidate lives deeper than the query path — e.g. pet.dept when
+    // the query is $u.dept). Without this check, an empty
+    // expectedAncestors matches every candidate regardless of depth.
+    while (cursor != null && resolvedLocalName(summary, cursor) == null) {
+      cursor = cursor.getParent();
+    }
+    return cursor == null; // a remaining named ancestor means too deep
   }
 
   /**
@@ -4290,6 +5507,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                         .append(dc.value().toPlainString())
                                         .append(';');
       case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
+      // 'E', not 'S' — same reason the ArrayContains key below is distinct. `f = "x"` and
+      // `f != "x"` share a field and a literal, so reusing the tag would let one answer the
+      // other out of the filter-count memo, the group-by count cache and the compiled-class cache.
+      case PredicateNode.StrNe sn -> sb.append('E').append(sn.field()).append(':').append(sn.value()).append(';');
+      // 'R' — its own tag AND the op inside the key: `f le "x"` and `f ge "x"` share field and
+      // literal, so a key without the op would serve one from the other's memo entry.
+      case PredicateNode.StrCmp sc ->
+        sb.append('R').append(sc.field()).append(':').append(sc.op()).append(':').append(sc.value()).append(';');
+      // 'K' — distinct from every equality/ordering tag: contains("x") over the same field and
+      // literal is a different question with a different count.
+      case PredicateNode.StrContains sk -> sb.append('K').append(sk.field()).append(':').append(sk.value()).append(';');
       // A DISTINCT key from StrEq on purpose: the two ask different questions of the same field
       // and value, so sharing a memo entry would answer one with the other's count.
       case PredicateNode.ArrayContains ac ->
@@ -4362,6 +5590,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * array holds rather than one value.
      */
     static final byte OP_ARRAY_CONTAINS = 10;
+    /**
+     * String inequality. A code of its OWN, never {@link #OP_STR_EQ} with a comparison operator beside
+     * it: thirteen sites test {@code op == OP_STR_EQ} positively, and each would answer the equality
+     * question for an inequality leaf. {@code cmpOp} stays 0 for string leaves.
+     */
+    static final byte OP_STR_NE = 11;
+    /**
+     * String ordering comparison — a code of its own for the same positive-test reason as
+     * {@link #OP_STR_NE}. Unlike the other string codes, {@code cmpOp} carries the direction (the same
+     * encoding {@link #OP_NUM_CMP} uses), because one code covers gt/lt/ge/le.
+     */
+    static final byte OP_STR_CMP = 12;
+    /** Substring containment {@code fn:contains(f, lit)} — its own code; {@code cmpOp} stays 0. */
+    static final byte OP_STR_CONTAINS = 13;
 
     /**
      * Whether any node is an {@link #OP_ARRAY_CONTAINS}. The column-batched evaluator and the bytecode
@@ -4449,34 +5691,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * query; the compiled form is then consumed by the hot loop below without any allocation.
    */
   private CompiledPredicate compile(final PredicateNode root) {
+    return compile(root, true);
+  }
+
+  /**
+   * {@code requireAnchor = false} is for consumers that scan EVERY row with per-leaf presence masks
+   * (the projection group/tree kernels): they never iterate one field's slots, so an anchorless
+   * predicate — e.g. a bare {@code fn:not(contains(...))}, true on records missing the field — is
+   * exactly servable there and must not be rejected by the row-scan guard. Field order in
+   * {@code fieldNames} carries no meaning for those consumers; they resolve columns by name per leaf.
+   */
+  private CompiledPredicate compile(final PredicateNode root, final boolean requireAnchor) {
     // First pass: collect unique fields and string literals in deterministic order.
     final LinkedHashSet<String> fieldSet = new LinkedHashSet<>();
     final LinkedHashSet<String> strSet = new LinkedHashSet<>();
     collectLiterals(root, fieldSet, strSet);
 
-    // ANCHOR SOUNDNESS: the scan iterates fieldNames[0]'s slots, so records
-    // missing that field are never visited. That is only sound when the
-    // predicate provably excludes them (comparison/EBV over a missing field is
-    // false in XQuery). Reorder so a sound anchor sits at index 0; if none
-    // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
-    // an anchor-based scan would silently lose matches on sparse data, and the
-    // dispatch has no generic pipeline left to fall back to at evaluate time.
-    if (!fieldSet.isEmpty()) {
-      final String soundAnchor = root.findSoundAnchorField();
-      if (soundAnchor == null) {
-        throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
-            "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
-                + "referenced field. The query detection should not have claimed it — "
-                + "update brackit or rewrite the predicate.",
-            predicateCacheKey(root));
-      }
-      if (!soundAnchor.equals(fieldSet.iterator().next())) {
-        final LinkedHashSet<String> reordered = new LinkedHashSet<>();
-        reordered.add(soundAnchor);
-        reordered.addAll(fieldSet);
-        fieldSet.clear();
-        fieldSet.addAll(reordered);
-      }
+    if (requireAnchor) {
+      hoistSoundAnchorField(root, fieldSet);
     }
 
     final CompiledPredicate cp = new CompiledPredicate();
@@ -4508,9 +5740,68 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
         dblLit, decLit, strIdx);
 
-    cp.ops = new byte[ops.size()];
-    for (int i = 0; i < ops.size(); i++)
-      cp.ops[i] = ops.get(i);
+    cp.ops = unboxBytes(ops);
+    markArrayContainsFields(cp, fieldIdx);
+    cp.children = unboxInts(children);
+    cp.childStart = unboxInts(childStart);
+    cp.childCount = unboxInts(childCount);
+    cp.fieldIdx = unboxInts(fieldIdx);
+    cp.cmpOp = unboxInts(cmpOp);
+    cp.longLit = unboxLongs(longLit);
+    cp.dblLit = unboxDoubles(dblLit);
+    cp.decLit = new BigDecimal[decLit.size()];
+    cp.decLongArm = new byte[decLit.size()];
+    cp.decLongLit = new long[decLit.size()];
+    cp.decDblImage = new double[decLit.size()];
+    for (int i = 0; i < decLit.size(); i++) {
+      final BigDecimal c = decLit.get(i);
+      cp.decLit[i] = c;
+      if (c != null) {
+        cp.decDblImage[i] = c.doubleValue();
+        precomputeDecLongArm(cp, i, c);
+      }
+    }
+    cp.strIdx = unboxInts(strIdx);
+    return cp;
+  }
+
+  /**
+   * Which collected field the anchor scan iterates. The scan visits only {@code fieldNames[0]}'s
+   * slots, so index 0 must hold a field the predicate provably requires; this moves such a field to
+   * the front, and throws when the predicate has none (silently losing matches is not an option).
+   */
+  private static void hoistSoundAnchorField(final PredicateNode root, final LinkedHashSet<String> fieldSet) {
+    // ANCHOR SOUNDNESS: the scan iterates fieldNames[0]'s slots, so records
+    // missing that field are never visited. That is only sound when the
+    // predicate provably excludes them (comparison/EBV over a missing field is
+    // false in XQuery). Reorder so a sound anchor sits at index 0; if none
+    // exists (e.g. `a > 1 or b > 1` from a pre-guard brackit), FAIL LOUDLY —
+    // an anchor-based scan would silently lose matches on sparse data, and the
+    // dispatch has no generic pipeline left to fall back to at evaluate time.
+    if (!fieldSet.isEmpty()) {
+      final String soundAnchor = root.findSoundAnchorField();
+      if (soundAnchor == null) {
+        throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
+            "Vectorized scan cannot anchor predicate '%s': it may match records missing every "
+                + "referenced field. The query detection should not have claimed it — "
+                + "update brackit or rewrite the predicate.",
+            predicateCacheKey(root));
+      }
+      if (!soundAnchor.equals(fieldSet.iterator().next())) {
+        final LinkedHashSet<String> reordered = new LinkedHashSet<>();
+        reordered.add(soundAnchor);
+        reordered.addAll(fieldSet);
+        fieldSet.clear();
+        fieldSet.addAll(reordered);
+      }
+    }
+  }
+
+  /**
+   * Which fields the loader must expand into element lists, and whether the predicate contains an
+   * array-membership test at all — both derived from the flattened ARRAY_CONTAINS nodes.
+   */
+  private static void markArrayContainsFields(final CompiledPredicate cp, final ArrayList<Integer> fieldIdx) {
     // Which fields hold ELEMENT LISTS rather than one value, and whether any do. The loader walks
     // a field's elements only when the predicate asked about them, and the batched/bytecode
     // evaluators — one value per field per row — decline the whole predicate on the flag.
@@ -4524,43 +5815,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
     }
-    cp.children = new int[children.size()];
-    for (int i = 0; i < children.size(); i++)
-      cp.children[i] = children.get(i);
-    cp.childStart = new int[childStart.size()];
-    for (int i = 0; i < childStart.size(); i++)
-      cp.childStart[i] = childStart.get(i);
-    cp.childCount = new int[childCount.size()];
-    for (int i = 0; i < childCount.size(); i++)
-      cp.childCount[i] = childCount.get(i);
-    cp.fieldIdx = new int[fieldIdx.size()];
-    for (int i = 0; i < fieldIdx.size(); i++)
-      cp.fieldIdx[i] = fieldIdx.get(i);
-    cp.cmpOp = new int[cmpOp.size()];
-    for (int i = 0; i < cmpOp.size(); i++)
-      cp.cmpOp[i] = cmpOp.get(i);
-    cp.longLit = new long[longLit.size()];
-    for (int i = 0; i < longLit.size(); i++)
-      cp.longLit[i] = longLit.get(i);
-    cp.dblLit = new double[dblLit.size()];
-    for (int i = 0; i < dblLit.size(); i++)
-      cp.dblLit[i] = dblLit.get(i);
-    cp.decLit = new BigDecimal[decLit.size()];
-    cp.decLongArm = new byte[decLit.size()];
-    cp.decLongLit = new long[decLit.size()];
-    cp.decDblImage = new double[decLit.size()];
-    for (int i = 0; i < decLit.size(); i++) {
-      final BigDecimal c = decLit.get(i);
-      cp.decLit[i] = c;
-      if (c != null) {
-        cp.decDblImage[i] = c.doubleValue();
-        precomputeDecLongArm(cp, i, c);
-      }
-    }
-    cp.strIdx = new int[strIdx.size()];
-    for (int i = 0; i < strIdx.size(); i++)
-      cp.strIdx[i] = strIdx.get(i);
-    return cp;
+  }
+
+  /** Unboxes a boxed {@code Byte} list into the primitive array the compiled form stores. */
+  private static byte[] unboxBytes(final ArrayList<Byte> list) {
+    final byte[] out = new byte[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Integer} list into the primitive array the compiled form stores. */
+  private static int[] unboxInts(final ArrayList<Integer> list) {
+    final int[] out = new int[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Long} list into the primitive array the compiled form stores. */
+  private static long[] unboxLongs(final ArrayList<Long> list) {
+    final long[] out = new long[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
+  }
+
+  /** Unboxes a boxed {@code Double} list into the primitive array the compiled form stores. */
+  private static double[] unboxDoubles(final ArrayList<Double> list) {
+    final double[] out = new double[list.size()];
+    for (int i = 0; i < out.length; i++)
+      out[i] = list.get(i);
+    return out;
   }
 
   /**
@@ -4642,6 +5928,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> c >= 0;
       case OP_LE -> c <= 0;
       case OP_EQ -> c == 0;
+      case OP_NE -> c != 0;
       default -> false;
     };
   }
@@ -4655,6 +5942,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case PredicateNode.StrEq se -> {
         fields.add(se.field());
         strs.add(se.value());
+      }
+      case PredicateNode.StrNe sn -> {
+        // BOTH, like StrEq. Registering the field without the literal leaves indexOf(strLits, …)
+        // at -1 in flatten, and the evaluator then indexes strLiterals[-1].
+        fields.add(sn.field());
+        strs.add(sn.value());
+      }
+      case PredicateNode.StrCmp sc -> {
+        fields.add(sc.field());
+        strs.add(sc.value());
+      }
+      case PredicateNode.StrContains sk -> {
+        fields.add(sk.field());
+        strs.add(sk.value());
       }
       case PredicateNode.ArrayContains ac -> {
         fields.add(ac.field());
@@ -4721,6 +6022,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         fieldIdx.set(myIdx, indexOf(fieldNames, se.field()));
         strIdx.set(myIdx, indexOf(strLits, se.value()));
       }
+      case PredicateNode.StrNe sn -> {
+        // cmpOp deliberately left 0: string leaves carry their operator in the OP code, not beside
+        // it, because every existing `op == OP_STR_EQ` test would otherwise accept this node.
+        ops.set(myIdx, CompiledPredicate.OP_STR_NE);
+        fieldIdx.set(myIdx, indexOf(fieldNames, sn.field()));
+        strIdx.set(myIdx, indexOf(strLits, sn.value()));
+      }
+      case PredicateNode.StrCmp sc -> {
+        // ONE code for the four directions — here cmpOp DOES carry the operator, safe because no
+        // positive `op == OP_STR_EQ`-style test can match this code.
+        ops.set(myIdx, CompiledPredicate.OP_STR_CMP);
+        fieldIdx.set(myIdx, indexOf(fieldNames, sc.field()));
+        cmpOp.set(myIdx, encodeOp(sc.op()));
+        strIdx.set(myIdx, indexOf(strLits, sc.value()));
+      }
+      case PredicateNode.StrContains sk -> {
+        ops.set(myIdx, CompiledPredicate.OP_STR_CONTAINS);
+        fieldIdx.set(myIdx, indexOf(fieldNames, sk.field()));
+        strIdx.set(myIdx, indexOf(strLits, sk.value()));
+      }
       case PredicateNode.ArrayContains ac -> {
         ops.set(myIdx, CompiledPredicate.OP_ARRAY_CONTAINS);
         fieldIdx.set(myIdx, indexOf(fieldNames, ac.field()));
@@ -4740,31 +6061,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       case PredicateNode.And a -> {
         ops.set(myIdx, CompiledPredicate.OP_AND);
-        final int start = children.size();
-        // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
-        for (int i = 0; i < a.children().size(); i++)
-          children.add(-1);
-        for (int i = 0; i < a.children().size(); i++) {
-          children.set(start + i, flatten(a.children().get(i), fieldNames, strLits, ops, children, childStart,
-              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
-        }
-        childStart.set(myIdx, start);
-        childCount.set(myIdx, a.children().size());
+        flattenChildren(a.children(), myIdx, fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+            cmpOp, longLit, dblLit, decLit, strIdx);
       }
       case PredicateNode.Or o -> {
         ops.set(myIdx, CompiledPredicate.OP_OR);
-        final int start = children.size();
-        for (int i = 0; i < o.children().size(); i++)
-          children.add(-1);
-        for (int i = 0; i < o.children().size(); i++) {
-          children.set(start + i, flatten(o.children().get(i), fieldNames, strLits, ops, children, childStart,
-              childCount, fieldIdx, cmpOp, longLit, dblLit, decLit, strIdx));
-        }
-        childStart.set(myIdx, start);
-        childCount.set(myIdx, o.children().size());
+        flattenChildren(o.children(), myIdx, fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+            cmpOp, longLit, dblLit, decLit, strIdx);
       }
     }
     return myIdx;
+  }
+
+  /**
+   * Where an n-ary node's children land in the flat form: it appends each child's subtree and records
+   * the contiguous child-index window on the parent slot {@code myIdx}.
+   */
+  private static void flattenChildren(final List<PredicateNode> kids, final int myIdx, final String[] fieldNames,
+      final String[] strLits, final ArrayList<Byte> ops, final ArrayList<Integer> children,
+      final ArrayList<Integer> childStart, final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx,
+      final ArrayList<Integer> cmpOp, final ArrayList<Long> longLit, final ArrayList<Double> dblLit,
+      final ArrayList<BigDecimal> decLit, final ArrayList<Integer> strIdx) {
+    final int start = children.size();
+    // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
+    for (int i = 0; i < kids.size(); i++)
+      children.add(-1);
+    for (int i = 0; i < kids.size(); i++) {
+      children.set(start + i, flatten(kids.get(i), fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+          cmpOp, longLit, dblLit, decLit, strIdx));
+    }
+    childStart.set(myIdx, start);
+    childCount.set(myIdx, kids.size());
   }
 
   private static int indexOf(final String[] arr, final String s) {
@@ -5192,6 +6519,248 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int DENSE_GROUPBY_CARD_LIMIT =
       Integer.parseInt(System.getProperty("sirix.projection.denseGroupBy.cardLimit", "256"));
 
+  // ------------------------------------------------------------------
+  // NUMERIC_LONG group-by (kernel 1). Non-final volatiles with package-private setters so an
+  // A/B measures both arms in ONE build: this box thermally throttles to a seventh of its
+  // clock after a long run, and comparing two separate builds has already ranked a faster
+  // arm slower. Interleave, take minima.
+  // ------------------------------------------------------------------
+
+  /**
+   * Whether a numeric group-by may use the DENSE (index-by-subtraction) accumulator. Unlike the
+   * STRING_DICT dense arm this defaults ON: the numeric dense arm replaces one hash probe per row
+   * with one array increment and, unlike the dict arm, pays no per-leaf remap to get there.
+   */
+  private static volatile boolean NUMERIC_DENSE_GROUPBY_ENABLED =
+      !"false".equals(System.getProperty("sirix.projection.numericGroupBy.dense"));
+
+  /**
+   * Cell ceiling of the dense numeric accumulator, PER WORKER. Below ~65,536 cells (512 KB) the array
+   * is L2-resident on this box's P-cores (1.25 MB L2) and the dense arm is an unconditional win;
+   * above that it degrades toward one random DRAM write per row — which is what a hash probe costs
+   * anyway — while ADDING a zeroing pass, an elementwise merge and a full occupancy scan the hash arm
+   * never pays.
+   *
+   * <p>
+   * The ceiling does NOT buy an allocation saving: this arm still materialises a
+   * {@code Long2LongOpenHashMap} of the surviving groups to return, so above the cache-resident band
+   * it pays for both structures. Measured crossover is near 2^18, which is where the default sits.
+   */
+  private static volatile long NUMERIC_DENSE_MAX_CELLS =
+      Long.parseLong(System.getProperty("sirix.projection.numericGroupBy.maxCells", String.valueOf(1L << 18)));
+
+  /**
+   * Ceiling on the AGGREGATE dense allocation across all workers. 20 workers × 8 MB = 160 MB of
+   * zeroed arrays plus a 20M-element elementwise merge is a loss on a millisecond query; at the
+   * default this keeps dense effective up to ~400k cells at 20 threads.
+   */
+  private static volatile long NUMERIC_DENSE_MAX_TOTAL_BYTES =
+      Long.parseLong(System.getProperty("sirix.projection.numericGroupBy.maxTotalBytes", String.valueOf(64L << 20)));
+
+  /** A/B switch for the dense numeric arm; see {@link #NUMERIC_DENSE_GROUPBY_ENABLED}. */
+  static void setNumericDenseGroupByEnabled(final boolean enabled) {
+    NUMERIC_DENSE_GROUPBY_ENABLED = enabled;
+  }
+
+  /** A/B switch for the dense numeric cell ceiling; see {@link #NUMERIC_DENSE_MAX_CELLS}. */
+  static void setNumericDenseMaxCells(final long maxCells) {
+    NUMERIC_DENSE_MAX_CELLS = maxCells;
+  }
+
+  /** A/B switch for the dense numeric byte ceiling; see {@link #NUMERIC_DENSE_MAX_TOTAL_BYTES}. */
+  static void setNumericDenseMaxTotalBytes(final long maxTotalBytes) {
+    NUMERIC_DENSE_MAX_TOTAL_BYTES = maxTotalBytes;
+  }
+
+  /**
+   * Group-bys SERVED from a projection index under a NUMERIC_LONG group key, since process start.
+   *
+   * <p>
+   * A route that silently declines is indistinguishable from one that works, because the fallback
+   * returns the same answer — which makes a differential test pass while proving nothing. Every
+   * numeric group-by test asserts a delta on this.
+   */
+  private static final LongAdder NUMERIC_GROUPBY_SERVED = new LongAdder();
+
+  /** Test/ops observability for {@link #NUMERIC_GROUPBY_SERVED}. */
+  public static long numericGroupByServedCount() {
+    return NUMERIC_GROUPBY_SERVED.sum();
+  }
+
+  /** Reset {@link #numericGroupByServedCount()}. */
+  public static void resetNumericGroupByServed() {
+    NUMERIC_GROUPBY_SERVED.reset();
+  }
+
+  /**
+   * Parallel driver for the NUMERIC_LONG group-by-count kernels: resolve the zone-map range, pick the
+   * dense or hash arm, fan out over leaf chunks, merge into ONE primitive-keyed map. Both arms return
+   * the same shape so the two emit shims downstream are identical.
+   *
+   * <p>
+   * Encoding happens once, at the caller, never per row and never inside a kernel — the kernels deal
+   * in primitives only.
+   *
+   * @return per-value counts; {@code missingOut[0]} carries the matching rows whose group field is
+   *         MISSING (the null-key group)
+   * @throws IllegalStateException from a kernel (kind drift, missing presence tail, a value outside
+   *         the zone range) — every caller treats it as a DECLINE
+   */
+  private Long2LongOpenHashMap parallelConjunctiveCountByGroupNumeric(final ProjectionIndexRegistry.Handle handle,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn, final long[] missingOut) {
+    final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+    final List<byte[]> rowGroupPayloads = handle.rowGroupPayloads(materializer);
+    final int rowGroupCount = rowGroupPayloads.size();
+    final Long2LongOpenHashMap merged = new Long2LongOpenHashMap(1024);
+    merged.defaultReturnValue(0L);
+    if (rowGroupCount == 0) {
+      return merged;
+    }
+    final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+    final long[] range = NUMERIC_DENSE_GROUPBY_ENABLED
+        ? handle.numericGroupRange(groupColumn, materializer)
+        : null;
+    final long cells = denseCellCount(range, eff);
+    if (cells > 0) {
+      return parallelCountByGroupNumericDense(rowGroupPayloads, preds, groupColumn, range[0], (int) cells, eff,
+          missingOut, merged);
+    }
+    if (rowGroupCount < 64) {
+      ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(rowGroupPayloads, preds, groupColumn, merged, missingOut);
+      return merged;
+    }
+    final Long2LongOpenHashMap[] perThread = new Long2LongOpenHashMap[eff];
+    final long[][] perThreadMissing = new long[eff][];
+    final int chunkSize = (rowGroupCount + eff - 1) / eff;
+    try {
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to)
+          return;
+        final Long2LongOpenHashMap local = new Long2LongOpenHashMap(1024);
+        local.defaultReturnValue(0L);
+        final long[] localMissing = new long[1];
+        ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(rowGroupPayloads.subList(from, to), preds, groupColumn,
+            local, localMissing);
+        perThread[idx] = local;
+        perThreadMissing[idx] = localMissing;
+      });
+    } catch (final Exception e) {
+      throw projectionWorkerFailure("parallel projection conjunctiveCountByGroupNumeric failed", e);
+    }
+    for (final Long2LongOpenHashMap m : perThread) {
+      if (m == null)
+        continue;
+      final ObjectIterator<Long2LongMap.Entry> it = m.long2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Long2LongMap.Entry e = it.next();
+        merged.addTo(e.getLongKey(), e.getLongValue());
+      }
+    }
+    for (final long[] lm : perThreadMissing) {
+      if (lm != null)
+        missingOut[0] += lm[0];
+    }
+    return merged;
+  }
+
+  /**
+   * Cells the dense numeric accumulator would need, or {@code 0} when the dense arm is ineligible.
+   *
+   * <p>
+   * {@code gMax - gMin} overflows on a column spanning the whole signed range. Since
+   * {@code gMax >= gMin} the true difference lies in {@code [0, 2^64)}, and it leaves the signed
+   * range IFF it wraps negative — so {@code span >= 0} is a complete overflow guard, no
+   * {@code BigInteger} and no {@code subtractExact}.
+   */
+  private static long denseCellCount(final long[] range, final int eff) {
+    if (range == null) {
+      return 0L;
+    }
+    final long span = range[1] - range[0];
+    if (span < 0) {
+      return 0L;
+    }
+    final long cells = span + 1;
+    if (cells > NUMERIC_DENSE_MAX_CELLS || cells > Integer.MAX_VALUE - 8) {
+      return 0L;
+    }
+    // Never more cells than rows: a 1M-wide range over 1,000 rows must not allocate 8 MB and
+    // stride it. "distinct <= rows" is the only cardinality bound obtainable without a pass.
+    if (cells > Math.max(1024L, range[2])) {
+      return 0L;
+    }
+    // eff + 1, not eff: the merge allocates the `totals` array while all `eff` per-worker arrays are
+    // still reachable, so the peak is one accumulator above the fan-out width.
+    if (cells * 8L * (eff + 1) > NUMERIC_DENSE_MAX_TOTAL_BYTES) {
+      return 0L;
+    }
+    return cells;
+  }
+
+  /** Dense arm of {@link #parallelConjunctiveCountByGroupNumeric}; decode is {@code base + i}. */
+  private Long2LongOpenHashMap parallelCountByGroupNumericDense(final List<byte[]> rowGroupPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn, final long base, final int cells,
+      final int eff, final long[] missingOut, final Long2LongOpenHashMap merged) {
+    final int rowGroupCount = rowGroupPayloads.size();
+    final long[] totals;
+    if (rowGroupCount < 64) {
+      totals = new long[cells];
+      ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(rowGroupPayloads, preds, groupColumn, base, totals,
+          missingOut);
+    } else {
+      final long[][] perThreadCounts = new long[eff][];
+      final long[][] perThreadMissing = new long[eff][];
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      try {
+        parallel(eff, idx -> {
+          final int from = idx * chunkSize;
+          final int to = Math.min(from + chunkSize, rowGroupCount);
+          if (from >= to)
+            return;
+          final long[] localCounts = new long[cells];
+          final long[] localMissing = new long[1];
+          ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(rowGroupPayloads.subList(from, to), preds,
+              groupColumn, base, localCounts, localMissing);
+          perThreadCounts[idx] = localCounts;
+          perThreadMissing[idx] = localMissing;
+        });
+      } catch (final Exception e) {
+        throw projectionWorkerFailure("parallel projection conjunctiveCountByGroupNumericDense failed", e);
+      }
+      totals = new long[cells];
+      for (final long[] tc : perThreadCounts) {
+        if (tc == null)
+          continue;
+        for (int i = 0; i < cells; i++) {
+          totals[i] += tc[i];
+        }
+      }
+      for (final long[] lm : perThreadMissing) {
+        if (lm != null)
+          missingOut[0] += lm[0];
+      }
+    }
+    // Size the map before filling it. `merged` arrives at the shared default capacity while this arm
+    // can hand it up to `cells` entries — at the top of the dense band that is ~11 full rehashes,
+    // each one re-inserting everything written so far. The occupancy pass that makes them
+    // unnecessary is a single sequential scan of an array we are about to walk anyway.
+    int occupied = 0;
+    for (int i = 0; i < cells; i++) {
+      if (totals[i] != 0L) {
+        occupied++;
+      }
+    }
+    merged.ensureCapacity(occupied);
+    for (int i = 0; i < cells; i++) {
+      if (totals[i] != 0L) {
+        merged.put(base + i, totals[i]);
+      }
+    }
+    return merged;
+  }
+
   /**
    * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCountByGroup}. Same rationale
    * as {@link #parallelConjunctiveCount} — the per-leaf work is dominated by header decode +
@@ -5429,8 +6998,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0)
       return null;
-    // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly.
-    if (!handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
+    // Kind dispatch — see tryProjectionIndexGroupByCountOnly. Same exact-equality arms.
+    final byte groupKind = handle.columnKindOf(groupColumn);
+    if (groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        && groupKind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      return null;
+    }
+    if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+        && !handle.columnSparseClean(groupColumn, columnFetcher(), rowGroupMaterializer(handle))) {
+      // Sparse-evidence gate — see tryProjectionIndexGroupByCountOnly. (The numeric arm
+      // applies it inside projectionNumericGroupCounts, beside its integrality gate.)
       return null;
     }
     final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
@@ -5438,6 +7016,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return null;
     // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
+    if (groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+        || groupKind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      return projectionNumericGroupCounts(handle, preds, groupColumn, groupField);
+    }
     final long[] missing = new long[1];
     final Object2LongOpenHashMap<String> agg;
     try {
@@ -5651,8 +7233,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (int i = 0; i < cc; i++)
           stack[stackTop++] = cp.children[cs + i];
       } else if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP
-          || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF
-          || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
+          || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_STR_NE
+          || op == CompiledPredicate.OP_STR_CMP || op == CompiledPredicate.OP_STR_CONTAINS
+          || op == CompiledPredicate.OP_BOOL_REF || op == CompiledPredicate.OP_ARRAY_CONTAINS) {
         leaves[predicateLeafCount++] = n;
       } else {
         // OR / NOT / ALWAYS_* / anything else — can't represent as a
@@ -5717,6 +7300,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // encodings (e.g. string-EQ over a long column running numeric EQ against 0).
       final boolean numericColumn =
           doubleColumn || columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+      // A global string column stores ids in the long lane. It is NOT numericColumn: a numeric
+      // comparison against an id is meaningless, and every arithmetic site must keep declining it.
+      final boolean globalStringColumn = columnKindByte == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP, CompiledPredicate.OP_FP_CMP, CompiledPredicate.OP_DEC_CMP -> {
           if (!numericColumn) {
@@ -5724,6 +7310,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
+          // STRING_GLOBAL joins STRING_DICT here and only here (with NE): equality is the one
+          // string question a resource-wide dictionary answers exactly, because the id IS the
+          // identity, so `= lit` becomes an integer compare after one probe.
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_NE -> {
+          // STRING_DICT / STRING_GLOBAL, and deliberately NOT STRING_SET: `!= lit` over a set is
+          // not the complement of membership. Comparing a SEQUENCE to a literal is existential over
+          // the elements, so its negation is "no element equals lit", which is a different question
+          // from "the value differs". The kernels enforce the same rule and would throw.
+          if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT && !globalStringColumn) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_CMP, CompiledPredicate.OP_STR_CONTAINS -> {
+          // STRING_DICT only, NOT STRING_SET, for the OP_STR_NE reason: ordering/substring
+          // against a SEQUENCE is a different question than against the single value. NOT
+          // STRING_GLOBAL either, for a different one: ids are minted in first-seen order, so
+          // comparing them orders by when a value was first interned, and a substring is not a
+          // question about an id at all. Both would answer confidently and wrongly.
           if (columnKindByte != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
             return null;
           }
@@ -5840,7 +7448,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
         case CompiledPredicate.OP_STR_EQ -> {
-          pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          pred = globalStringColumn
+              ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], true)
+              : ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          if (pred == null) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_NE -> {
+          pred = globalStringColumn
+              ? globalStringPredicate(handle, column, cp.strLiteralBytes[cp.strIdx[n]], false)
+              : ProjectionIndexScan.ColumnPredicate.stringNe(column, cp.strLiteralBytes[cp.strIdx[n]]);
+          if (pred == null) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_CMP -> {
+          // The direction rides in cmpOp for this one code; an unexpected value declines
+          // rather than defaulting to any particular comparison.
+          final byte[] litBytes = cp.strLiteralBytes[cp.strIdx[n]];
+          pred = switch (cp.cmpOp[n]) {
+            case OP_GT -> ProjectionIndexScan.ColumnPredicate.stringGt(column, litBytes);
+            case OP_LT -> ProjectionIndexScan.ColumnPredicate.stringLt(column, litBytes);
+            case OP_GE -> ProjectionIndexScan.ColumnPredicate.stringGe(column, litBytes);
+            case OP_LE -> ProjectionIndexScan.ColumnPredicate.stringLe(column, litBytes);
+            default -> null;
+          };
+          if (pred == null) {
+            return null;
+          }
+        }
+        case CompiledPredicate.OP_STR_CONTAINS -> {
+          pred = ProjectionIndexScan.ColumnPredicate.stringContains(column, cp.strLiteralBytes[cp.strIdx[n]]);
         }
         case CompiledPredicate.OP_ARRAY_CONTAINS -> {
           // Carried as an ordinary string-EQ predicate: the mask evaluator dispatches on the
@@ -5860,6 +7499,58 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return pred;
     }
+  }
+
+  /**
+   * Turn a string equality/inequality over a
+   * {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column into the integer predicate
+   * the kernels actually run.
+   *
+   * <p>
+   * This is where the whole kind pays for itself: the dictionary is probed ONCE per literal, and
+   * every row afterwards is one integer compare against a zone-mapped, bit-packed column. Nothing
+   * downstream reads a byte of string data — there is no per-leaf dictionary to fetch and no content
+   * hash to compute, because the id already is the identity.
+   *
+   * <p>
+   * The three probe answers map to three different predicates, and conflating any two of them would
+   * be a wrong answer rather than a slow one:
+   * <ul>
+   * <li><b>A real id</b> — an ordinary {@code EQ}/{@code NE} over ids. Zone maps prune on it exactly,
+   * since the column's min/max ARE id bounds.</li>
+   * <li><b>{@code ID_ABSENT}</b> — the dictionary is complete and provably lacks the value, so no row
+   * can hold it. {@code EQ} becomes constant-false (expressed as {@code > Long.MAX_VALUE}, which every
+   * zone map prunes outright, so the columns are never read); {@code NE} becomes constant-true over
+   * PRESENT rows (expressed as {@code >= Long.MIN_VALUE}, so the presence bitmap still excludes
+   * missing cells — {@code () != "x"} is the empty sequence and must not match).</li>
+   * <li><b>{@code ID_UNKNOWN}</b> — the dictionary could not be read. Decline; the generic pipeline
+   * answers correctly, and reading "cannot say" as "not there" would silently drop every matching
+   * row.</li>
+   * </ul>
+   *
+   * @param equality {@code true} for {@code =}, {@code false} for {@code !=}
+   * @return the translated predicate, or {@code null} to decline
+   */
+  private ProjectionIndexScan.ColumnPredicate globalStringPredicate(final ProjectionIndexRegistry.Handle handle,
+      final int column, final byte[] literalUtf8, final boolean equality) {
+    if (literalUtf8 == null) {
+      return null;
+    }
+    final int id = handle.globalDictionaryId(column, literalUtf8, workerTrx().getStorageEngineReader());
+    if (id == GlobalValueDictionary.ID_UNKNOWN) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] global dictionary could not resolve a literal for column " + column);
+      }
+      return null;
+    }
+    if (id == GlobalValueDictionary.ID_ABSENT) {
+      return equality
+          ? ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE)
+          : ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, Long.MIN_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, equality
+        ? ProjectionIndexScan.Op.EQ
+        : ProjectionIndexScan.Op.NE, id);
   }
 
   /**
@@ -5908,8 +7599,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return true;
     }
+    if (op == CompiledPredicate.OP_NOT) {
+      // Sound because every leaf below ANDs its own presence: the complement of
+      // (present AND matches) is missing OR !matches — fn:not's truth table over a
+      // comparison whose missing operand made it false. Null-bearing columns declined
+      // at the leaf gate long before negation could misorder them.
+      if (cp.childCount[n] != 1 || !emitTreeNode(cp, cp.children[cp.childStart[n]], handle, leaves, program, pc)) {
+        return false;
+      }
+      program[pc[0]++] = ProjectionIndexScan.PredicateTree.OP_NOT;
+      return true;
+    }
     if (op == CompiledPredicate.OP_NUM_CMP || op == CompiledPredicate.OP_FP_CMP || op == CompiledPredicate.OP_DEC_CMP
-        || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_BOOL_REF) {
+        || op == CompiledPredicate.OP_STR_EQ || op == CompiledPredicate.OP_STR_NE || op == CompiledPredicate.OP_STR_CMP
+        || op == CompiledPredicate.OP_STR_CONTAINS || op == CompiledPredicate.OP_BOOL_REF) {
       if (leaves.size() >= ProjectionIndexScan.PredicateTree.MAX_LEAVES) {
         return false;
       }
@@ -6023,7 +7726,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * across commits, rollbacks and time travel by construction), then the in-memory registry pool as
    * the bench/test fallback for stores without catalogued definitions.
    */
+  /** Whole-projection background readahead on first resolution (advisory; property-gated). */
+  private static final boolean PREFETCH_ALL_SEGMENTS =
+      !"false".equals(System.getProperty("sirix.projection.prefetchAll"));
+
   private ProjectionIndexRegistry.Handle lookupProjection(final String[] sourcePath, final String[] requiredFields) {
+    final ProjectionIndexRegistry.Handle resolved = lookupProjectionResolved(sourcePath, requiredFields);
+    if (resolved != null && PREFETCH_ALL_SEGMENTS && wtx == null && resolved.columnStoreOrNull() != null
+        && !projectionWarmupPool.isShutdown()) {
+      final var s = session;
+      final int rev = revision;
+      resolved.kickSegmentPrefetch(projectionWarmupPool, () -> s.beginNodeReadOnlyTrx(rev),
+          trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
+    }
+    return resolved;
+  }
+
+  private ProjectionIndexRegistry.Handle lookupProjectionResolved(final String[] sourcePath,
+      final String[] requiredFields) {
     if (projectionRegistryKey == null) {
       return null;
     }
@@ -6243,6 +7963,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> ProjectionIndexScan.Op.GE;
       case OP_LE -> ProjectionIndexScan.Op.LE;
       case OP_EQ -> ProjectionIndexScan.Op.EQ;
+      case OP_NE -> ProjectionIndexScan.Op.NE;
       default -> null;
     };
   }
@@ -6280,53 +8001,89 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
     }
     switch (cmpOp) {
-      case OP_GT: {
-        final long k = firstLongWithCompareAtLeast(d, 1);
-        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) <= 0) {
-          // No long compares greater — constant false.
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
-      }
-      case OP_GE: {
-        final long k = firstLongWithCompareAtLeast(d, 0);
-        if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) < 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
-      }
-      case OP_LT: {
-        final long k = lastLongWithCompareAtMost(d, -1);
-        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) >= 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
-      }
-      case OP_LE: {
-        final long k = lastLongWithCompareAtMost(d, 0);
-        if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) > 0) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
-      }
-      case OP_EQ: {
-        final long lo = firstLongWithCompareAtLeast(d, 0);
-        final long hi = lastLongWithCompareAtMost(d, 0);
-        final boolean loValid = Double.compare((double) lo, d) == 0;
-        final boolean hiValid = Double.compare((double) hi, d) == 0;
-        if (!loValid || !hiValid || lo > hi) {
-          // Fractional / out-of-range threshold — equality is unsatisfiable.
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
-        }
-        if (lo == hi) {
-          return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
-        }
-        return ProjectionIndexScan.ColumnPredicate.numericBetween(column, ProjectionIndexScan.Op.GE, lo,
-            ProjectionIndexScan.Op.LE, hi);
-      }
+      case OP_GT:
+        return integralColumnGreaterThan(column, d);
+      case OP_GE:
+        return integralColumnGreaterOrEqual(column, d);
+      case OP_LT:
+        return integralColumnLessThan(column, d);
+      case OP_LE:
+        return integralColumnLessOrEqual(column, d);
+      case OP_EQ:
+        return integralColumnEqual(column, d);
       default:
         return null;
     }
+  }
+
+  /**
+   * The long-space form of {@code L > d}: a lower bound at the first long that compares greater, or
+   * constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnGreaterThan(final int column, final double d) {
+    final long k = firstLongWithCompareAtLeast(d, 1);
+    if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) <= 0) {
+      // No long compares greater — constant false.
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+  }
+
+  /**
+   * The long-space form of {@code L >= d}: a lower bound at the first long that compares
+   * greater-or-equal, or constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnGreaterOrEqual(final int column, final double d) {
+    final long k = firstLongWithCompareAtLeast(d, 0);
+    if (k == Long.MIN_VALUE && Double.compare((double) Long.MIN_VALUE, d) < 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GE, k);
+  }
+
+  /**
+   * The long-space form of {@code L < d}: an upper bound at the last long that compares less, or
+   * constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnLessThan(final int column, final double d) {
+    final long k = lastLongWithCompareAtMost(d, -1);
+    if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) >= 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+  }
+
+  /**
+   * The long-space form of {@code L <= d}: an upper bound at the last long that compares
+   * less-or-equal, or constant-false when no long does.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnLessOrEqual(final int column, final double d) {
+    final long k = lastLongWithCompareAtMost(d, 0);
+    if (k == Long.MAX_VALUE && Double.compare((double) Long.MAX_VALUE, d) > 0) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.LE, k);
+  }
+
+  /**
+   * The long-space form of {@code L == d}: unsatisfiable for a fractional or out-of-range threshold,
+   * a single value where the double image is unique, and a RANGE above 2^53 where several longs share
+   * one double image.
+   */
+  private static ProjectionIndexScan.ColumnPredicate integralColumnEqual(final int column, final double d) {
+    final long lo = firstLongWithCompareAtLeast(d, 0);
+    final long hi = lastLongWithCompareAtMost(d, 0);
+    final boolean loValid = Double.compare((double) lo, d) == 0;
+    final boolean hiValid = Double.compare((double) hi, d) == 0;
+    if (!loValid || !hiValid || lo > hi) {
+      // Fractional / out-of-range threshold — equality is unsatisfiable.
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.GT, Long.MAX_VALUE);
+    }
+    if (lo == hi) {
+      return ProjectionIndexScan.ColumnPredicate.numeric(column, ProjectionIndexScan.Op.EQ, lo);
+    }
+    return ProjectionIndexScan.ColumnPredicate.numericBetween(column, ProjectionIndexScan.Op.GE, lo,
+        ProjectionIndexScan.Op.LE, hi);
   }
 
   /**
@@ -7521,6 +9278,40 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return false;
         return cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
       }
+      case CompiledPredicate.OP_STR_NE: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // NOT `!OP_STR_EQ`. The kind guard is the missing-field semantics: a record without a
+        // string there fails the comparison rather than passing its negation. (A JSON null also
+        // lands here, and DOES satisfy `ne` per the spec — which is why acceptsPredicate declines
+        // this predicate over a null-bearing column instead of letting it reach this line.)
+        if (scratch.fieldKind[fi] != 3)
+          return false;
+        return !cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
+      }
+      case CompiledPredicate.OP_STR_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // Same kind guard = missing-field semantics (JSON null: acceptsPredicate declines over
+        // null-bearing columns — null orders SMALLEST, which this line cannot express).
+        // String.compareTo IS the interpreter's Str#cmp collation, no UTF-8 subtlety here.
+        if (scratch.fieldKind[fi] != 3)
+          return false;
+        final int c = scratch.strVals[fi].compareTo(cp.strLiterals[cp.strIdx[nodeIdx]]);
+        return switch (cp.cmpOp[nodeIdx]) {
+          case OP_GT -> c > 0;
+          case OP_LT -> c < 0;
+          case OP_GE -> c >= 0;
+          case OP_LE -> c <= 0;
+          default -> throw new IllegalStateException("bad STR_CMP direction " + cp.cmpOp[nodeIdx]);
+        };
+      }
+      case CompiledPredicate.OP_STR_CONTAINS: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        // Missing field: contains((), lit) = contains("", lit) = false — the kind guard IS that.
+        // (A JSON null would type-error in the interpreter; acceptsPredicate declines those.)
+        if (scratch.fieldKind[fi] != 3)
+          return false;
+        return scratch.strVals[fi].contains(cp.strLiterals[cp.strIdx[nodeIdx]]);
+      }
       case CompiledPredicate.OP_BOOL_REF: {
         final int fi = cp.fieldIdx[nodeIdx];
         if (scratch.fieldKind[fi] != 2)
@@ -8192,6 +9983,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         case OP_GE -> lv >= lit;
         case OP_LE -> lv <= lit;
         case OP_EQ -> lv == lit;
+        case OP_NE -> lv != lit;
         default -> false;
       };
     }
@@ -8506,6 +10298,63 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         return out;
       }
+      case CompiledPredicate.OP_STR_NE: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final byte[] pk = batch.presentKind[fi];
+        final String[] vals = batch.strCols[fi];
+        final int litLen = lit.length();
+        for (int i = 0; i < size; i++) {
+          // `continue`, not a set bit: a row without a string here does NOT satisfy `!=`. This is
+          // the same guard the equality arm uses, and it is why the operator cannot be implemented
+          // by complementing that arm's mask.
+          if (pk[i] != 3)
+            continue;
+          final String v = vals[i];
+          if (!(v == lit || (v != null && v.length() == litLen && lit.equals(v)))) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_STR_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final byte[] pk = batch.presentKind[fi];
+        final String[] vals = batch.strCols[fi];
+        final int dir = cp.cmpOp[nodeIdx];
+        for (int i = 0; i < size; i++) {
+          // Missing rows never match; null-bearing columns never reach here (acceptsPredicate).
+          if (pk[i] != 3 || vals[i] == null)
+            continue;
+          final int c = vals[i].compareTo(lit);
+          final boolean match = switch (dir) {
+            case OP_GT -> c > 0;
+            case OP_LT -> c < 0;
+            case OP_GE -> c >= 0;
+            case OP_LE -> c <= 0;
+            default -> throw new IllegalStateException("bad STR_CMP direction " + dir);
+          };
+          if (match) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_STR_CONTAINS: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final byte[] pk = batch.presentKind[fi];
+        final String[] vals = batch.strCols[fi];
+        for (int i = 0; i < size; i++) {
+          if (pk[i] != 3 || vals[i] == null)
+            continue;
+          if (vals[i].contains(lit)) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+        return out;
+      }
       case CompiledPredicate.OP_BOOL_REF: {
         final int fi = cp.fieldIdx[nodeIdx];
         final byte[] pk = batch.presentKind[fi];
@@ -8803,6 +10652,39 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link #COUNT_DISTINCT_DICT_CARD_LIMIT}) — callers fall back.
    */
   private long parallelDistinctPresentStrings(final ProjectionIndexRegistry.Handle handle, final int groupColumn) {
+    // SLICED first (regime-gated like the group kernels): the payload route hydrates every
+    // column of every leaf to read ONE dict — the suite's first cold materializer (Q5).
+    final ProjectionColumnStore cdStore = handle.columnStoreOrNull();
+    if (cdStore != null && !handle.payloadsMaterialized() && cdStore.columnSliceable(groupColumn)
+        && cdStore.columnKind(groupColumn) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+      try {
+        final ProjectionColumnStore.ColumnSlice[] cdSlices = cdStore.column(groupColumn, columnFetcher());
+        final int n = cdStore.rowGroupCount();
+        final int effS = Math.min(threads, Math.max(1, (n + 63) / 64));
+        final int chunkS = (n + effS - 1) / effS;
+        @SuppressWarnings("unchecked")
+        final ArrayList<byte[]>[] perThreadS = new ArrayList[effS];
+        final boolean[] declinedS = new boolean[1];
+        parallel(effS, idx -> {
+          final int from = idx * chunkS;
+          final int to = Math.min(from + chunkS, n);
+          if (from >= to)
+            return;
+          final ArrayList<byte[]> local =
+              ProjectionColumnScan.distinctPresentStrings(cdSlices, from, to, COUNT_DISTINCT_DICT_CARD_LIMIT);
+          if (local == null) {
+            declinedS[0] = true;
+          } else {
+            perThreadS[idx] = local;
+          }
+        });
+        if (!declinedS[0]) {
+          return mergeDistinctByteLists(perThreadS);
+        }
+      } catch (final IllegalStateException slicedFailed) {
+        // corrupt/missing slices — the payload route below re-surfaces the condition
+      }
+    }
     final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
     if (rowGroupPayloads == null)
       return -1L;
@@ -8836,6 +10718,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     });
     if (declined[0])
       return -1L;
+    return mergeDistinctByteLists(perThread);
+  }
+
+  /** Content-based union of per-chunk distinct lists; {@code -1} when the card limit trips. */
+  private static long mergeDistinctByteLists(final ArrayList<byte[]>[] perThread) {
     final ArrayList<byte[]> merged = new ArrayList<>(16);
     for (final ArrayList<byte[]> local : perThread) {
       if (local == null)
@@ -9269,7 +11156,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // kernels are committed-revision scoped), no result caches.
         final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
         if (projected != null) {
-          return longStatsToSequence(func, projected[0], projected[1], projected[2], projected[3]);
+          return statsToSequence(func, projected);
         }
         return tryServeDoubleAggregate(sourcePath, field, null, func);
       }
@@ -9279,7 +11166,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // short-circuit ahead of it silently retired it the moment path statistics were switched on.
       final long[] projectedFirst = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
       if (projectedFirst != null) {
-        return longStatsToSequence(func, projectedFirst[0], projectedFirst[1], projectedFirst[2], projectedFirst[3]);
+        return statsToSequence(func, projectedFirst);
       }
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
@@ -9287,6 +11174,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final Sequence fast = tryPathSummaryStats(sourcePath, field, func);
       if (fast != null) {
         return fast;
+      }
+      // STRING min/max straight from the projection dictionaries — BEFORE any row scan.
+      // The generic probe below discovers a column's type by SCANNING it, and that first
+      // touch hydrates every record page (the cold-regime whale). A dict column answers
+      // here in one dictionary sweep; anything else declines on the kind gate in
+      // microseconds and probes exactly as before.
+      if ("min".equals(func) || "max".equals(func)) {
+        final Sequence viaDict = tryProjectionStringMinMax(sourcePath, field, "min".equals(func));
+        if (viaDict != null) {
+          return viaDict;
+        }
       }
       // Descriptor-tier bare count (P5b stage 1): count($doc[]) needs only the per-leaf
       // rowCounts, which live in the ~30-byte PIXD slot values — one metadata read + one
@@ -9316,9 +11214,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // Projection fast path: NUMERIC_LONG column sweep over in-memory leaves
         // (the long-only column excludes non-integral values by construction, so
         // no typed redo can be needed when it answers).
-        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMaskFor(func));
+        final int aggMask = aggMaskFor(func);
+        final long[] projected = tryProjectionAggregate(sourcePath, field, null, aggMask);
         if (projected != null) {
-          stats = aggregateCache.putIfAbsent(cacheKey, projected);
+          // Only a FULL accumulator may enter the cache: it is keyed by (source, field) with no
+          // func, and a masked one is an answer to THIS func alone — its unrequested slots keep the
+          // fold identities (Long.MAX_VALUE / Long.MIN_VALUE) and its sum lane is exactness-gated
+          // only when SUM was asked for. Serving those to the next aggregate over the same column
+          // would hand out a non-answer.
+          if (aggMask == ProjectionColumnSegmentFoldScan.AGG_ALL) {
+            stats = aggregateCache.putIfAbsent(cacheKey, projected);
+          }
           if (stats == null)
             stats = projected;
         } else {
@@ -9338,8 +11244,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       if (stats == null && dblStats == null) {
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
-        final boolean[] nonIntegral = new boolean[1];
-        final long[] fresh = parallelAggregate(field, targetPathNodeKey, nonIntegral);
+        // [0] non-integral value seen, [1] the long sum lane overflowed.
+        final boolean[] flags = new boolean[2];
+        final long[] fresh = parallelAggregate(field, targetPathNodeKey, flags);
+        final boolean nonIntegralOrOverflowed = flags[0] || (flags[1] && ("sum".equals(func) || "avg".equals(func)));
         // count(for $u return $u.field) counts NON-EMPTY derefs — i.e. every
         // record carrying the field, regardless of the value's type. The
         // numeric accumulator's count only covers numbers (a count over a
@@ -9349,25 +11257,36 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           return new Int64(fresh[4]);
         }
         // Value aggregates over a field that EXISTS but never yielded a
-        // numeric value (pure string/boolean/null column): the interpreter
-        // applies string/error semantics the numeric kernels cannot
-        // reproduce — fail LOUDLY instead of fabricating 0/empty.
-        if (!nonIntegral[0] && fresh[0] == 0 && fresh[4] > 0) {
+        // numeric value (pure string/boolean/null column). min/max over a
+        // string column is well defined and the interpreter answers it, so
+        // serve it here too; everything else the numeric kernels cannot
+        // reproduce fails LOUDLY instead of fabricating 0/empty.
+        if (!nonIntegralOrOverflowed && fresh[0] == 0 && fresh[4] > 0) {
+          final Sequence stringExtreme = stringMinMaxOrNull(sourcePath, null, field, func);
+          if (stringExtreme != null) {
+            return stringExtreme;
+          }
           throw new QueryException(ErrorCode.BIT_DYN_INT_ERROR,
               "Vectorized %s over field '%s': the field exists but holds no numeric values — "
                   + "string/boolean/null aggregation is not supported by the vectorized executor",
               func, field);
         }
-        if (nonIntegral[0]) {
-          // The column carries non-integral numbers — long accumulation TRUNCATES
-          // (sum over a half-double column measured 14% short). Redo with a
+        if (nonIntegralOrOverflowed) {
+          // Either the column carries non-integral numbers — long accumulation TRUNCATES
+          // (sum over a half-double column measured 14% short) — or the long sum lane would
+          // have wrapped (a 64-bit id column overflows within a few dozen rows). Redo with a
           // typed re-walk: decimal rows accumulate EXACTLY (the interpreter
           // sums xs:decimal exactly and divides via Dec#div), double rows in
-          // double space.
+          // double space, and the long lane escalates to BigDecimal on overflow.
           final MixedAgg mfresh = parallelAggregateMixed(field, targetPathNodeKey);
           dblStats = aggregateDblCache.putIfAbsent(cacheKey, mfresh);
           if (dblStats == null)
             dblStats = mfresh;
+        } else if (flags[1]) {
+          // min/max are still exact when the sum lane wrapped, so this call is answered from
+          // `fresh` — but the entry must NOT reach the cache, which is keyed by (source, field)
+          // and would then serve its bogus sum to a later sum/avg over the same column.
+          stats = fresh;
         } else {
           stats = aggregateCache.putIfAbsent(cacheKey, fresh);
           if (stats == null)
@@ -9377,7 +11296,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblStats != null) {
         return dblStats.result(func);
       }
-      return longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
+      return statsToSequence(func, stats);
     } catch (Exception e) {
       throw new QueryException(e, ErrorCode.BIT_DYN_INT_ERROR, "Sirix vectorized aggregate failed: %s", e.getMessage());
     }
@@ -9402,88 +11321,901 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * (single-key: the null-key group). Returns {@code null} to fall back (callers compile the generic
    * pipeline alongside).
    */
-  public Sequence executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
+  /** Shared empty result of {@link #summedColumns} — no allocation on the min/max/count-only path. */
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+
+  /**
+   * The subset of {@code aggCols} that an ACCUMULATING function reads — the only columns whose group
+   * sums must be proven to fit a long. {@code min}/{@code max}/{@code count} never add, so a column
+   * read solely by them is exempt: gating it on a sum bound would decline a query that cannot
+   * overflow. {@code distinctFields[i]} names {@code aggCols[i]} (built in lockstep at the call
+   * site), so a name lookup maps a function's field to its column.
+   *
+   * @return the columns to bound, in {@code aggCols} order; empty when nothing accumulates
+   */
+  private static int[] summedColumns(final String[] funcs, final String[] aggFields, final List<String> distinctFields,
+      final int[] aggCols) {
+    final boolean[] needed = new boolean[aggCols.length];
+    int count = 0;
+    for (int i = 0; i < funcs.length; i++) {
+      final String func = baseFunc(funcs[i]);
+      if (!"sum".equals(func) && !"avg".equals(func)) {
+        continue;
+      }
+      final String field = i < aggFields.length
+          ? aggFields[i]
+          : null;
+      if (field == null || field.startsWith("len:")) {
+        // count(*): no column read. strlen operands: the whole-column magnitude bound would
+        // read the DICT column's descriptor as numeric — the per-row addExact still guards.
+        continue;
+      }
+      final int at = distinctFields.indexOf(field);
+      if (at >= 0 && !needed[at]) {
+        needed[at] = true;
+        count++;
+      }
+    }
+    if (count == 0) {
+      return EMPTY_INT_ARRAY;
+    }
+    final int[] summed = new int[count];
+    int n = 0;
+    for (int i = 0; i < needed.length; i++) {
+      if (needed[i]) {
+        summed[n++] = aggCols[i];
+      }
+    }
+    return summed;
+  }
+
+  /**
+   * The one decline exit of the group-aggregate route, so {@code -Dsirix.projDiag} names the FIRST
+   * gate that refused a query instead of leaving "served nothing" indistinguishable from "no fast
+   * path exists". This is the EXECUTION-side twin of {@code GroupAggregateDetectionStage}'s
+   * {@code [groupagg-decline]} line: that one reports compile-time shape, this one reports the
+   * runtime evidence gates (column kinds, sparse cleanliness, budgets, arm coverage) — which is
+   * where a query that serves at one corpus size and declines at another parts ways.
+   *
+   * @param reason names the gate; keep it stable and cheap (a constant, or one concatenation)
+   * @return {@code null}, always — the caller's decline value
+   */
+  private static @Nullable ServedGroups declineGroupAgg(final String reason) {
+    GROUP_AGG_DECLINED.increment();
+    if (PROJ_DIAG) {
+      System.err.println("[proj] groupAgg decline: " + reason);
+    }
+    return null;
+  }
+
+  /** The innermost SirixDB frame of a throwable — {@code Math.addExact} names no useful site. */
+  private static String firstSirixFrame(final Throwable t) {
+    for (final StackTraceElement frame : t.getStackTrace()) {
+      if (frame.getClassName().startsWith("io.sirix.")) {
+        return frame.toString();
+      }
+    }
+    return "<no sirix frame>";
+  }
+
+  /** Group-aggregate queries that reached the route and were refused by one of its gates. */
+  private static final LongAdder GROUP_AGG_DECLINED = new LongAdder();
+
+  /** Test observability for {@link #GROUP_AGG_DECLINED}. */
+  public static long groupAggregateDeclinedCount() {
+    return GROUP_AGG_DECLINED.sum();
+  }
+
+  /**
+   * The accumulator LANES whose sum a {@code sum} or {@code avg} in this query actually reads —
+   * {@link NumericGroupAggTable#sumsExact}'s mask. Every block carries {@code [count, sum, min,
+   * max]} whatever was asked for, so without this the fold and the partition merge would enforce
+   * {@link Math#addExact} on lanes no answer depends on and decline a perfectly answerable
+   * {@code min}/{@code max}/{@code count} query. Lanes past 63 are left exact (the mask is a long);
+   * that is the conservative direction, and rosters that wide are already declined upstream.
+   *
+   * <p>
+   * Unlike {@link #summedColumns} — which feeds the whole-column zone-map pre-flight and therefore
+   * EXEMPTS {@code len:} operands whose magnitudes it cannot bound — a string-length operand read by
+   * a sum is a real accumulation and its lane must stay exact.
+   */
+  private static long summedLanes(final String[] funcs, final String[] aggFields,
+      final List<String> distinctFields) {
+    long mask = 0L;
+    for (int i = 0; i < funcs.length; i++) {
+      final String func = baseFunc(funcs[i]);
+      if (!"sum".equals(func) && !"avg".equals(func)) {
+        continue;
+      }
+      final String field = i < aggFields.length
+          ? aggFields[i]
+          : null;
+      if (field == null) {
+        continue; // count(*) reads no column, so it reads no sum lane either
+      }
+      final int lane = distinctFields.indexOf(field);
+      if (lane >= 0 && lane < 64) {
+        mask |= 1L << lane;
+      }
+    }
+    return mask;
+  }
+
+  public ServedGroups executeGroupByAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
-      final String[] aggFields, final String[] outNames) {
+      final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
+      final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
+      final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
+      final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
+      final long[] having) {
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
-        return null;
+        return declineGroupAgg("no projection available");
       }
       final int keyCount = groupFields.length;
       if (keyCount < 1 || keyCount > ProjectionIndexByteScan.MAX_GROUP_COLUMNS || keyNames.length != keyCount) {
-        return null;
+        return declineGroupAgg("keyCount " + keyCount + " vs max " + ProjectionIndexByteScan.MAX_GROUP_COLUMNS);
       }
+      // Unanchored: this route's kernels visit every row of every row group with per-leaf
+      // presence masks, so an anchorless predicate (bare negation, true-on-missing) serves
+      // exactly — the row-scan anchor guard must not veto it.
       final CompiledPredicate cp = predicateOrNull == null
           ? null
-          : compile(predicateOrNull);
+          : compile(predicateOrNull, false);
       final ArrayList<String> required = new ArrayList<>();
+      if (keyCondFields != null) {
+        for (final String cf : keyCondFields) {
+          if (cf != null && !required.contains(cf)) {
+            required.add(cf);
+          }
+        }
+      }
       for (final String g : groupFields) {
         if (!required.contains(g)) {
           required.add(g);
         }
       }
       for (final String f : aggFields) {
-        if (f != null && !required.contains(f)) {
-          required.add(f);
+        final String raw = rawAggField(f);
+        if (raw != null && !required.contains(raw)) {
+          required.add(raw);
         }
       }
       final ProjectionIndexRegistry.Handle handle =
           lookupProjection(sourcePath, requiredFields(required.toArray(new String[0]), cp));
       if (handle == null) {
-        return null;
+        return declineGroupAgg("no projection covers the source path and required fields");
       }
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] groupCols = new int[keyCount];
+      // A single NUMERIC_LONG group key is servable under the same two gates the count-only
+      // route uses. COMPOSITE keys may mix NUMERIC_LONG (integral) and STRING_DICT components —
+      // the flat composite kernel hashes each component leaf-independently. Every other kind —
+      // NUMERIC_DOUBLE, STRING_SET, BOOLEAN — declines.
+      boolean numericSingleKey = false;
+      boolean anyNumericComponent = false;
+      // The single key is a global string column: it rides the NUMERIC arm (its cells are dense
+      // ids in the long lane) but is a STRING to the query, so it may neither be ordered on in
+      // kernel nor emitted as an integer. Both are handled where they arise, below.
+      boolean globalSingleKey = false;
+      // The kernels take ONE substitution-literal array: it is the conditional key's ELSE branch
+      // where a condition column is named, and the MISSING-value substitution where none is —
+      // which is exactly what `fn:string(<chain>)` needs ("" for an absent field). Merge the two
+      // annotations here so the kernel contract stays a single array.
+      final String[] keySubstLit = keyStringify == null
+          ? keyCondElse
+          : keyCondElse == null
+              ? new String[keyCount]
+              : keyCondElse.clone();
+      if (keyStringify != null) {
+        for (int g = 0; g < keyCount; g++) {
+          if (keyStringify[g]) {
+            if (keySubstLit[g] != null) {
+              return declineGroupAgg("key is both conditional and stringified"); // a conditional AND stringified key is not one this arm can express
+            }
+            keySubstLit[g] = "";
+          }
+        }
+      }
+      final int[] keyCondCols = keySubstLit != null
+          ? new int[2 * keyCount]
+          : null;
       for (int g = 0; g < keyCount; g++) {
         final int col = handle.columnOf(groupFields[g]);
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-            || !handle.columnSparseClean(col, fetcher, materializer)) {
-          return null;
+        if (col < 0) {
+          return declineGroupAgg("group key column absent from the projection");
+        }
+        // Kind first: it is a metadata byte, while the two evidence gates below can walk
+        // descriptors — an unservable kind must not pay for a probe it will discard.
+        final byte kind = handle.columnKindOf(col);
+        final boolean keyShifted = keyOffsets != null && keyOffsets[g] != 0L;
+        final boolean keySubstring = keySubstr != null && keySubstr[2 * g] != 0;
+        final boolean keyConditional = keyCondElse != null && keyCondElse[g] != null;
+        final boolean keyDivided = keyDivMod != null && (keyDivMod[2 * g] != 0L || keyDivMod[2 * g + 1] != 0L);
+        final boolean keyStringified = keyStringify != null && keyStringify[g];
+        if (keyShifted && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          return declineGroupAgg("shifted key needs a NUMERIC_LONG column"); // an arithmetic shift needs a numeric component
+        }
+        if (keyDivided) {
+          // `(f idiv D) mod M` is integer arithmetic over the column's longs, and the transforms
+          // do not compose in one component lane — one per key.
+          if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG || keyShifted || keySubstring
+              || keyConditional || keyStringified || keyDivMod[2 * g] < 0L || keyDivMod[2 * g + 1] < 0L) {
+            return declineGroupAgg("idiv/mod key needs an untransformed NUMERIC_LONG column");
+          }
+        }
+        if (keyStringified) {
+          // fn:string over a NUMERIC column would emit "5" where this arm emits 5 — the STRING_DICT
+          // gate is what keeps the transform to the one case where it only affects MISSING rows.
+          if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT || keyShifted || keySubstring
+              || keyConditional) {
+            return declineGroupAgg("fn:string key needs an untransformed STRING_DICT column");
+          }
+        }
+        if (keySubstring && kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return declineGroupAgg("substring key needs a STRING_DICT column"); // a substring transform needs a dict component
+        }
+        if (keyCondCols != null) {
+          keyCondCols[2 * g] = -1;
+          keyCondCols[2 * g + 1] = -1;
+        }
+        if (keyConditional) {
+          // The then-branch reads the dict component; the else branch is a string literal —
+          // a numeric then-branch would emit mixed-type keys and stays declined.
+          if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT || keyShifted || keySubstring) {
+            return declineGroupAgg("conditional key needs an untransformed STRING_DICT column");
+          }
+          for (int j = 0; j < 2; j++) {
+            final String cf = keyCondFields[2 * g + j];
+            if (cf == null) {
+              continue;
+            }
+            final int cc = handle.columnOf(cf);
+            // Equality against the column's truncated longs: a known-non-integral column
+            // (0.5 stored as 0) would satisfy `= 0` the interpreter rejects. Null-bearing
+            // condition columns order differently from missing — the sparse gate declines.
+            if (cc < 0 || handle.columnKindOf(cc) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+                || handle.numericColumnKnownNonIntegral(cc, fetcher)
+                || !handle.columnSparseClean(cc, fetcher, materializer)) {
+              return declineGroupAgg("condition column absent, non-integral or null-bearing");
+            }
+            keyCondCols[2 * g + j] = cc;
+          }
+          if (keyCondCols[2 * g] < 0) {
+            return declineGroupAgg("conditional key without a condition column"); // a conditional key with no condition column is not this shape
+          }
+        }
+        if (keySubstr != null && keySubstr[2 * g] < 0 && keyCount > 1) {
+          return declineGroupAgg("packed substring key is single-key only"); // the STRING substring variant serves single keys via the packed arm only
+        }
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            && handle.numericColumnIsIntegral(col, fetcher)) {
+          if (keyCount == 1) {
+            numericSingleKey = true;
+          }
+          anyNumericComponent = true;
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // The kernel upgrade this kind exists for: a resource-wide id IS the group identity, so a
+          // high-cardinality string group-by becomes an integer group-by — no per-leaf dictionary
+          // fetched, no content hash per row, no cross-leaf identity to reconstruct.
+          //
+          // No integrality gate: ids are minted as dense positive integers, so the question
+          // numericColumnIsIntegral answers (does this column hold truncated doubles?) cannot
+          // arise. Single key only — the composite kernels dispatch each component as either
+          // NUMERIC_LONG or per-leaf dict, and an id taking the dict arm would read a dictionary
+          // that is not there. Every key TRANSFORM has already declined above, each for its own
+          // reason (they all require NUMERIC_LONG or STRING_DICT).
+          if (keyCount != 1 || handle.valueDictionaryHeaderKey(col) <= 0L) {
+            return declineGroupAgg("global key is multi-key or its column has no value dictionary");
+          }
+          numericSingleKey = true;
+          globalSingleKey = true;
+          anyNumericComponent = true;
+        } else if (kind != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return declineGroupAgg("group key column kind not servable");
+        }
+        if (!handle.columnSparseClean(col, fetcher, materializer)) {
+          return declineGroupAgg("group key column not sparse-clean");
         }
         groupCols[g] = col;
       }
       final int groupCol = groupCols[0];
-      // Distinct aggregate columns, gated exactly like the plain long-aggregate path.
+      // REGEX key (Q28): single STRING key only, grouping on the TRANSFORMED string. Brackit's
+      // REPLACE mode with no flags appends the pattern verbatim and substitutes with Matcher
+      // semantics, so ONE probe through brackit's own Regex validates pattern + replacement
+      // (an invalid one raises at query time — decline, the generic pipeline raises it), and
+      // a precompiled java Pattern applies byte-identically. A zero-length-matching pattern
+      // is FORX0003 — the interpreter raises per call, so it declines too.
+      Pattern keyRegex = null;
+      String keyRegexReplacement = null;
+      if (keyRegexPattern != null && keyRegexPattern.length == keyCount && keyRegexPattern[0] != null) {
+        if (keyCount != 1 || numericSingleKey
+            || handle.columnKindOf(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          return declineGroupAgg("regex key needs a single STRING_DICT column");
+        }
+        try {
+          Regex.match(Regex.Mode.REPLACE, "probe", keyRegexPattern[0], keyRegexRepl[0], null);
+        } catch (final QueryException e) {
+          return declineGroupAgg("regex key pattern/replacement rejected by brackit");
+        }
+        keyRegex = Pattern.compile(keyRegexPattern[0], Pattern.UNIX_LINES);
+        if (keyRegex.matcher("").find()) {
+          return declineGroupAgg("regex key pattern matches the empty string");
+        }
+        keyRegexReplacement = keyRegexRepl[0];
+      }
+      // DEFERRED STRING AGGREGATES: min/max over a STRING_DICT column, servable when the entry
+      // appears ONLY in the emission record (never in an order spec — those decline via plan
+      // resolution). Winners are selected by the numeric pass first; a second focused scan then
+      // folds the string extremum for the K winning groups only, so the accumulator tables and
+      // their merge never carry a string lane at all.
+      final boolean[] deferredAgg = new boolean[funcs.length];
+      final int[] deferredLane = new int[funcs.length];
+      final IntArrayList deferredCols = new IntArrayList();
+      final BooleanArrayList deferredIsMin = new BooleanArrayList();
+      boolean anyDeferred = false;
+      for (int i = 0; i < funcs.length; i++) {
+        deferredLane[i] = -1;
+        // Exact "min"/"max" only: a dbl:-prefixed cast over a string extremum is the
+        // interpreter's type error — leaving it in the numeric roster declines the query.
+        if (aggFields[i] == null || (!"min".equals(funcs[i]) && !"max".equals(funcs[i]))) {
+          continue;
+        }
+        final int col = handle.columnOf(aggFields[i]);
+        if (col >= 0 && handle.columnKindOf(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          deferredAgg[i] = true;
+          deferredLane[i] = deferredCols.size();
+          deferredCols.add(col);
+          deferredIsMin.add("min".equals(funcs[i]));
+          anyDeferred = true;
+        }
+      }
+      // count(distinct-values(f)) entries: ONE distinct operand per query (v1), and its column
+      // must NOT enter the value-fold roster below — folding a 64-bit id column through
+      // Math.addExact would throw at run time and silently decline a query that annotated.
+      String cdField = null;
+      for (int i = 0; i < funcs.length; i++) {
+        if ("count-distinct".equals(baseFunc(funcs[i]))) {
+          if (aggFields[i] == null || (cdField != null && !cdField.equals(aggFields[i]))) {
+            return declineGroupAgg("more than one count(distinct) operand");
+          }
+          cdField = aggFields[i];
+        }
+      }
+      // Distinct aggregate columns, gated exactly like the plain long-aggregate path. Deferred
+      // string extrema stay OUT: they never touch an accumulator lane.
       final ArrayList<String> distinctFields = new ArrayList<>();
-      for (final String f : aggFields) {
-        if (f != null && !distinctFields.contains(f)) {
+      for (int i = 0; i < funcs.length; i++) {
+        final String f = aggFields[i];
+        if (f != null && !deferredAgg[i] && !"count-distinct".equals(baseFunc(funcs[i]))
+            && !distinctFields.contains(f)) {
           distinctFields.add(f);
         }
       }
       final int[] aggCols = new int[distinctFields.size()];
+      boolean anyStrlenAgg = false;
       for (int i = 0; i < aggCols.length; i++) {
-        final int col = handle.columnOf(distinctFields.get(i));
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
-          return null;
+        final String df = distinctFields.get(i);
+        final boolean strlen = df.startsWith("len:");
+        final int col = handle.columnOf(rawAggField(df));
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return declineGroupAgg("aggregate column absent or not sparse-clean");
+        }
+        if (strlen) {
+          // string-length over a dict column: codepoint counts fold as the numeric operand.
+          // The sparse gate above is ALSO the null gate — string-length(null) raises where
+          // the kernel would fold 0.
+          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return declineGroupAgg("string-length aggregate needs a STRING_DICT column");
+          }
+          anyStrlenAgg = true;
+        } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher)) {
+          return declineGroupAgg("aggregate column is not an integral NUMERIC_LONG");
         }
         aggCols[i] = col;
       }
+      // The distinct column rides as an EXTRA accumulator block: zeros through scan and merge
+      // (merging partial set sizes would double-count shared values), the exact per-group set
+      // size written into its sum lane after the partition-wise set union. columnSparseClean is
+      // ALSO the JSON-null gate: distinct-values counts a null as a value, the kernels read it
+      // as missing, and the unrepresentable-cell flag is what keeps that divergence out.
+      int cdBlockIdx = -1;
+      boolean cdStringOperand = false;
+      int[] aggColsAll = aggCols;
+      if (cdField != null) {
+        final int col = handle.columnOf(cdField);
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return declineGroupAgg("distinct operand column absent or not sparse-clean");
+        }
+        // A STRING_DICT operand is servable too: the kernels feed the set the entry's 64-bit
+        // CONTENT hash (dict ids are leaf-local and would union nonsense across leaves), which is
+        // exact up to a hash collision — the same identity standard the composite group key uses.
+        if (handle.columnKindOf(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          cdStringOperand = true;
+        } else if (handle.columnKindOf(col) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+          // A GLOBAL operand takes the NUMERIC arm, not the string one, and is the better of the
+          // two in both senses. Cheaper: the ids ARE the set members, so no dictionary bytes are
+          // fetched and no content hash is computed per row. And EXACT: the per-leaf arm's members
+          // are 64-bit content hashes, so its count is exact only up to a hash collision, whereas
+          // two rows share an id here if and only if they hold the same value — that is what the
+          // dictionary guarantees, byte-confirmed at intern time. No integrality gate either: an
+          // id cannot be a truncated double.
+          cdStringOperand = false;
+        } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher)) {
+          return declineGroupAgg("distinct operand column is not an integral NUMERIC_LONG");
+        }
+        cdBlockIdx = aggCols.length;
+        aggColsAll = Arrays.copyOf(aggCols, aggCols.length + 1);
+        aggColsAll[cdBlockIdx] = col;
+      }
+      final int cdBlock = cdBlockIdx;
+      final boolean cdStringDict = cdStringOperand;
+      final int[] aggColsFlat = aggColsAll;
+      final boolean[] aggStrlenFlat = new boolean[aggColsFlat.length];
+      for (int i = 0; i < aggCols.length; i++) {
+        aggStrlenFlat[i] = distinctFields.get(i).startsWith("len:");
+      }
       final ProjectionIndexScan.ColumnPredicate[] preds;
+      ProjectionIndexScan.PredicateTree predTree = null;
       if (cp == null) {
         preds = new ProjectionIndexScan.ColumnPredicate[0];
       } else {
         if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
-          return null;
+          return declineGroupAgg("predicate fields not covered by the projection");
         }
         final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
-        if (extracted == null) {
-          return null; // OR trees on the group path: later stage
+        if (extracted != null) {
+          preds = fuseRangePredicates(extracted);
+        } else {
+          // OR shapes: the tree evaluator serves them on the flat routes — each leaf's mask
+          // ANDs its own column's presence before the combine, the tree type's contract.
+          predTree = extractPredicateTree(cp, handle);
+          if (predTree == null) {
+            return declineGroupAgg("predicate tree not extractable, root op " + cp.ops[0]);
+          }
+          preds = new ProjectionIndexScan.ColumnPredicate[0];
         }
-        preds = fuseRangePredicates(extracted);
       }
-      final List<byte[]> rowGroupPayloads = leafPayloadsOrNull(handle);
-      if (rowGroupPayloads == null) {
-        return null;
+      final ProjectionIndexScan.PredicateTree tree = predTree;
+      // SLICED serving (unit 1: the numeric single-key flat arm, conjunctive predicates): read
+      // only the group/aggregate/predicate columns' decoded slices instead of assembling every
+      // leaf. The escape hatch flips the whole route back for A/B timing in one build.
+      final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
+      // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
+      // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
+      // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
+      final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
+          && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER;
+      if (promoteNow && !projectionWarmupPool.isShutdown()) {
+        // ASYNC promotion: materialize on the owned warm-up lane and KEEP SERVING SLICED until it
+        // lands — the synchronous form stalled the promoting query for the whole assembly
+        // (~150-250 ms mid-suite). payloadsMaterialized() flips when the future completes;
+        // subsequent queries take the byte kernels with zero stall anywhere.
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
-      if (rowGroupPayloads.isEmpty()) {
-        return new ItemSequence();
+      final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
+          && (tree == null
+              ? predsSliceable(groupStore, preds)
+              : treeSliceable(groupStore, tree))
+          && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
+      final List<byte[]> rowGroupPayloads = groupSliced
+          ? null
+          : leafPayloadsOrNull(handle);
+      if (!groupSliced) {
+        if (rowGroupPayloads == null) {
+          return declineGroupAgg("leaf payloads unavailable for the non-sliced route");
+        }
+        if (rowGroupPayloads.isEmpty()) {
+          return new ServedGroups(new ItemSequence(), true);
+        }
+      } else if (groupStore.rowGroupCount() == 0) {
+        return new ServedGroups(new ItemSequence(), true);
       }
-      final int rowGroupCount = rowGroupPayloads.size();
+      // In-kernel ordering: resolvable only when every order spec reads a primitive accumulator
+      // slot AND a sole-consumer subsequence caps the output — then the arms heap-select the
+      // first `limit` groups of the stable order instead of sorting and materializing them all.
+      final boolean anyKeyTransform = keyOffsets != null;
+      // A single substring-transformed STRING key groups AND orders on an order-preserving
+      // digit pack (validated ISO-minute windows), so ORD_KEY is servable for it.
+      final boolean packedStringKey = keyCount == 1 && keySubstr != null && keySubstr[0] < 0;
+      if (packedStringKey && (keySubstr[1] != 16 || cdBlock >= 0)) {
+        return declineGroupAgg("packed substring key outside the 16-char window, or with count(distinct)"); // the pack validator covers the 16-char ISO-minute window; CD stays out (v1)
+      }
+      // A STRING_DICT distinct operand serves on the two SINGLE-key flat arms only (both kernel
+      // families). The composite arm asserts NUMERIC_LONG over every aggregate column, so it would
+      // read the operand's leaf-local dict IDS as values — a wrong answer, not a decline.
+      if (cdStringDict && (keyCount > 1 || anyKeyTransform)) {
+        return declineGroupAgg("dict distinct operand under a composite or transformed key");
+      }
+      // A sole-consumer subsequence cap is what lets the flat routes heap-SELECT; without one they
+      // still resolve a plan and emit EVERY group in its order (which the wrapper trusts, and a
+      // downstream sort would only re-derive). COUNT(DISTINCT) has no legacy-arm implementation, so
+      // an uncapped distinct query takes the flat route with an unbounded selection instead of
+      // declining. Narrow by construction: only shapes that decline today reach the new arm.
+      // A TRANSFORMED key has no legacy emission arm either, and neither does a predicate TREE (the
+      // legacy arms take conjunctions only), so an uncapped one of those takes the same unbounded
+      // selection: every group is emitted, in the plan's order, through the flat arm that does
+      // model it. Both shapes DECLINED outright before.
+      final long selLimit = limit >= 1
+          ? limit
+          : cdBlock >= 0 || anyKeyTransform || tree != null
+              ? Long.MAX_VALUE
+              : limit;
+      GroupOrderPlan resolvedPlan = selLimit < 1
+          ? null
+          : orderIndexes == null
+              ? GroupOrderPlan.ordinalOnly()
+              // A GLOBAL key is deliberately NOT "numeric" here, and this is the one place where
+              // the distinction is load-bearing: `keyIsNumeric` is what admits an ORD_KEY spec, i.e.
+              // ordering the groups on the key IN KERNEL, by its long. For a global column that long
+              // is a dictionary id minted in first-seen order, so ordering on it would sort by when
+              // a value was first interned and call it alphabetical. Declining the spec leaves
+              // `order by <key>` to the wrapper's sort over the emitted STRINGS, which is right.
+              : GroupOrderPlan.resolve(orderIndexes, orderAsc, orderEmptyLeast, keyCount,
+                  (numericSingleKey && !globalSingleKey && !anyKeyTransform) || packedStringKey, funcs, aggFields,
+                  distinctFields, cdBlock);
+      // DEFERRED ordering: the composite arm cannot order on a key COMPONENT (only Brackit's
+      // comparator knows string order, and a transformed key is never the plan's ORD_KEY), so an
+      // uncapped `order by <key>` emits every group in FIRST-APPEARANCE order and the wrapper's
+      // stable sort applies the order-by — the same contract the single-string-key legacy arm has
+      // always had, and the same input order the interpreter hands its sort. Never with a LIMIT:
+      // a top-K selected by the ordinal plan would truncate by the wrong order.
+      final boolean deferrableTransformArm = anyKeyTransform && !packedStringKey;
+      final boolean orderDeferred = resolvedPlan == null && deferrableTransformArm && limit < 1 && orderIndexes != null;
+      if (orderDeferred) {
+        resolvedPlan = GroupOrderPlan.ordinalOnly();
+      }
+      final GroupOrderPlan orderPlan = resolvedPlan;
+      if (anyKeyTransform && orderPlan == null) {
+        return declineGroupAgg("transformed key without an order plan"); // transformed keys serve only through the flat composite route
+      }
+      // HAVING filters candidate groups BEFORE selection — only the plan-driven flat routes
+      // carry the filter at their offer sites; the legacy emission arms would drop it.
+      if (having != null && orderPlan == null) {
+        return declineGroupAgg("having without an order plan");
+      }
+      if (keyRegex != null && orderPlan == null) {
+        return declineGroupAgg("regex key without an order plan"); // the legacy string emission path has no transform lane
+      }
+      // strlen operands fold in the numeric and string single-key flat kernels (v1) — the
+      // composite/packed arms would read the dict column's id lanes as values.
+      final boolean stringFlatRoute = keyCount == 1 && !numericSingleKey && !anyKeyTransform && !packedStringKey;
+      if (anyStrlenAgg && (orderPlan == null || !((numericSingleKey && !anyKeyTransform) || stringFlatRoute))) {
+        return declineGroupAgg("string-length aggregate outside the two flat arms");
+      }
+      // Deferred string extrema serve on the single-string-key flat arm ONLY (v1): pass 2 needs
+      // pass 1's group identity (key-entry FNV) plus a bounded winner roster the linear match
+      // stays cheap for. An order spec ON the deferred entry already nulled the plan above.
+      if (anyDeferred && (orderPlan == null || numericSingleKey || keyCount > 1 || anyKeyTransform || packedStringKey
+          || selLimit > 64)) {
+        return declineGroupAgg("deferred string extremum outside the single-string-key flat arm");
+      }
+      if (tree != null && orderPlan == null) {
+        return declineGroupAgg("predicate tree without an order plan"); // the legacy emission arms take conjunctions only
+      }
+      // The distinct machinery exists only on the flat (ordered + capped) routes; the legacy
+      // emission paths decline rather than half-serving.
+      if (cdBlock >= 0 && orderPlan == null) {
+        return declineGroupAgg("count(distinct) without an order plan");
+      }
+      // Zone-map pre-flight, BEFORE a single row is read: one whole-column magnitude bound
+      // covers every group (each group's sum is a sub-multiset of the column's), so a column
+      // of 64-bit ids declines here instead of scanning to completion and only then hitting
+      // the per-row addExact. Applies to the string path too — it had only the per-row check.
+      //
+      // ONLY the columns an accumulating function actually reads. The bound is
+      // `Σ_leaf rowCount × max(|min|,|max|)` — pessimistic by a factor of the group count — so
+      // applying it to a min/max/count-only query would decline shapes that carry no addition at
+      // all, and those shapes SERVED before this pre-flight existed.
+      final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
+      if (summedCols.length > 0) {
+        if (groupSliced) {
+          ProjectionColumnGroupScan.requireGroupSumsFitLong(groupStore, summedCols);
+        } else {
+          ProjectionIndexByteScan.requireGroupSumsFitLong(rowGroupPayloads, summedCols);
+        }
+      }
+      // Which lanes the kernels and the merge must keep exact; the rest go unfolded (see
+      // NumericGroupAggTable#sumsExact). Every table this route builds carries the SAME mask —
+      // mergePartitionIndexed rejects a mismatch rather than folding lanes that disagree.
+      final long sumExactMask = summedLanes(funcs, aggFields, distinctFields);
+      final int rowGroupCount = groupSliced
+          ? groupStore.rowGroupCount()
+          : rowGroupPayloads.size();
       final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
       final int chunkSize = (rowGroupCount + eff - 1) / eff;
-      if (keyCount > 1) {
+      // Only the numeric single-key FLAT arm is ported (v1); the legacy emission arm
+      // (orderPlan == null) and every other key shape still consume whole-leaf payloads.
+      final boolean numericSlicedArm = groupSliced && numericSingleKey && !anyKeyTransform;
+      // The string flat arm slices too (regex + strlen + distinct included); deferred string
+      // extrema keep whole-leaf — pass 2's winner matching scans payloads.
+      final boolean stringSlicedArm = groupSliced && stringFlatRoute && orderPlan != null;
+      // The LEGACY string emission arm (no order plan) slices too — by construction it is the
+      // simplest kernel configuration (HAVING/regex/strlen/deferred/tree/CD all declined above).
+      final boolean stringLegacySliced = groupSliced && stringFlatRoute && orderPlan == null;
+      // Composite flat arm (unit 4): multi-key and transformed keys, CD and all three key
+      // transforms included — condition columns are gated NUMERIC_LONG upstream.
+      final boolean compositeSlicedArm = groupSliced && (keyCount > 1 || anyKeyTransform) && orderPlan != null;
+      final boolean packedSlicedArm = groupSliced && packedStringKey && orderPlan != null;
+      // Arms not yet ported to slices materialize here (the sliced gates above skipped it for
+      // the flat arms, which never touch payloads).
+      final List<byte[]> armPayloads;
+      if (groupSliced && !numericSlicedArm && !stringSlicedArm && !stringLegacySliced && !compositeSlicedArm
+          && !packedSlicedArm) {
+        armPayloads = leafPayloadsOrNull(handle);
+        if (armPayloads == null) {
+          return declineGroupAgg("leaf payloads unavailable for an unported arm");
+        }
+        if (armPayloads.isEmpty()) {
+          return new ServedGroups(new ItemSequence(), true);
+        }
+      } else {
+        armPayloads = rowGroupPayloads;
+      }
+      if (packedStringKey) {
+        return packedSubstringGroupAggregate(armPayloads, packedSlicedArm
+            ? groupStore
+            : null, preds, tree, groupCol, -keySubstr[0], keySubstr[1], aggColsFlat, keyNames, funcs, aggFields,
+            outNames, distinctFields, eff, chunkSize, orderPlan, selLimit, having, sumExactMask);
+      }
+      if (numericSingleKey && !anyKeyTransform) {
+        return numericGroupAggregate(armPayloads, numericSlicedArm
+            ? groupStore
+            : null, preds, groupCol, aggColsFlat, keyNames, funcs, aggFields, outNames, distinctFields, eff, chunkSize,
+            orderPlan, selLimit, cdBlock, tree, having, anyStrlenAgg
+                ? aggStrlenFlat
+                : null,
+            cdStringDict, globalSingleKey
+                ? handle.valueDictionaryHeaderKey(groupCol)
+                : 0L,
+            sumExactMask);
+      }
+      if (keyCount > 1 || anyKeyTransform) {
+        if (orderPlan != null) {
+          // COMPOSITE flat path: components hash leaf-independently into ONE 64-bit identity,
+          // the aux lane carries a first-seen (leaf, row) reference, and only the K winners
+          // ever materialize their key parts — by re-reading that one row each.
+          final int cdBase = cdBlock >= 0
+              ? 2 + 4 * cdBlock
+              : -1;
+          final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+          final long[] transformDecline = anyKeyTransform
+              ? new long[1]
+              : null;
+          final byte[][] keyCondElseBytes = keySubstLit != null
+              ? new byte[keyCount][]
+              : null;
+          if (keyCondElseBytes != null) {
+            for (int g = 0; g < keyCount; g++) {
+              if (keySubstLit[g] != null) {
+                keyCondElseBytes[g] = keySubstLit[g].getBytes(StandardCharsets.UTF_8);
+              }
+            }
+          }
+          @SuppressWarnings("unchecked")
+          final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
+              ? new Long2ObjectOpenHashMap[eff]
+              : null;
+          final long[][] cdBudgets = cdBlock >= 0
+              ? new long[eff][]
+              : null;
+          int partitions = 1;
+          while (partitions < Math.min(eff, 32)) {
+            partitions <<= 1;
+          }
+          final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+          final int partitionsF = partitions;
+          final int[][][] partIdx = new int[eff][][];
+          // SLICED arm: resolve every column ONCE on the calling thread (workers share the
+          // immutable slice arrays); key kinds captured for the kernel's component dispatch.
+          final ProjectionColumnStore.ColumnSlice[][] cPredCols;
+          final ProjectionColumnStore.ColumnSlice[][] cTreeCols;
+          final ProjectionColumnStore.ColumnSlice[][] cKeyCols;
+          final byte[] cKeyKinds;
+          final ProjectionColumnStore.ColumnSlice[][] cAggCols;
+          final ProjectionColumnStore.ColumnSlice[][] cCondCols;
+          if (compositeSlicedArm) {
+            final ProjectionColumnStore.ColumnSegmentFetcher cFetcher = columnFetcher();
+            cPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, cFetcher);
+            cTreeCols = tree != null
+                ? resolveTreeCols(groupStore, tree, cFetcher)
+                : null;
+            cKeyCols = new ProjectionColumnStore.ColumnSlice[keyCount][];
+            cKeyKinds = new byte[keyCount];
+            for (int k = 0; k < keyCount; k++) {
+              cKeyKinds[k] = groupStore.columnKind(groupCols[k]);
+              cKeyCols[k] = groupStore.column(groupCols[k], cFetcher);
+            }
+            cAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+            for (int a = 0; a < aggColsFlat.length; a++) {
+              if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+                throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+              }
+              cAggCols[a] = groupStore.column(aggColsFlat[a], cFetcher);
+            }
+            if (keyCondCols != null) {
+              cCondCols = new ProjectionColumnStore.ColumnSlice[2 * keyCount][];
+              for (int c2 = 0; c2 < 2 * keyCount; c2++) {
+                if (keyCondCols[c2] >= 0) {
+                  cCondCols[c2] = groupStore.column(keyCondCols[c2], cFetcher);
+                }
+              }
+            } else {
+              cCondCols = null;
+            }
+          } else {
+            cPredCols = null;
+            cTreeCols = null;
+            cKeyCols = null;
+            cKeyKinds = null;
+            cAggCols = null;
+            cCondCols = null;
+          }
+          parallel(eff, idx -> {
+            final int from = idx * chunkSize;
+            final int to = Math.min(from + chunkSize, rowGroupCount);
+            if (from >= to)
+              return;
+            final NumericGroupAggTable local =
+                new NumericGroupAggTable(aggColsFlat.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+            if (cdBlock >= 0) {
+              cdMaps[idx] = new Long2ObjectOpenHashMap<>();
+              cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+            }
+            if (compositeSlicedArm) {
+              ProjectionColumnGroupScan.aggregateByGroupCompositeFlat(groupStore, preds, cPredCols, tree, cTreeCols,
+                  cKeyCols, cKeyKinds, cAggCols, from, to, local, cdBlock, cdBlock >= 0
+                      ? cdMaps[idx]
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  keyOffsets, keySubstr, transformDecline, keyCondCols, cCondCols, keyCondLits, keyCondElseBytes,
+                  keyDivMod);
+            } else {
+              ProjectionIndexByteScan.conjunctiveAggregateByGroupCompositeFlat(armPayloads.subList(from, to), preds,
+                  groupCols, aggColsFlat, local, from, cdBlock, cdBlock >= 0
+                      ? cdMaps[idx]
+                      : null,
+                  cdBlock >= 0
+                      ? cdBudgets[idx]
+                      : null,
+                  keyOffsets, keySubstr, transformDecline, tree, keyCondCols, keyCondLits, keyCondElseBytes, keyDivMod);
+            }
+            tables[idx] = local;
+            partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+          });
+          if (transformDecline != null && transformDecline[0] != 0) {
+            // A matching row hit a transform the interpreter RAISES on (missing operand or a
+            // lexically invalid substring) or an overflowing shift — the generic pipeline
+            // raises/promotes identically.
+            return declineGroupAgg("composite key transform raised on a matching row");
+          }
+          if (cdBudgets != null) {
+            for (final long[] b : cdBudgets) {
+              if (b != null && b[1] != 0) {
+                return declineGroupAgg("count(distinct) exact-set budget exceeded (composite arm)"); // exact-set budget exceeded — decline, never sketch
+              }
+            }
+          }
+          long scanned = 0;
+          for (int t = 0; t < eff; t++) {
+            if (tables[t] != null) {
+              scanned += tables[t].sizeIncludingZero();
+            }
+          }
+          if (scanned == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          final int slotWidth = 2 + 4 * aggColsFlat.length;
+          final long perPartitionEstimate = Math.max(16, scanned / partitions);
+          final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+          parallel(partitions, part -> {
+            final NumericGroupAggTable into =
+                new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+            NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
+            if (cdMaps != null) {
+              mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+            }
+            final int candidates = into.sizeIncludingZero();
+            if (candidates == 0) {
+              return;
+            }
+            final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
+            // One sequential walk over the interleaved stripes: a live bucket's key is its first
+            // lane, its accumulator the next slotWidth, its aux the one after that.
+            final long[] tbl = into.table();
+            final int tblStride = into.stride();
+            for (int off = 0; off < tbl.length; off += tblStride) {
+              if (tbl[off] != 0L) {
+                final int base = off + 1;
+                if (orderPlan.hasCastAvg()) {
+                  orderPlan.writeCastAvgLanes(tbl, base);
+                }
+                if (having != null && !havingPasses(tbl, base, having)) {
+                  continue;
+                }
+                sel.offer(tbl, base, true, tbl[base + slotWidth], null);
+              }
+            }
+            if (into.hasZeroKey()) {
+              if (orderPlan.hasCastAvg()) {
+                orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+              }
+              if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+                sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+              }
+            }
+            partSelectors[part] = sel;
+          });
+          int winnerCount = 0;
+          for (final GroupTopKSelector sel : partSelectors) {
+            if (sel != null) {
+              winnerCount += sel.size();
+            }
+          }
+          final int k = (int) Math.min(selLimit, winnerCount);
+          if (k == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+          for (final GroupTopKSelector sel : partSelectors) {
+            if (sel == null) {
+              continue;
+            }
+            for (int i = 0; i < sel.size(); i++) {
+              final int base = sel.baseAt(i);
+              final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+              finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+            }
+          }
+          finalSel.sortInPlace();
+          // Winners: decode key parts from each group's first-seen row, offsets cached per leaf.
+          final int[][] offsetsByLeaf = new int[rowGroupCount][];
+          final String[] strParts = new String[keyCount];
+          final long[] longParts = new long[keyCount];
+          final boolean[] present = new boolean[keyCount];
+          final boolean[] isLong = new boolean[keyCount];
+          final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+          for (int i = 0; i < finalSel.size(); i++) {
+            final long src = finalSel.keyLongAt(i);
+            final int leaf = (int) (src >>> 20);
+            final int rowIdx = (int) (src & 0xFFFFF);
+            if (compositeSlicedArm) {
+              ProjectionColumnGroupScan.readRowKeyPartsSliced(cKeyCols, cKeyKinds, cCondCols, leaf, rowIdx, strParts,
+                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod);
+            } else {
+              final byte[] payload = armPayloads.get(leaf);
+              int[] offs = offsetsByLeaf[leaf];
+              if (offs == null) {
+                offs = offsetsByLeaf[leaf] = ProjectionIndexByteScan.columnOffsets(payload);
+              }
+              ProjectionIndexByteScan.readRowKeyParts(payload, offs, offs[offs.length - 1], groupCols, rowIdx, strParts,
+                  longParts, present, isLong, keyOffsets, keySubstr, keyCondCols, keyCondLits, keySubstLit, keyDivMod);
+            }
+            out.add(groupAggRecordComposite(keyNames, present, isLong, strParts, longParts, finalSel.accAt(i), funcs,
+                aggFields, outNames, distinctFields, cdBase));
+          }
+          GROUP_AGG_SERVED.increment();
+          if (compositeSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
+          if (cdBlock >= 0) {
+            GROUP_DISTINCT_SERVED.increment();
+          }
+          // A deferred order emitted first-appearance order, not the query's — the wrapper sorts.
+          return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), !orderDeferred);
+        }
+        if (anyNumericComponent) {
+          // The legacy multi-key kernels are dict-only; a numeric component without the flat
+          // path (no order plan) declines rather than throwing inside the scan.
+          return declineGroupAgg("numeric key component without a flat arm");
+        }
         // MULTI-KEY path (gap 1a): composite GroupKey accumulators; missing components
         // ride inside the key (null part) rather than a separate null-key accumulator.
         @SuppressWarnings("unchecked")
@@ -9496,7 +12228,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             return;
           final Object2ObjectOpenHashMap<ProjectionIndexByteScan.GroupKey, long[]> local =
               new Object2ObjectOpenHashMap<>();
-          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(rowGroupPayloads.subList(from, to), preds, groupCols,
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupMulti(armPayloads.subList(from, to), preds, groupCols,
               aggCols, local, from);
           perThreadMulti[idx] = local;
         });
@@ -9511,9 +12243,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (existing == null) {
               mergedMulti.put(e.getKey(), e.getValue());
             } else {
-              mergeGroupAgg(existing, e.getValue(), aggCols.length);
+              mergeGroupAgg(existing, e.getValue(), aggCols.length, sumExactMask);
             }
           }
+        }
+        if (orderPlan != null) {
+          // Bounded selection: only the first `limit` groups of the stable order materialize.
+          final int k = (int) Math.min(selLimit, mergedMulti.size());
+          if (k == 0) {
+            GROUP_AGG_SERVED.increment();
+            return new ServedGroups(new ItemSequence(), true);
+          }
+          final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, k);
+          for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : mergedMulti.object2ObjectEntrySet()) {
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(e.getValue(), 0);
+            }
+            if (having != null && !havingPasses(e.getValue(), 0, having)) {
+              continue;
+            }
+            sel.offer(e.getValue(), 0, true, 0L, e.getKey());
+          }
+          sel.sortInPlace();
+          final ArrayList<Item> outMulti = new ArrayList<>(sel.size());
+          for (int i = 0; i < sel.size(); i++) {
+            outMulti.add(groupAggRecordMulti((ProjectionIndexByteScan.GroupKey) sel.keyObjAt(i), sel.accAt(i), keyNames,
+                funcs, aggFields, outNames, distinctFields, -1));
+          }
+          GROUP_AGG_SERVED.increment();
+          return new ServedGroups(new ItemSequence(outMulti.toArray(new Item[0])), true);
         }
         // Emit in document first-appearance order — the interpreter's grouping order.
         final ArrayList<Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]>> orderedMulti =
@@ -9522,24 +12280,458 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final ArrayList<Item> outMulti = new ArrayList<>(orderedMulti.size());
         for (final Object2ObjectMap.Entry<ProjectionIndexByteScan.GroupKey, long[]> e : orderedMulti) {
           outMulti.add(
-              groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields, outNames, distinctFields));
+              groupAggRecordMulti(e.getKey(), e.getValue(), keyNames, funcs, aggFields, outNames, distinctFields, -1));
         }
         GROUP_AGG_SERVED.increment();
-        return new ItemSequence(outMulti.toArray(new Item[0]));
+        return new ServedGroups(new ItemSequence(outMulti.toArray(new Item[0])), false);
+      }
+      if (orderPlan != null) {
+        // Flat hash-keyed path (no ORD_KEY spec can be in the plan here — a string group key
+        // declines plan resolution — so the selector's key lane is free to carry each group's
+        // source reference instead). Strings materialize for the K winners ONLY.
+        final int cdBase = cdBlock >= 0
+            ? 2 + 4 * cdBlock
+            : -1;
+        final Pattern regexKey = keyRegex;
+        final String regexRepl = keyRegexReplacement;
+        final long[] regexDecline = keyRegex != null
+            ? new long[1]
+            : null;
+        final boolean[] strlenInFlat = anyStrlenAgg
+            ? aggStrlenFlat
+            : null;
+        // SLICED arm: resolve every column ONCE on the calling thread — workers share the
+        // immutable slice arrays; racing the first fill would multiply the segment I/O.
+        final ProjectionColumnStore.ColumnSlice[][] sPredCols;
+        final ProjectionColumnStore.ColumnSlice[][] sTreeCols;
+        final ProjectionColumnStore.ColumnSlice[] sGroupCol;
+        final ProjectionColumnStore.ColumnSlice[][] sAggCols;
+        if (stringSlicedArm) {
+          final ProjectionColumnStore.ColumnSegmentFetcher sFetcher = columnFetcher();
+          if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+          }
+          sPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, sFetcher);
+          sTreeCols = tree != null
+              ? resolveTreeCols(groupStore, tree, sFetcher)
+              : null;
+          sGroupCol = groupStore.column(groupCol, sFetcher);
+          sAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+          for (int a = 0; a < aggColsFlat.length; a++) {
+            final int expected = (strlenInFlat != null && strlenInFlat[a]) || (cdStringDict && a == cdBlock)
+                ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+                : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+            // JSONBench Q2's shape: a per-leaf-dict GROUP key with a GLOBAL distinct operand. That
+            // one lane folds longs into a set, so an id column serves it directly; every other lane
+            // keeps the exact-kind assert.
+            final boolean globalDistinctOperand = a == cdBlock && !cdStringDict
+                && groupStore.columnKind(aggColsFlat[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+            if (!globalDistinctOperand && groupStore.columnKind(aggColsFlat[a]) != expected) {
+              throw new IllegalStateException(
+                  "aggColumn " + aggColsFlat[a] + " kind mismatch (expected " + expected + ")");
+            }
+            sAggCols[a] = distinctIdentityOperand(cdStringDict, a, cdBlock, aggColsFlat[a], groupStore)
+                ? groupStore.columnDistinctIdentity(aggColsFlat[a], sFetcher)
+                : groupStore.column(aggColsFlat[a], sFetcher);
+          }
+        } else {
+          sPredCols = null;
+          sTreeCols = null;
+          sGroupCol = null;
+          sAggCols = null;
+        }
+        final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+        final long[][] flatMissing = new long[eff][];
+        @SuppressWarnings("unchecked")
+        final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlock >= 0
+            ? new Long2ObjectOpenHashMap[eff]
+            : null;
+        final LongOpenHashSet[] cdMissingSets = cdBlock >= 0
+            ? new LongOpenHashSet[eff]
+            : null;
+        final long[][] cdBudgets = cdBlock >= 0
+            ? new long[eff][]
+            : null;
+        // A dense GLOBAL dictionary id space turns grouped COUNT(DISTINCT) into one bitmap per group
+        // instead of one exact set per group PER WORKER. That is what makes the exact answer
+        // affordable at dictionary cardinalities the per-worker sets have to decline: cost becomes
+        // groups x (ids/8) bytes, independent of row count and worker count.
+        final GroupDistinctBitmaps cdBitmaps = cdBlock >= 0 && !cdStringDict && stringSlicedArm
+            ? globalDistinctBitmaps(groupStore, aggColsFlat[cdBlock])
+            : null;
+        int partitions = 1;
+        while (partitions < Math.min(eff, 32)) {
+          partitions <<= 1;
+        }
+        final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+        final int partitionsF = partitions;
+        final int[][][] partIdx = new int[eff][][];
+        parallel(eff, idx -> {
+          final int from = idx * chunkSize;
+          final int to = Math.min(from + chunkSize, rowGroupCount);
+          if (from >= to)
+            return;
+          final NumericGroupAggTable local =
+              new NumericGroupAggTable(aggColsFlat.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+          final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggColsFlat.length, Long.MAX_VALUE);
+          if (cdBlock >= 0) {
+            cdMaps[idx] = new Long2ObjectOpenHashMap<>();
+            cdMissingSets[idx] = new LongOpenHashSet();
+            cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+          }
+          if (stringSlicedArm) {
+            ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, sPredCols, tree, sTreeCols,
+                sGroupCol, sAggCols, strlenInFlat, from, to, local, missing, cdBlock, cdBlock >= 0
+                    ? cdMaps[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdMissingSets[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                cdStringDict, regexKey, regexRepl, regexDecline, cdBitmaps);
+          } else {
+            ProjectionIndexByteScan.conjunctiveAggregateByGroupStringFlat(armPayloads.subList(from, to), preds,
+                groupCol, aggColsFlat, local, missing, from, cdBlock, cdBlock >= 0
+                    ? cdMaps[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdMissingSets[idx]
+                    : null,
+                cdBlock >= 0
+                    ? cdBudgets[idx]
+                    : null,
+                tree, regexKey, regexRepl, regexDecline, strlenInFlat, cdStringDict);
+          }
+          tables[idx] = local;
+          partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+          flatMissing[idx] = missing;
+        });
+        if (regexDecline != null && regexDecline[0] != 0) {
+          // A matched row MISSING the key field: fn:replace over the empty sequence is "",
+          // a REAL group key — not the null-key group the kernel's missing arm feeds.
+          return declineGroupAgg("regex key over a row missing the key field");
+        }
+        if (cdBudgets != null) {
+          for (final long[] b : cdBudgets) {
+            if (b != null && b[1] != 0) {
+              return declineGroupAgg("count(distinct) exact-set budget exceeded (string arm)"); // exact-set budget exceeded — decline, never sketch
+            }
+          }
+        }
+        final long[] missingMergedFlat = ProjectionIndexByteScan.newGroupAggAcc(aggColsFlat.length, Long.MAX_VALUE);
+        long scanned = 0;
+        for (int t = 0; t < eff; t++) {
+          if (flatMissing[t] != null && flatMissing[t][0] > 0) {
+            mergeGroupAgg(missingMergedFlat, flatMissing[t], aggColsFlat.length, sumExactMask);
+          }
+          if (tables[t] != null) {
+            scanned += tables[t].sizeIncludingZero();
+          }
+        }
+        if (cdMissingSets != null && missingMergedFlat[0] > 0) {
+          final LongOpenHashSet mm = new LongOpenHashSet();
+          for (final LongOpenHashSet ms : cdMissingSets) {
+            if (ms != null) {
+              mm.addAll(ms);
+            }
+          }
+          missingMergedFlat[cdBase + 1] = cdBitmaps != null
+              ? cdBitmaps.cardinality(Long.MIN_VALUE)
+              : mm.size();
+        }
+        if (scanned == 0 && missingMergedFlat[0] == 0) {
+          GROUP_AGG_SERVED.increment();
+          if (stringSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
+          return new ServedGroups(new ItemSequence(), true);
+        }
+        final int slotWidth = 2 + 4 * aggColsFlat.length;
+        final long perPartitionEstimate = Math.max(16, scanned / partitions);
+        final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+        parallel(partitions, part -> {
+          final NumericGroupAggTable into =
+              new NumericGroupAggTable(aggColsFlat.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+          NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
+          if (cdBitmaps != null) {
+            mergeDistinctBitmapSizesIntoPartition(cdBitmaps, part, shift, into, cdBase);
+          } else if (cdMaps != null) {
+            mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+          }
+          final int candidates = into.sizeIncludingZero();
+          if (candidates == 0) {
+            return;
+          }
+          final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(selLimit, candidates));
+          // One sequential walk over the interleaved stripes: a live bucket's key is its first
+          // lane, its accumulator the next slotWidth, its aux the one after that.
+          final long[] tbl = into.table();
+          final int tblStride = into.stride();
+          for (int off = 0; off < tbl.length; off += tblStride) {
+            if (tbl[off] != 0L) {
+              final int base = off + 1;
+              if (orderPlan.hasCastAvg()) {
+                orderPlan.writeCastAvgLanes(tbl, base);
+              }
+              if (having != null && !havingPasses(tbl, base, having)) {
+                continue;
+              }
+              sel.offer(tbl, base, true, tbl[base + slotWidth], null);
+            }
+          }
+          if (into.hasZeroKey()) {
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+            }
+            if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+              sel.offer(into.zeroSlot(), 0, true, into.zeroAux(), null);
+            }
+          }
+          partSelectors[part] = sel;
+        });
+        int winnerCount = missingMergedFlat[0] > 0
+            ? 1
+            : 0;
+        for (final GroupTopKSelector sel : partSelectors) {
+          if (sel != null) {
+            winnerCount += sel.size();
+          }
+        }
+        final int k = (int) Math.min(selLimit, winnerCount);
+        if (k == 0) {
+          GROUP_AGG_SERVED.increment();
+          if (stringSlicedArm) {
+            GROUP_AGG_SLICED_SERVED.increment();
+          }
+          return new ServedGroups(new ItemSequence(), true);
+        }
+        final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+        for (final GroupTopKSelector sel : partSelectors) {
+          if (sel == null) {
+            continue;
+          }
+          for (int i = 0; i < sel.size(); i++) {
+            final int base = sel.baseAt(i);
+            final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+            finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+          }
+        }
+        if (missingMergedFlat[0] > 0) {
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(missingMergedFlat, 0);
+          }
+          if (having == null || havingPasses(missingMergedFlat, 0, having)) {
+            finalSel.offer(missingMergedFlat, 0, false, 0L, null);
+          }
+        }
+        finalSel.sortInPlace();
+        // Winner strings: resolve (leaf, dictId) source refs, caching the column base per leaf.
+        final int[] leafColumnBase = new int[rowGroupCount];
+        Arrays.fill(leafColumnBase, -1);
+        // PASS 2 (deferred string extrema): rebuild each winner's group hash from its key-entry
+        // source ref, fold min/max over the string operand columns for those groups only, and
+        // merge the thread-partials under the same collation on materialized values.
+        String[][] deferredBest = null;
+        int[] winnerSlotOf = null;
+        if (anyDeferred) {
+          final int w = finalSel.size();
+          winnerSlotOf = new int[w];
+          final long[] hashScratch = new long[w];
+          int hashCount = 0;
+          boolean missingWinner = false;
+          for (int i = 0; i < w; i++) {
+            if (finalSel.hasKeyAt(i)) {
+              final long src = finalSel.keyLongAt(i);
+              final int leaf = (int) (src >>> 20);
+              final int dictId = (int) (src & 0xFFFFF);
+              winnerSlotOf[i] = hashCount;
+              if (stringSlicedArm) {
+                // Domain-consistent with pass 1 by construction: these are the very bytes the
+                // sliced scan hashed (regex keys hash the TRANSFORMED entry — hashing raw
+                // would mismatch every winner and return all-null extrema).
+                final ProjectionColumnStore.ColumnSlice groupSlice = sGroupCol[leaf];
+                hashScratch[hashCount++] = regexKey != null
+                    ? ProjectionIndexByteScan.utf8Hash(regexKey.matcher(groupSlice.dictString(dictId))
+                                                               .replaceAll(regexRepl)
+                                                               .getBytes(StandardCharsets.UTF_8))
+                    : groupSlice.dictHash(dictId);
+              } else {
+                final byte[] payload = armPayloads.get(leaf);
+                int columnBase = leafColumnBase[leaf];
+                if (columnBase < 0) {
+                  columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+                }
+                hashScratch[hashCount++] = regexKey != null
+                    ? ProjectionIndexByteScan.utf8Hash(
+                        regexKey.matcher(ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId))
+                                .replaceAll(regexRepl)
+                                .getBytes(StandardCharsets.UTF_8))
+                    : ProjectionIndexByteScan.dictEntryHash(payload, columnBase, dictId);
+              }
+            } else {
+              winnerSlotOf[i] = -1; // resolved to the missing slot below
+              missingWinner = true;
+            }
+          }
+          final long[] winnerHashes = Arrays.copyOf(hashScratch, hashCount);
+          final int slotsTotal = hashCount + (missingWinner
+              ? 1
+              : 0);
+          for (int i = 0; i < w; i++) {
+            if (winnerSlotOf[i] < 0) {
+              winnerSlotOf[i] = hashCount; // the kernel's missing-key slot
+            }
+          }
+          final boolean missingWinnerFinal = missingWinner;
+          final int[] deferredColsArr = deferredCols.toIntArray();
+          final boolean[] deferredIsMinArr = deferredIsMin.toBooleanArray();
+          // SLICED pass 2: resolve the deferred string operand columns ONCE, like every other
+          // sliced resolve — workers share the immutable slice arrays.
+          final ProjectionColumnStore.ColumnSlice[][] dAggCols;
+          if (stringSlicedArm) {
+            final ProjectionColumnStore.ColumnSegmentFetcher dFetcher = columnFetcher();
+            dAggCols = new ProjectionColumnStore.ColumnSlice[deferredColsArr.length][];
+            for (int a = 0; a < deferredColsArr.length; a++) {
+              if (groupStore.columnKind(deferredColsArr[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+                throw new IllegalStateException("stringAggColumn " + deferredColsArr[a] + " is not STRING_DICT");
+              }
+              dAggCols[a] = groupStore.column(deferredColsArr[a], dFetcher);
+            }
+          } else {
+            dAggCols = null;
+          }
+          final String[][][] perThreadBest = new String[eff][][];
+          parallel(eff, idx -> {
+            final int from = idx * chunkSize;
+            final int to = Math.min(from + chunkSize, rowGroupCount);
+            if (from >= to)
+              return;
+            final String[][] best = new String[deferredColsArr.length][slotsTotal];
+            if (stringSlicedArm) {
+              ProjectionColumnGroupScan.stringAggForWinnerGroupsSliced(groupStore, preds, sPredCols, tree, sTreeCols,
+                  sGroupCol, dAggCols, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl,
+                  from, to);
+            } else {
+              ProjectionIndexByteScan.stringAggForWinnerGroups(armPayloads.subList(from, to), preds, tree, groupCol,
+                  deferredColsArr, deferredIsMinArr, winnerHashes, missingWinnerFinal, best, regexKey, regexRepl);
+            }
+            perThreadBest[idx] = best;
+          });
+          deferredBest = new String[deferredColsArr.length][slotsTotal];
+          for (final String[][] tb : perThreadBest) {
+            if (tb == null) {
+              continue;
+            }
+            for (int a = 0; a < deferredColsArr.length; a++) {
+              for (int sl = 0; sl < slotsTotal; sl++) {
+                final String cand = tb[a][sl];
+                if (cand == null) {
+                  continue;
+                }
+                final String cur = deferredBest[a][sl];
+                if (cur == null || (deferredIsMinArr[a]
+                    ? cand.compareTo(cur) < 0
+                    : cand.compareTo(cur) > 0)) {
+                  deferredBest[a][sl] = cand;
+                }
+              }
+            }
+          }
+        }
+        final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+        for (int i = 0; i < finalSel.size(); i++) {
+          final String key;
+          if (finalSel.hasKeyAt(i)) {
+            final long src = finalSel.keyLongAt(i);
+            final int leaf = (int) (src >>> 20);
+            final int dictId = (int) (src & 0xFFFFF);
+            final String source;
+            if (stringSlicedArm) {
+              source = sGroupCol[leaf].dictString(dictId);
+            } else {
+              final byte[] payload = armPayloads.get(leaf);
+              int columnBase = leafColumnBase[leaf];
+              if (columnBase < 0) {
+                columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+              }
+              source = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+            }
+            key = regexKey != null
+                ? regexKey.matcher(source).replaceAll(regexRepl)
+                : source;
+          } else {
+            key = null;
+          }
+          String[] deferredVals = null;
+          if (deferredBest != null) {
+            deferredVals = new String[funcs.length];
+            for (int f = 0; f < funcs.length; f++) {
+              if (deferredLane[f] >= 0) {
+                deferredVals[f] = deferredBest[deferredLane[f]][winnerSlotOf[i]];
+              }
+            }
+          }
+          out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields,
+              cdBase, deferredAgg, deferredVals));
+        }
+        GROUP_AGG_SERVED.increment();
+        if (stringSlicedArm) {
+          GROUP_AGG_SLICED_SERVED.increment();
+        }
+        if (cdBlock >= 0) {
+          GROUP_DISTINCT_SERVED.increment();
+        }
+        return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
       }
       @SuppressWarnings("unchecked")
       final Object2ObjectOpenHashMap<String, long[]>[] perThread = new Object2ObjectOpenHashMap[eff];
       final long[][] perThreadMissing = new long[eff][];
+      // SLICED legacy arm: resolve every column ONCE on the calling thread (workers share the
+      // immutable slice arrays); the drain materializes group strings from the slice dict via
+      // each group's aux (leaf, dictId) ref. Emission below is untouched — slot lane 1 already
+      // carries the first-seen ROW ordinal (NumericGroupAggTable.initBlock).
+      final ProjectionColumnStore.ColumnSlice[][] legPredCols;
+      final ProjectionColumnStore.ColumnSlice[] legGroupCol;
+      final ProjectionColumnStore.ColumnSlice[][] legAggCols;
+      if (stringLegacySliced) {
+        final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
+        if (groupStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+        }
+        legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(groupStore, preds, legFetcher);
+        legGroupCol = groupStore.column(groupCol, legFetcher);
+        legAggCols = new ProjectionColumnStore.ColumnSlice[aggColsFlat.length][];
+        for (int a = 0; a < aggColsFlat.length; a++) {
+          if (groupStore.columnKind(aggColsFlat[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("aggColumn " + aggColsFlat[a] + " is not NUMERIC_LONG");
+          }
+          legAggCols[a] = groupStore.column(aggColsFlat[a], legFetcher);
+        }
+      } else {
+        legPredCols = null;
+        legGroupCol = null;
+        legAggCols = null;
+      }
       parallel(eff, idx -> {
         final int from = idx * chunkSize;
         final int to = Math.min(from + chunkSize, rowGroupCount);
         if (from >= to)
           return;
-        final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
         final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
-        ProjectionIndexByteScan.conjunctiveAggregateByGroup(rowGroupPayloads.subList(from, to), preds, groupCol,
-            aggCols, local, missing, from);
-        perThread[idx] = local;
+        if (stringLegacySliced) {
+          final NumericGroupAggTable localT =
+              new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+          ProjectionColumnGroupScan.aggregateByGroupStringFlat(groupStore, preds, legPredCols, null, null, legGroupCol,
+              legAggCols, null, from, to, localT, missing, -1, null, null, null, false, null, null, null, null);
+          perThread[idx] = drainStringGroupTable(localT, aggCols.length, legGroupCol);
+        } else {
+          final Object2ObjectOpenHashMap<String, long[]> local = new Object2ObjectOpenHashMap<>();
+          ProjectionIndexByteScan.conjunctiveAggregateByGroup(armPayloads.subList(from, to), preds, groupCol, aggCols,
+              local, missing, from);
+          perThread[idx] = local;
+        }
         perThreadMissing[idx] = missing;
       });
       final Object2ObjectOpenHashMap<String, long[]> merged = new Object2ObjectOpenHashMap<>();
@@ -9551,12 +12743,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (existing == null) {
               merged.put(e.getKey(), e.getValue());
             } else {
-              mergeGroupAgg(existing, e.getValue(), aggCols.length);
+              mergeGroupAgg(existing, e.getValue(), aggCols.length, sumExactMask);
             }
           }
         }
         if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
-          mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length);
+          mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length, sumExactMask);
         }
       }
       // Emit in document first-appearance order — the interpreter's grouping order.
@@ -9566,20 +12758,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int emittedMissing = 0;
       for (final Object2ObjectMap.Entry<String, long[]> e : ordered) {
         if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
-          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields));
+          out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
           emittedMissing = 1;
         }
-        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames, distinctFields));
+        out.add(groupAggRecord(e.getKey(), e.getValue(), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
       }
       if (missingMerged[0] > 0 && emittedMissing == 0) {
-        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields));
+        out.add(groupAggRecord(null, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
       }
       GROUP_AGG_SERVED.increment();
-      return new ItemSequence(out.toArray(new Item[0]));
+      if (stringLegacySliced) {
+        GROUP_AGG_SLICED_SERVED.increment();
+      }
+      return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
     } catch (final ArithmeticException overflow) {
       // Expected decline, not a defect: an overflowing per-group sum routes to the
-      // interpreter's decimal-promoting arithmetic via the generic pipeline.
-      return null;
+      // interpreter's decimal-promoting arithmetic via the generic pipeline. The frame is part
+      // of the diagnostic because the three sites that can raise it (zone-map pre-flight, per-row
+      // fold, partition merge) mean three different things about the query.
+      if (PROJ_DIAG) {
+        System.err.println("[proj] groupAgg overflow at " + firstSirixFrame(overflow));
+      }
+      return declineGroupAgg("per-group sum overflowed a long");
     } catch (final RuntimeException e) {
       // Fail soft — the compiled generic pipeline answers correctly. But an EXCEPTION
       // here (unlike a gate decline) means a defect or corruption, and a silent 100%
@@ -9590,6 +12790,1156 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       return null;
     }
+  }
+
+  /** Grouped COUNT(DISTINCT) served exactly from per-group sets (test oracle). */
+  private static final LongAdder GROUP_DISTINCT_SERVED = new LongAdder();
+
+  /** Test observability for {@link #GROUP_DISTINCT_SERVED}. */
+  public static long groupDistinctServedCount() {
+    return GROUP_DISTINCT_SERVED.sum();
+  }
+
+  /** Exact-set ceiling for grouped COUNT(DISTINCT); beyond it the route DECLINES (never sketches). */
+  private static final long GROUP_DISTINCT_MAX_VALUES =
+      Long.getLong("sirix.projection.groupDistinct.maxValues", 1L << 24);
+
+  /** Constant-key group-bys served in one scalar pass (test oracle, same doctrine as the rest). */
+  private static final LongAdder CONST_GROUP_AGG_SERVED = new LongAdder();
+
+  /** Test observability for {@link #CONST_GROUP_AGG_SERVED}. */
+  public static long constGroupAggServedCount() {
+    return CONST_GROUP_AGG_SERVED.sum();
+  }
+
+  /**
+   * CONSTANT-key group-by ({@code let $g := 1 ... group by $g}): the grouping partitions nothing, so
+   * N aggregates fold over their operand columns in ONE parallel pass and emit a single record —
+   * Q29's ninety shifted sums become one column scan plus ninety O(1) offset applications
+   * ({@code sum(f+k) = sum(f) + k·presentCount(f)}, min/max/avg shift by {@code k}; a shifted let
+   * over a MISSING field binds the empty sequence, so exactly the present rows contribute — the same
+   * population the plain aggregate folds). Zero matching rows emit ZERO records, which is what
+   * {@code for … group by} does over an empty stream (and SQL's SELECT-with-aggregates does not — a
+   * translation property, not a serving one).
+   *
+   * @return the served single-record sequence (or the empty sequence), or {@code null} to decline
+   */
+  public Sequence executeConstGroupAggregate(final QueryContext ctx, final String[] sourcePath,
+      final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
+      final String[] outNames) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable()) {
+        return null;
+      }
+      // Only the plain scalar folds: an unrecognized function must decline HERE, not reach
+      // longStatsToSequence's fail-loud default and be miscounted as a serving defect.
+      for (final String func : funcs) {
+        switch (baseFunc(func)) {
+          case "count", "sum", "min", "max", "avg" -> {
+            /* servable */ }
+          default -> {
+            return null;
+          }
+        }
+      }
+      final CompiledPredicate cp = predicateOrNull == null
+          ? null
+          : compile(predicateOrNull);
+      final ArrayList<String> distinctFields = new ArrayList<>();
+      for (final String f : aggFields) {
+        if (f != null && !distinctFields.contains(f)) {
+          distinctFields.add(f);
+        }
+      }
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(distinctFields.toArray(new String[0]), cp));
+      if (handle == null) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
+      final int[] aggCols = new int[distinctFields.size()];
+      boolean anyStrlenAgg = false;
+      for (int i = 0; i < aggCols.length; i++) {
+        final String df = distinctFields.get(i);
+        final boolean strlen = df.startsWith("len:");
+        final int col = handle.columnOf(rawAggField(df));
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        if (strlen) {
+          // string-length over a dict column: codepoint counts fold as the numeric operand.
+          // The sparse gate above is ALSO the null gate — string-length(null) raises where
+          // the kernel would fold 0.
+          if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+            return null;
+          }
+          anyStrlenAgg = true;
+        } else if (handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
+            || !handle.numericColumnIsIntegral(col, fetcher)) {
+          return null;
+        }
+        aggCols[i] = col;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds;
+      if (cp == null) {
+        preds = new ProjectionIndexScan.ColumnPredicate[0];
+      } else {
+        if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+          return null;
+        }
+        final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+        if (extracted == null) {
+          return null;
+        }
+        preds = fuseRangePredicates(extracted);
+      }
+      // SLICED first (regime-gated): the const-group fold reads only its operand columns —
+      // this route was the suite's LAST payload materializer once the keyed arms sliced.
+      final ProjectionColumnStore constStore = handle.columnStoreOrNull();
+      if (GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
+          && !projectionWarmupPool.isShutdown()
+          && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER) {
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
+      }
+      final boolean constSliced =
+          GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
+              && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
+      final List<byte[]> armPayloads = constSliced
+          ? null
+          : leafPayloadsOrNull(handle);
+      if (!constSliced) {
+        if (armPayloads == null) {
+          return null;
+        }
+        if (armPayloads.isEmpty()) {
+          CONST_GROUP_AGG_SERVED.increment();
+          return new ItemSequence();
+        }
+      } else if (constStore.rowGroupCount() == 0) {
+        CONST_GROUP_AGG_SERVED.increment();
+        return new ItemSequence();
+      }
+      final int[] summedCols = summedColumns(funcs, aggFields, distinctFields, aggCols);
+      if (summedCols.length > 0) {
+        if (constSliced) {
+          ProjectionColumnGroupScan.requireGroupSumsFitLong(constStore, summedCols);
+        } else {
+          ProjectionIndexByteScan.requireGroupSumsFitLong(armPayloads, summedCols);
+        }
+      }
+      final int rowGroupCount = constSliced
+          ? constStore.rowGroupCount()
+          : armPayloads.size();
+      final int eff = Math.min(threads, Math.max(1, (rowGroupCount + 63) / 64));
+      final int chunkSize = (rowGroupCount + eff - 1) / eff;
+      final ProjectionColumnStore.ColumnSlice[][] kPredCols;
+      final ProjectionColumnStore.ColumnSlice[][] kAggCols;
+      if (constSliced) {
+        final ProjectionColumnStore.ColumnSegmentFetcher kFetcher = columnFetcher();
+        kPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(constStore, preds, kFetcher);
+        kAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+        for (int a = 0; a < aggCols.length; a++) {
+          if (constStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+          }
+          kAggCols[a] = constStore.column(aggCols[a], kFetcher);
+        }
+      } else {
+        kPredCols = null;
+        kAggCols = null;
+      }
+      final long[][] perThread = new long[eff][];
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to)
+          return;
+        final long[] local = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        if (constSliced) {
+          ProjectionColumnGroupScan.aggregateAllNumericFlat(constStore, preds, kPredCols, kAggCols, from, to, local);
+        } else {
+          ProjectionIndexByteScan.conjunctiveAggregateAllNumeric(armPayloads.subList(from, to), preds, aggCols, local);
+        }
+        perThread[idx] = local;
+      });
+      final long[] acc = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      for (int t = 0; t < eff; t++) {
+        if (perThread[t] != null) {
+          mergeGroupAgg(acc, perThread[t], aggCols.length, -1L);
+        }
+      }
+      if (acc[0] == 0) {
+        CONST_GROUP_AGG_SERVED.increment();
+        return new ItemSequence();
+      }
+      final QNm[] names = new QNm[funcs.length];
+      final Sequence[] vals = new Sequence[funcs.length];
+      for (int i = 0; i < funcs.length; i++) {
+        names[i] = new QNm(outNames[i]);
+        final String cfunc = baseFunc(funcs[i]);
+        final boolean cdbl = !cfunc.equals(funcs[i]);
+        if ("count".equals(cfunc)) {
+          vals[i] = cdbl
+              ? castToDouble(new Int64(acc[0]))
+              : new Int64(acc[0]);
+          continue;
+        }
+        final int a = distinctFields.indexOf(aggFields[i]);
+        final int base = 2 + 4 * a;
+        final long cnt = acc[base];
+        final long k = offsets[i];
+        // Exact or DECLINE: the shift algebra must not wrap where the interpreter promotes.
+        final long sum = Math.addExact(acc[base + 1], Math.multiplyExact(k, cnt));
+        final long min = cnt > 0
+            ? Math.addExact(acc[base + 2], k)
+            : acc[base + 2];
+        final long max = cnt > 0
+            ? Math.addExact(acc[base + 3], k)
+            : acc[base + 3];
+        final Sequence stat = longStatsToSequence(cfunc, cnt, sum, min, max);
+        vals[i] = stat instanceof ItemSequence
+            ? null
+            : cdbl
+                ? castToDouble(stat)
+                : stat;
+      }
+      CONST_GROUP_AGG_SERVED.increment();
+      return new ItemSequence(new ArrayObject(names, vals));
+    } catch (final ArithmeticException overflow) {
+      // Expected decline: an overflowing sum or shift routes to the interpreter's
+      // decimal-promoting arithmetic via the generic pipeline.
+      return null;
+    } catch (final RuntimeException e) {
+      GROUP_AGG_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] const-group-aggregate serving failed, using generic pipeline: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Single NUMERIC_LONG group key + per-group aggregates: the numeric twin of the single-key string
+   * arm of {@link #executeGroupByAggregate}. Same fan-out, the SAME key-agnostic
+   * {@link #mergeGroupAgg}, the same first-appearance emission order (sort on the first-seen ordinal
+   * in {@code acc[1]}, with the null-key group interleaved at its own ordinal) — only the accumulator
+   * key and the emitted key type differ.
+   */
+  /**
+   * The packed-substring arm: a single STRING_DICT key under a bare {@code substring(f, s, 16)}
+   * groups and orders on the ISO-minute digit pack (ORD_KEY over longs), the aux lane keeps each
+   * group's {@code (leaf, dictId)} first sighting, and the K winners decode their ORIGINAL substring
+   * from the dictionary bytes. Any unpackable window referenced by a matching row — including the
+   * {@code ""} of a missing field, a REAL group key — declines the whole serve.
+   */
+  private ServedGroups packedSubstringGroupAggregate(final List<byte[]> rowGroupPayloads,
+      final ProjectionColumnStore slicedStore, final ProjectionIndexScan.ColumnPredicate[] preds,
+      final ProjectionIndexScan.PredicateTree tree, final int groupCol, final int subStart, final int subLen,
+      final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
+      final GroupOrderPlan orderPlan, final long limit, final long[] having, final long sumExactMask) {
+    if (orderPlan == null) {
+      return declineGroupAgg("packed substring arm without an order plan");
+    }
+    final int rowGroupCount = slicedStore != null
+        ? slicedStore.rowGroupCount()
+        : rowGroupPayloads.size();
+    // SLICED arm: resolve ONCE on the calling thread; workers share the immutable slices.
+    final ProjectionColumnStore.ColumnSlice[][] pPredCols;
+    final ProjectionColumnStore.ColumnSlice[][] pTreeCols;
+    final ProjectionColumnStore.ColumnSlice[] pGroupCol;
+    final ProjectionColumnStore.ColumnSlice[][] pAggCols;
+    if (slicedStore != null) {
+      final ProjectionColumnStore.ColumnSegmentFetcher pFetcher = columnFetcher();
+      if (slicedStore.columnKind(groupCol) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupCol + " is not STRING_DICT");
+      }
+      pPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, pFetcher);
+      pTreeCols = tree != null
+          ? resolveTreeCols(slicedStore, tree, pFetcher)
+          : null;
+      pGroupCol = slicedStore.column(groupCol, pFetcher);
+      pAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+      for (int a = 0; a < aggCols.length; a++) {
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        }
+        pAggCols[a] = slicedStore.column(aggCols[a], pFetcher);
+      }
+    } else {
+      pPredCols = null;
+      pTreeCols = null;
+      pGroupCol = null;
+      pAggCols = null;
+    }
+    int partitions = 1;
+    while (partitions < Math.min(eff, 32)) {
+      partitions <<= 1;
+    }
+    final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+    final int partitionsF = partitions;
+    final int[][][] partIdx = new int[eff][][];
+    final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+    final long[] decline = new long[1];
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      final NumericGroupAggTable local =
+          new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), true, sumExactMask);
+      if (slicedStore != null) {
+        ProjectionColumnGroupScan.aggregateByGroupPackedSubstringFlat(slicedStore, preds, pPredCols, tree, pTreeCols,
+            pGroupCol, pAggCols, from, to, subStart, subLen, local, decline);
+      } else {
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupPackedSubstringFlat(rowGroupPayloads.subList(from, to),
+            preds, groupCol, subStart, subLen, aggCols, local, from, decline, tree);
+      }
+      tables[idx] = local;
+      partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+    });
+    if (decline[0] != 0) {
+      return declineGroupAgg("packed substring key failed validation on a matching row");
+    }
+    long scanned = 0;
+    for (int t = 0; t < eff; t++) {
+      if (tables[t] != null) {
+        scanned += tables[t].sizeIncludingZero();
+      }
+    }
+    if (scanned == 0) {
+      GROUP_AGG_SERVED.increment();
+      return new ServedGroups(new ItemSequence(), true);
+    }
+    final int slotWidth = 2 + 4 * aggCols.length;
+    final long perPartitionEstimate = Math.max(16, scanned / partitions);
+    final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+    final NumericGroupAggTable[] partTables = new NumericGroupAggTable[partitions];
+    parallel(partitions, part -> {
+      final NumericGroupAggTable into =
+          new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), true, sumExactMask);
+      NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
+      partTables[part] = into;
+      final int candidates = into.sizeIncludingZero();
+      if (candidates == 0) {
+        return;
+      }
+      final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+      final long[] tbl = into.table();
+      final int tblStride = into.stride();
+      for (int off = 0; off < tbl.length; off += tblStride) {
+        if (tbl[off] != 0L) {
+          // The key lane carries the PACK — ORD_KEY compares it, and lexicographic order over
+          // validated windows IS numeric order over packs.
+          final int base = off + 1;
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(tbl, base);
+          }
+          if (having != null && !havingPasses(tbl, base, having)) {
+            continue;
+          }
+          sel.offer(tbl, base, true, tbl[off], null);
+        }
+      }
+      partSelectors[part] = sel;
+    });
+    int winnerCount = 0;
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel != null) {
+        winnerCount += sel.size();
+      }
+    }
+    final int k = (int) Math.min(limit, winnerCount);
+    if (k == 0) {
+      GROUP_AGG_SERVED.increment();
+      return new ServedGroups(new ItemSequence(), true);
+    }
+    final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel == null) {
+        continue;
+      }
+      for (int i = 0; i < sel.size(); i++) {
+        final int base = sel.baseAt(i);
+        final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+        finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+      }
+    }
+    finalSel.sortInPlace();
+    // Winners: recover each pack's aux from its partition table (no boxing during selection),
+    // then decode the ORIGINAL substring from the source dictionary entry.
+    final int[] leafColumnBase = new int[rowGroupCount];
+    Arrays.fill(leafColumnBase, -1);
+    final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+    for (int i = 0; i < finalSel.size(); i++) {
+      final long packed = finalSel.keyLongAt(i);
+      final NumericGroupAggTable into = partTables[NumericGroupAggTable.partitionOf(packed, shift)];
+      final long src = into.auxAtAccBase(into.acquire(packed, Long.MAX_VALUE));
+      final int leaf = (int) (src >>> 20);
+      final int dictId = (int) (src & 0xFFFFF);
+      final String entry;
+      if (slicedStore != null) {
+        entry = pGroupCol[leaf].dictString(dictId);
+      } else {
+        final byte[] payload = rowGroupPayloads.get(leaf);
+        int columnBase = leafColumnBase[leaf];
+        if (columnBase < 0) {
+          columnBase = leafColumnBase[leaf] = ProjectionIndexByteScan.stringDictColumnBase(payload, groupCol);
+        }
+        entry = ProjectionIndexByteScan.dictEntryString(payload, columnBase, dictId);
+      }
+      // The window validated all-ASCII, so char indexing IS codepoint indexing.
+      final String key = entry.substring(subStart - 1, subStart - 1 + subLen);
+      out.add(groupAggRecord(key, finalSel.accAt(i), keyNames[0], funcs, aggFields, outNames, distinctFields, -1));
+    }
+    GROUP_AGG_SERVED.increment();
+    if (slicedStore != null) {
+      GROUP_AGG_SLICED_SERVED.increment();
+    }
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+  }
+
+  private ServedGroups numericGroupAggregate(final List<byte[]> rowGroupPayloads,
+      final ProjectionColumnStore slicedStore, final ProjectionIndexScan.ColumnPredicate[] preds, final int groupCol,
+      final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
+      final GroupOrderPlan orderPlan, final long limit, final int cdBlockIdx,
+      final ProjectionIndexScan.PredicateTree predTree, final long[] having, final boolean[] aggStrlen,
+      final boolean cdStringDict, final long globalKeyDictionary, final long sumExactMask) {
+    final int rowGroupCount = slicedStore != null
+        ? slicedStore.rowGroupCount()
+        : rowGroupPayloads.size();
+    if (orderPlan != null) {
+      // High-cardinality shape, ordered + capped: flat per-worker tables (no boxed accumulator
+      // per group), a hash-PARTITIONED parallel merge (no thread ever folds the full group
+      // count), per-partition bounded selection while the partition is cache-hot, and a final
+      // merge over at most partitions × K winners. Only the K survivors materialize records.
+      final int cdBase = cdBlockIdx >= 0
+          ? 2 + 4 * cdBlockIdx
+          : -1;
+      // DENSE ID ARM: a global-dictionary key IS an index. When the dictionary is small enough for
+      // one shared block-per-id table, the probe, the growth and the whole partition merge go away
+      // — see denseGlobalGroupAggregate. Over budget or out of scope, the hash tables below serve.
+      if (groupDenseEnabled() && slicedStore != null && globalKeyDictionary > 0L && cdBlockIdx < 0
+          && aggStrlen == null) {
+        final DenseGlobalGroupAggTable dense = denseGlobalGroupTable(globalKeyDictionary, aggCols.length, sumExactMask,
+            denseCountLaneRead(funcs, orderPlan, having));
+        if (dense != null) {
+          return denseGlobalGroupAggregate(slicedStore, preds, predTree, groupCol, aggCols, keyNames, funcs, aggFields,
+              outNames, distinctFields, eff, chunkSize, orderPlan, limit, having, globalKeyDictionary, dense);
+        }
+      }
+      final NumericGroupAggTable[] tables = new NumericGroupAggTable[eff];
+      final long[][] perThreadMissing = new long[eff][];
+      @SuppressWarnings("unchecked")
+      final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps = cdBlockIdx >= 0
+          ? new Long2ObjectOpenHashMap[eff]
+          : null;
+      final LongOpenHashSet[] cdMissingSets = cdBlockIdx >= 0
+          ? new LongOpenHashSet[eff]
+          : null;
+      final long[][] cdBudgets = cdBlockIdx >= 0
+          ? new long[eff][]
+          : null;
+      int partitions = 1;
+      while (partitions < Math.min(eff, 32)) {
+        partitions <<= 1;
+      }
+      final int shift = 64 - Integer.numberOfTrailingZeros(partitions);
+      final int partitionsF = partitions;
+      final int[][][] partIdx = new int[eff][][];
+      // SLICED arm: resolve every column ONCE on the calling thread — the slice arrays are
+      // immutable and shared, and letting the fan-out race the first fill would multiply the
+      // segment I/O by the worker count.
+      final ProjectionColumnStore.ColumnSlice[][] slicedPredCols;
+      final ProjectionColumnStore.ColumnSlice[][] slicedTreeCols;
+      final ProjectionColumnStore.ColumnSlice[] slicedGroupCol;
+      final ProjectionColumnStore.ColumnSlice[][] slicedAggCols;
+      if (slicedStore != null) {
+        final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+        slicedPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, fetcher);
+        slicedTreeCols = predTree != null
+            ? resolveTreeCols(slicedStore, predTree, fetcher)
+            : null;
+        slicedGroupCol = slicedStore.column(groupCol, fetcher);
+        slicedAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+        for (int a = 0; a < aggCols.length; a++) {
+          final int expected = (aggStrlen != null && aggStrlen[a]) || (cdStringDict && a == cdBlockIdx)
+              ? ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
+              : ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG;
+          // The distinct operand is the one slot a long-lane STRING_GLOBAL column may fill: it is
+          // folded into a set of longs, never summed or compared as a quantity. Every other lane
+          // keeps the exact-kind assert, so a global column can still not be summed by accident.
+          final boolean globalDistinctOperand = a == cdBlockIdx && !cdStringDict
+              && slicedStore.columnKind(aggCols[a]) == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+          if (!globalDistinctOperand && slicedStore.columnKind(aggCols[a]) != expected) {
+            throw new IllegalStateException("aggColumn " + aggCols[a] + " kind mismatch (expected " + expected + ")");
+          }
+          slicedAggCols[a] = distinctIdentityOperand(cdStringDict, a, cdBlockIdx, aggCols[a], slicedStore)
+              ? slicedStore.columnDistinctIdentity(aggCols[a], fetcher)
+              : slicedStore.column(aggCols[a], fetcher);
+        }
+      } else {
+        slicedPredCols = null;
+        slicedTreeCols = null;
+        slicedGroupCol = null;
+        slicedAggCols = null;
+      }
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, rowGroupCount);
+        if (from >= to)
+          return;
+        final NumericGroupAggTable local =
+            new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), false, sumExactMask);
+        final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+        if (cdBlockIdx >= 0) {
+          cdMaps[idx] = new Long2ObjectOpenHashMap<>();
+          cdMissingSets[idx] = new LongOpenHashSet();
+          cdBudgets[idx] = new long[] {GROUP_DISTINCT_MAX_VALUES / eff, 0};
+        }
+        if (slicedStore != null) {
+          ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, slicedPredCols, predTree,
+              slicedTreeCols, slicedGroupCol, slicedAggCols, aggStrlen, from, to, local, missing, cdBlockIdx,
+              cdBlockIdx >= 0
+                  ? cdMaps[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdMissingSets[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdBudgets[idx]
+                  : null,
+              cdStringDict);
+        } else {
+          ProjectionIndexByteScan.conjunctiveAggregateByGroupNumericFlat(rowGroupPayloads.subList(from, to), preds,
+              groupCol, aggCols, local, missing, from, cdBlockIdx, cdBlockIdx >= 0
+                  ? cdMaps[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdMissingSets[idx]
+                  : null,
+              cdBlockIdx >= 0
+                  ? cdBudgets[idx]
+                  : null,
+              predTree, aggStrlen, cdStringDict);
+        }
+        tables[idx] = local;
+        partIdx[idx] = local.buildPartitionIndex(partitionsF, shift);
+        perThreadMissing[idx] = missing;
+      });
+      if (cdBudgets != null) {
+        for (final long[] b : cdBudgets) {
+          if (b != null && b[1] != 0) {
+            return declineGroupAgg("count(distinct) exact-set budget exceeded (numeric arm)");
+          }
+        }
+      }
+      final long[] missingMerged = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      long scanned = 0;
+      for (int t = 0; t < eff; t++) {
+        if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
+          mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length, sumExactMask);
+        }
+        if (tables[t] != null) {
+          scanned += tables[t].sizeIncludingZero();
+        }
+      }
+      if (cdMissingSets != null && missingMerged[0] > 0) {
+        final LongOpenHashSet mm = new LongOpenHashSet();
+        for (final LongOpenHashSet ms : cdMissingSets) {
+          if (ms != null) {
+            mm.addAll(ms);
+          }
+        }
+        missingMerged[cdBase + 1] = mm.size();
+      }
+      if (scanned == 0 && missingMerged[0] == 0) {
+        GROUP_AGG_SERVED.increment();
+        NUMERIC_GROUPBY_SERVED.increment();
+        if (slicedStore != null) {
+          GROUP_AGG_SLICED_SERVED.increment();
+        }
+        return new ServedGroups(new ItemSequence(), true);
+      }
+      final int slotWidth = 2 + 4 * aggCols.length;
+      final long perPartitionEstimate = Math.max(16, scanned / partitions);
+      final GroupTopKSelector[] partSelectors = new GroupTopKSelector[partitions];
+      parallel(partitions, part -> {
+        final NumericGroupAggTable into =
+            new NumericGroupAggTable(aggCols.length, (int) Math.min(1 << 20, perPartitionEstimate), false, sumExactMask);
+        NumericGroupAggTable.mergePartitionIndexed(tables, partIdx, part, into);
+        if (cdMaps != null) {
+          // Partition-wise union of the per-thread distinct sets, then the EXACT size lands in
+          // the block's sum lane — selection and emission read a plain slot from here on.
+          mergeDistinctSizesIntoPartition(cdMaps, part, shift, into, cdBase);
+        }
+        final int candidates = into.sizeIncludingZero();
+        if (candidates == 0) {
+          return;
+        }
+        final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, candidates));
+        final long[] tbl = into.table();
+        final int tblStride = into.stride();
+        for (int off = 0; off < tbl.length; off += tblStride) {
+          if (tbl[off] != 0L) {
+            final int base = off + 1;
+            if (orderPlan.hasCastAvg()) {
+              orderPlan.writeCastAvgLanes(tbl, base);
+            }
+            if (having != null && !havingPasses(tbl, base, having)) {
+              continue;
+            }
+            sel.offer(tbl, base, true, tbl[off], null);
+          }
+        }
+        if (into.hasZeroKey()) {
+          if (orderPlan.hasCastAvg()) {
+            orderPlan.writeCastAvgLanes(into.zeroSlot(), 0);
+          }
+          if (having == null || havingPasses(into.zeroSlot(), 0, having)) {
+            sel.offer(into.zeroSlot(), 0, true, 0L, null);
+          }
+        }
+        partSelectors[part] = sel;
+      });
+      return emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth, having, keyNames, funcs,
+          aggFields, outNames, distinctFields, cdBase, globalKeyDictionary, slicedStore != null, cdBlockIdx >= 0);
+    }
+    @SuppressWarnings("unchecked")
+    final Long2ObjectOpenHashMap<long[]>[] perThread = new Long2ObjectOpenHashMap[eff];
+    final long[][] perThreadMissing = new long[eff][];
+    // SLICED legacy arm — resolve ONCE, scan slices, drain each worker's table into the same
+    // map shape; merge and emission below are untouched (slot lane 1 carries the first-seen
+    // row ordinal the emission sorts by).
+    final ProjectionColumnStore.ColumnSlice[][] legPredCols;
+    final ProjectionColumnStore.ColumnSlice[] legGroupCol;
+    final ProjectionColumnStore.ColumnSlice[][] legAggCols;
+    if (slicedStore != null) {
+      final ProjectionColumnStore.ColumnSegmentFetcher legFetcher = columnFetcher();
+      legPredCols = ProjectionColumnScan.resolvePredicateColumnsShared(slicedStore, preds, legFetcher);
+      legGroupCol = slicedStore.column(groupCol, legFetcher);
+      legAggCols = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+      for (int a = 0; a < aggCols.length; a++) {
+        if (slicedStore.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+        }
+        legAggCols[a] = slicedStore.column(aggCols[a], legFetcher);
+      }
+    } else {
+      legPredCols = null;
+      legGroupCol = null;
+      legAggCols = null;
+    }
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to)
+        return;
+      final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      if (slicedStore != null) {
+        final NumericGroupAggTable localT =
+            new NumericGroupAggTable(aggCols.length, Math.min(1 << 16, (to - from) << 10), false, sumExactMask);
+        ProjectionColumnGroupScan.aggregateByGroupNumericFlat(slicedStore, preds, legPredCols, null, null, legGroupCol,
+            legAggCols, null, from, to, localT, missing, -1, null, null, null, false);
+        perThread[idx] = drainNumericGroupTable(localT, aggCols.length);
+      } else {
+        final Long2ObjectOpenHashMap<long[]> local = new Long2ObjectOpenHashMap<>();
+        ProjectionIndexByteScan.conjunctiveAggregateByGroupNumeric(rowGroupPayloads.subList(from, to), preds, groupCol,
+            aggCols, local, missing, from);
+        perThread[idx] = local;
+      }
+      perThreadMissing[idx] = missing;
+    });
+    final Long2ObjectOpenHashMap<long[]> merged = new Long2ObjectOpenHashMap<>();
+    final long[] missingMerged = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+    for (int t = 0; t < eff; t++) {
+      if (perThread[t] != null) {
+        for (final Long2ObjectMap.Entry<long[]> e : perThread[t].long2ObjectEntrySet()) {
+          final long[] existing = merged.get(e.getLongKey());
+          if (existing == null) {
+            merged.put(e.getLongKey(), e.getValue());
+          } else {
+            mergeGroupAgg(existing, e.getValue(), aggCols.length, sumExactMask);
+          }
+        }
+      }
+      if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
+        mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length, sumExactMask);
+      }
+    }
+    final ArrayList<Long2ObjectMap.Entry<long[]>> ordered = new ArrayList<>(merged.long2ObjectEntrySet());
+    ordered.sort(Comparator.comparingLong(e -> e.getValue()[1]));
+    // Every group is emitted here, so every id is reverse-mapped — in ONE batch, which is what
+    // turns N random record reads into a walk over the dictionary's pages in id order.
+    final String[] legacyKeyStrings;
+    if (globalKeyDictionary > 0L) {
+      final int[] ids = new int[ordered.size()];
+      for (int i = 0; i < ids.length; i++) {
+        ids[i] = (int) ordered.get(i).getLongKey();
+      }
+      legacyKeyStrings = resolveGlobalGroupKeys(globalKeyDictionary, ids, i -> true);
+      if (legacyKeyStrings == null) {
+        return declineGroupAgg("a winning global group key has no value in this revision (legacy arm)");
+      }
+    } else {
+      legacyKeyStrings = null;
+    }
+    final ArrayList<Item> out = new ArrayList<>(ordered.size() + 1);
+    int emittedMissing = 0;
+    for (int i = 0; i < ordered.size(); i++) {
+      final Long2ObjectMap.Entry<long[]> e = ordered.get(i);
+      if (missingMerged[0] > 0 && emittedMissing == 0 && missingMerged[1] < e.getValue()[1]) {
+        out.add(groupAggRecordNumeric(0L, false, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields,
+            -1, null));
+        emittedMissing = 1;
+      }
+      out.add(groupAggRecordNumeric(e.getLongKey(), true, e.getValue(), keyNames[0], funcs, aggFields, outNames,
+          distinctFields, -1, legacyKeyStrings == null
+              ? null
+              : legacyKeyStrings[i]));
+    }
+    if (missingMerged[0] > 0 && emittedMissing == 0) {
+      out.add(groupAggRecordNumeric(0L, false, missingMerged, keyNames[0], funcs, aggFields, outNames, distinctFields,
+          -1, null));
+    }
+    GROUP_AGG_SERVED.increment();
+    NUMERIC_GROUPBY_SERVED.increment();
+    if (slicedStore != null) {
+      GROUP_AGG_SLICED_SERVED.increment();
+    }
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), false);
+  }
+
+  /**
+   * A dense block-per-id table for a global-dictionary group key, or {@code null} when this query
+   * must keep the hash tables.
+   *
+   * <p>
+   * The id ceiling comes from the dictionary HEADER (one record read on the calling thread, off the
+   * per-row path), not from the row count the distinct bitmaps use: a table sized by rows would be
+   * {@code rows / entries} times too large — 100M rows against 3.7M dictionary entries is a factor of
+   * 27 — and would decline every query it should serve.
+   */
+  /**
+   * Whether anything in this query reads a group's {@code count} lane, and therefore whether the dense
+   * arm has to pay an atomic add per matching row for it. THE three readers, each verified at its
+   * site: an {@code fn:count} entry in the emission ({@code fillAggEntries} reads {@code acc[0]}), an
+   * {@code ORD_COUNT} order spec ({@link GroupOrderPlan#readsCountLane}), and a HAVING filter
+   * ({@code havingPasses} compares {@code acc[base]}). {@code avg} is not one of them — it divides the
+   * aggregate column's sum by its own PRESENT count — and neither is group existence, which the dense
+   * table reads off the first-seen lane.
+   */
+  private static boolean denseCountLaneRead(final String[] funcs, final GroupOrderPlan orderPlan,
+      final long[] having) {
+    if (having != null || orderPlan.readsCountLane()) {
+      return true;
+    }
+    for (final String func : funcs) {
+      if ("count".equals(baseFunc(func))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private @Nullable DenseGlobalGroupAggTable denseGlobalGroupTable(final long headerKey, final int aggColumns,
+      final long sumExactMask, final boolean foldCountLane) {
+    final ValueDictionaryHeaderNode header =
+        GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
+    if (header == null) {
+      return declineDense("the column's value dictionary is unreadable in this revision");
+    }
+    final int entryCount = header.getEntryCount();
+    if (entryCount <= 0) {
+      return declineDense("the column's value dictionary is empty");
+    }
+    final long bytes = DenseGlobalGroupAggTable.bytesFor(aggColumns, entryCount);
+    final long budget = groupDenseMaxBytes();
+    if (bytes > budget) {
+      return declineDense("dense table would cost " + bytes + " bytes over a " + budget + " budget");
+    }
+    try {
+      return new DenseGlobalGroupAggTable(aggColumns, entryCount, sumExactMask, foldCountLane);
+    } catch (final IllegalArgumentException e) {
+      // Only reachable when the byte budget is configured above what one array can hold.
+      return declineDense(e.getMessage());
+    }
+  }
+
+  private static @Nullable DenseGlobalGroupAggTable declineDense(final String reason) {
+    if (PROJ_DIAG) {
+      System.err.println("[proj] dense group table declined: " + reason);
+    }
+    return null;
+  }
+
+  /**
+   * Ordered group-by over a GLOBAL dictionary key with the group table addressed by the id.
+   *
+   * <p>
+   * Structurally this is the hash arm with three phases deleted. Workers fold into ONE shared table
+   * ({@link DenseGlobalGroupAggTable}) instead of a private one, so there is no per-worker table to
+   * index by partition, no partition merge and no growth: what the hash arm spends on
+   * {@code buildPartitionIndex}, {@code mergePartitionIndexed} and {@code rehash} this arm does not
+   * spend at all. Selection then splits the ID RANGE across partitions — each id lives in exactly one
+   * slot, so a partition's winners are final and the shared emission tail merges them exactly as it
+   * merges the hash arm's.
+   *
+   * <p>
+   * The MISSING-key group stays per-worker and unsynchronized: it has no id, it is one accumulator
+   * rather than millions, and merging {@code eff} of them costs nothing.
+   */
+  private ServedGroups denseGlobalGroupAggregate(final ProjectionColumnStore store,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final ProjectionIndexScan.PredicateTree predTree,
+      final int groupCol, final int[] aggCols, final String[] keyNames, final String[] funcs, final String[] aggFields,
+      final String[] outNames, final ArrayList<String> distinctFields, final int eff, final int chunkSize,
+      final GroupOrderPlan orderPlan, final long limit, final long[] having, final long globalKeyDictionary,
+      final DenseGlobalGroupAggTable dense) {
+    final int rowGroupCount = store.rowGroupCount();
+    // Resolve every column ONCE on the calling thread: the slice arrays are immutable and shared,
+    // and letting the fan-out race the first fill would multiply the segment I/O by the worker count.
+    final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+    final ProjectionColumnStore.ColumnSlice[][] predCols =
+        ProjectionColumnScan.resolvePredicateColumnsShared(store, preds, fetcher);
+    final ProjectionColumnStore.ColumnSlice[][] treeCols = predTree != null
+        ? resolveTreeCols(store, predTree, fetcher)
+        : null;
+    final ProjectionColumnStore.ColumnSlice[] groupSlices = store.column(groupCol, fetcher);
+    final ProjectionColumnStore.ColumnSlice[][] aggSlices = new ProjectionColumnStore.ColumnSlice[aggCols.length][];
+    for (int a = 0; a < aggCols.length; a++) {
+      if (store.columnKind(aggCols[a]) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+        throw new IllegalStateException("aggColumn " + aggCols[a] + " is not NUMERIC_LONG");
+      }
+      aggSlices[a] = store.column(aggCols[a], fetcher);
+    }
+    final int maxId = dense.maxId();
+    final int slotWidth = dense.slotWidth();
+    final long sumExactMask = dense.sumExactMask();
+    // Stamping the empty-accumulator pattern is a pass over the whole table, so it runs on the
+    // fan-out rather than leaving nineteen threads idle for it.
+    final int initChunk = (maxId + eff - 1) / eff;
+    parallel(eff, idx -> {
+      final int fromId = 1 + idx * initChunk;
+      final int toId = (int) Math.min((long) fromId + initChunk, maxId + 1L);
+      if (fromId < toId) {
+        dense.initIds(fromId, toId);
+      }
+    });
+    dense.requireFullyInitialized();
+    final long[][] perThreadMissing = new long[eff][];
+    final DenseGlobalGroupAggTable.IdRoster[] rosters = new DenseGlobalGroupAggTable.IdRoster[eff];
+    final long[] decline = new long[1];
+    parallel(eff, idx -> {
+      final int from = idx * chunkSize;
+      final int to = Math.min(from + chunkSize, rowGroupCount);
+      if (from >= to) {
+        return;
+      }
+      final long[] missing = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+      final DenseGlobalGroupAggTable.IdRoster roster = new DenseGlobalGroupAggTable.IdRoster(1 << 12);
+      ProjectionColumnGroupScan.aggregateByGroupNumericDense(store, preds, predCols, predTree, treeCols, groupSlices,
+          aggSlices, from, to, dense, missing, roster, decline);
+      perThreadMissing[idx] = missing;
+      rosters[idx] = roster;
+    });
+    if (decline[0] != 0L) {
+      // A cell holds an id the dictionary header does not cover — the column and the header
+      // disagree, and folding that row anywhere else would be a wrong answer.
+      return declineGroupAgg("a global id exceeds the dictionary's entry count");
+    }
+    final long[] missingMerged = ProjectionIndexByteScan.newGroupAggAcc(aggCols.length, Long.MAX_VALUE);
+    for (int t = 0; t < eff; t++) {
+      if (perThreadMissing[t] != null && perThreadMissing[t][0] > 0) {
+        mergeGroupAgg(missingMerged, perThreadMissing[t], aggCols.length, sumExactMask);
+      }
+    }
+    // Selection walks the per-worker CREATED-ID rosters: they partition the live groups exactly
+    // (one creator per id), so a roster's winners are final without any merge — and the alternative,
+    // scanning the whole id space for live slots, cost more than the fold that produced them.
+    final long[] lanes = dense.lanes();
+    final GroupTopKSelector[] partSelectors = new GroupTopKSelector[eff + 1];
+    parallel(eff, idx -> {
+      final DenseGlobalGroupAggTable.IdRoster roster = rosters[idx];
+      if (roster == null || roster.size() == 0) {
+        return;
+      }
+      final int[] ids = roster.ids();
+      final int n = roster.size();
+      final GroupTopKSelector sel = new GroupTopKSelector(orderPlan, (int) Math.min(limit, n));
+      for (int i = 0; i < n; i++) {
+        final int base = (ids[i] - 1) * slotWidth;
+        if (orderPlan.hasCastAvg()) {
+          orderPlan.writeCastAvgLanes(lanes, base);
+        }
+        if (having != null && !havingPasses(lanes, base, having)) {
+          continue;
+        }
+        sel.offer(lanes, base, true, ids[i], null);
+      }
+      partSelectors[idx] = sel;
+    });
+    // Id 0 is not an id the dictionary issues; the slot exists so a cell holding it cannot fold into
+    // id 1's block, and it is offered for the same reason the hash arm offers its zero-key slot —
+    // the emission decides what a key of 0 reverse-maps to. It has no roster, so it selects here.
+    final long[] zero = dense.zeroSlot();
+    if (DenseGlobalGroupAggTable.isLive(zero, 0)) {
+      if (orderPlan.hasCastAvg()) {
+        orderPlan.writeCastAvgLanes(zero, 0);
+      }
+      if (having == null || havingPasses(zero, 0, having)) {
+        final GroupTopKSelector zeroSel = new GroupTopKSelector(orderPlan, 1);
+        zeroSel.offer(zero, 0, true, 0L, null);
+        partSelectors[eff] = zeroSel;
+      }
+    }
+    final ServedGroups served =
+        emitNumericGroupWinners(partSelectors, missingMerged, orderPlan, limit, slotWidth, having, keyNames, funcs,
+            aggFields, outNames, distinctFields, -1, globalKeyDictionary, true, false);
+    if (served != null) {
+      GROUP_DENSE_SERVED.increment();
+    }
+    return served;
+  }
+
+  /**
+   * Group-bys served through the DENSE global-id table rather than the hash tables. A route that
+   * silently declines answers identically through the fallback, so only this counter distinguishes
+   * "the dense arm is fast" from "the dense arm never ran".
+   */
+  private static final LongAdder GROUP_DENSE_SERVED = new LongAdder();
+
+  /** Test/ops observability for {@link #GROUP_DENSE_SERVED}. */
+  public static long groupDenseServedCount() {
+    return GROUP_DENSE_SERVED.sum();
+  }
+
+  /** Reset {@link #groupDenseServedCount()}. */
+  public static void resetGroupDenseServed() {
+    GROUP_DENSE_SERVED.reset();
+  }
+
+  /**
+   * A/B switch for the dense global-id group table: {@code -Dsirix.projection.groupDense=false} keeps
+   * the hash tables, so both arms can be measured in ONE build rather than across two.
+   *
+   * <p>
+   * Read per group-by rather than latched into a constant — once per query is free, and it lets a test
+   * exercise BOTH arms against one another in one JVM, which is the only way to prove they agree.
+   */
+  private static boolean groupDenseEnabled() {
+    return !"false".equals(System.getProperty("sirix.projection.groupDense"));
+  }
+
+  /**
+   * Ceiling on ONE dense group table. Past it the query keeps the hash arm, which costs memory
+   * proportional to the GROUPS rather than to the id space — the right structure exactly when the
+   * dictionary is large relative to the live group count.
+   */
+  private static long groupDenseMaxBytes() {
+    return Long.getLong("sirix.projection.groupDense.maxBytes",
+        Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
+  }
+
+  /**
+   * The tail every ordered numeric group-by arm shares: merge the per-partition top-K selectors into
+   * one, admit the MISSING-key group, reverse-map the winning global ids in ONE batch and build the
+   * records. Extracted so the hash arm and the dense-id arm cannot drift apart on selection or
+   * emission — only on how they accumulated.
+   *
+   * @param partSelectors per-partition winners; {@code null} entries are partitions with no candidate
+   * @param missingMerged the merged accumulator of rows whose group field is absent
+   * @param sliced whether the arm read column slices (counter only)
+   * @param cdServed whether a COUNT(DISTINCT) lane was answered (counter only)
+   */
+  private ServedGroups emitNumericGroupWinners(final GroupTopKSelector[] partSelectors, final long[] missingMerged,
+      final GroupOrderPlan orderPlan, final long limit, final int slotWidth, final long[] having,
+      final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
+      final ArrayList<String> distinctFields, final int cdBase, final long globalKeyDictionary, final boolean sliced,
+      final boolean cdServed) {
+    int winnerCount = missingMerged[0] > 0
+        ? 1
+        : 0;
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel != null) {
+        winnerCount += sel.size();
+      }
+    }
+    final int k = (int) Math.min(limit, winnerCount);
+    if (k == 0) {
+      GROUP_AGG_SERVED.increment();
+      NUMERIC_GROUPBY_SERVED.increment();
+      if (sliced) {
+        GROUP_AGG_SLICED_SERVED.increment();
+      }
+      return new ServedGroups(new ItemSequence(), true);
+    }
+    final GroupTopKSelector finalSel = new GroupTopKSelector(orderPlan, k);
+    for (final GroupTopKSelector sel : partSelectors) {
+      if (sel == null) {
+        continue;
+      }
+      for (int i = 0; i < sel.size(); i++) {
+        final int base = sel.baseAt(i);
+        final long[] acc = Arrays.copyOfRange(sel.accAt(i), base, base + slotWidth);
+        finalSel.offer(acc, 0, true, sel.keyLongAt(i), null);
+      }
+    }
+    if (missingMerged[0] > 0) {
+      if (orderPlan.hasCastAvg()) {
+        orderPlan.writeCastAvgLanes(missingMerged, 0);
+      }
+      if (having == null || havingPasses(missingMerged, 0, having)) {
+        finalSel.offer(missingMerged, 0, false, 0L, null);
+      }
+    }
+    finalSel.sortInPlace();
+    final String[] keyStrings;
+    if (globalKeyDictionary > 0L) {
+      final int[] winnerIds = new int[finalSel.size()];
+      for (int i = 0; i < finalSel.size(); i++) {
+        winnerIds[i] = (int) finalSel.keyLongAt(i);
+      }
+      keyStrings = resolveGlobalGroupKeys(globalKeyDictionary, winnerIds, finalSel::hasKeyAt);
+      if (keyStrings == null) {
+        return declineGroupAgg("a winning global group key has no value in this revision");
+      }
+    } else {
+      keyStrings = null;
+    }
+    final ArrayList<Item> out = new ArrayList<>(finalSel.size());
+    for (int i = 0; i < finalSel.size(); i++) {
+      out.add(groupAggRecordNumeric(finalSel.keyLongAt(i), finalSel.hasKeyAt(i), finalSel.accAt(i), keyNames[0], funcs,
+          aggFields, outNames, distinctFields, cdBase, keyStrings == null
+              ? null
+              : keyStrings[i]));
+    }
+    GROUP_AGG_SERVED.increment();
+    NUMERIC_GROUPBY_SERVED.increment();
+    if (sliced) {
+      GROUP_AGG_SLICED_SERVED.increment();
+    }
+    if (cdServed) {
+      GROUP_DISTINCT_SERVED.increment();
+    }
+    return new ServedGroups(new ItemSequence(out.toArray(new Item[0])), true);
+  }
+
+  /**
+   * Drain a worker's flat table into the legacy map shape: key = group VALUE, acc lane 1 = first-seen
+   * row ordinal ({@code initBlock} stamped it), zero-key slot under key 0.
+   */
+  private static Long2ObjectOpenHashMap<long[]> drainNumericGroupTable(final NumericGroupAggTable t,
+      final int aggColumns) {
+    final Long2ObjectOpenHashMap<long[]> map = new Long2ObjectOpenHashMap<>();
+    final long[] tbl = t.table();
+    final int stride = t.stride();
+    final int w = t.slotWidth();
+    // The drained block is the STANDALONE accumulator shape ([count, firstSeen, aggs...]) the
+    // legacy map merge and emission expect — the stripe's key and aux lanes stay behind.
+    for (int off = 0; off < tbl.length; off += stride) {
+      if (tbl[off] != 0L) {
+        map.put(tbl[off], Arrays.copyOfRange(tbl, off + 1, off + 1 + w));
+      }
+    }
+    if (t.hasZeroKey()) {
+      map.put(0L, Arrays.copyOf(t.zeroSlot(), w));
+    }
+    return map;
+  }
+
+  /**
+   * String twin of {@link #drainNumericGroupTable}: keys materialize from the slice dict via each
+   * group's aux {@code (leaf, dictId)} ref; the zero side slot holds the value whose FNV hash IS the
+   * empty-bucket sentinel.
+   */
+  private static Object2ObjectOpenHashMap<String, long[]> drainStringGroupTable(final NumericGroupAggTable t,
+      final int aggColumns, final ProjectionColumnStore.ColumnSlice[] groupColSlices) {
+    final Object2ObjectOpenHashMap<String, long[]> map = new Object2ObjectOpenHashMap<>();
+    final long[] tbl = t.table();
+    final int stride = t.stride();
+    final int w = t.slotWidth();
+    for (int off = 0; off < tbl.length; off += stride) {
+      if (tbl[off] == 0L) {
+        continue;
+      }
+      final int base = off + 1;
+      final long src = t.auxAtAccBase(base);
+      final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
+      map.put(key, Arrays.copyOfRange(tbl, base, base + w));
+    }
+    if (t.hasZeroKey()) {
+      final long src = t.zeroAux();
+      final String key = groupColSlices[(int) (src >>> 20)].dictString((int) (src & 0xFFFFF));
+      map.put(key, Arrays.copyOf(t.zeroSlot(), w));
+    }
+    return map;
+  }
+
+  /**
+   * One per-group output record under a NUMERIC_LONG key; {@code hasKey == false} = the missing-field
+   * group.
+   *
+   * <p>
+   * The key is {@link Int64}, never {@link Str} — the string sibling's wrap would type a numeric key
+   * {@code xs:string}, a wrong result rather than a degradation. The missing group's key is Java
+   * {@code null} (the EMPTY sequence, what the interpreter's object constructor stores), matching
+   * {@link #groupAggRecord} rather than {@link #buildTypedGroupRecords}'s {@code Null.INSTANCE}: a
+   * served record must agree with its own string sibling on the same query shape.
+   */
+  /** Whether the group at a selection slot has a key at all (the MISSING group has none). */
+  @FunctionalInterface
+  private interface KeyPresence {
+    boolean at(int slot);
+  }
+
+  /**
+   * Reverse-map the group keys a global-keyed group-by is about to emit, in ONE batch.
+   *
+   * <p>
+   * This is the only place a global column's dictionary is read for VALUES rather than probed for an
+   * id, and it is bounded by the answer's size, not the input's: k ids for a top-k, one per group for
+   * an uncapped group-by. {@link GlobalValueDictionary#values} visits them in ascending id order, so
+   * ids sharing a record page resolve together instead of scattering.
+   *
+   * @param headerKey the column's dictionary anchor
+   * @param ids the winners' ids, positionally aligned with the caller's slots
+   * @param hasKey which slots actually carry a key — the MISSING group's id is not an id
+   * @return the values, positionally aligned, or {@code null} when any id has no value in this
+   *         revision, which is a decline: emitting the raw long would type the key {@code xs:integer}
+   *         and emitting nothing would drop a group
+   */
+  private @Nullable String[] resolveGlobalGroupKeys(final long headerKey, final int[] ids, final KeyPresence hasKey) {
+    final String[] resolved =
+        GlobalValueDictionary.values(headerKey, ids, workerTrx().getStorageEngineReader());
+    for (int i = 0; i < ids.length; i++) {
+      if (hasKey.at(i) && resolved[i] == null) {
+        if (PROJ_DIAG) {
+          System.err.println("[proj] global group key " + ids[i] + " has no value in this revision — declining");
+        }
+        return null;
+      }
+    }
+    return resolved;
+  }
+
+  private static ArrayObject groupAggRecordNumeric(final long groupKey, final boolean hasKey, final long[] acc,
+      final String keyName, final String[] funcs, final String[] aggFields, final String[] outNames,
+      final ArrayList<String> distinctFields, final int cdBase, final @Nullable String globalKeyValue) {
+    final QNm[] names = new QNm[1 + funcs.length];
+    final Sequence[] vals = new Sequence[1 + funcs.length];
+    names[0] = new QNm(keyName);
+    vals[0] = !hasKey
+        ? null
+        // A global column's cells are ids, and the QUERY asked about strings. The reverse-mapped
+        // value is what the key was all along; the long is an implementation detail that must not
+        // reach an answer.
+        : globalKeyValue != null
+            ? new Str(globalKeyValue)
+            : new Int64(groupKey);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase);
+    return new ArrayObject(names, vals);
   }
 
   /**
@@ -9609,6 +13959,230 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return record keys in emission order, or {@code null} to fall back
    */
+  /**
+   * Serving cap for the UNORDERED predicate scan: past this many matches, materializing the result
+   * through per-record navigation is slower than the row path it replaces.
+   */
+  private static final int PREDICATE_SCAN_MAX_MATCHES = Integer.getInteger("sirix.predScan.maxMatches", 100_000);
+
+  /**
+   * PREDICATE SCAN (stage 7d — the point-lookup shape): record keys of every row matching a
+   * conjunctive predicate, in DOCUMENT order, served entirely from projection column slices.
+   * {@code null} = decline (no covering projection, unsliceable predicate, OR/NOT tree, or more than
+   * {@link #PREDICATE_SCAN_MAX_MATCHES} matches). The expr materializes each key through the shared
+   * read trx — touching ONLY the matching records' pages, never hydrating the store.
+   */
+  public long[] predicateScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final long limit) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable() || predicateOrNull == null) {
+        return null;
+      }
+      // Unanchored: the mask visits every row with per-leaf presence — same contract as the
+      // group routes (a bare negation shape would still decline at tree extraction below).
+      final CompiledPredicate cp = compile(predicateOrNull, false);
+      final ProjectionIndexRegistry.Handle handle = lookupProjection(sourcePath, requiredFields(new String[0], cp));
+      if (handle == null) {
+        return null;
+      }
+      if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null; // OR/NOT trees decline (v1) — the sliced mask is conjunction-only
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      if (store == null || !predsSliceable(store, preds)) {
+        return null;
+      }
+      return ProjectionColumnScan.matchingRecordKeys(store, preds, PREDICATE_SCAN_MAX_MATCHES, limit, columnFetcher());
+    } catch (final RuntimeException e) {
+      if (PROJ_DIAG) {
+        System.err.println("[proj] predicate scan declined: " + e);
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Eager-buffer budget for {@link #predicateScanFieldValues}: every emitted value is a heap-resident
+   * item before the sequence returns, so a broad predicate declines to the streaming generic pipeline
+   * rather than risking an OOM. Same order as {@link #ROW_MAT_MAX_ROWS}, and deliberately NOT
+   * {@link #PREDICATE_SCAN_MAX_MATCHES} — that cap prices per-record navigation, which this route
+   * does not do at all.
+   */
+  private static final int PREDICATE_VALUE_EMIT_MAX_MATCHES =
+      Integer.getInteger("sirix.predScan.valueEmitMaxMatches", 1_000_000);
+
+  /**
+   * The same budget for a {@link ProjectionIndexRowGroupPage#COLUMN_KIND_STRING_GLOBAL} column, two
+   * orders of magnitude lower, because this route's cost model is different in kind.
+   *
+   * <p>
+   * For every other kind the value IS the cell: emission is a decode, and the cap exists only to
+   * bound the heap-resident buffer. A global column's cell is an id, so each emitted row also costs
+   * a dictionary lookup. Those lookups batch well — resolved in ascending id order, the ids sharing a
+   * reverse-id bucket resolve together, and
+   * repeats land on the page just read — but the batching wins on LOCALITY, not on count, so past
+   * some size the route is paying roughly one dictionary read per emitted row.
+   *
+   * <p>
+   * That is precisely the work the row path it replaces would do, except the row path streams
+   * instead of buffering the whole answer. So the route is worth taking exactly where a projection
+   * scan beats record navigation outright — the point-lookup shape this whole family serves, tens to
+   * thousands of rows — and not for a broad scan, where it would trade a streaming answer for an
+   * eager one and win nothing. 10k is the order of magnitude where those cross; nothing turns on the
+   * exact value, which is why it is a property.
+   */
+  private static final int GLOBAL_VALUE_EMIT_MAX_MATCHES =
+      Integer.getInteger("sirix.predScan.globalValueEmitMaxMatches", 10_000);
+
+  /**
+   * PREDICATE VALUE EMISSION (the {@code return $r.field} tail of the point-lookup shape): the
+   * FIELD's values for every row matching a conjunctive predicate, in DOCUMENT order, built straight
+   * from the projection's column slices — where {@link #predicateScanRecordKeys} hands back keys the
+   * caller then materializes record by record. Q20 ({@code where UserID = <lit> return $r.UserID})
+   * paid ~180 scattered record-page faults for values the projection already held.
+   *
+   * <p>
+   * {@code null} = decline; the caller runs the record-materializing route (and, on its decline, the
+   * generic pipeline) unchanged. Declines: no covering projection, the field is not a projected
+   * column, a column kind whose emission cannot be proven to reproduce the record deref's atomic (the
+   * {@link #executeRowMaterialize} gates verbatim — value-exact integrality for NUMERIC_LONG,
+   * pure-Double provenance for NUMERIC_DOUBLE, sparse-clean for all of them), a wtx context, or more
+   * than {@link #PREDICATE_VALUE_EMIT_MAX_MATCHES} matches.
+   *
+   * <p>
+   * A matching row MISSING the field emits nothing, exactly as the record route's empty deref does —
+   * except under a {@code fn:subsequence} cap, where the window counts items and a skipped row would
+   * shift it; there the record route throws and falls back, and so does this one.
+   */
+  public Sequence predicateScanFieldValues(final String[] sourcePath, final PredicateNode predicateOrNull,
+      final String returnField, final long limit) {
+    try {
+      if (projectionRegistryKey == null || !anyProjectionAvailable() || predicateOrNull == null || returnField == null
+          || wtx != null) {
+        return null;
+      }
+      // Unanchored — the SAME mask predicateScanRecordKeys builds; this route replaces only the
+      // keys -> records -> deref tail, never the row set.
+      final CompiledPredicate cp = compile(predicateOrNull, false);
+      final ProjectionIndexRegistry.Handle handle =
+          lookupProjection(sourcePath, requiredFields(new String[] {returnField}, cp));
+      if (handle == null || !ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+        return null;
+      }
+      final ProjectionColumnStore store = handle.columnStoreOrNull();
+      if (store == null) {
+        return null;
+      }
+      final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
+      final int col = handle.columnOf(returnField);
+      if (col < 0 || !handle.columnSparseClean(col, fetcher, rowGroupMaterializer(handle))) {
+        // Sparse-clean is what makes an absent presence bit mean "the field is MISSING" rather
+        // than "present but unrepresentable" (a JSON null, an object, a kind mismatch) — without
+        // it, skipping the row would drop a value the interpreter emits.
+        return null;
+      }
+      final byte kind = handle.columnKindOf(col);
+      if (kind != store.columnKind(col)) {
+        // The atomic is chosen from the HANDLE's kind and the cell is read from the STORE's; a
+        // disagreement would build the right value in the wrong type, silently.
+        return null;
+      }
+      switch (kind) {
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT:
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN:
+          break;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL:
+          if (handle.valueDictionaryHeaderKey(col) <= 0L) {
+            return null; // ids with no dictionary to resolve them against
+          }
+          break;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG:
+          if (!handle.numericColumnIsIntegral(col, fetcher)) {
+            return null; // Int64 would not reproduce the deref's atomic value-exactly
+          }
+          break;
+        case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE:
+          if (!handle.doubleColumnPureSource(col, fetcher)) {
+            return null; // only a Double source makes Dbl the deref's own type
+          }
+          break;
+        default:
+          return null;
+      }
+      final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+      if (extracted == null) {
+        return null; // OR/NOT trees decline (v1) — the sliced mask is conjunction-only
+      }
+      final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
+      if (!predsSliceable(store, preds)) {
+        return null;
+      }
+      final boolean globalValues = kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL;
+      final ArrayList<Item> items = new ArrayList<>();
+      // A global column emits IDS through the sink; the values are resolved once, after the scan.
+      final IntArrayList globalIds = globalValues
+          ? new IntArrayList()
+          : null;
+      final ProjectionColumnScan.FieldValueSink sink = new ProjectionColumnScan.FieldValueSink() {
+        @Override
+        public void acceptLong(final long raw) {
+          if (globalValues) {
+            globalIds.add((int) raw);
+            return;
+          }
+          items.add(switch (kind) {
+            case ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN -> raw != 0
+                ? Bool.TRUE
+                : Bool.FALSE;
+            case ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_DOUBLE ->
+              new Dbl(ProjectionDoubleEncoding.decode(raw));
+            default -> new Int64(raw);
+          });
+        }
+
+        @Override
+        public void acceptString(final byte[] utf8, final int off, final int len) {
+          // NOT a bare Str: brackit's serializer writes a plain Atomic with toString() and only
+          // routes an Atomic that is ALSO a JsonItem through the quoting JSON writer. Every
+          // string the record deref produces is an AtomicStrJsonDBItem, so a Str here would
+          // serialize `a` where the interpreter serializes `"a"` — right value, wrong bytes.
+          items.add(new ComputedStrJsonItem(new String(utf8, off, len, StandardCharsets.UTF_8)));
+        }
+      };
+      // A cap counts ITEMS, so a skipped (field-missing) row would shift the window: decline on
+      // the first hole instead, which is exactly what the record route does with its throw.
+      final long emitted = ProjectionColumnScan.matchingFieldValues(store, preds, col, globalValues
+          ? GLOBAL_VALUE_EMIT_MAX_MATCHES
+          : PREDICATE_VALUE_EMIT_MAX_MATCHES, limit, limit >= 0, fetcher, sink);
+      if (emitted == ProjectionColumnScan.FIELD_VALUES_DECLINED) {
+        return null;
+      }
+      if (globalValues) {
+        final String[] values =
+            GlobalValueDictionary.values(handle.valueDictionaryHeaderKey(col), globalIds.toIntArray(),
+                workerTrx().getStorageEngineReader());
+        for (final String value : values) {
+          if (value == null) {
+            return null; // an id this revision cannot resolve — the record path knows the value
+          }
+          items.add(new ComputedStrJsonItem(value));
+        }
+      }
+      return new ItemSequence(items.toArray(new Item[0]));
+    } catch (final RuntimeException e) {
+      PREDICATE_VALUE_EMISSION_FAILED.increment();
+      if (PROJ_DIAG) {
+        System.err.println("[proj] predicate value emission declined: " + e);
+      }
+      return null;
+    }
+  }
+
   public long[] sortedScanRecordKeys(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] orderFields, final boolean[] descending, final long limit) {
     try {
@@ -9629,10 +14203,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ProjectionColumnStore.ColumnSegmentFetcher fetcher = columnFetcher();
       final Supplier<List<byte[]>> materializer = rowGroupMaterializer(handle);
       final int[] cols = new int[keyCount];
+      boolean anyStringKey = false;
       for (int k = 0; k < keyCount; k++) {
         final int col = handle.columnOf(orderFields[k]);
-        if (col < 0 || handle.columnKindOf(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG
-            || !handle.numericColumnIsIntegral(col, fetcher) || !handle.columnSparseClean(col, fetcher, materializer)) {
+        if (col < 0 || !handle.columnSparseClean(col, fetcher, materializer)) {
+          return null;
+        }
+        final byte kind = handle.columnKindOf(col);
+        if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG) {
+          if (!handle.numericColumnIsIntegral(col, fetcher)) {
+            return null;
+          }
+        } else if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+          // Served by the bounded sliced heap only — the tuple-collect fallbacks below are
+          // long-only, so a string key without that path declines.
+          anyStringKey = true;
+        } else {
           return null;
         }
         cols[k] = col;
@@ -9655,6 +14241,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // by zone bounds DURING collection, the R2 "heap over zone-map-pruned leaves" shape.
       final ProjectionColumnStore store = handle.columnStoreOrNull();
       final boolean sliced = store != null && predsSliceable(store, preds);
+      if (anyStringKey && !(sliced && limit >= 0)) {
+        return null;
+      }
       if (sliced && limit >= 0) {
         long totalRows = 0;
         for (int leaf = 0; leaf < store.rowGroupCount(); leaf++) {
@@ -9674,6 +14263,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
           return top;
         }
+      }
+      if (anyStringKey) {
+        return null; // the fall-through collectors carry long tuples only
       }
       final LongArrayList values = new LongArrayList();
       final LongArrayList keys = new LongArrayList();
@@ -9812,41 +14404,136 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final LongAdder SORTED_SCAN_FAILED = new LongAdder();
 
   /** Test/ops observability for {@link #SORTED_SCAN_FAILED}. */
+  private static final LongAdder PREDICATE_SCAN_SERVED = new LongAdder();
+
+  public static void markPredicateScanServed() {
+    PREDICATE_SCAN_SERVED.increment();
+  }
+
+  public static long predicateScanServedCount() {
+    return PREDICATE_SCAN_SERVED.sum();
+  }
+
+  /** Predicate scans answered by EMITTING the return field's values (no record materialized). */
+  private static final LongAdder PREDICATE_VALUE_EMISSION_SERVED = new LongAdder();
+
+  /**
+   * Mark one predicate scan as answered from {@link #predicateScanFieldValues} — called by the expr
+   * once the emitted sequence is the one it returns, so the counter says EMITTED, not attempted.
+   */
+  public static void markPredicateValueEmissionServed() {
+    PREDICATE_VALUE_EMISSION_SERVED.increment();
+  }
+
+  /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_SERVED}. */
+  public static long predicateValueEmissionsServedCount() {
+    return PREDICATE_VALUE_EMISSION_SERVED.sum();
+  }
+
+  /** Value-emission attempts that FAILED with an exception (not gate declines). */
+  private static final LongAdder PREDICATE_VALUE_EMISSION_FAILED = new LongAdder();
+
+  /** Test/ops observability for {@link #PREDICATE_VALUE_EMISSION_FAILED}. */
+  public static long predicateValueEmissionsFailedCount() {
+    return PREDICATE_VALUE_EMISSION_FAILED.sum();
+  }
+
   public static long sortedScanFailedCount() {
     return SORTED_SCAN_FAILED.sum();
   }
 
   /**
-   * Fresh read transaction at the executor's bound revision — backs sorted-scan record
-   * materialization (P5b stage 7b). Session-owned: closes with the session.
+   * Fresh thread-safe read cursor at the executor's bound revision — backs sorted-scan record
+   * materialization (P5b stage 7b). The construction transaction is scoped to materialization;
+   * {@link #releaseRecordTrx(JsonNodeReadOnlyTrx)} detaches lazy items onto the chain's bounded
+   * consumer-cursor pool and immediately unregisters the construction transaction.
    */
   public JsonNodeReadOnlyTrx openRecordTrx() {
-    return session.beginNodeReadOnlyTrx(revision);
+    return new ThreadSafeJsonReadOnlyTrx(session.beginNodeReadOnlyTrx(revision), executionLifecycle);
   }
 
-  /** Cached record-materialization trx (see {@link #recordTrx()}); executor-owned. */
-  private volatile JsonNodeReadOnlyTrx recordTrx;
+  /** How many materialization lanes {@link #recordTrxAt} serves. */
+  public int recordTrxLaneCount() {
+    return Math.min(threads, 16);
+  }
 
   /**
-   * The executor's ONE cached record-materialization transaction — materialized items read fields
-   * through it lazily during serialization, so it lives until the executor closes (a per-query trx
-   * would leak one open transaction per served query).
+   * Fresh cursor for materialization lane {@code lane}. A lane must release it after publishing no
+   * further items; retaining a cursor array here kept {@code lanes * revisions} registered
+   * transactions alive after executor retirement.
    */
-  public JsonNodeReadOnlyTrx recordTrx() {
-    JsonNodeReadOnlyTrx trx = recordTrx;
-    // Reopen when closed, not only when absent: an executor that has been closed can still be
-    // reached by an already-compiled query holding a reference to it, and materializing through a
-    // closed transaction would fail that query. Reopening keeps it answering from its revision.
-    if (trx == null || trx.isClosed()) {
-      synchronized (this) {
-        trx = recordTrx;
-        if (trx == null || trx.isClosed()) {
-          trx = session.beginNodeReadOnlyTrx(revision);
-          recordTrx = trx;
-        }
+  public JsonNodeReadOnlyTrx recordTrxAt(final int lane) {
+    final int laneCount = recordTrxLaneCount();
+    if (lane < 0 || lane >= laneCount) {
+      throw new IllegalArgumentException("lane must be in [0, " + laneCount + "): " + lane);
+    }
+    return openRecordTrx();
+  }
+
+  /**
+   * Run record-materialization lanes on this executor's fenced worker pool. This is intentionally
+   * separate from the JVM common pool: {@link #close()} must be able to prove that no lane still
+   * holds a session-bound cursor before the owning store closes its resource sessions.
+   */
+  public void parallelRecordMaterialization(final int lanes, final IntConsumer laneTask) {
+    if (lanes <= 0) {
+      throw new IllegalArgumentException("lanes must be positive");
+    }
+    if (laneTask == null) {
+      throw new IllegalArgumentException("laneTask must not be null");
+    }
+    parallel(lanes, laneTask::accept);
+  }
+
+  /**
+   * Advisory WILLNEED over the winner record keys' pages BEFORE the materialization loop — the keys
+   * are known in full, so the kernel readahead runs at device queue depth instead of one demand fault
+   * per 4 KiB page per moveTo. Sorts a COPY (the caller's array carries the emission order); zero
+   * work when the backend advertises no prefetch capability.
+   */
+  public void prefetchWinnerRecordPages(final long[] recordKeys) {
+    if (recordKeys.length == 0) {
+      return;
+    }
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
+    final int batch = reader.recordPagePrefetchBatch();
+    if (batch <= 0) {
+      return;
+    }
+    final long[] pageKeys = new long[recordKeys.length];
+    for (int i = 0; i < recordKeys.length; i++) {
+      pageKeys[i] = recordKeys[i] >> Constants.NDP_NODE_COUNT_EXPONENT;
+    }
+    Arrays.sort(pageKeys);
+    int n = 0;
+    long last = -1;
+    for (final long pk : pageKeys) {
+      if (pk != last) {
+        pageKeys[n++] = pk;
+        last = pk;
       }
     }
-    return trx;
+    for (int base = 0; base < n; base += batch) {
+      final int len = Math.min(batch, n - base);
+      reader.prefetchRecordPages(Arrays.copyOfRange(pageKeys, base, base + len), len, IndexType.DOCUMENT);
+    }
+  }
+
+  /** Fresh serial record-materialization cursor; the caller must release it after construction. */
+  public JsonNodeReadOnlyTrx recordTrx() {
+    return openRecordTrx();
+  }
+
+  /**
+   * Release a materialization cursor without invalidating items that retain its proxy.
+   */
+  public void releaseRecordTrx(final JsonNodeReadOnlyTrx trx) {
+    Objects.requireNonNull(trx, "trx must not be null");
+    if (trx instanceof ThreadSafeJsonReadOnlyTrx threadSafeTrx) {
+      threadSafeTrx.detachOwner();
+    } else {
+      trx.close();
+    }
   }
 
   /** Failure hook for the sorted-scan expr (counts + optional diagnostics). */
@@ -10269,7 +14956,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return GROUP_AGG_FAILED.sum();
   }
 
-  private static void mergeGroupAgg(final long[] into, final long[] from, final int aggCols) {
+  private static void mergeGroupAgg(final long[] into, final long[] from, final int aggCols,
+      final long sumExactMask) {
     into[0] += from[0];
     if (from[1] < into[1]) {
       into[1] = from[1];
@@ -10277,9 +14965,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     for (int a = 0; a < aggCols; a++) {
       final int base = 2 + 4 * a;
       into[base] += from[base];
-      // Exact merge or DECLINE — same interpreter-promotes-on-overflow rule the kernels
-      // enforce per row (a wrapped cross-chunk sum is just as wrong as a wrapped fold).
-      into[base + 1] = Math.addExact(into[base + 1], from[base + 1]);
+      // Exact merge or DECLINE — same interpreter-promotes-on-overflow rule the kernels enforce
+      // per row (a wrapped cross-chunk sum is just as wrong as a wrapped fold), and the same
+      // exemption: an unread lane holds 0 on both sides because neither kernel folded it.
+      into[base + 1] = NumericGroupAggTable.sumsExact(sumExactMask, a)
+          ? Math.addExact(into[base + 1], from[base + 1])
+          : into[base + 1] + from[base + 1];
       if (from[base + 2] < into[base + 2])
         into[base + 2] = from[base + 2];
       if (from[base + 3] > into[base + 3])
@@ -10287,9 +14978,576 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /**
+   * The served result of a group-by aggregate: the group records, and whether the kernel already
+   * emitted them in the pipeline's order (truncated to the sole-consumer subsequence cap when one was
+   * annotated). {@code ordered == false} leaves ordering to the caller's Brackit sort.
+   */
+  public record ServedGroups(Sequence groups, boolean ordered) {
+  }
+
+  /**
+   * Partition-wise union of the per-thread COUNT(DISTINCT) sets, writing each group's EXACT merged
+   * size into its accumulator block's sum lane — selection and emission read a plain slot from here
+   * on. Sizes must never be merged directly (values shared between threads would double-count), which
+   * is why the per-thread blocks stay zero until this point. Key {@code 0} is the table's zero side
+   * slot (the numeric arm's group value 0, or the string arm's freak zero hash); every other key has
+   * a live table entry by construction, so {@code acquire} always FINDS rather than creates.
+   */
+  private static void mergeDistinctSizesIntoPartition(final Long2ObjectOpenHashMap<LongOpenHashSet>[] cdMaps,
+      final int part, final int shift, final NumericGroupAggTable into, final int cdBase) {
+    final Long2ObjectOpenHashMap<LongOpenHashSet> merged = new Long2ObjectOpenHashMap<>();
+    for (final Long2ObjectOpenHashMap<LongOpenHashSet> m : cdMaps) {
+      if (m == null) {
+        continue;
+      }
+      for (final Long2ObjectMap.Entry<LongOpenHashSet> e : m.long2ObjectEntrySet()) {
+        final long key = e.getLongKey();
+        if (NumericGroupAggTable.partitionOf(key, shift) != part) {
+          continue;
+        }
+        final LongOpenHashSet existing = merged.get(key);
+        if (existing == null) {
+          // The thread-local set is dead after this pass; adopting it in place is safe.
+          merged.put(key, e.getValue());
+        } else {
+          existing.addAll(e.getValue());
+        }
+      }
+    }
+    for (final Long2ObjectMap.Entry<LongOpenHashSet> e : merged.long2ObjectEntrySet()) {
+      final long key = e.getLongKey();
+      final int size = e.getValue().size();
+      if (key == 0L) {
+        if (into.hasZeroKey()) {
+          into.zeroSlot()[cdBase + 1] = size;
+        }
+      } else {
+        final int base = into.acquire(key, Long.MAX_VALUE);
+        into.table()[base + cdBase + 1] = size;
+      }
+    }
+  }
+
+  /**
+   * A bitmap set for {@code col}'s grouped COUNT(DISTINCT), or {@code null} when the column is not a
+   * dense-id global dictionary column.
+   *
+   * <p>
+   * The id space is sized from the store's total row count rather than the dictionary header: a
+   * column cannot hold more distinct values than it has rows, the bound needs no page read on the
+   * query's critical path, and an id past it declines rather than miscounts (see
+   * {@link GroupDistinctBitmaps#set}). One bit per id per group, so the whole structure is
+   * {@code groups × rows/8} bytes — 175 MB for fourteen groups over 100M rows, against per-worker
+   * exact sets that cost more than that and still cannot cover the cardinality.
+   */
+  private static GroupDistinctBitmaps globalDistinctBitmaps(final ProjectionColumnStore store, final int col) {
+    if (store.columnKind(col) != ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_GLOBAL) {
+      return null;
+    }
+    long rows = 0;
+    final int leaves = store.rowGroupCount();
+    for (int leaf = 0; leaf < leaves; leaf++) {
+      rows += store.rowCount(leaf);
+    }
+    if (rows <= 0) {
+      return null;
+    }
+    return new GroupDistinctBitmaps(rows, GROUP_DISTINCT_BITMAP_MAX_BYTES);
+  }
+
+  /** Ceiling on one query's grouped-distinct bitmaps; past it the route declines, never sketches. */
+  private static final long GROUP_DISTINCT_BITMAP_MAX_BYTES =
+      Long.getLong("sirix.projection.groupDistinct.maxBitmapBytes",
+          Math.min(1L << 30, Runtime.getRuntime().maxMemory() / 8));
+
+  /**
+   * Bitmap twin of {@link #mergeDistinctSizesIntoPartition}: the per-group bitmaps are already the
+   * union across every worker, so this is a popcount per group rather than a set merge.
+   */
+  private static void mergeDistinctBitmapSizesIntoPartition(final GroupDistinctBitmaps bitmaps, final int part,
+      final int shift, final NumericGroupAggTable into, final int cdBase) {
+    for (final Long boxed : bitmaps.groups()) {
+      final long key = boxed;
+      if (key == Long.MIN_VALUE) {
+        continue; // the missing-key group is emitted through missingMergedFlat, not a partition
+      }
+      if (NumericGroupAggTable.partitionOf(key, shift) != part) {
+        continue;
+      }
+      final long size = bitmaps.cardinality(key);
+      if (key == 0L) {
+        if (into.hasZeroKey()) {
+          into.zeroSlot()[cdBase + 1] = size;
+        }
+      } else {
+        final int base = into.acquire(key, Long.MAX_VALUE);
+        into.table()[base + cdBase + 1] = size;
+      }
+    }
+  }
+
+  /**
+   * An order-by over served group records resolved to ACCUMULATOR slots, so the kernel can order (and
+   * under a subsequence cap, heap-select) groups without materializing records. Resolvable only when
+   * every spec reads a value the accumulator holds as a primitive: the single NUMERIC group key, or a
+   * count/sum/min/max/avg over a NUMERIC_LONG aggregate column. Everything else — string keys,
+   * composite key components — returns {@code null} and the caller keeps Brackit's comparator.
+   *
+   * <p>
+   * The comparator below mirrors {@code Ordering#compare} exactly: per spec, both-empty falls
+   * through, one-empty places by {@code EMPTY_LEAST} (NOT flipped by descending), values compare
+   * exactly (avg as a 128-bit cross-multiplied fraction — the interpreter's {@code Int64.div} is
+   * exact decimal, so a double rounding here could invert an order the interpreter defines), and full
+   * ties resolve by first-seen ordinal — the stable-sort insertion order Brackit's {@code TupleSort}
+   * preserves over the kernel's document-first-appearance emission.
+   */
+  private static final class GroupOrderPlan {
+    static final int ORD_KEY = 0;
+    static final int ORD_COUNT = 1;
+    static final int ORD_SUM = 2;
+    static final int ORD_MIN = 3;
+    static final int ORD_MAX = 4;
+    static final int ORD_AVG = 5;
+    /**
+     * COUNT(DISTINCT): the merged set size in its block's sum lane — never empty, 0 for a group whose
+     * operand was always missing (fn:count semantics, not avg's empty).
+     */
+    static final int ORD_COUNT_DISTINCT = 6;
+    /**
+     * {@code order by xs:double(avg(f))}: the interpreter sorts the CAST value, so two exact averages
+     * that round to the same double are a TIE (ordinal-resolved) — the exact fraction comparator would
+     * order them and diverge. The cast double (brackit's exact composition: scale-18 HALF_EVEN decimal,
+     * then {@code BigDecimal#doubleValue}) is precomputed into the entry's UNUSED min lane after the
+     * partition merge ({@link #writeCastAvgLanes}) — resolvable only when no min/max entry shares the
+     * block, which resolve() verifies.
+     */
+    static final int ORD_AVG_DBL = 7;
+    /**
+     * {@code max(f) - min(f)} (optionally over a whole-unit divisor): both extrema come from the ONE
+     * block {@code f} already occupies, so a span orders in-kernel with no extra lane. Presence is the
+     * block's present count — an all-missing group's span is the EMPTY sequence, since
+     * {@code max(()) - min(())} is, not 0 the way fn:count would be.
+     */
+    static final int ORD_SPAN = 8;
+
+    final int[] kinds;
+    final int[] aggBase;
+    final boolean[] asc;
+    final boolean[] emptyLeast;
+    /** Per spec: the {@link #ORD_SPAN} divisor, {@code 0} for every other kind. */
+    final long[] spanDiv;
+
+    private GroupOrderPlan(final int[] kinds, final int[] aggBase, final boolean[] asc, final boolean[] emptyLeast,
+        final long[] spanDiv) {
+      this.kinds = kinds;
+      this.aggBase = aggBase;
+      this.asc = asc;
+      this.emptyLeast = emptyLeast;
+      this.spanDiv = spanDiv;
+    }
+
+    /**
+     * ZERO specs: the comparator is the first-seen-ordinal tiebreak alone, so a bounded selection
+     * yields the first K groups in DOCUMENT order — exactly the interpreter's emission for
+     * {@code LIMIT} without {@code ORDER BY}.
+     */
+    static GroupOrderPlan ordinalOnly() {
+      return new GroupOrderPlan(new int[0], new int[0], new boolean[0], new boolean[0], new long[0]);
+    }
+
+    /**
+     * @param keyIsNumeric single NUMERIC_LONG group key — the only key kind with a primitive order
+     * @return the resolved plan, or {@code null} when any spec cannot be ordered in-kernel
+     */
+    static GroupOrderPlan resolve(final int[] orderIndexes, final boolean[] orderAsc, final boolean[] orderEmptyLeast,
+        final int keyCount, final boolean keyIsNumeric, final String[] funcs, final String[] aggFields,
+        final ArrayList<String> distinctFields, final int cdBlockIdx) {
+      final int n = orderIndexes.length;
+      final int[] kinds = new int[n];
+      final int[] aggBase = new int[n];
+      final long[] spanDiv = new long[n];
+      for (int i = 0; i < n; i++) {
+        final int oi = orderIndexes[i];
+        if (oi < keyCount) {
+          if (!keyIsNumeric || keyCount != 1) {
+            return null; // string/composite key components need Brackit's comparator
+          }
+          kinds[i] = ORD_KEY;
+        } else {
+          final int j = oi - keyCount;
+          if (j >= funcs.length) {
+            return null;
+          }
+          String func = funcs[j];
+          boolean castAvg = false;
+          if (!func.equals(baseFunc(func))) {
+            if (!"dbl:avg".equals(func)) {
+              // Other cast entries would need their own rounding replication — decline.
+              return null;
+            }
+            // xs:double(avg(f)) orders on the CAST value via a precomputed lane — the entry's
+            // min lane, which must not be a real min/max of the same field elsewhere.
+            for (int other = 0; other < funcs.length; other++) {
+              final String ob = baseFunc(funcs[other]);
+              // A SPAN over the same field reads that min lane too — writeCastAvgLanes would
+              // hand it a cast double where an extremum belongs.
+              if (other != j && ("min".equals(ob) || "max".equals(ob) || ob.startsWith(SPAN_PREFIX))
+                  && aggFields[j].equals(aggFields[other])) {
+                return null;
+              }
+            }
+            castAvg = true;
+            func = "avg";
+          }
+          if ("count".equals(func)) {
+            kinds[i] = ORD_COUNT;
+          } else if ("count-distinct".equals(func)) {
+            if (cdBlockIdx < 0) {
+              return null;
+            }
+            kinds[i] = ORD_COUNT_DISTINCT;
+            aggBase[i] = 2 + 4 * cdBlockIdx;
+          } else if (func.startsWith(SPAN_PREFIX)) {
+            final int a = distinctFields.indexOf(aggFields[j]);
+            if (a < 0) {
+              return null;
+            }
+            aggBase[i] = 2 + 4 * a;
+            kinds[i] = ORD_SPAN;
+            spanDiv[i] = spanDivisor(func);
+          } else {
+            final int a = distinctFields.indexOf(aggFields[j]);
+            if (a < 0) {
+              return null;
+            }
+            aggBase[i] = 2 + 4 * a;
+            switch (func) {
+              case "sum" -> kinds[i] = ORD_SUM;
+              case "min" -> kinds[i] = ORD_MIN;
+              case "max" -> kinds[i] = ORD_MAX;
+              case "avg" -> kinds[i] = castAvg
+                  ? ORD_AVG_DBL
+                  : ORD_AVG;
+              default -> {
+                return null;
+              }
+            }
+          }
+        }
+      }
+      return new GroupOrderPlan(kinds, aggBase, orderAsc.clone(), orderEmptyLeast.clone(), spanDiv);
+    }
+
+    /**
+     * Whether any order spec reads the block's {@code count} lane. {@code avg} does NOT: it divides
+     * the aggregate column's own sum by its PRESENT count, and only {@link #ORD_COUNT} addresses
+     * {@code block[0]} — which is what lets a plan-ordered group-by skip folding that lane.
+     */
+    boolean readsCountLane() {
+      for (final int kind : kinds) {
+        if (kind == ORD_COUNT) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
+     * Full ordering over two group accumulator blocks addressed as {@code (array, base)} — a standalone
+     * {@code long[]} at base 0, or an inline block of a
+     * {@link io.sirix.index.projection.NumericGroupAggTable}. Negative = {@code a} emits first. Never
+     * returns 0 for distinct groups — the first-seen ordinal ({@code block[1]}) breaks every tie,
+     * exactly the stable-sort order the interpreter produces over first-appearance emission.
+     */
+    int compare(final long[] arrA, final int baseA, final boolean hasKeyA, final long keyA, final long[] arrB,
+        final int baseB, final boolean hasKeyB, final long keyB) {
+      for (int i = 0; i < kinds.length; i++) {
+        final int kind = kinds[i];
+        final boolean presentA;
+        final boolean presentB;
+        long valA = 0L;
+        long valB = 0L;
+        switch (kind) {
+          case ORD_KEY -> {
+            presentA = hasKeyA;
+            presentB = hasKeyB;
+            valA = keyA;
+            valB = keyB;
+          }
+          case ORD_COUNT -> {
+            presentA = true;
+            presentB = true;
+            valA = arrA[baseA];
+            valB = arrB[baseB];
+          }
+          case ORD_COUNT_DISTINCT -> {
+            // fn:count of a distinct-values sequence: 0 for an all-missing group, never empty.
+            presentA = true;
+            presentB = true;
+            valA = arrA[baseA + aggBase[i] + 1];
+            valB = arrB[baseB + aggBase[i] + 1];
+          }
+          case ORD_SPAN -> {
+            final int base = aggBase[i];
+            presentA = arrA[baseA + base] > 0;
+            presentB = arrB[baseB + base] > 0;
+            if (presentA && presentB) {
+              // Truncating division, exactly what XQuery `idiv` does — and applied per extremum,
+              // never to the difference, because that is what the emitted value is.
+              final long k = spanDiv[i];
+              valA = arrA[baseA + base + 3] / k - arrA[baseA + base + 2] / k;
+              valB = arrB[baseB + base + 3] / k - arrB[baseB + base + 2] / k;
+            }
+          }
+          default -> {
+            final int base = aggBase[i];
+            presentA = arrA[baseA + base] > 0;
+            presentB = arrB[baseB + base] > 0;
+            if (presentA && presentB && kind != ORD_AVG && kind != ORD_AVG_DBL) {
+              final int off = kind == ORD_SUM
+                  ? 1
+                  : kind == ORD_MIN
+                      ? 2
+                      : 3;
+              valA = arrA[baseA + base + off];
+              valB = arrB[baseB + base + off];
+            }
+          }
+        }
+        if (!presentA || !presentB) {
+          if (presentA == presentB) {
+            continue; // both empty: equal on this spec — consult the next one
+          }
+          // Empty placement follows EMPTY_LEAST alone; descending does NOT flip it
+          // (Ordering#compare returns before the ASC negation).
+          if (!presentA) {
+            return emptyLeast[i]
+                ? -1
+                : 1;
+          }
+          return emptyLeast[i]
+              ? 1
+              : -1;
+        }
+        final int res = kind == ORD_AVG
+            ? compareFraction(arrA[baseA + aggBase[i] + 1], arrA[baseA + aggBase[i]], arrB[baseB + aggBase[i] + 1],
+                arrB[baseB + aggBase[i]])
+            : kind == ORD_AVG_DBL
+                ? Double.compare(Double.longBitsToDouble(arrA[baseA + aggBase[i] + 2]),
+                    Double.longBitsToDouble(arrB[baseB + aggBase[i] + 2]))
+                : Long.compare(valA, valB);
+        if (res != 0) {
+          return asc[i]
+              ? res
+              : -res;
+        }
+      }
+      return Long.compare(arrA[baseA + 1], arrB[baseB + 1]);
+    }
+
+    /**
+     * Exact {@code s1/c1 <=> s2/c2} with {@code c1, c2 >= 1}: signed 128-bit cross-multiply,
+     * {@code sign(s1*c2 - s2*c1)} without overflow or double rounding.
+     */
+    static int compareFraction(final long s1, final long c1, final long s2, final long c2) {
+      final long h1 = Math.multiplyHigh(s1, c2);
+      final long l1 = s1 * c2;
+      final long h2 = Math.multiplyHigh(s2, c1);
+      final long l2 = s2 * c1;
+      if (h1 != h2) {
+        return Long.compare(h1, h2);
+      }
+      return Long.compareUnsigned(l1, l2);
+    }
+
+    boolean hasCastAvg() {
+      for (final int kind : kinds) {
+        if (kind == ORD_AVG_DBL) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    /**
+     * Stamp every ORD_AVG_DBL entry's cast double into its (verified-unused) min lane — called once per
+     * group AFTER the partition merge, before the group is offered to a selector.
+     */
+    void writeCastAvgLanes(final long[] acc, final int base) {
+      for (int i = 0; i < kinds.length; i++) {
+        if (kinds[i] == ORD_AVG_DBL) {
+          final int b = base + aggBase[i];
+          if (acc[b] > 0) {
+            acc[b + 2] = Double.doubleToRawLongBits(castAvgDouble(acc[b + 1], acc[b]));
+          }
+        }
+      }
+    }
+
+    /**
+     * Brackit's exact {@code xs:double(sum div count)} composition: an exact division is an
+     * {@code Int64} (plain long-to-double), otherwise a scale-18 HALF_EVEN decimal whose
+     * {@code BigDecimal#doubleValue} the DBL cast takes — replicated digit-for-digit.
+     */
+    static double castAvgDouble(final long sum, final long count) {
+      if (sum % count == 0) {
+        return (double) (sum / count);
+      }
+      return new BigDecimal(sum).divide(new BigDecimal(count), 18, RoundingMode.HALF_EVEN).doubleValue();
+    }
+  }
+
+  /**
+   * Bounded top-K selection over group accumulators under a {@link GroupOrderPlan}: a max-heap of the
+   * K best-so-far, "max" = the entry that orders LAST among them — a candidate ordering before the
+   * root evicts it. Draining heap-sorts in place, so the survivors come out in emission order.
+   * Selects exactly the first K entries of the stable full sort, at {@code n log K} with zero
+   * allocation per candidate (the accumulators already exist; only the K-slot arrays are new).
+   */
+  private static final class GroupTopKSelector {
+    private final GroupOrderPlan plan;
+    private final int capacity;
+    private final long[][] accs;
+    private final int[] bases;
+    private final Object[] keyObjs;
+    private final long[] keyLongs;
+    private final boolean[] hasKeys;
+    private int size;
+
+    GroupTopKSelector(final GroupOrderPlan plan, final int capacity) {
+      this.plan = plan;
+      this.capacity = capacity;
+      this.accs = new long[capacity][];
+      this.bases = new int[capacity];
+      this.keyObjs = new Object[capacity];
+      this.keyLongs = new long[capacity];
+      this.hasKeys = new boolean[capacity];
+    }
+
+    void offer(final long[] acc, final int base, final boolean hasKey, final long keyLong, final Object keyObj) {
+      if (size < capacity) {
+        final int at = size++;
+        accs[at] = acc;
+        bases[at] = base;
+        keyObjs[at] = keyObj;
+        keyLongs[at] = keyLong;
+        hasKeys[at] = hasKey;
+        siftUp(at);
+        return;
+      }
+      // Full: only a candidate ordering BEFORE the current worst can be in the first K.
+      if (plan.compare(acc, base, hasKey, keyLong, accs[0], bases[0], hasKeys[0], keyLongs[0]) < 0) {
+        accs[0] = acc;
+        bases[0] = base;
+        keyObjs[0] = keyObj;
+        keyLongs[0] = keyLong;
+        hasKeys[0] = hasKey;
+        siftDown(0, size);
+      }
+    }
+
+    /** Heap-sort drain; afterwards slots {@code 0..size()-1} are in emission order. */
+    void sortInPlace() {
+      for (int end = size - 1; end > 0; end--) {
+        swap(0, end);
+        siftDown(0, end);
+      }
+    }
+
+    int size() {
+      return size;
+    }
+
+    long[] accAt(final int i) {
+      return accs[i];
+    }
+
+    int baseAt(final int i) {
+      return bases[i];
+    }
+
+    boolean hasKeyAt(final int i) {
+      return hasKeys[i];
+    }
+
+    long keyLongAt(final int i) {
+      return keyLongs[i];
+    }
+
+    Object keyObjAt(final int i) {
+      return keyObjs[i];
+    }
+
+    /** Negative when slot {@code i} orders after slot {@code j} — the heap keeps the LAST first. */
+    private int heapCmp(final int i, final int j) {
+      return plan.compare(accs[j], bases[j], hasKeys[j], keyLongs[j], accs[i], bases[i], hasKeys[i], keyLongs[i]);
+    }
+
+    private void siftUp(int at) {
+      while (at > 0) {
+        final int parent = at - 1 >>> 1;
+        if (heapCmp(parent, at) <= 0) {
+          return;
+        }
+        swap(parent, at);
+        at = parent;
+      }
+    }
+
+    private void siftDown(int at, final int end) {
+      while (true) {
+        final int left = (at << 1) + 1;
+        if (left >= end) {
+          return;
+        }
+        final int right = left + 1;
+        int worst = left;
+        if (right < end && heapCmp(left, right) > 0) {
+          worst = right;
+        }
+        if (heapCmp(at, worst) <= 0) {
+          return;
+        }
+        swap(at, worst);
+        at = worst;
+      }
+    }
+
+    private void swap(final int i, final int j) {
+      final long[] acc = accs[i];
+      accs[i] = accs[j];
+      accs[j] = acc;
+      final int b = bases[i];
+      bases[i] = bases[j];
+      bases[j] = b;
+      final Object ko = keyObjs[i];
+      keyObjs[i] = keyObjs[j];
+      keyObjs[j] = ko;
+      final long kl = keyLongs[i];
+      keyLongs[i] = keyLongs[j];
+      keyLongs[j] = kl;
+      final boolean hk = hasKeys[i];
+      hasKeys[i] = hasKeys[j];
+      hasKeys[j] = hk;
+    }
+  }
+
   /** One per-group output record; {@code null} group key = the missing-field group. */
   private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
-      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields) {
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase) {
+    return groupAggRecord(groupKey, acc, keyName, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+  }
+
+  /**
+   * {@code deferredAgg}/{@code deferredVals}: the pass-2 string extrema — entry {@code i} emits
+   * {@code deferredVals[i]} as {@link Str} (or the empty sequence when the group has no present
+   * operand) instead of reading an accumulator lane it never had.
+   */
+  private static ArrayObject groupAggRecord(final String groupKey, final long[] acc, final String keyName,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
     final QNm[] names = new QNm[1 + funcs.length];
     final Sequence[] vals = new Sequence[1 + funcs.length];
     names[0] = new QNm(keyName);
@@ -10299,14 +15557,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     vals[0] = groupKey == null
         ? null
         : new Str(groupKey);
-    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields);
+    fillAggEntries(names, vals, 1, acc, funcs, aggFields, outNames, distinctFields, cdBase, deferredAgg, deferredVals);
+    return new ArrayObject(names, vals);
+  }
+
+  /**
+   * COMPOSITE (mixed-kind) per-group record: a present NUMERIC_LONG component emits {@link Int64}
+   * (matching the single-numeric-key arm), a present STRING_DICT one {@link Str}, a missing one the
+   * empty sequence — decoded from the group's first-seen row by the caller.
+   */
+  private static ArrayObject groupAggRecordComposite(final String[] keyNames, final boolean[] present,
+      final boolean[] isLong, final String[] strParts, final long[] longParts, final long[] acc, final String[] funcs,
+      final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields, final int cdBase) {
+    final int k = keyNames.length;
+    final QNm[] names = new QNm[k + funcs.length];
+    final Sequence[] vals = new Sequence[k + funcs.length];
+    for (int i = 0; i < k; i++) {
+      names[i] = new QNm(keyNames[i]);
+      vals[i] = !present[i]
+          ? null
+          : isLong[i]
+              ? new Int64(longParts[i])
+              : new Str(strParts[i]);
+    }
+    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase);
     return new ArrayObject(names, vals);
   }
 
   /** MULTI-KEY per-group record (gap 1a); {@code null} key components = missing-field keys. */
   private static ArrayObject groupAggRecordMulti(final ProjectionIndexByteScan.GroupKey key, final long[] acc,
       final String[] keyNames, final String[] funcs, final String[] aggFields, final String[] outNames,
-      final ArrayList<String> distinctFields) {
+      final ArrayList<String> distinctFields, final int cdBase) {
     final int k = keyNames.length;
     final QNm[] names = new QNm[k + funcs.length];
     final Sequence[] vals = new Sequence[k + funcs.length];
@@ -10318,30 +15599,206 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           ? null
           : new Str(part);
     }
-    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields);
+    fillAggEntries(names, vals, k, acc, funcs, aggFields, outNames, distinctFields, cdBase);
     return new ArrayObject(names, vals);
   }
 
-  /** Shared aggregate-entry fill for single- and multi-key group records. */
+  /**
+   * Shared aggregate-entry fill for single- and multi-key group records. {@code cdBase} is the
+   * COUNT(DISTINCT) block's accumulator base ({@code -1} when the query carries none): its merged set
+   * size sits in the sum lane, and an all-missing group answers {@code 0} — fn:count over the empty
+   * distinct-values sequence — NEVER the empty sequence avg/min/max produce.
+   */
   private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
-      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields) {
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase) {
+    fillAggEntries(names, vals, offset, acc, funcs, aggFields, outNames, distinctFields, cdBase, null, null);
+  }
+
+  private static void fillAggEntries(final QNm[] names, final Sequence[] vals, final int offset, final long[] acc,
+      final String[] funcs, final String[] aggFields, final String[] outNames, final ArrayList<String> distinctFields,
+      final int cdBase, final boolean[] deferredAgg, final String[] deferredVals) {
     for (int i = 0; i < funcs.length; i++) {
       names[offset + i] = new QNm(outNames[i]);
-      if ("count".equals(funcs[i])) {
-        vals[offset + i] = new Int64(acc[0]);
+      if (deferredAgg != null && deferredAgg[i]) {
+        // Pass-2 string extremum: no present operand in the group → the empty sequence,
+        // exactly the interpreter's fn:min/fn:max over an all-missing field.
+        vals[offset + i] = deferredVals == null || deferredVals[i] == null
+            ? null
+            : new Str(deferredVals[i]);
+        continue;
+      }
+      final String func = baseFunc(funcs[i]);
+      final boolean dbl = !func.equals(funcs[i]);
+      if ("count".equals(func)) {
+        vals[offset + i] = dbl
+            ? castToDouble(new Int64(acc[0]))
+            : new Int64(acc[0]);
+        continue;
+      }
+      if ("count-distinct".equals(func)) {
+        vals[offset + i] = dbl
+            ? castToDouble(new Int64(acc[cdBase + 1]))
+            : new Int64(acc[cdBase + 1]);
+        continue;
+      }
+      if (func.startsWith(SPAN_PREFIX)) {
+        final int spanAt = distinctFields.indexOf(aggFields[i]);
+        final int spanBase = 2 + 4 * spanAt;
+        if (acc[spanBase] == 0) {
+          // max(()) - min(()) is the EMPTY sequence — the same answer min/max/avg give an
+          // all-missing group, NOT the 0 fn:count would give.
+          vals[offset + i] = null;
+          continue;
+        }
+        final long k = spanDivisor(func);
+        // Exact or DECLINE: an overflowing difference is what the interpreter promotes to decimal,
+        // and the ArithmeticException routes this serve to the generic pipeline.
+        final Sequence span = new Int64(Math.subtractExact(acc[spanBase + 3] / k, acc[spanBase + 2] / k));
+        vals[offset + i] = dbl
+            ? castToDouble(span)
+            : span;
         continue;
       }
       final int a = distinctFields.indexOf(aggFields[i]);
       final int base = 2 + 4 * a;
-      final Sequence stat = longStatsToSequence(funcs[i], acc[base], acc[base + 1], acc[base + 2], acc[base + 3]);
+      final Sequence stat = longStatsToSequence(func, acc[base], acc[base + 1], acc[base + 2], acc[base + 3]);
       // longStatsToSequence returns an EMPTY ItemSequence exactly when count == 0
       // (avg/min/max over an all-missing group field) → store the empty sequence, exactly
       // what the interpreter's constructor keeps (JSON null on serialization).
       vals[offset + i] = stat instanceof ItemSequence
           ? null
-          : stat;
+          : dbl
+              ? castToDouble(stat)
+              : stat;
     }
   }
+
+  /**
+   * HAVING over the group COUNT (acc lane 0) — op encoding per the detection stage's
+   * {@code GROUP_AGG_HAVING}: 0 {@code >}, 1 {@code >=}, 2 {@code <}, 3 {@code <=}, 4 {@code =}, 5
+   * {@code !=}. Applied at every offer site, so a filtered group never occupies a window slot.
+   */
+  private static boolean havingPasses(final long[] acc, final int base, final long[] having) {
+    final long count = acc[base];
+    final long lit = having[1];
+    return switch ((int) having[0]) {
+      case 0 -> count > lit;
+      case 1 -> count >= lit;
+      case 2 -> count < lit;
+      case 3 -> count <= lit;
+      case 4 -> count == lit;
+      default -> count != lit;
+    };
+  }
+
+  /**
+   * Strips the {@code len:} operand prefix a detection-level {@code string-length(...)} let adds —
+   * the raw field name, for column resolution and coverage checks.
+   */
+  private static String rawAggField(final String field) {
+    return field != null && field.startsWith("len:")
+        ? field.substring(4)
+        : field;
+  }
+
+  /**
+   * Func-token prefix a detection-level {@code max(f) - min(f)} span carries; the suffix is the
+   * positive whole-unit divisor the difference is taken in ({@code "span:1"} = the raw difference). A
+   * span reads its block's min and max lanes — it adds no accumulator lane and no scan cost.
+   */
+  private static final String SPAN_PREFIX = "span:";
+
+  /**
+   * The divisor encoded in a {@link #SPAN_PREFIX} token, parsed without allocating: emission runs
+   * this once per emitted group per entry, and a {@code substring} there would be pure garbage.
+   */
+  private static long spanDivisor(final String func) {
+    long k = 0;
+    for (int i = SPAN_PREFIX.length(), n = func.length(); i < n; i++) {
+      k = k * 10 + (func.charAt(i) - '0');
+    }
+    return k;
+  }
+
+  /** Strips the {@code dbl:} cast prefix a detection-level {@code xs:double(...)} wrap adds. */
+  private static String baseFunc(final String func) {
+    return func.startsWith("dbl:")
+        ? func.substring(4)
+        : func;
+  }
+
+  /**
+   * Brackit's own xs:double cast over an exact aggregate — digit-for-digit the interpreter's
+   * constructor function; the empty sequence stays empty.
+   */
+  private static Sequence castToDouble(final Sequence stat) {
+    if (!(stat instanceof Atomic atomic)) {
+      return stat;
+    }
+    try {
+      return Cast.cast(null, atomic, Type.DBL);
+    } catch (final io.brackit.query.QueryException e) {
+      throw new IllegalStateException("xs:double cast failed on a served aggregate", e);
+    }
+  }
+
+  /**
+   * Tag lane marking a 128-bit-sum accumulator ({@code [count, sumHi, sumLo, min, max, TAG]}). Length
+   * alone CANNOT discriminate: the row path's {@code parallelAggregate} accumulator is also 5 lanes —
+   * {@code [count, sum, min, max, visited]} — and reading it with the 128 layout served
+   * {@code sum·2^64 + min} as the sum (caught by TypedGroupByDifferentialTest).
+   */
+  private static final long AGG128_TAG = 0x1288_1288_1288_1288L;
+
+  /**
+   * Dispatch on the accumulator SHAPE: the tagged 6-lane 128-bit-sum form, else the exact long layout
+   * whose first four lanes are {@code [count, sum, min, max]}. Every consumer of
+   * {@code tryProjectionAggregate} must come through here.
+   */
+  private static Sequence statsToSequence(final String func, final long[] stats) {
+    return stats.length == 6 && stats[5] == AGG128_TAG
+        ? longStats128ToSequence(func, stats)
+        : longStatsToSequence(func, stats[0], stats[1], stats[2], stats[3]);
+  }
+
+  /**
+   * {@code [count, sumHi, sumLo, min, max]} stats from the 128-bit-sum fallback. The avg division and
+   * the (rare) sum emission go through Brackit's own numeric ops on the exact big-integer value — the
+   * same arithmetic the interpreter's promotion performs.
+   */
+  private static Sequence longStats128ToSequence(final String func, final long[] acc) {
+    final long count = acc[0];
+    return switch (func) {
+      case "count" -> new Int64(count);
+      case "sum" -> count == 0
+          ? new Int64(0L)
+          : bigSumAtomic(acc[1], acc[2]);
+      case "avg" -> count == 0
+          ? new ItemSequence()
+          : (Sequence) bigSumAtomic(acc[1], acc[2]).div(new Int64(count));
+      case "min" -> count == 0
+          ? new ItemSequence()
+          : new Int64(acc[3]);
+      case "max" -> count == 0
+          ? new ItemSequence()
+          : new Int64(acc[4]);
+      default -> throw new IllegalStateException("unhandled 128-bit aggregate function: " + func);
+    };
+  }
+
+  /**
+   * The exact signed 128-bit sum as Brackit's own numeric atomic: {@link Int64} when it fits (the
+   * interpreter never promoted), else the big-integer {@link Int}.
+   */
+  private static Numeric bigSumAtomic(final long hi, final long lo) {
+    final BigInteger big = BigInteger.valueOf(hi).shiftLeft(64).or(BigInteger.valueOf(lo).and(UNSIGNED_64_MASK));
+    return big.bitLength() <= 63
+        ? new Int64(big.longValueExact())
+        : new Int(new BigDecimal(big));
+  }
+
+  private static final BigInteger UNSIGNED_64_MASK = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE);
 
   private static Sequence longStatsToSequence(final String func, final long count, final long sum, final long min,
       final long max) {
@@ -10357,7 +15814,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "max" -> count == 0
           ? new ItemSequence()
           : new Int64(max);
-      default -> null;
+      // A null return here becomes the EMPTY sequence at the caller — serialized JSON null where
+      // a number belongs. An unplumbed function must fail loud, not answer.
+      default -> throw new IllegalStateException("unhandled group aggregate function: " + func);
     };
   }
 
@@ -10528,16 +15987,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // field is a column of that index, the field definitionally
       // exists in the document.
       // - If a PathSummary is available (standard configuration), probe
-      // it via {@code findPathsByLocalName}; a match means the field
-      // exists with a node bearing its hash as nameKey.
+      // it via {@code containsLocalName}; a match means the field exists
+      // with a node bearing its hash as nameKey, and a MISS proves no such
+      // field node exists — the summary is complete over exactly the node
+      // kinds the walk scans, so it decides both directions.
       //
-      // Otherwise we fall back to the legacy page-walk, which correctly
-      // returns -1 for missing fields. At cold 100 M the projection/path-
-      // summary fast paths collapse what used to be a 40 s filterCount
-      // cold-warmup (triggered by the walk itself) into a sub-ms probe.
+      // Only a resource configured WITHOUT a path summary falls back to the
+      // legacy page-walk. At cold 100 M the projection/path-summary fast
+      // paths collapse what used to be a 40 s filterCount cold-warmup
+      // (triggered by the walk itself) into a sub-ms probe.
       int foundKey = resolveFieldKeyFast(field);
       if (foundKey == Integer.MIN_VALUE) {
+        final long start = PROJ_DIAG
+            ? System.nanoTime()
+            : 0L;
         foundKey = resolveFieldKeyByWalk(field);
+        FIELD_KEY_WALKS.increment();
+        if (PROJ_DIAG) {
+          System.err.println("[fieldkey] WALK '" + field + "' -> " + foundKey + " in "
+              + (System.nanoTime() - start) / 1_000_000 + " ms");
+        }
+      } else if (PROJ_DIAG) {
+        System.err.println("[fieldkey] proved '" + field + "' -> " + foundKey);
       }
       fieldKeyCache.put(field, foundKey);
       return foundKey;
@@ -10546,8 +16017,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Fast path for {@link #resolveFieldKey}: returns {@code rtx.keyForName(field)} when we have proof
-   * the field exists in the document (without a scan), or {@link Integer#MIN_VALUE} to signal
-   * "couldn't prove — use the walk".
+   * the field exists in the document (without a scan), {@code -1} when the path summary PROVES it
+   * does not, or {@link Integer#MIN_VALUE} to signal "couldn't prove — use the walk".
    */
   private int resolveFieldKeyFast(final String field) {
     // Projection-registry probe: if a projection covers this field, it
@@ -10565,12 +16036,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     // PathSummary probe: the summary is much smaller than the document and
-    // enumerates every path. If the field appears there, it exists.
+    // enumerates every path. It answers BOTH directions, because it is complete over exactly the
+    // node kinds the walk scans — every OBJECT_KEY, and every fused OBJECT_NAMED_* (which
+    // PathSummaryWriter files under the OBJECT_KEY path kind), contributes a path node bearing its
+    // local name. So a summary that does not hold the name proves no such field node exists, and
+    // the walk it replaces would have scanned EVERY page only to return -1. That case is not
+    // exotic: a nested chain arrives here as its joined path ("commit/collection"), which no single
+    // object key is ever named, so the walk never early-exits — measured 500 ms per field per query
+    // on a 1M-event corpus, dwarfing the served aggregate itself.
     if (session.getResourceConfig().withPathSummary) {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
           var summary = rtx.getResourceSession().openPathSummary(revision)) {
-        if (summary != null && summary.containsLocalName(field)) {
-          return rtx.keyForName(field);
+        if (summary != null) {
+          return summary.containsLocalName(field)
+              ? rtx.keyForName(field)
+              : -1;
         }
       } catch (final Exception ignored) {
         // Fall through to the walk.
@@ -10655,13 +16135,47 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     double dblMin = Double.MAX_VALUE;
     double dblMax = -Double.MAX_VALUE;
 
+    /**
+     * Carry for {@link #longSum} once it would overflow; {@code null} while the primitive accumulator
+     * still holds the whole total.
+     *
+     * <p>
+     * {@code xs:integer} is arbitrary precision, and brackit's own {@code AbstractNumeric#addLong}
+     * escalates to {@link BigDecimal} on overflow. A column of 64-bit ids — ClickBench sums
+     * {@code UserID}, whose values run to 1.1e18 — overflows a long accumulator after a few dozen rows
+     * and the wrapped total is silently wrong, so the kernel has to escalate too. The check costs one
+     * branch that never mispredicts in the common case.
+     */
+    BigDecimal longSumCarry;
+
     void addLong(final long v) {
       longCount++;
-      longSum += v;
+      final long sum = longSum + v;
+      if (((longSum ^ sum) & (v ^ sum)) < 0) {
+        carryLong(longSum, v);
+      } else {
+        longSum = sum;
+      }
       if (v < longMin)
         longMin = v;
       if (v > longMax)
         longMax = v;
+    }
+
+    /** Moves an about-to-overflow running total into the exact carry and restarts the fast lane. */
+    private void carryLong(final long accumulated, final long addend) {
+      longSumCarry = (longSumCarry == null
+          ? BigDecimal.ZERO
+          : longSumCarry).add(BigDecimal.valueOf(accumulated)).add(BigDecimal.valueOf(addend));
+      longSum = 0L;
+    }
+
+    /** The long lane's exact total, including anything already escalated. */
+    private BigDecimal longTotal() {
+      final BigDecimal fast = BigDecimal.valueOf(longSum);
+      return longSumCarry == null
+          ? fast
+          : longSumCarry.add(fast);
     }
 
     void addDecimal(final BigDecimal v) {
@@ -10686,7 +16200,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (o == null)
         return;
       longCount += o.longCount;
-      longSum += o.longSum;
+      final long merged = longSum + o.longSum;
+      if (((longSum ^ merged) & (o.longSum ^ merged)) < 0) {
+        carryLong(longSum, o.longSum);
+      } else {
+        longSum = merged;
+      }
+      if (o.longSumCarry != null) {
+        longSumCarry = (longSumCarry == null
+            ? BigDecimal.ZERO
+            : longSumCarry).add(o.longSumCarry);
+      }
       if (o.longMin < longMin)
         longMin = o.longMin;
       if (o.longMax > longMax)
@@ -10719,7 +16243,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (dblCount == 0) {
         // Decimal-exact path — Int + Dec folds are exact; division delegates
         // to brackit's Dec#div so avg matches the interpreter digit-for-digit.
-        final BigDecimal sum = decSum.add(BigDecimal.valueOf(longSum));
+        final BigDecimal sum = decSum.add(longTotal());
         final BigDecimal min = minBd(decMin, longCount > 0
             ? BigDecimal.valueOf(longMin)
             : null);
@@ -10736,7 +16260,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       // Double-bearing column — interpreter promotion makes the whole
       // aggregate xs:double.
-      final double sum = dblSum + (double) longSum + decSum.doubleValue();
+      final double sum = dblSum + longTotal().doubleValue() + decSum.doubleValue();
       double min = dblMin;
       double max = dblMax;
       if (longCount > 0) {
@@ -10843,7 +16367,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     return merged;
   }
 
-  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] nonIntegralOut)
+  /**
+   * Adds {@code v} into the long accumulator {@code acc[1]}, flagging {@code flagsOut[1]} instead of
+   * wrapping when the running total would overflow.
+   *
+   * <p>
+   * {@code xs:integer} is arbitrary precision. A column of 64-bit ids overflows a long accumulator
+   * after a few dozen rows — ClickBench Q3 averages {@code UserID}, whose values run to 1.1e18 — and
+   * the wrapped total is a silently wrong answer, not a fast one. The flag routes the caller to the
+   * exact {@link MixedAgg} redo.
+   */
+  private static void accumulateChecked(final long[] acc, final long v, final boolean[] flagsOut) {
+    final long sum = acc[1] + v;
+    if (((acc[1] ^ sum) & (v ^ sum)) < 0) {
+      flagsOut[1] = true;
+    } else {
+      acc[1] = sum;
+    }
+  }
+
+  /**
+   * @param flagsOut {@code [0]} the column carried a non-integral number, {@code [1]} the long sum
+   *        lane is not authoritative because it would have overflowed; either one means the caller
+   *        must redo value aggregates through the exact accumulator
+   */
+  private long[] parallelAggregate(final String field, final long targetPathNodeKey, final boolean[] flagsOut)
       throws Exception {
     final int fieldKey = resolveFieldKey(field);
     // -1 = MISSING sentinel only — negative hashes are legitimate nameKeys.
@@ -10922,7 +16470,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final MemorySegment payloadBytes = kv.getNumberRegionPayload();
               if (NumberRegionSimd.aggregateRange(payloadBytes, hdr, start, end, simdAggOut)) {
                 acc[0] += tagN;
-                acc[1] += simdAggOut[0];
+                // The kernel sums a whole page in long lanes, so its own total can wrap before we
+                // ever see it. tagN values bounded by max(|min|,|max|) bound the page sum; when that
+                // bound clears the long range the page sum is trustworthy, otherwise the exact redo
+                // takes over.
+                final double pageBound =
+                    (double) tagN * Math.max(Math.abs((double) simdAggOut[1]), Math.abs((double) simdAggOut[2]));
+                if (pageBound >= 9.0e18) {
+                  flagsOut[1] = true;
+                } else {
+                  accumulateChecked(acc, simdAggOut[0], flagsOut);
+                }
                 if (simdAggOut[1] < acc[2])
                   acc[2] = simdAggOut[1];
                 if (simdAggOut[2] > acc[3])
@@ -10939,7 +16497,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                     ? deltaVals[idx]
                     : NumberRegion.decodeValueAt(payload, hdr, idx);
                 acc[0]++;
-                acc[1] += v;
+                accumulateChecked(acc, v, flagsOut);
                 if (v < acc[2])
                   acc[2] = v;
                 if (v > acc[3])
@@ -10978,7 +16536,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               if (n == null)
                 continue;
               if (isNonIntegralNumber(n))
-                nonIntegralOut[0] = true;
+                flagsOut[0] = true;
               v = n.longValue();
             }
           } else {
@@ -10995,11 +16553,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (n == null)
               continue;
             if (isNonIntegralNumber(n))
-              nonIntegralOut[0] = true;
+              flagsOut[0] = true;
             v = n.longValue();
           }
           acc[0]++;
-          acc[1] += v;
+          accumulateChecked(acc, v, flagsOut);
           if (v < acc[2])
             acc[2] = v;
           if (v > acc[3])
@@ -11011,7 +16569,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE, visited = 0;
     for (long[] a : perThread) {
       count += a[0];
-      sum += a[1];
+      final long merged = sum + a[1];
+      if (((sum ^ merged) & (a[1] ^ merged)) < 0) {
+        flagsOut[1] = true;
+      } else {
+        sum = merged;
+      }
       visited += a[4];
       if (a[0] > 0) {
         if (a[2] < min)
@@ -11030,7 +16593,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> v >= t;
       case OP_LE -> v <= t;
       case OP_EQ -> v == t;
-      default -> true;
+      case OP_NE -> v != t;
+      // Fail closed. `default -> true` matched EVERY row for an operator this switch did not know,
+      // so an op-code divergence between the repos became an over-count rather than an error.
+      default -> throw new IllegalStateException("unsupported comparison op: " + op);
     };
   }
 
@@ -11052,7 +16618,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> c >= 0;
       case OP_LE -> c <= 0;
       case OP_EQ -> c == 0;
-      default -> true;
+      case OP_NE -> c != 0;
+      // Fail closed — see scalarEval.
+      default -> throw new IllegalStateException("unsupported comparison op: " + op);
     };
   }
 
@@ -11333,6 +16901,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int OP_GE = 3;
   private static final int OP_LE = 4;
   private static final int OP_EQ = 5;
+  /**
+   * {@code !=}. Its own code, never a negation of {@link #OP_EQ}: over a MISSING field the
+   * interpreter yields the empty sequence, which a filter reads as false, whereas a negated equality
+   * would read as true.
+   */
+  private static final int OP_NE = 6;
 
   // Zone-map pre-check outcomes — lets the scan skip a tag range or shortcut
   // the count without iterating values.
@@ -15214,6 +20788,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Sketch first: a few hundred bytes, and it decides the page without the dictionary existing in
     // memory at all. A negative is exact — every dictionary entry was inserted — so "absent" IS the
     // answer here. For a disjunction the page is only ruled out when NO literal can be present.
+    //
+    // WHY THIS IS SOUND, AND WHAT IT DEPENDS ON. "No dictionary entry equals the literal" is the
+    // same statement as "no row matches" only while the string column holds a value for EVERY
+    // occurrence of the field on this page. That is a property of the WRITER, not of anything
+    // checked here: the completeness oracle that would verify it (resolveStringTag, which the
+    // fragmented arm in countOwnedStringMatches runs BEFORE its sketch check) needs the string
+    // column's header, and the whole point of consulting the sketch here is to answer without
+    // reading that column at all — a page ruled out this way is never fetched with its dictionary.
+    //
+    // The invariant currently holds because every fused named-string slot reaches the region
+    // builder: KeyValueLeafPage#readFusedObjectNamedStringStoredBytes returns the shared EMPTY
+    // ARRAY for a zero-length payload rather than null, and PageKind drops only the slots that
+    // method declines. It used to return null there, the empty strings were dropped, and this line
+    // turned `count(f eq "")` into a confident 0. If elision semantics ever change so that a value
+    // can go missing from the column again, this check must move behind resolveStringTag exactly as
+    // the fragmented arm's does — accepting the dictionary re-read that costs, because a Bloom
+    // negative must never outrank a completeness certificate the page has not produced.
     final MemorySegment sketch = page.regionPayload(RegionTable.KIND_STRING_DICT_SKETCH);
     if (sketch != null && noneMayBePresent(sketch, literals, encodedLiterals)) {
       REGION_SKETCH_SKIPS.increment();
@@ -15884,10 +21475,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int liveCount = fillLiveBits(liveBits, slots, matched, ownedSlots);
     scratch.ownedSeen = liveCount;
 
-    if (sketchExcludes(fragment, literal, encodedLiteral)) {
-      REGION_SKETCH_SKIPS.increment();
-      return 0L;
-    }
+    // Completeness FIRST, sketch second. A sketch negative says "no dictionary entry equals the
+    // literal", which is only the same statement as "no row matches" once the column has been shown
+    // to hold a value for every one of the anchor's occurrences — that is precisely what
+    // resolveStringTag certifies. Answering 0 ahead of it turns a page the merge cannot serve into a
+    // confident zero instead of a fallback to the records. It costs nothing to order it this way
+    // here: a string plan always requests this fragment WITH its string column
+    // (REGION_STRING_COUNT_MASK), so the header is already in hand.
     final MemorySegment payload = fragment.stringPayload();
     if (payload == null) {
       return -1L;
@@ -15899,6 +21493,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int tag = resolveStringTag(h, anchorNameKey, anchorPathNodeKey, matched);
     if (tag < 0) {
       return -1L;
+    }
+    if (sketchExcludes(fragment, literal, encodedLiteral)) {
+      REGION_SKETCH_SKIPS.increment();
+      return 0L;
     }
     final int dictId = StringRegion.findDictId(payload, h, tag, literal, encodedLiteral);
     if (dictId == StringRegion.DICT_ID_UNDECIDABLE) {
@@ -16615,6 +22213,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "ge" -> OP_GE;
       case "le" -> OP_LE;
       case "eq" -> OP_EQ;
+      case "ne" -> OP_NE;
       default -> 0;
     };
   }
@@ -16630,6 +22229,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> VectorizedPredicate.ComparisonOp.GE;
       case OP_LE -> VectorizedPredicate.ComparisonOp.LE;
       case OP_EQ -> VectorizedPredicate.ComparisonOp.EQ;
+      case OP_NE -> VectorizedPredicate.ComparisonOp.NE;
       default -> throw new IllegalStateException("bad cmpOp " + op);
     };
   }
@@ -16645,6 +22245,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_GE -> VectorOperators.GE;
       case OP_LE -> VectorOperators.LE;
       case OP_EQ -> VectorOperators.EQ;
+      case OP_NE -> VectorOperators.NE;
       default -> null;
     };
   }
@@ -16995,6 +22596,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case CompiledPredicate.OP_FP_CMP -> emitFpCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.dblLit[nodeIdx]);
       case CompiledPredicate.OP_STR_EQ -> emitStrEq(code, cp.fieldIdx[nodeIdx], cp.strIdx[nodeIdx]);
       case CompiledPredicate.OP_BOOL_REF -> emitBoolRef(code, cp.fieldIdx[nodeIdx]);
+      // Deliberately NO arms for OP_STR_NE / OP_STR_CMP / OP_STR_CONTAINS (or DEC/ARRAY):
+      // this throw is CAUGHT by resolveCompiledPredicate, which blacklists the key and falls
+      // back to the interpreter — so every query with one of those leaves prints one
+      // "[sirix-vec] compileToClass failed" line by design. Not a bug; the projection kernels
+      // serve those shapes and the bytecode path serves the rest.
       default -> throw new IllegalStateException("unsupported opcode " + op);
     }
   }
@@ -17376,7 +22982,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_LT -> code.ifge(skip);
       case OP_GE -> code.iflt(skip);
       case OP_LE -> code.ifgt(skip);
+      // Skip the row when the comparison says EQUAL, i.e. when `!=` does not hold.
       case OP_EQ -> code.ifne(skip);
+      case OP_NE -> code.ifeq(skip);
       default -> throw new IllegalStateException("bad cmpOp " + cmpOp);
     }
   }
@@ -17571,62 +23179,118 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @FunctionalInterface
-  private interface ChunkTask {
+  interface ChunkTask {
     void run(int threadIndex) throws Exception;
   }
 
-  private void parallel(int n, ChunkTask task) {
+  void parallel(int n, ChunkTask task) {
+    enterExecution();
     try {
-      // A closed executor is still reachable from an already-compiled query — the compile chain
-      // evicts one when the revision it is pinned to falls out of its cache, and the expression
-      // built against it keeps its reference. Submitting to the shut-down pool would reject and
-      // fail that query; running the chunks inline degrades it to single-threaded instead, which
-      // is the same answer more slowly. One volatile read per scan, not per record.
-      if (workerPool.isShutdown()) {
-        for (int i = 0; i < n; i++) {
-          task.run(i);
+      try {
+        // A retired executor is still reachable from an already-compiled query. It remains admitted
+        // by the shared chain lifetime and runs inline; terminal close, in contrast, rejects it in
+        // enterExecution() before any session-bound work is accepted.
+        final Future<?>[] futures = new Future[n];
+        int submitted = 0;
+        Exception submissionFailure = null;
+        final boolean runInline;
+        synchronized (workerPoolLifecycleLock) {
+          runInline = workerPool.isShutdown();
+          if (!runInline) {
+            try {
+              for (int i = 0; i < n; i++) {
+                final int idx = i;
+                final Future<?> future = workerPool.submit(() -> {
+                  runChunk(task, idx);
+                  return null;
+                });
+                // Increment only AFTER submit succeeds: a rejection must not leave a null entry
+                // inside the accepted prefix that the lifecycle drain below joins.
+                futures[submitted++] = future;
+              }
+            } catch (final RuntimeException failure) {
+              // An executor-level failure can happen after earlier lanes were accepted. Preserve it,
+              // but first join those lanes below so none escape the method's lifecycle boundary.
+              submissionFailure = failure;
+            }
+          }
         }
-        return;
+        if (runInline) {
+          for (int i = 0; i < n; i++) {
+            runChunk(task, i);
+          }
+          return;
+        }
+
+        Exception firstFailure = submissionFailure;
+        boolean interrupted = false;
+        for (int i = 0; i < submitted; i++) {
+          final Future<?> future = futures[i];
+          boolean completed = false;
+          while (!completed) {
+            try {
+              future.get();
+              completed = true;
+            } catch (final InterruptedException failure) {
+              // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
+              // before restoring it so no worker can escape the method's lifecycle boundary.
+              interrupted = true;
+              if (firstFailure == null) {
+                firstFailure = failure;
+              }
+            } catch (final Exception failure) {
+              completed = true;
+              if (firstFailure == null) {
+                firstFailure = failure;
+              }
+            }
+          }
+        }
+        if (interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        if (firstFailure != null) {
+          throw firstFailure;
+        }
+      } catch (Exception e) {
+        // Surface the root cause's message in the RuntimeException so call-site logs show what
+        // actually failed. The original exception remains the cause for full stack traces.
+        Throwable cause = e.getCause() != null
+            ? e.getCause()
+            : e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+          cause = cause.getCause();
+        }
+        // Kernel-level IllegalStateExceptions and exact-math overflows are fallback signals.
+        if (cause instanceof IllegalStateException ise) {
+          throw ise;
+        }
+        if (cause instanceof ArithmeticException ae) {
+          throw ae;
+        }
+        final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+        throw new RuntimeException("Parallel scan failed — " + msg, e);
       }
-      Future<?>[] futures = new Future[n];
-      for (int i = 0; i < n; i++) {
-        int idx = i;
-        futures[i] = workerPool.submit(() -> {
-          task.run(idx);
-          return null;
-        });
+    } finally {
+      leaveExecution();
+    }
+  }
+
+  private void runChunk(final ChunkTask task, final int index) throws Exception {
+    executionLifecycle.enterAcceptedWork();
+    try {
+      task.run(index);
+    } finally {
+      executionLifecycle.leaveAcceptedWork();
+    }
+  }
+
+  private void releaseWorkerPoolCursors() {
+    synchronized (workerPoolThreadIds) {
+      for (int i = 0, size = workerPoolThreadIds.size(); i < size; i++) {
+        executionLifecycle.releaseCursor(workerPoolThreadIds.getLong(i));
       }
-      for (Future<?> f : futures)
-        f.get();
-    } catch (Exception e) {
-      // Surface the root cause's message in the RuntimeException so call-site
-      // logs ({@code QueryException.getMessage()}) show what actually failed
-      // instead of the generic "Parallel scan failed" wrapper. The original
-      // exception stays as cause so full stack traces are preserved.
-      Throwable cause = e.getCause() != null
-          ? e.getCause()
-          : e;
-      while (cause.getCause() != null && cause.getCause() != cause) {
-        cause = cause.getCause();
-      }
-      // Kernel-level IllegalStateExceptions are a FALLBACK signal (column-kind
-      // drift, canonical-dict miss, ...): every tryProjection* caller catches
-      // them to route to the typed kernels / interpreter. Rethrow them
-      // unwrapped so the fallback contract holds at ANY leaf count — wrapping
-      // them here made the same query succeed under 64 leaves and hard-fail
-      // above (worker exceptions only occur on the parallel path).
-      if (cause instanceof IllegalStateException ise) {
-        throw ise;
-      }
-      // ArithmeticException is likewise a SIGNAL, not a failure: exact-math kernels
-      // (computed aggregates) throw it on overflow and their callers decline to the
-      // interpreter's decimal-promoting arithmetic. Rethrow unwrapped so the decline
-      // contract holds on the parallel path exactly as it does single-threaded.
-      if (cause instanceof ArithmeticException ae) {
-        throw ae;
-      }
-      final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
-      throw new RuntimeException("Parallel scan failed — " + msg, e);
+      workerPoolThreadIds.clear();
     }
   }
 }

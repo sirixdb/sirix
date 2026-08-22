@@ -16,34 +16,30 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Sparse-field correctness of the projection leaf format (presence
- * bitmaps + per-column unrepresentable flags) and the presence-aware
- * {@link ProjectionIndexByteScan} kernels.
+ * Sparse-field correctness of the projection leaf format (presence bitmaps + per-column
+ * unrepresentable flags) and the presence-aware {@link ProjectionIndexByteScan} kernels.
  *
- * <p>The semantics under test mirror the JSONiq interpreter:
+ * <p>
+ * The semantics under test mirror the JSONiq interpreter:
  * <ul>
- * <li>a comparison over a MISSING field is false → row excluded (the
- * historical layout stored defaults, so {@code x < 40} matched missing
- * rows via the phantom {@code 0});</li>
- * <li>group-by routes missing keys to a dedicated missing bucket instead
- * of the {@code ""} default group;</li>
- * <li>aggregates skip missing rows (the historical sum counted phantom
- * zeros into count/min/max);</li>
- * <li>the presence tail is mandatory — tail-less payloads are rejected
- * as corrupt, never misread.</li>
+ * <li>a comparison over a MISSING field is false → row excluded (the historical layout stored
+ * defaults, so {@code x < 40} matched missing rows via the phantom {@code 0});</li>
+ * <li>group-by routes missing keys to a dedicated missing bucket instead of the {@code ""} default
+ * group;</li>
+ * <li>aggregates skip missing rows (the historical sum counted phantom zeros into
+ * count/min/max);</li>
+ * <li>the presence tail is mandatory — tail-less payloads are rejected as corrupt, never
+ * misread.</li>
  * </ul>
  */
 public final class ProjectionIndexPresenceTest {
 
-  private static final byte[] KINDS = {
-      ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN,
-      ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-  };
+  private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
+      ProjectionIndexRowGroupPage.COLUMN_KIND_BOOLEAN, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
   /**
-   * Build a leaf where every third row misses the numeric column, every
-   * fourth misses the string column, and the boolean column is dense.
+   * Build a leaf where every third row misses the numeric column, every fourth misses the string
+   * column, and the boolean column is dense.
    */
   private static ProjectionIndexRowGroupPage sparseLeaf(final int rows) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
@@ -55,9 +51,15 @@ public final class ProjectionIndexPresenceTest {
     for (int i = 0; i < rows; i++) {
       final boolean numMissing = i % 3 == 0;
       final boolean strMissing = i % 4 == 0;
-      longs[0] = numMissing ? 0L : i;
+      longs[0] = numMissing
+          ? 0L
+          : i;
       bools[1] = i % 2 == 0;
-      strings[2] = strMissing ? "" : (i % 2 == 0 ? "even" : "odd");
+      strings[2] = strMissing
+          ? ""
+          : (i % 2 == 0
+              ? "even"
+              : "odd");
       present[0] = !numMissing;
       present[1] = true;
       present[2] = !strMissing;
@@ -89,9 +91,9 @@ public final class ProjectionIndexPresenceTest {
   @Test
   void unrepresentableFlagSurvivesRoundTrip() {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
-    final boolean[] present = { true, true, true };
-    final boolean[] unrep = { true, false, false };  // e.g. a JSON null in the numeric column
-    page.appendRow(1L, new long[] { 0, 0, 0 }, new boolean[3], new String[] { "", "", "x" }, present, unrep);
+    final boolean[] present = {true, true, true};
+    final boolean[] unrep = {true, false, false}; // e.g. a JSON null in the numeric column
+    page.appendRow(1L, new long[] {0, 0, 0}, new boolean[3], new String[] {"", "", "x"}, present, unrep);
     final ProjectionIndexRowGroupPage back = ProjectionIndexRowGroupPage.deserialize(page.serialize());
     assertTrue(back.columnUnrepresentable(0));
     assertFalse(back.columnUnrepresentable(1));
@@ -120,10 +122,9 @@ public final class ProjectionIndexPresenceTest {
   void probeSparseEvidenceFlagsUnrepresentableColumnsOnly() {
     final ProjectionIndexRowGroupPage clean = sparseLeaf(10);
     final ProjectionIndexRowGroupPage poisoned = new ProjectionIndexRowGroupPage(KINDS);
-    poisoned.appendRow(1L, new long[3], new boolean[3], new String[] { "", "", "x" },
-        new boolean[] { true, true, true }, new boolean[] { false, false, true });
-    final byte[] status =
-        ProjectionIndexByteScan.probeSparseEvidence(List.of(clean.serialize(), poisoned.serialize()));
+    poisoned.appendRow(1L, new long[3], new boolean[3], new String[] {"", "", "x"}, new boolean[] {true, true, true},
+        new boolean[] {false, false, true});
+    final byte[] status = ProjectionIndexByteScan.probeSparseEvidence(List.of(clean.serialize(), poisoned.serialize()));
     assertEquals(ProjectionIndexByteScan.SPARSE_STATUS_CLEAN, status[0]);
     assertEquals(ProjectionIndexByteScan.SPARSE_STATUS_CLEAN, status[1]);
     assertEquals(ProjectionIndexByteScan.SPARSE_STATUS_DIRTY, status[2]);
@@ -146,22 +147,22 @@ public final class ProjectionIndexPresenceTest {
     // 0 there, so `x < 40` matched every missing row via the phantom zero.
     final byte[] payload = sparseLeaf(100).serialize();
     final var lt40 = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, 40L)
-    };
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, 40L)};
     // Present rows are i with i % 3 != 0 and value i: matching i in [1,39] minus multiples of 3.
     long expected = 0;
     for (int i = 0; i < 100; i++) {
-      if (i % 3 != 0 && i < 40) expected++;
+      if (i % 3 != 0 && i < 40)
+        expected++;
     }
     assertEquals(expected, ProjectionIndexByteScan.conjunctiveCount(List.of(payload), lt40));
 
     // GE 0 matches every PRESENT row — and no missing row.
     final var ge0 = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GE, 0L)
-    };
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GE, 0L)};
     long present = 0;
     for (int i = 0; i < 100; i++) {
-      if (i % 3 != 0) present++;
+      if (i % 3 != 0)
+        present++;
     }
     assertEquals(present, ProjectionIndexByteScan.conjunctiveCount(List.of(payload), ge0));
   }
@@ -170,28 +171,25 @@ public final class ProjectionIndexPresenceTest {
   void stringEqOverMissingFieldIsFalse() {
     // The missing rows intern "" as the default — `eq ""` must NOT match them.
     final byte[] payload = sparseLeaf(100).serialize();
-    final var eqEmpty = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.stringEq(2, new byte[0])
-    };
+    final var eqEmpty =
+        new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.stringEq(2, new byte[0])};
     assertEquals(0, ProjectionIndexByteScan.conjunctiveCount(List.of(payload), eqEmpty));
   }
 
   @Test
   void allMissingLeafZoneMapPrunes() {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
-    final boolean[] present = { false, true, false };
+    final boolean[] present = {false, true, false};
     for (int i = 0; i < 10; i++) {
-      page.appendRow(i, new long[3], new boolean[] { false, true, false }, new String[] { "", "", "" },
-          present, null);
+      page.appendRow(i, new long[3], new boolean[] {false, true, false}, new String[] {"", "", ""}, present, null);
     }
     final byte[] payload = page.serialize();
     // Any numeric predicate over the all-missing column matches nothing —
     // including EQ 0, which would hit every phantom default.
-    for (final ProjectionIndexScan.Op op : new ProjectionIndexScan.Op[] {
-        ProjectionIndexScan.Op.EQ, ProjectionIndexScan.Op.LE, ProjectionIndexScan.Op.GE }) {
-      final var pred = new ProjectionIndexScan.ColumnPredicate[] {
-          ProjectionIndexScan.ColumnPredicate.numeric(0, op, 0L)
-      };
+    for (final ProjectionIndexScan.Op op : new ProjectionIndexScan.Op[] {ProjectionIndexScan.Op.EQ,
+        ProjectionIndexScan.Op.LE, ProjectionIndexScan.Op.GE}) {
+      final var pred =
+          new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.numeric(0, op, 0L)};
       assertEquals(0, ProjectionIndexByteScan.conjunctiveCount(List.of(payload), pred), "op " + op);
     }
   }
@@ -202,13 +200,16 @@ public final class ProjectionIndexPresenceTest {
     final Object2LongOpenHashMap<String> out = new Object2LongOpenHashMap<>();
     out.defaultReturnValue(0L);
     final long[] missing = new long[1];
-    ProjectionIndexByteScan.conjunctiveCountByGroup(List.of(payload),
-        new ProjectionIndexScan.ColumnPredicate[0], 2, out, missing);
+    ProjectionIndexByteScan.conjunctiveCountByGroup(List.of(payload), new ProjectionIndexScan.ColumnPredicate[0], 2,
+        out, missing);
     long even = 0, odd = 0, miss = 0;
     for (int i = 0; i < 100; i++) {
-      if (i % 4 == 0) miss++;
-      else if (i % 2 == 0) even++;
-      else odd++;
+      if (i % 4 == 0)
+        miss++;
+      else if (i % 2 == 0)
+        even++;
+      else
+        odd++;
     }
     assertEquals(miss, missing[0]);
     assertEquals(even, out.getLong("even"));
@@ -217,25 +218,58 @@ public final class ProjectionIndexPresenceTest {
   }
 
   @Test
+  void numericGroupByCountsMissingBucketSeparately() {
+    // Numeric twin of the above. Column 0 is NUMERIC_LONG, missing on every third row, and
+    // its stored default is 0 — which is ALSO a real value here (row 0 is missing, but rows
+    // whose value is 0 do not exist in this fixture, so a phantom would be visible as a
+    // group 0 that must not appear).
+    final byte[] payload = sparseLeaf(100).serialize();
+    final it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap out = new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap();
+    out.defaultReturnValue(0L);
+    final long[] missing = new long[1];
+    ProjectionIndexByteScan.conjunctiveCountByGroupNumeric(List.of(payload), new ProjectionIndexScan.ColumnPredicate[0],
+        0, out, missing);
+    long miss = 0;
+    for (int i = 0; i < 100; i++) {
+      if (i % 3 == 0)
+        miss++;
+      else
+        assertEquals(1L, out.get((long) i), "value " + i + " must be its own group");
+    }
+    assertEquals(miss, missing[0]);
+    assertEquals(100 - miss, out.size());
+    assertFalse(out.containsKey(0L), "missing rows must not group under the stored default 0");
+
+    // The dense arm must land on exactly the same buckets.
+    final long[] range = new long[3];
+    assertTrue(ProjectionIndexByteScan.numericZoneUnion(List.of(payload), 0, range));
+    final long[] counts = new long[(int) (range[1] - range[0]) + 1];
+    final long[] denseMissing = new long[1];
+    ProjectionIndexByteScan.conjunctiveCountByGroupNumericDense(List.of(payload),
+        new ProjectionIndexScan.ColumnPredicate[0], 0, range[0], counts, denseMissing);
+    assertEquals(miss, denseMissing[0]);
+    for (int i = 0; i < counts.length; i++) {
+      final long value = range[0] + i;
+      assertEquals(value % 3 == 0
+          ? 0L
+          : 1L, counts[i], "dense cell for value " + value);
+    }
+  }
+
+  @Test
   void multiKeyGroupByEmitsMissingSegment() {
-    final byte[] kinds = {
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT,
-        ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT
-    };
+    final byte[] kinds =
+        {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     // (a, b), (a, missing), (missing, b), (missing, missing)
-    page.appendRow(1, new long[2], new boolean[2], new String[] { "a", "b" },
-        new boolean[] { true, true }, null);
-    page.appendRow(2, new long[2], new boolean[2], new String[] { "a", "" },
-        new boolean[] { true, false }, null);
-    page.appendRow(3, new long[2], new boolean[2], new String[] { "", "b" },
-        new boolean[] { false, true }, null);
-    page.appendRow(4, new long[2], new boolean[2], new String[] { "", "" },
-        new boolean[] { false, false }, null);
+    page.appendRow(1, new long[2], new boolean[2], new String[] {"a", "b"}, new boolean[] {true, true}, null);
+    page.appendRow(2, new long[2], new boolean[2], new String[] {"a", ""}, new boolean[] {true, false}, null);
+    page.appendRow(3, new long[2], new boolean[2], new String[] {"", "b"}, new boolean[] {false, true}, null);
+    page.appendRow(4, new long[2], new boolean[2], new String[] {"", ""}, new boolean[] {false, false}, null);
     final Object2LongOpenHashMap<String> out = new Object2LongOpenHashMap<>();
     out.defaultReturnValue(0L);
     ProjectionIndexByteScan.conjunctiveCountByGroupMulti(List.of(page.serialize()),
-        new ProjectionIndexScan.ColumnPredicate[0], new int[] { 0, 1 }, out);
+        new ProjectionIndexScan.ColumnPredicate[0], new int[] {0, 1}, out);
     assertEquals(1L, out.getLong("s1:as1:b"));
     assertEquals(1L, out.getLong("s1:am"));
     assertEquals(1L, out.getLong("ms1:b"));
@@ -246,12 +280,13 @@ public final class ProjectionIndexPresenceTest {
   @Test
   void aggregateSkipsMissingRows() {
     final byte[] payload = sparseLeaf(100).serialize();
-    final long[] acc = { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
-    ProjectionIndexByteScan.conjunctiveAggregateNumeric(List.of(payload),
-        new ProjectionIndexScan.ColumnPredicate[0], 0, acc);
+    final long[] acc = {0, 0, Long.MAX_VALUE, Long.MIN_VALUE};
+    ProjectionIndexByteScan.conjunctiveAggregateNumeric(List.of(payload), new ProjectionIndexScan.ColumnPredicate[0], 0,
+        acc);
     long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE;
     for (int i = 0; i < 100; i++) {
-      if (i % 3 == 0) continue;  // missing
+      if (i % 3 == 0)
+        continue; // missing
       count++;
       sum += i;
       min = Math.min(min, i);
@@ -269,13 +304,11 @@ public final class ProjectionIndexPresenceTest {
     // semantics as the zero-copy byte scan.
     final byte[] payload = sparseLeaf(100).serialize();
     final var lt40 = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, 40L)
-    };
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, 40L)};
     assertEquals(ProjectionIndexByteScan.conjunctiveCount(List.of(payload), lt40),
         ProjectionIndexScan.conjunctiveCount(List.of(payload), lt40));
-    final var eqEmpty = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.stringEq(2, new byte[0])
-    };
+    final var eqEmpty =
+        new ProjectionIndexScan.ColumnPredicate[] {ProjectionIndexScan.ColumnPredicate.stringEq(2, new byte[0])};
     assertEquals(0, ProjectionIndexScan.conjunctiveCount(List.of(payload), eqEmpty));
   }
 
@@ -284,13 +317,13 @@ public final class ProjectionIndexPresenceTest {
     // A fully-present page behaves identically through old and new paths.
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
     for (int i = 0; i < 64; i++) {
-      page.appendRow(i, new long[] { i, 0, 0 }, new boolean[] { false, i % 2 == 0, false },
-          new String[] { "", "", i % 2 == 0 ? "x" : "y" });
+      page.appendRow(i, new long[] {i, 0, 0}, new boolean[] {false, i % 2 == 0, false}, new String[] {"", "", i % 2 == 0
+          ? "x"
+          : "y"});
     }
     final byte[] payload = page.serialize();
     final var gt10 = new ProjectionIndexScan.ColumnPredicate[] {
-        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 10L)
-    };
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 10L)};
     assertEquals(53, ProjectionIndexByteScan.conjunctiveCount(List.of(payload), gt10));
     final byte[] status = ProjectionIndexByteScan.probeSparseEvidence(List.of(payload));
     for (final byte st : status) {

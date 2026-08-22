@@ -17,14 +17,16 @@ import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 import org.jspecify.annotations.Nullable;
 
-import java.util.Arrays;
-
 /**
  * Names index structure.
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
 public final class Names {
+
+  /** Immutable dual representation: comparisons stay allocation-free while raw-name reads remain O(1). */
+  private record NameEntry(String string, byte[] bytes) {
+  }
 
   /**
    * The key a name node carries when it has no name. Never handed out by {@link #probe}.
@@ -39,7 +41,7 @@ public final class Names {
   /**
    * Map the hash of a name to its name.
    */
-  private final Int2ObjectMap<byte[]> nameMap;
+  private final Int2ObjectMap<NameEntry> nameMap;
 
   /**
    * Map which is used to count the occurences of a name mapping.
@@ -104,7 +106,8 @@ public final class Names {
 
         final int key = hashEntryNode.getKey();
 
-        nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+        final String name = hashEntryNode.getValue();
+        nameMap.put(key, new NameEntry(name, getBytes(name)));
 
         final long nodeKeyOfCountNode = i + 1;
         final var countNode = storageEngineReader.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
@@ -151,7 +154,8 @@ public final class Names {
       }
       final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
       final int key = hashEntryNode.getKey();
-      nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
+      final String name = hashEntryNode.getValue();
+      nameMap.put(key, new NameEntry(name, getBytes(name)));
 
       final long nodeKeyOfCountNode = entryNodeKey + 1;
       final var countNode = storageEngineReader.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
@@ -195,7 +199,8 @@ public final class Names {
       return false;
     }
     for (final var entry : nameMap.int2ObjectEntrySet()) {
-      if (!java.util.Arrays.equals(entry.getValue(), other.nameMap.get(entry.getIntKey()))) {
+      final NameEntry otherEntry = other.nameMap.get(entry.getIntKey());
+      if (otherEntry == null || !java.util.Arrays.equals(entry.getValue().bytes(), otherEntry.bytes())) {
         return false;
       }
     }
@@ -253,13 +258,10 @@ public final class Names {
     assert name != null;
     assert storageEngineWriter != null;
 
-    // Encode once and compare raw bytes — avoids materializing a String per call on the
-    // shredding hot path, and the encoded bytes are needed for the insert anyway.
-    final byte[] nameBytes = getBytes(name);
-    final int key = probe(nameBytes, name.hashCode());
-    final byte[] previousByteValue = nameMap.get(key);
+    final int key = probe(name, name.hashCode());
+    final NameEntry previousEntry = nameMap.get(key);
 
-    if (previousByteValue == null) {
+    if (previousEntry == null) {
       maxNodeKey++;
 
       final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, key, name);
@@ -271,7 +273,10 @@ public final class Names {
       countNodeMap.put(key, maxNodeKey);
       storageEngineWriter.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
-      nameMap.put(key, nameBytes);
+      // Encoding is paid exactly once per distinct dictionary entry. ClickBench repeats the same
+      // 105 keys for every row; encoding before lookup allocated a byte[] for every field of every
+      // row even though only the first occurrence needs stored bytes.
+      nameMap.put(key, new NameEntry(name, getBytes(name)));
       countNameMapping.put(key, 1);
 
       return key;
@@ -301,7 +306,7 @@ public final class Names {
    */
   public int keyForName(final String name) {
     assert name != null;
-    return probe(getBytes(name), name.hashCode());
+    return probe(name, name.hashCode());
   }
 
   /**
@@ -327,11 +332,11 @@ public final class Names {
    * the on-disk dictionary. The hazard needs a name to be fully deleted first; what this method
    * fixes fired on the very first document containing a collision.
    *
-   * @param nameBytes the encoded name
+   * @param name the name to locate
    * @param hash {@code String.hashCode()} of the name, the head of its probe chain
    * @return the key the name owns, occupied or free
    */
-  private int probe(final byte[] nameBytes, final int hash) {
+  private int probe(final String name, final int hash) {
     // -1 is the "this node has no name" sentinel every name node carries, so it can never be handed
     // out as a real key: a name stored there would read back as having no name at all. Skip it both
     // as a chain head (a name CAN hash to -1) and mid-walk.
@@ -341,8 +346,8 @@ public final class Names {
     // Bound the walk by the table's population: a full pass means every slot is taken, and the
     // dictionary cannot hold another name.
     for (int probed = 0, live = nameMap.size(); probed <= live; probed++) {
-      final byte[] stored = nameMap.get(key);
-      if (stored == null || Arrays.equals(stored, nameBytes)) {
+      final NameEntry stored = nameMap.get(key);
+      if (stored == null || stored.string().equals(name)) {
         return key;
       }
       key = key == Integer.MAX_VALUE
@@ -353,8 +358,7 @@ public final class Names {
       }
     }
 
-    throw new IllegalStateException("Name dictionary " + indexNumber + " is full; cannot store '"
-        + new String(nameBytes, Constants.DEFAULT_ENCODING) + "'.");
+    throw new IllegalStateException("Name dictionary " + indexNumber + " is full; cannot store '" + name + "'.");
   }
 
   /**
@@ -364,11 +368,8 @@ public final class Names {
    * @return the string the key maps to, or {@code null} if no mapping exists
    */
   public String getName(final int key) {
-    final byte[] name = nameMap.get(key);
-    if (name == null) {
-      return null;
-    }
-    return new String(name, Constants.DEFAULT_ENCODING);
+    final NameEntry entry = nameMap.get(key);
+    return entry == null ? null : entry.string();
   }
 
   /**
@@ -388,7 +389,8 @@ public final class Names {
    * @return the byte-array representing the string the key maps to
    */
   public byte[] getRawName(final int key) {
-    return nameMap.get(key);
+    final NameEntry entry = nameMap.get(key);
+    return entry == null ? null : entry.bytes();
   }
 
   /**

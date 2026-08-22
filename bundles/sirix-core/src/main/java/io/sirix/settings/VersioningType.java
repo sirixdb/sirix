@@ -62,6 +62,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() == 1 : "Only one version of the page!";
+      assert noFragmentIsLazy(pages);
       var firstPage = pages.getFirst();
       T completePage = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
@@ -105,6 +106,7 @@ public enum VersioningType {
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
 
@@ -163,6 +165,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= 2;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
@@ -273,6 +276,7 @@ public enum VersioningType {
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final int revision = storageEngineReader.getUberPage().getRevisionNumber();
@@ -408,6 +412,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T pageToReturn =
@@ -502,6 +507,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         PageReference reference, final TransactionIntentLog log) {
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
@@ -654,6 +660,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
         final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
@@ -809,6 +816,7 @@ public enum VersioningType {
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
         final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
+      assert noFragmentIsLazy(pages);
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
@@ -1075,6 +1083,28 @@ public enum VersioningType {
     SLOTS_COPIED.reset();
   }
 
+  /**
+   * Whether every fragment about to be combined already holds its records.
+   *
+   * <p>
+   * Not a gate — combine reaches the heap only through accessors that expand for themselves, so a
+   * lazy fragment here would produce the right answer. It would just produce it the expensive way,
+   * one chunk at a time, on a path that reads every slot of every fragment and was promised eager
+   * pages by the load policy (plan amendment A6). An assertion rather than a check because the thing
+   * it guards is a policy decision made elsewhere: if that decision regresses, the tests should say
+   * so, and production should not pay a branch per combine to find out.
+   */
+  private static <V extends DataRecord, T extends KeyValuePage<V>> boolean noFragmentIsLazy(final List<T> pages) {
+    for (final T page : pages) {
+      if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isFullyMaterialized()) {
+        throw new AssertionError("fragment " + kvlPage.getPageKey() + " reached a combine with " + kvlPage.chunkCount()
+            + " chunks still unexpanded — the load policy handed a lazily loaded"
+            + " page to a consumer that reads all of it");
+      }
+    }
+    return true;
+  }
+
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
       final int revsToRestore, final StorageEngineReader storageEngineReader);
 
@@ -1236,8 +1266,8 @@ public enum VersioningType {
   /**
    * Merge HOT fragments by full key. Single newest-fragment fast path returns the page directly.
    * Multi-fragment path copies the newest, then walks older fragments inserting any keys absent from
-   * the result. Tombstones in newer fragments shadow older entries; tombstones in older fragments
-   * without a newer entry remain dropped.
+   * the result until it reaches a complete dump. Tombstones in newer fragments shadow older entries;
+   * tombstones in older fragments without a newer entry remain dropped.
    */
   private static HOTLeafPage mergeHOTFragmentsByKey(final List<HOTLeafPage> pages) {
     if (pages.size() == 1) {
@@ -1284,6 +1314,15 @@ public enum VersioningType {
         } else {
           result.mergeWithNodeRefs(key, key.length, value, value.length);
         }
+      }
+
+      // A complete dump is a replacement snapshot, not another delta to layer on top of its
+      // predecessors. It can occur in the middle of a chain after a leaf split: entries moved to
+      // the right-hand leaf are absent from this page but still exist in older fragments for its
+      // former range. Continuing past this boundary would merge those stale entries back into the
+      // left-hand leaf and make them visible again.
+      if (olderPage.isCompleteDump()) {
+        break;
       }
     }
 
@@ -1359,7 +1398,8 @@ public enum VersioningType {
     // page and throws OutOfMemoryError under allocator pressure. A throw before the finally would
     // leave the fragments guarded forever, and a permanently guarded entry is skipped by every
     // eviction path while still counting against the cache budget.
-    final HOTLeafPage modifiedLeaf;
+    HOTLeafPage modifiedLeaf = null;
+    Throwable primaryFailure = null;
     try {
       // getRevisionNumber() is the advancing commit clock (the new revision being written); it is the
       // DIFFERENTIAL full-dump cadence clock. hotLeaf.getRevision() is the frozen prior-fragment
@@ -1376,14 +1416,54 @@ public enum VersioningType {
       } else if (differentialCumulative && windowFragments != null && !windowFragments.isEmpty()) {
         carryForwardDifferentialDelta(windowFragments.getFirst(), modifiedLeaf);
       }
+    } catch (final RuntimeException | Error failure) {
+      primaryFailure = failure;
+      retireModifiedHOTLeafAfterFailure(hotLeaf, modifiedLeaf, failure);
+      throw failure;
     } finally {
       if (windowFragments != null) {
         // Chain fragments are guarded cache entries: release them, never close. hotLeaf belongs to
         // the caller and is never part of this window, but is passed as keepOpen defensively.
-        storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
+        try {
+          storageEngineReader.releaseHOTLeafFragments(windowFragments, hotLeaf);
+        } catch (final RuntimeException | Error releaseFailure) {
+          if (primaryFailure != null) {
+            addSuppressedSafely(primaryFailure, releaseFailure);
+          } else {
+            // A successful copy has not escaped to the caller yet. If releasing the borrowed
+            // fragment window fails, this method still owns that copy and must retire it.
+            retireModifiedHOTLeafAfterFailure(hotLeaf, modifiedLeaf, releaseFailure);
+            throw releaseFailure;
+          }
+        }
       }
     }
     return modifiedLeaf;
+  }
+
+  /** Retire a locally owned CoW result without replacing the failure that prevented its return. */
+  private static void retireModifiedHOTLeafAfterFailure(final HOTLeafPage sourceLeaf,
+      final HOTLeafPage modifiedLeaf, final Throwable primaryFailure) {
+    if (modifiedLeaf == null || modifiedLeaf == sourceLeaf) {
+      return;
+    }
+    try {
+      modifiedLeaf.retire();
+    } catch (final RuntimeException | Error retirementFailure) {
+      addSuppressedSafely(primaryFailure, retirementFailure);
+    }
+  }
+
+  /** Keep the operation failure authoritative even for self/suppression-disabled throwables. */
+  private static void addSuppressedSafely(final Throwable primary, final Throwable secondary) {
+    if (primary == secondary) {
+      return;
+    }
+    try {
+      primary.addSuppressed(secondary);
+    } catch (final RuntimeException | Error ignored) {
+      // The operation failure remains authoritative.
+    }
   }
 
   /**
@@ -1791,5 +1871,3 @@ public enum VersioningType {
     return System.nanoTime(); // Temporary unique key
   }
 }
-
-

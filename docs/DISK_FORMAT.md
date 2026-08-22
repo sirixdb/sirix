@@ -1,6 +1,6 @@
 # SirixDB On-Disk Format (V0)
 
-Status: **V0 contract complete — no open format work items.** We are at
+Status: **V0 record contract.** We are at
 `BinaryEncodingVersion.V0` (pages) and superblock `LAYOUT_VERSION = 0` (files). Every
 pre-freeze checklist item has been resolved (implemented or explicitly decided — see §5's
 decisions log), and the byte-level contract is pinned by golden tests
@@ -300,6 +300,28 @@ explicitly decided; **nothing remains open**:
   V0's future-proofness depends on it. Tracked in `ROADMAP.md`.
 
 
+## JSON revision-diff sidecars
+
+`update-operations/diffFromRev<old>toRev<new>.json` is a rebuildable cache written after the
+authoritative storage commit. Version 1 sidecars add three top-level fields:
+
+```text
+"sirix-diff-format": 1
+"operation-count": <number of entries in "diffs">
+"operations-sha256": <64 lowercase hexadecimal characters>
+```
+
+The digest covers a canonical typed representation of the complete `diffs` array, including
+object-field order, names, values, and numeric lexical forms; it is computed incrementally from the
+Gson tree without creating another whole-file string or byte array. The writer first creates a
+unique sibling temp file and then publishes it by same-directory atomic move where supported.
+
+The core reader performs one strict JSON read and validates resource/revision identity, Unicode
+scalar values, format version, count, digest, and the required schema of every operation before
+hydrating fragment data. `jn:diff` treats any failure as a cache miss and computes the authoritative
+revision diff. Multi-revision resource copy uses the same reader and fails before applying a partial
+revision. Files without these version-1 integrity fields are not accepted by this build.
+
 ## Projection indexes (segment ⇔ slot layout)
 
 Authoritative design + corner-case catalog: `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`
@@ -319,14 +341,15 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     slotKey ≥ 2^42    = fence chunks (above every row-group slot: rowGroupId < 2^24
                         and the shift is 16, so leaf slots stop at 2^40)
   HOT slot value =
-    slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=1; int byteLen; u64 xxh3 } [+ inline payload]
+    slot 0:    PIXB blob marker  { int "PIXB"; u8 ver=0; int byteLen; u64 xxh3 } [+ inline payload]
                byteLen high bit (0x8000_0000) = INLINE: payload rides the slot value right after
                the 17-byte marker (used when payload ≤ 512 B); else REFERENCED via an OverflowPage.
                payload = PIXM metadata { int "PIXM"; u8 ver=0; u8 flags; int rowGroupCount;
-                                         int buildRevision; rootPath; columns[] } — SHAPE ONLY
+                                         int buildRevision; rootPath; columns[];
+                                         setSummaryCapabilityColumns[]; dictionaryAnchors[] }
                                          (a few hundred B → inline; no metadata page on open).
                                          ver=0 is the ONLY supported version: any other value
-                                         parses to null → "no metadata" → rebuild.
+                                         parses to null → "no metadata" → fail-closed decline.
     slotKind 0: PIXD descriptor, a PIXB blob whose payload is
                                 { int "PIXD"; u8 ver=0; int rowCount; u16 columnCount;
                                   i64 firstRecordKey; i64 lastRecordKey;
@@ -346,10 +369,17 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                byteLen + xxh3, re-checked at assembly, so a second on-disk hash would be pure
                redundancy. (The bytes themselves are still the self-describing PIXS payload
                below; what is absent is the PIXB marker the descriptor slot carries.)
-    slotKey 2^42+c: PIXB blob, payload = one fence chunk (512 row groups × { i64 first; i64 last },
-                  8 KiB; REFERENCED). Per-row-group (first,last) zone map for incremental
-                  maintenance; writer-only, carried forward per chunk so a commit rewrites only
-                  changed chunks.
+    slotKey 2^42+chunkId: PIXB blob, payload = one fence chunk for at most 32 physical leaves.
+                  Each 144-byte entry is { i64 first; i64 last; i32 docNext; i32 docPrev;
+                  i32 ownerBase; i32 numericSkip[25]; i64 baseUpper; i32 freeNext }.
+                  Chunks are writer-side routing/document-order units and carry forward independently,
+                  so a local update rewrites only touched 4.5 KiB full chunks.
+    slotKey 2^42+2^20: PIXB blob, payload = the 32-byte PIFO order header
+                  { magic; u8 ver=0 + padding; i32 baseCount; i32 physicalCount; i32 liveCount;
+                    i32 freeHead; i32 documentHead; i32 documentTail }.
+    slotKey 2^43+(column<<16)+chunk: PIXB blob, payload = one 256-row-group Bloom chunk.
+    slotKey 2^44+column: PIXB blob, payload = one bounded set-summary column; an empty payload body
+                  is an explicit capability and can be revived by incremental maintenance.
   HOT leaf side map (serialized behind envelope flag 0x01, complete map per fragment):
     (ownerSlotKey << 16 | subId) → page file offset (bare u64)
     subId is always 0 here — a referenced blob or segment slot owns exactly one page, since
@@ -358,36 +388,51 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     whole-page last-writer-wins; integrity = descriptor/marker byteLen + xxh3 (its only checksum).
     (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
-Segment ids: 0 = KEYS, 3c+1 = BODY(c), 3c+2 = DICT(c); ≤ 21 844 columns, derived as
-  (MAX_OVERFLOW_PAGE_REF_SUB_ID − 2) / SEGMENTS_PER_COLUMN = (65535 − 2) / 3. It was 84 while
+Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),
+  4c+4 = STRING_BLOOM(c). DICT_HASHES(c), emitted only for STRING_DICT columns, lives in the
+  disjoint trailing region `DICT_HASH_SEGMENT_BASE+c`, where
+  `DICT_HASH_SEGMENT_BASE = 4*MAX_COLUMNS+8`; keeping it outside the four-id stride preserves every
+  existing V0 segment id. The descriptor's column limit is derived from the 16-bit segment-id
+  space across both regions. It was 84 while
   segmentId shared an 8-bit sub-id field with the leaf index; a segment owning its own slot
   freed that space.
-Segment wire: { int "PIXS"; u8 ver=1; u8 segKind } +
+Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
   KEYS:  i64 first; i64 last; [rows>0] u8 mode(0=delta-FOR asc,1=abs-FOR); i64 base; u8 width; packed
   BODY:  u8 colFlags (bit0 unrepresentable; bit1 non-integral / not-value-exact for doubles);
          [rows>0] i64 min; i64 max; presence marker (0 all-present / 1 all-missing / 2 words);
          NUMERIC (long or double-transform): i64 base; u8 width (65..255 reserved escapes); packed
          BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
-  DICT:  u8 mode (0 raw / 1 FSST: int tableLen; table; int dictSize; per entry int len + stream);
-         raw mode = { int dictSize; int lens[dictSize]; concatenated UTF-8 }
+  DICT:  u8 mode (0 raw / 1 FSST / 2 raw+set-row-counts / 3 FSST+set-row-counts);
+         raw modes 0/2 = { int dictSize; int lens[dictSize]; concatenated UTF-8 };
+         FSST modes 1/3 = { int tableLen; table; int dictSize;
+                            per entry int len + stream };
+         row-count modes 2/3 append { u8 countWidth; packed unsigned rowCount[dictSize] }
+  SET_COUNTS: u16 valueCount; valueCount × { u16 utf8Len; byte value[utf8Len]; u16 rowCount }
+  STRING_BLOOM: int bitCount; u64 words[bitCount/64]
+  DICT_HASHES: int dictSize; u64 fnv1a64[dictSize] in dictionary-id order
 ```
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
 order-isomorphic to signed longs, so zone maps / predicates / FOR packing are kind-agnostic;
 literals are transformed at plan time, aggregates decode per matching row.
 
-Legacy stores, both flavours, are detected structurally and reset with `resetTree`, because a
-sub-tree that cannot say what is in it cannot be selectively cleared:
-
-- **Pre-descriptor (chunked)**: the slot-0 value is not a PIXB marker.
-- **Pre-segment-slot (descriptor layout)**: a row group sits at a RAW slot id — something the
-  segment-slot layout never writes, which makes a raw-keyed slot 1 an unambiguous witness. The
-  reset is mandatory, not tidy: writing composite-keyed row groups into a raw-keyed sub-tree
-  leaks the old ones below 65 536 row groups, and at or above that raw slot 65536 aliases
-  exactly onto composite key `(rowGroupId=1, slotKind=0)`, after which every read throws
-  "mixed storage layouts in one sub-tree" unrepairably.
+There is no projection-format reader bridge or migration path. Explicit index creation/recreation
+may install a fresh CoW sub-tree when the target has no describable current layout; ordinary
+maintenance never resets the tree and instead fails the owning transaction on inconsistent units.
 
 A PIXM whose version byte is anything other than the one supported value (0) parses to null —
 same PIXB/PIXM magic, so the version is the only discriminator — which every caller treats as
-"no metadata" and rebuilds. That is what the byte is for: rejecting a format rather than
-misreading it. Earlier revisions keep serving their own sub-tree.
+"no metadata" and declines; maintenance fails the owning write until the index is explicitly
+re-created. That is what the byte is for: rejecting a format rather than misreading it. Earlier
+revisions keep serving their own sub-tree.
+
+Global string dictionaries use `ValueDictionaryHeaderNode` layout version 0. The stable metadata
+anchor names a CoW header containing an entry count, generation, and forward/reverse radix roots.
+The forward root first addresses the high 24 bits of FNV-1a. Its terminal bucket holds at most 128
+`(FNV-1a,id)` pairs; a full terminal expands once into an eight-level independent 64-bit digest
+radix. Equal secondary digests prepend immutable buckets of at most 128 pairs, and every candidate
+is confirmed against its stored UTF-8 bytes. The reverse root addresses fixed 256-id blocks whose
+entries are immutable `ValueDictionaryEntryNode` keys. Ordinary maintenance CoWs only the radix
+paths and reverse block touched by new values, while IDs, metadata anchors, and historical roots
+remain stable. Probe telemetry counts radix, bucket, reverse-block, and value-entry reads actually
+performed.

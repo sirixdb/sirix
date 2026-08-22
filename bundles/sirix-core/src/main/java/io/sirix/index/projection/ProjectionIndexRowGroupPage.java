@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 /**
  * Primitive-column leaf page for a projection index. Each page holds up to {@link #MAX_ROWS}
@@ -28,10 +29,13 @@ import java.nio.charset.StandardCharsets;
  * <pre>
  *   int    rowCount              // number of active rows (0..MAX_ROWS)
  *   int    columnCount           // index-aligned with the owning IndexDef
- *   long   firstRecordKey        // zone-map lower bound across recordKeys
- *   long   lastRecordKey         //   upper bound — enables HOT range skip
+ *   long   firstRecordKey        // first non-exception routing-backbone key
+ *   long   lastRecordKey         // last non-exception key; MAX/MIN when none
  *   byte[columnCount] kinds      // 0=NUMERIC_LONG, 1=BOOLEAN, 2=STRING_DICT
- *   long[rowCount] recordKeys    // nodeKey of each record projected here
+ *   long[rowCount] recordKeys    // stable identity, in document order
+ *   byte orderExceptionKind      // 0=NONE; 1=DENSE
+ *   [kind=DENSE] long[ceil(rowCount/64)] orderExceptionBits
+ *                                // bit i = row i is outside the monotone routing backbone
  *
  *   for each column c in [0, columnCount):
  *     long min, max              // per-column zone map
@@ -48,7 +52,7 @@ import java.nio.charset.StandardCharsets;
  *       byte[]    concatenatedUtf8
  *       int[rowCount] dictIds    // raw 4-byte ids (fixed stride)
  *
- *   // ---- presence tail (v1, mandatory — appended after the column stream):
+ *   // ---- presence tail (version 0, mandatory — appended after the column stream):
  *   byte[columnCount] columnFlags     // bit0 = present-but-unrepresentable value seen
  *                                     //        (JSON null, object/array, kind mismatch)
  *                                     // bit1 = non-integral value truncated into a
@@ -56,7 +60,7 @@ import java.nio.charset.StandardCharsets;
  *   for each column c (only when rowCount &gt; 0):
  *     long[ceil(rowCount/64)] presenceBits  // bit i = field exists on row i
  *   int  tailLength                   // bytes from tail start to before this field
- *   byte version = 1                  // tail-layout version, bumped on change
+ *   byte version = 0                  // tail-layout version, bumped on change
  *   int  magic = 0x50495831 ("PIX1")
  * </pre>
  *
@@ -97,57 +101,34 @@ import java.nio.charset.StandardCharsets;
  *
  * <h2>Versioning &amp; storage placement</h2>
  *
- * Each serialised leaf byte[] is stored as one entry in a {@link io.sirix.page.HOTLeafPage} of the
- * projection index's HOT tree, keyed by a synthetic chunk-id. {@code HOTLeafPage} is already a
- * versioned {@code KeyValuePage} — Sirix's
- * {@link io.sirix.settings.VersioningType#combineRecordPages} merge writes only the
- * <strong>modified slots</strong> of a given HOTLeafPage per revision; untouched slots alias the
- * prior revision's bytes via the standard chain walk. No new {@code PageKind}, no
- * {@link io.sirix.index.hot.ChunkDirectory} indirection — the HOT leaf <em>is</em> the directory.
+ * A row group is not stored as one opaque value. Its zone-map descriptor, KEYS segment, and each
+ * column's BODY / DICT / SET_COUNTS / STRING_BLOOM / optional DICT_HASHES segment occupy independent
+ * composite-key slots in the projection's {@link io.sirix.page.HOTLeafPage} tree. A segment above the
+ * inline threshold spills independently to the ordinary {@link io.sirix.page.OverflowPage}
+ * mechanism, so one large dictionary does not force the other columns into its CoW unit.
  *
  * <p>
- * Concrete on-disk cost per commit:
+ * Incremental maintenance observes the same boundaries:
  *
  * <ul>
  * <li>No projection-relevant rows changed → zero bytes.</li>
- * <li>Rows in chunk <em>N</em> changed → only slot <em>N</em> of that HOTLeafPage gets
- * re-serialised; slots of untouched chunks alias the previous revision.</li>
- * <li>Large leaf values (~20 KB) that exceed the inline-slot threshold transparently spill to
- * Sirix's overflow-record mechanism: a separate CoW-versioned page referenced from the slot — same
- * effect as a dedicated chunk page, no new code.</li>
+ * <li>A value-only update rewrites the row-group descriptor and only the selected column segments
+ * whose length/hash changed; all other segment slots are true no-ops.</li>
+ * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Even there, the
+ * descriptor diff carries byte-identical segments forward instead of writing them again.</li>
  * </ul>
  *
  * <p>
- * <b>Known architectural debt — to be addressed before general availability.</b> Storing a 20 KB
- * serialised leaf as a single HOT entry value breaks Sirix's documented
- * {@linkplain io.sirix.settings.VersioningType#SLIDING_SNAPSHOT} contract (see
- * {@code docs/ARCHITECTURE.md} §"Problem 9" and §1097): the framework guarantees <em>O(1) writes
- * per record</em>, but our natural "record" is a single projection row (~32 bytes), not the
- * 1024-row leaf. On update-heavy workloads a one-row change re-emits the full ~20 KB slot — ~1000×
- * the share-ratio the README promises.
- *
- * <p>
- * Unlike CAS/NAME/PATH indexes (whose Roaring-bitmap values are naturally KB-sized per record and
- * thus align with slot granularity), projection leaves pack many records per slot and will need
- * sub-slot sharing before production use:
- *
- * <ul>
- * <li>Per-row slots (1024 slots/leaf, one per row) — exact match for the SLIDING_SNAPSHOT contract
- * but loses columnar layout.</li>
- * <li>Per-column slots (3 slots/leaf, one per column) — row update re-emits the touched column(s)
- * (~8 KB) not the full leaf; columnar scan still works.</li>
- * <li>Reuse the half-built {@code BitmapChunkPage} / {@code ChunkDirectory} machinery in
- * {@code io.sirix.index.hot}; currently unused by the CAS path but wired through
- * {@link io.sirix.page.PageKind} and
- * {@link io.sirix.settings.VersioningType#combineBitmapChunks}.</li>
- * </ul>
- *
- * <p>
- * Tracked in task #57. Today's opaque-byte[]-per-slot layout is explicitly an interim shipping
- * configuration; do not publish a projection-index public API commitment until sub-slot sharing is
- * in.
+ * Each of those slots then follows the normal {@link io.sirix.settings.VersioningType} machinery:
+ * FULL emits a self-contained HOT page, while DIFFERENTIAL, INCREMENTAL and SLIDING_SNAPSHOT retain
+ * their strategy-specific bounded fragment chains and merge entries by key. Projection storage adds
+ * no private version chain and therefore preserves the engine's carry-forward and GC rules for all
+ * four strategies.
  */
 public final class ProjectionIndexRowGroupPage {
+
+  static final byte ORDER_EXCEPTIONS_NONE = 0;
+  static final byte ORDER_EXCEPTIONS_DENSE = 1;
 
   /**
    * Row capacity per leaf. Sized to match the existing {@code
@@ -155,6 +136,25 @@ public final class ProjectionIndexRowGroupPage {
    * lanes across projection and PAX scans alike.
    */
   public static final int MAX_ROWS = 1024;
+
+  /** Immutable placeholder for absent/unrepresentable local scalar strings. */
+  private static final byte[] EMPTY_UTF8 = new byte[0];
+
+  /** Initial number of distinct entries addressable without growing primitive indexes. */
+  private static final int INITIAL_STRING_DICTIONARY_CAPACITY = 16;
+
+  /** Build a flat primitive lookup table once linear dictionary probing stops being cheaper. */
+  private static final int STRING_DICTIONARY_HASH_THRESHOLD = 8;
+
+  /** A 2x table keeps the open-addressed lookup at or below 50% occupancy. */
+  private static final int INITIAL_STRING_DICTIONARY_HASH_CAPACITY =
+      INITIAL_STRING_DICTIONARY_CAPACITY << 1;
+
+  /** Small first slab; geometric growth quickly reaches the page's steady-state high-water mark. */
+  private static final int INITIAL_STRING_SLAB_CAPACITY = 4 * 1024;
+
+  /** Do not retain an outlier scalar string slab larger than this across page generations. */
+  private static final int MAX_RETAINED_STRING_SLAB_CAPACITY = 1024 * 1024;
 
   /**
    * Column-kind bytes written into the page header. Order matches
@@ -199,9 +199,51 @@ public final class ProjectionIndexRowGroupPage {
    */
   public static final byte COLUMN_KIND_STRING_SET = 4;
 
+  /**
+   * A string column whose cells store ids into the resource-wide
+   * {@link GlobalValueDictionary} instead of into a per-leaf dictionary.
+   *
+   * <p>{@link #COLUMN_KIND_STRING_DICT} is the right shape for a column with a few dozen distinct
+   * values and the wrong one for a column with millions. A per-leaf dictionary stores a recurring
+   * value once <em>per leaf</em> — hundreds of copies of the same string across a large resource —
+   * so the column's bytes come out roughly the size of the raw strings, and because nothing about a
+   * per-leaf id is comparable across leaves, group identity has to be recovered by hashing the
+   * bytes back out of every leaf's dictionary.
+   *
+   * <p>Here the id IS the identity, resource-wide. Grouping becomes an integer group-by, distinct
+   * counting a fold over integers, and equality an integer compare after one dictionary probe.
+   * There is no per-leaf dictionary and no dict-entry hash segment: both exist only to recover what
+   * the id already says.
+   *
+   * <p><b>Storage is byte-identical to {@link #COLUMN_KIND_NUMERIC_LONG}</b> — the cells are
+   * integers, zone-mapped and bit-packed exactly like any other integer column. That is deliberate
+   * and follows the precedent {@link #COLUMN_KIND_NUMERIC_DOUBLE} already set: every layout-level
+   * surface (zone maps, packing, presence, segment codecs) works unchanged, and only the sites that
+   * care what the integer MEANS need to know about the kind. {@link #isLongLaneKind} is the
+   * predicate layout sites test; {@link #isNumericKind} stays what it was, so nothing that treats a
+   * column as arithmetically numeric — a sum, an average, a min that must return a value rather
+   * than an id — can pick this kind up by accident.
+   */
+  public static final byte COLUMN_KIND_STRING_GLOBAL = 5;
+
   /** {@code true} for the two numeric kinds, whose storage layout is identical. */
   public static boolean isNumericKind(final byte kind) {
     return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE;
+  }
+
+  /**
+   * {@code true} for every kind stored as one signed long per row — the two numeric kinds and
+   * {@link #COLUMN_KIND_STRING_GLOBAL}.
+   *
+   * <p>The predicate for LAYOUT sites only: anything that packs, unpacks, zone-maps, skips or
+   * copies cells without interpreting them. A site that interprets a cell as a number must keep
+   * using {@link #isNumericKind}, because a global string id is an integer that is not a quantity —
+   * summing it, averaging it or returning it as a minimum are all wrong answers rather than slow
+   * ones.
+   */
+  public static boolean isLongLaneKind(final byte kind) {
+    return kind == COLUMN_KIND_NUMERIC_LONG || kind == COLUMN_KIND_NUMERIC_DOUBLE
+        || kind == COLUMN_KIND_STRING_GLOBAL;
   }
 
   /** Footer magic of the presence tail ("PIX1" little-endian). */
@@ -211,7 +253,7 @@ public final class ProjectionIndexRowGroupPage {
    * Version byte stored between the tail length and the footer magic. Future tail-layout changes bump
    * this instead of minting a new magic; readers reject unknown values as corrupt.
    */
-  public static final byte PRESENCE_TAIL_VERSION = 1;
+  public static final byte PRESENCE_TAIL_VERSION = 0;
 
   /**
    * Column flag bit: a present-but-unrepresentable value (null / object / array / kind mismatch) was
@@ -250,6 +292,16 @@ public final class ProjectionIndexRowGroupPage {
    */
   private long[] recordKeys;
 
+  /**
+   * Per-row document-order exception flags.  Stable node keys identify records but do not order
+   * them: rows marked here are located through the sparse exact locator, while unmarked rows form
+   * the strictly-increasing key backbone addressed by the leaf fences.
+   */
+  private long[] orderExceptionBits;
+
+  /** Logical presence is separate from retained builder scratch after page reuse. */
+  private boolean hasOrderExceptions;
+
   /** Per-column kind byte from {@link #COLUMN_KIND_NUMERIC_LONG} / …. */
   private final byte[] columnKinds;
 
@@ -269,17 +321,59 @@ public final class ProjectionIndexRowGroupPage {
 
   /**
    * Per-column dict-id values. Slot {@code c} valid iff
-   * {@code columnKinds[c] == COLUMN_KIND_STRING_DICT}. Paired with {@link #stringDicts}.
+   * {@code columnKinds[c] == COLUMN_KIND_STRING_DICT}. Paired with either the build-time slab or the
+   * legacy {@link #stringDicts} representation.
    * {@code int[MAX_ROWS]}.
    */
   private final int[][] stringDictIdCols;
 
   /**
-   * Per-column local string dictionary. Slot {@code c} holds the byte[] array whose index is the
-   * dict-id stored in {@code stringDictIdCols[c]}. Arrays rather than a shared heap so we can stream
-   * per-column without cross-column lookup overhead.
+   * Per-column legacy local string dictionary. Deserialised dictionaries and STRING_SET columns keep
+   * the historical null-terminated {@code byte[][]} representation. A newly-built scalar
+   * STRING_DICT column instead lives in {@link #stringDictSlabs}; this slot is normally null until
+   * the public compatibility accessor materialises a detached view.
    */
   private final byte[][][] stringDicts;
+
+  /**
+   * Per-column grow-only UTF-8 slab for newly-built scalar STRING_DICT dictionaries. Entry bytes are
+   * addressed by {@link #stringDictOffsets} and {@link #stringDictLengths}; one retained array per
+   * column replaces one exact-sized array per distinct value.
+   */
+  private final byte[][] stringDictSlabs;
+
+  /** Start offset of each live slab-backed dictionary entry. */
+  private final int[][] stringDictOffsets;
+
+  /** Byte length of each live slab-backed dictionary entry. */
+  private final int[][] stringDictLengths;
+
+  /** Live entry count for a slab-backed scalar dictionary. */
+  private final int[] stringDictSizes;
+
+  /** Live byte count in each grow-only slab. Normal capacity is retained across builder reuse. */
+  private final int[] stringDictSlabLengths;
+
+  /** Per-entry UTF-8 hashes for slab dictionaries whose primitive lookup index has been activated. */
+  private final int[][] stringDictHashes;
+
+  /**
+   * Open-addressed hash slots for slab dictionaries. A slot stores {@code dictId + 1}; zero is the
+   * empty marker. The table is activated lazily so genuinely tiny dictionaries retain the cheaper
+   * linear path, then retained across builder reuse like the slab itself.
+   */
+  private final int[][] stringDictHashSlots;
+
+  /** Whether the current page generation crossed the hash-index cardinality threshold. */
+  private final boolean[] stringDictHashActive;
+
+  /**
+   * Per-column resource-wide value dictionary for {@link #COLUMN_KIND_STRING_GLOBAL}. Slot
+   * {@code c} is non-null exactly when column {@code c} carries that kind; the builder owns the
+   * writers and shares one per column across every leaf, which is the whole point — a value
+   * interned in leaf 1 keeps its id in leaf 10000.
+   */
+  private GlobalValueDictionaryEncoder[] globalDicts;
 
   /**
    * Per-column element counts for {@link #COLUMN_KIND_STRING_SET}: how many dict ids row {@code r}
@@ -306,7 +400,7 @@ public final class ProjectionIndexRowGroupPage {
   private final long[] columnMin;
   private final long[] columnMax;
 
-  /** Record-key zone map across all rows. Enables whole-leaf skip at query time. */
+  /** Normal routing-backbone bounds; exception-only and rowless leaves carry MAX/MIN sentinels. */
   private long firstRecordKey;
   private long lastRecordKey;
 
@@ -350,6 +444,14 @@ public final class ProjectionIndexRowGroupPage {
     this.booleanCols = new long[columnCount][];
     this.stringDictIdCols = new int[columnCount][];
     this.stringDicts = new byte[columnCount][][];
+    this.stringDictSlabs = new byte[columnCount][];
+    this.stringDictOffsets = new int[columnCount][];
+    this.stringDictLengths = new int[columnCount][];
+    this.stringDictSizes = new int[columnCount];
+    this.stringDictSlabLengths = new int[columnCount];
+    this.stringDictHashes = new int[columnCount][];
+    this.stringDictHashSlots = new int[columnCount][];
+    this.stringDictHashActive = new boolean[columnCount];
     this.stringSetCountCols = new int[columnCount][];
     this.stringSetIdCols = new int[columnCount][];
     this.stringSetLen = new int[columnCount];
@@ -408,6 +510,21 @@ public final class ProjectionIndexRowGroupPage {
     return recordKeys;
   }
 
+  public long[] orderExceptionBits() {
+    return hasOrderExceptions ? orderExceptionBits : null;
+  }
+
+  public boolean hasOrderExceptions() {
+    return hasOrderExceptions;
+  }
+
+  public boolean orderExceptionAt(final int row) {
+    if (row < 0 || row >= rowCount) {
+      throw new IndexOutOfBoundsException("projection row out of range: " + row);
+    }
+    return hasOrderExceptions && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0;
+  }
+
   public long[] numericColumn(final int column) {
     return numericCols[column];
   }
@@ -435,8 +552,133 @@ public final class ProjectionIndexRowGroupPage {
     return stringSetLen[column];
   }
 
-  public byte[][] stringDictionary(final int column) {
-    return stringDicts[column];
+  /**
+   * How many entries column {@code column}'s per-leaf dictionary holds.
+   *
+   * @param column the column ordinal
+   * @return the live entry count, {@code 0} for a column with no per-leaf dictionary
+   */
+  public int stringDictionarySize(final int column) {
+    checkColumn(column);
+    if (stringDictSlabs[column] != null) {
+      return stringDictSizes[column];
+    }
+    final byte[][] dict = stringDicts[column];
+    if (dict == null) {
+      return 0;
+    }
+    for (int i = 0; i < dict.length; i++) {
+      if (dict[i] == null) {
+        return i;
+      }
+    }
+    return dict.length;
+  }
+
+  /**
+   * Historical {@code byte[][]} dictionary accessor.
+   *
+   * <p>A slab-backed scalar dictionary is materialised at most once per live page generation. Each
+   * entry is detached from the page-owned slab, so retaining or mutating the returned compatibility
+   * view cannot corrupt codecs, scans, a later builder reset, or already-emitted output. Production
+   * consumers use the range accessors below and never invoke this method.
+   */
+  public synchronized byte[][] stringDictionary(final int column) {
+    checkColumn(column);
+    final byte[][] existing = stringDicts[column];
+    if (existing != null || stringDictSlabs[column] == null) {
+      return existing;
+    }
+    final int size = stringDictSizes[column];
+    final byte[][] materialized = new byte[Math.max(16, size)][];
+    final byte[] slab = stringDictSlabs[column];
+    final int[] offsets = stringDictOffsets[column];
+    final int[] lengths = stringDictLengths[column];
+    for (int i = 0; i < size; i++) {
+      final int length = lengths[i];
+      if (length == 0) {
+        materialized[i] = EMPTY_UTF8;
+      } else {
+        final byte[] entry = new byte[length];
+        System.arraycopy(slab, offsets[i], entry, 0, length);
+        materialized[i] = entry;
+      }
+    }
+    stringDicts[column] = materialized;
+    return materialized;
+  }
+
+  /** Borrowed backing array for one dictionary entry; pair with offset and length below. */
+  public byte[] stringDictionaryEntryBacking(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    final byte[] slab = stringDictSlabs[column];
+    return slab != null ? slab : stringDicts[column][dictId];
+  }
+
+  /** Start of one entry in {@link #stringDictionaryEntryBacking}. */
+  public int stringDictionaryEntryOffset(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    return stringDictSlabs[column] != null ? stringDictOffsets[column][dictId] : 0;
+  }
+
+  /** Byte length of one entry in {@link #stringDictionaryEntryBacking}. */
+  public int stringDictionaryEntryLength(final int column, final int dictId) {
+    checkDictionaryEntry(column, dictId);
+    return stringDictSlabs[column] != null
+        ? stringDictLengths[column][dictId]
+        : stringDicts[column][dictId].length;
+  }
+
+  /** Whether this column currently owns one flat scalar-dictionary backing array. */
+  boolean stringDictionaryIsSlabBacked(final int column) {
+    checkColumn(column);
+    return stringDictSlabs[column] != null;
+  }
+
+  /** Borrowed flat backing for FSST; valid only while the builder-owned page is borrowed. */
+  byte[] stringDictionaryFlatBacking(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictSlabs[column];
+  }
+
+  /** Borrowed entry offsets parallel to {@link #stringDictionaryFlatBacking}. */
+  int[] stringDictionaryFlatOffsets(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictOffsets[column];
+  }
+
+  /** Borrowed entry lengths parallel to {@link #stringDictionaryFlatBacking}. */
+  int[] stringDictionaryFlatLengths(final int column) {
+    if (!stringDictionaryIsSlabBacked(column)) {
+      throw new IllegalStateException("column " + column + " is not slab-backed");
+    }
+    return stringDictLengths[column];
+  }
+
+  private void checkColumn(final int column) {
+    if (column < 0 || column >= columnCount) {
+      throw new IndexOutOfBoundsException("column " + column + " outside [0, " + columnCount + ")");
+    }
+  }
+
+  private void checkDictionaryEntry(final int column, final int dictId) {
+    checkColumn(column);
+    if (stringDictSlabs[column] != null) {
+      final int size = stringDictSizes[column];
+      if (dictId < 0 || dictId >= size) {
+        throw new IndexOutOfBoundsException(
+            "dictionary id " + dictId + " outside [0, " + size + ") for column " + column);
+      }
+      return;
+    }
+    final byte[][] dictionary = stringDicts[column];
+    if (dictId < 0 || dictionary == null || dictId >= dictionary.length || dictionary[dictId] == null) {
+      throw new IndexOutOfBoundsException("dictionary id " + dictId + " is not live for column " + column);
+    }
   }
 
   /** 64-way packed presence bits of {@code column}. */
@@ -479,8 +721,9 @@ public final class ProjectionIndexRowGroupPage {
       final long lastRecordKey, final long[] recordKeys, final long[] columnMin, final long[] columnMax,
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final long[][] presenceCols, final byte[] columnFlags) {
-    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys, columnMin, columnMax, numericCols,
-        booleanCols, stringDictIdCols, stringDicts, null, null, presenceCols, columnFlags);
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
+        stringDicts, null, null, presenceCols, columnFlags);
   }
 
   /** As above, carrying {@link #COLUMN_KIND_STRING_SET} columns' counts and flat element runs. */
@@ -489,11 +732,25 @@ public final class ProjectionIndexRowGroupPage {
       final long[][] numericCols, final long[][] booleanCols, final int[][] stringDictIdCols,
       final byte[][][] stringDicts, final int[][] setCountCols, final int[][] setElemCols, final long[][] presenceCols,
       final byte[] columnFlags) {
+    return reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        null, columnMin, columnMax, numericCols, booleanCols, stringDictIdCols,
+        stringDicts, setCountCols, setElemCols, presenceCols, columnFlags);
+  }
+
+  /** Reassembly form carrying the persisted document-order exception bitmap from KEYS. */
+  static ProjectionIndexRowGroupPage reconstruct(final byte[] kinds, final int rowCount, final long firstRecordKey,
+      final long lastRecordKey, final long[] recordKeys, final long[] orderExceptionBits,
+      final long[] columnMin, final long[] columnMax, final long[][] numericCols, final long[][] booleanCols,
+      final int[][] stringDictIdCols, final byte[][][] stringDicts, final int[][] setCountCols,
+      final int[][] setElemCols, final long[][] presenceCols, final byte[] columnFlags) {
     final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
     page.rowCount = rowCount;
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;
     page.recordKeys = recordKeys;
+    page.orderExceptionBits = orderExceptionBits;
+    page.hasOrderExceptions = orderExceptionBits != null;
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys, orderExceptionBits);
     for (int c = 0; c < page.columnCount; c++) {
       page.columnMin[c] = columnMin[c];
       page.columnMax[c] = columnMax[c];
@@ -521,28 +778,173 @@ public final class ProjectionIndexRowGroupPage {
     return page;
   }
 
+  /** Fail-closed validation shared by raw and segmented V0 decoders. */
+  static void validateOrderMetadata(final int rowCount, final long firstRecordKey, final long lastRecordKey,
+      final long[] recordKeys, final long[] orderExceptionBits) {
+    if (rowCount < 0 || rowCount > MAX_ROWS
+        || (rowCount > 0 && (recordKeys == null || recordKeys.length < rowCount))) {
+      throw new IllegalStateException("invalid projection KEYS row shape");
+    }
+    final int words = (rowCount + 63) >>> 6;
+    if (orderExceptionBits != null) {
+      if (orderExceptionBits.length < words) {
+        throw new IllegalStateException("truncated projection order-exception bitmap");
+      }
+      if (words > 0 && (rowCount & 63) != 0
+          && (orderExceptionBits[words - 1] & (-1L << (rowCount & 63))) != 0L) {
+        throw new IllegalStateException("projection order-exception bitmap sets bits beyond rowCount");
+      }
+    }
+    long expectedFirst = Long.MAX_VALUE;
+    long expectedLast = Long.MIN_VALUE;
+    long previousNormal = Long.MIN_VALUE;
+    boolean sawException = false;
+    for (int row = 0; row < rowCount; row++) {
+      final long recordKey = recordKeys[row];
+      if (recordKey < 0) {
+        throw new IllegalStateException("projection KEYS contains a negative document node key");
+      }
+      final boolean exception = orderExceptionBits != null
+          && (orderExceptionBits[row >>> 6] & (1L << (row & 63))) != 0L;
+      if (exception) {
+        sawException = true;
+        continue;
+      }
+      if (recordKey <= previousNormal) {
+        throw new IllegalStateException("projection normal routing backbone is not strictly increasing");
+      }
+      if (expectedFirst == Long.MAX_VALUE) {
+        expectedFirst = recordKey;
+      }
+      expectedLast = recordKey;
+      previousNormal = recordKey;
+    }
+    if (orderExceptionBits != null && !sawException) {
+      throw new IllegalStateException("dense projection order bitmap contains no exceptions");
+    }
+    if (firstRecordKey != expectedFirst || lastRecordKey != expectedLast) {
+      throw new IllegalStateException("projection normal fence does not match its KEYS rows");
+    }
+  }
+
   /** Ensure the per-column primitive arrays are materialised. Idempotent. */
   private void ensureCapacity() {
+    ensureCapacity(true);
+  }
+
+  /**
+   * Materialise row lanes, optionally including empty build-time dictionary storage. The raw
+   * deserialiser supplies complete legacy dictionaries immediately afterwards and passes false, so
+   * it does not allocate then discard a slab for every cold-opened scalar string column.
+   */
+  private void ensureCapacity(final boolean allocateBuilderDictionaries) {
     if (recordKeys == null) {
       recordKeys = new long[MAX_ROWS];
       for (int c = 0; c < columnCount; c++) {
         presenceCols[c] = new long[(MAX_ROWS + 63) >>> 6];
         switch (columnKinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> numericCols[c] = new long[MAX_ROWS];
+          // STRING_GLOBAL rides the numeric lane: its cells are dictionary ids, stored and packed
+          // exactly like any other integer column.
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+              numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
-            stringDicts[c] = new byte[16][]; // grow on demand in appendString
+            if (allocateBuilderDictionaries) {
+              stringDictSlabs[c] = new byte[INITIAL_STRING_SLAB_CAPACITY];
+              stringDictOffsets[c] = new int[INITIAL_STRING_DICTIONARY_CAPACITY];
+              stringDictLengths[c] = new int[INITIAL_STRING_DICTIONARY_CAPACITY];
+            }
           }
           case COLUMN_KIND_STRING_SET -> {
             stringSetCountCols[c] = new int[MAX_ROWS];
             stringSetIdCols[c] = new int[MAX_ROWS]; // one element per row to start; grows
-            stringDicts[c] = new byte[16][];
+            if (allocateBuilderDictionaries) {
+              stringDicts[c] = new byte[INITIAL_STRING_DICTIONARY_CAPACITY][];
+            }
           }
           default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
         }
       }
     }
+  }
+
+  /**
+   * Return this builder-owned page to its empty state without releasing its primitive working
+   * arrays.
+   *
+   * <p>The builder calls this only after its synchronous borrowed-leaf callback returns
+   * successfully. Numeric values, record keys, ids and set counts are overwrite-only, so advancing
+   * {@link #rowCount} from zero makes their old tails unreachable and they need no clearing. The
+   * presence and boolean lanes are OR-written and therefore clear the words that were live in the
+   * preceding generation. Scalar dictionaries clear their live size/offset/length metadata while
+   * retaining the page-owned slab capacity; legacy/set dictionaries clear live entry references.
+   * Primitive indexes and an expanded string-set id run remain at their high-water marks.
+   *
+   * <p>Package-private by design: callers outside {@link ProjectionIndexBuilder} do not own the
+   * page exclusively and cannot prove that no borrowed accessor escaped.
+   */
+  void resetForBuilderReuse(final GlobalValueDictionaryEncoder[] dictionaries) {
+    final int liveWordCount = (rowCount + 63) >>> 6;
+    if (orderExceptionBits != null) {
+      for (int word = 0; word < liveWordCount; word++) {
+        orderExceptionBits[word] = 0L;
+      }
+    }
+    hasOrderExceptions = false;
+    for (int c = 0; c < columnCount; c++) {
+      final long[] presence = presenceCols[c];
+      if (presence != null) {
+        for (int word = 0; word < liveWordCount; word++) {
+          presence[word] = 0L;
+        }
+      }
+      if (columnKinds[c] == COLUMN_KIND_BOOLEAN) {
+        final long[] values = booleanCols[c];
+        if (values != null) {
+          for (int word = 0; word < liveWordCount; word++) {
+            values[word] = 0L;
+          }
+        }
+      }
+      if (stringDictSlabs[c] != null) {
+        // A compatibility view is detached entry-by-entry. Drop only the page's reference to it;
+        // mutating an array a caller retained would violate the accessor's ownership contract.
+        stringDicts[c] = null;
+        final int liveEntries = stringDictSizes[c];
+        for (int entry = 0; entry < liveEntries; entry++) {
+          stringDictOffsets[c][entry] = 0;
+          stringDictLengths[c][entry] = 0;
+        }
+        stringDictSizes[c] = 0;
+        stringDictSlabLengths[c] = 0;
+        if (stringDictSlabs[c].length > MAX_RETAINED_STRING_SLAB_CAPACITY) {
+          stringDictSlabs[c] = new byte[INITIAL_STRING_SLAB_CAPACITY];
+        }
+        // Retain the high-water arrays, but let each new page generation earn the hash path from
+        // its own cardinality. A high-cardinality outlier must not make later tiny dictionaries
+        // hash every value or clear a large table merely because the capacity exists.
+        stringDictHashActive[c] = false;
+      } else {
+        final byte[][] dictionary = stringDicts[c];
+        if (dictionary != null) {
+          int entry = 0;
+          while (entry < dictionary.length && dictionary[entry] != null) {
+            dictionary[entry++] = null;
+          }
+        }
+      }
+      stringSetLen[c] = 0;
+      columnUnrepresentable[c] = false;
+      columnNonIntegral[c] = false;
+      columnSawNonDoubleSource[c] = false;
+      columnMin[c] = Long.MAX_VALUE;
+      columnMax[c] = Long.MIN_VALUE;
+    }
+    rowCount = 0;
+    firstRecordKey = Long.MAX_VALUE;
+    lastRecordKey = Long.MIN_VALUE;
+    globalDicts = dictionaries;
   }
 
   /**
@@ -596,9 +998,11 @@ public final class ProjectionIndexRowGroupPage {
    * Variant additionally carrying double-source provenance: {@code nonDoubleSource[c]} marks that
    * this row's NUMERIC_DOUBLE cell {@code c} was converted from a source other than {@code Double}.
    * Passing {@code null} (every provenance-free caller) poisons purity for each NUMERIC_DOUBLE column
-   * touched by a clean present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion
-   * only the extractor may make. Missing and unrepresentable cells never affect purity (they
-   * contribute no value; unrepresentable already blocks value serving on its own).
+   * touched by a present cell — {@link #COLUMN_FLAG_PURE_DOUBLE_SOURCE} is a positive assertion only
+   * the extractor may make. Missing cells do not affect purity. An unrepresentable cell still carries
+   * source provenance when extraction established it; retaining that negative evidence keeps the
+   * persisted flag truthful even if a future serving gate reasons about provenance independently of
+   * the unrepresentable flag.
    */
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final boolean[] present, final boolean[] unrepresentable,
@@ -615,15 +1019,220 @@ public final class ProjectionIndexRowGroupPage {
   public boolean appendRow(final long recordKey, final long[] longValues, final boolean[] boolValues,
       final String[] stringValues, final String[][] stringSetValues, final boolean[] present,
       final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
-    if (rowCount == MAX_ROWS)
+    return appendRowInternal(recordKey, longValues, boolValues, stringValues, null, null, stringSetValues, present,
+        unrepresentable, nonIntegral, nonDoubleSource, false);
+  }
+
+  /**
+   * Extractor-only scalar-string lane that preserves already-decoded semantic UTF-8 bytes.
+   *
+   * <p>All scalar arrays are borrowed for this synchronous call. A local dictionary appends only a
+   * newly-distinct live slice to its page-owned slab; duplicates are compared in place and retain
+   * nothing. A global
+   * dictionary already copies newly-interned values into its arena. Returning {@code false} does not
+   * inspect the arrays, so the caller may retry the same row on a fresh leaf.
+   *
+   * <p>{@code stringSetValues} deliberately remains the legacy String lane. Set element order,
+   * duplicates, null skipping and empty-set representation are therefore unchanged.
+   */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final String[][] stringSetValues, final boolean[] present,
+      final boolean[] unrepresentable, final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, null, stringSetValues,
+        present, unrepresentable, nonIntegral, nonDoubleSource);
+  }
+
+  /**
+   * Slice-aware form used by the extractor's grow-only per-column buffers. A {@code null} lengths
+   * array means every scalar's full byte array is live (the compatibility form above).
+   */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
+    return appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, false);
+  }
+
+  /** Extractor append carrying the row's persisted sparse-order classification. */
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource, final boolean orderException) {
+    if (rowCount == MAX_ROWS) {
       return false;
+    }
+    if (stringUtf8Values == null) {
+      throw new IllegalArgumentException("stringUtf8Values must not be null");
+    }
+    validateExtractedUtf8Row(longValues, boolValues, stringUtf8Values, stringUtf8Lengths, stringSetValues, present,
+        unrepresentable, nonIntegral, nonDoubleSource);
+    return appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths,
+        stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException);
+  }
+
+  /**
+   * Append one extracted value to a one-column maintenance page.
+   *
+   * <p>This is deliberately scalar-shaped instead of accepting the extractor's projection-width
+   * arrays.  A narrow update constructs one such page per dirty column, so {@link #ensureCapacity()}
+   * allocates exactly one value lane and one presence lane rather than allocating {@code MAX_ROWS}
+   * cells for every untouched projection column.</p>
+   */
+  boolean appendExtractedSingleColumnRow(final long recordKey, final long longValue, final boolean boolValue,
+      final byte[] stringUtf8Value, final int stringUtf8Length,
+      final String[] stringSetValues, final int stringSetLength, final boolean present,
+      final boolean unrepresentable, final boolean nonIntegral, final boolean nonDoubleSource) {
+    if (columnCount != 1) {
+      throw new IllegalStateException("single-column append requires a one-column page, got " + columnCount);
+    }
+    if (rowCount == MAX_ROWS) {
+      return false;
+    }
+    if (stringSetLength < 0 || (stringSetValues != null && stringSetLength > stringSetValues.length)) {
+      throw new IllegalArgumentException("invalid extracted string-set length " + stringSetLength);
+    }
+    final byte kind = columnKinds[0];
+    final boolean clean = present && !unrepresentable;
+    if ((kind == COLUMN_KIND_STRING_DICT || kind == COLUMN_KIND_STRING_GLOBAL) && clean
+        && (stringUtf8Value == null || stringUtf8Length < 0 || stringUtf8Length > stringUtf8Value.length)) {
+      throw new IllegalArgumentException("clean extracted string cell has no valid UTF-8 slice");
+    }
+    if (kind == COLUMN_KIND_STRING_GLOBAL && clean
+        && (globalDicts == null || globalDicts.length == 0 || globalDicts[0] == null)) {
+      throw new IllegalStateException("single STRING_GLOBAL column has no value dictionary attached");
+    }
+
     ensureCapacity();
     final int row = rowCount;
     recordKeys[row] = recordKey;
-    if (recordKey < firstRecordKey)
-      firstRecordKey = recordKey;
-    if (recordKey > lastRecordKey)
-      lastRecordKey = recordKey;
+    firstRecordKey = Math.min(firstRecordKey, recordKey);
+    lastRecordKey = Math.max(lastRecordKey, recordKey);
+    if (present) {
+      presenceCols[0][row >>> 6] |= 1L << (row & 63);
+    }
+    columnUnrepresentable[0] |= unrepresentable;
+    columnNonIntegral[0] |= nonIntegral;
+    if (present && kind == COLUMN_KIND_NUMERIC_DOUBLE && nonDoubleSource) {
+      columnSawNonDoubleSource[0] = true;
+    }
+
+    switch (kind) {
+      case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+        numericCols[0][row] = longValue;
+        if (clean) {
+          columnMin[0] = Math.min(columnMin[0], longValue);
+          columnMax[0] = Math.max(columnMax[0], longValue);
+        }
+      }
+      case COLUMN_KIND_STRING_GLOBAL -> {
+        final long id = clean ? internGlobalUtf8(0, stringUtf8Value, stringUtf8Length) : 0L;
+        numericCols[0][row] = id;
+        if (clean) {
+          columnMin[0] = Math.min(columnMin[0], id);
+          columnMax[0] = Math.max(columnMax[0], id);
+        }
+      }
+      case COLUMN_KIND_BOOLEAN -> {
+        if (boolValue) {
+          booleanCols[0][row >>> 6] |= 1L << (row & 63);
+        }
+      }
+      case COLUMN_KIND_STRING_DICT -> stringDictIdCols[0][row] = clean
+          ? appendBorrowedStringUtf8(0, stringUtf8Value, stringUtf8Length)
+          : appendBorrowedStringUtf8(0, EMPTY_UTF8, 0);
+      case COLUMN_KIND_STRING_SET -> {
+        int appended = 0;
+        if (clean && stringSetValues != null) {
+          for (int i = 0; i < stringSetLength; i++) {
+            final String value = stringSetValues[i];
+            if (value != null) {
+              appendSetElement(0, appendString(0, value));
+              appended++;
+            }
+          }
+        }
+        stringSetCountCols[0][row] = appended;
+      }
+      default -> throw new IllegalStateException("Unknown column kind " + kind);
+    }
+    rowCount++;
+    return true;
+  }
+
+  /** Validate the complete extractor row before {@link #ensureCapacity} or any page/dictionary mutation. */
+  private void validateExtractedUtf8Row(final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource) {
+    if (longValues == null || longValues.length < columnCount) {
+      throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
+    }
+    if (boolValues == null || boolValues.length < columnCount) {
+      throw new IllegalArgumentException("boolValues must contain at least " + columnCount + " columns");
+    }
+    if (stringUtf8Values.length < columnCount) {
+      throw new IllegalArgumentException("stringUtf8Values must contain at least " + columnCount + " columns");
+    }
+    if (stringUtf8Lengths != null && stringUtf8Lengths.length < columnCount) {
+      throw new IllegalArgumentException("stringUtf8Lengths must contain at least " + columnCount + " columns");
+    }
+    if (stringSetValues != null && stringSetValues.length < columnCount) {
+      throw new IllegalArgumentException("stringSetValues must contain at least " + columnCount + " columns");
+    }
+    if (present != null && present.length < columnCount) {
+      throw new IllegalArgumentException("present must contain at least " + columnCount + " columns");
+    }
+    if (unrepresentable != null && unrepresentable.length < columnCount) {
+      throw new IllegalArgumentException("unrepresentable must contain at least " + columnCount + " columns");
+    }
+    if (nonIntegral != null && nonIntegral.length < columnCount) {
+      throw new IllegalArgumentException("nonIntegral must contain at least " + columnCount + " columns");
+    }
+    if (nonDoubleSource != null && nonDoubleSource.length < columnCount) {
+      throw new IllegalArgumentException("nonDoubleSource must contain at least " + columnCount + " columns");
+    }
+    for (int c = 0; c < columnCount; c++) {
+      if (columnKinds[c] != COLUMN_KIND_STRING_DICT && columnKinds[c] != COLUMN_KIND_STRING_GLOBAL) {
+        continue;
+      }
+      final boolean clean = (present == null || present[c]) && (unrepresentable == null || !unrepresentable[c]);
+      if (!clean) {
+        continue;
+      }
+      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths);
+      if (columnKinds[c] == COLUMN_KIND_STRING_GLOBAL
+          && (globalDicts == null || globalDicts.length <= c || globalDicts[c] == null)) {
+        throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+      }
+    }
+  }
+
+  private boolean appendRowInternal(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final String[] stringValues, final byte[][] stringUtf8Values, final int[] stringUtf8Lengths,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource, final boolean orderException) {
+    if (rowCount == MAX_ROWS)
+      return false;
+    if (stringUtf8Values == null) {
+      validateLegacyRow(longValues, boolValues, stringValues, stringSetValues, present, unrepresentable, nonIntegral,
+          nonDoubleSource);
+    }
+    ensureCapacity();
+    final int row = rowCount;
+    recordKeys[row] = recordKey;
+    if (orderException) {
+      if (orderExceptionBits == null) {
+        orderExceptionBits = new long[(MAX_ROWS + 63) >>> 6];
+      }
+      hasOrderExceptions = true;
+      orderExceptionBits[row >>> 6] |= 1L << (row & 63);
+    } else {
+      if (recordKey < firstRecordKey)
+        firstRecordKey = recordKey;
+      if (recordKey > lastRecordKey)
+        lastRecordKey = recordKey;
+    }
     for (int c = 0; c < columnCount; c++) {
       final boolean isPresent = present == null || present[c];
       final boolean isUnrepresentable = unrepresentable != null && unrepresentable[c];
@@ -637,7 +1246,8 @@ public final class ProjectionIndexRowGroupPage {
         columnNonIntegral[c] = true;
       }
       final boolean clean = isPresent && !isUnrepresentable;
-      if (clean && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE && (nonDoubleSource == null || nonDoubleSource[c])) {
+      if (isPresent && columnKinds[c] == COLUMN_KIND_NUMERIC_DOUBLE
+          && (nonDoubleSource == null || nonDoubleSource[c])) {
         columnSawNonDoubleSource[c] = true;
       }
       switch (columnKinds[c]) {
@@ -651,6 +1261,24 @@ public final class ProjectionIndexRowGroupPage {
               columnMax[c] = v;
           }
         }
+        // Absent and unrepresentable cells store id 0, which is never minted — so "no value" needs
+        // no placeholder entry in the dictionary the way a per-leaf dict column's "" does, and the
+        // zone map stays a range over real ids because only clean cells widen it.
+        case COLUMN_KIND_STRING_GLOBAL -> {
+          final long id = clean
+              ? stringUtf8Values == null
+                  ? internGlobal(c, stringValues[c])
+                  : internGlobalUtf8(c, stringUtf8Values[c],
+                      extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
+              : 0L;
+          numericCols[c][row] = id;
+          if (clean) {
+            if (id < columnMin[c])
+              columnMin[c] = id;
+            if (id > columnMax[c])
+              columnMax[c] = id;
+          }
+        }
         case COLUMN_KIND_BOOLEAN -> {
           if (boolValues[c]) {
             booleanCols[c][row >>> 6] |= 1L << (row & 63);
@@ -661,9 +1289,12 @@ public final class ProjectionIndexRowGroupPage {
         // non-empty dictionary entry was interned by a clean present row" a
         // STRUCTURAL invariant of the leaf (the dictionary-union
         // count-distinct kernel depends on it), not a builder convention.
-        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = appendString(c, clean
-            ? stringValues[c]
-            : "");
+        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = stringUtf8Values == null
+            ? appendString(c, clean ? stringValues[c] : "")
+            : clean
+                ? appendBorrowedStringUtf8(c, stringUtf8Values[c],
+                    extractedUtf8Length(c, stringUtf8Values[c], stringUtf8Lengths))
+                : appendBorrowedStringUtf8(c, EMPTY_UTF8, 0);
         case COLUMN_KIND_STRING_SET -> {
           // An absent or unrepresentable set contributes NO elements, which is exactly right for
           // an existential: a record without the field, or with an empty array, satisfies nothing.
@@ -691,6 +1322,49 @@ public final class ProjectionIndexRowGroupPage {
     return true;
   }
 
+  /** Validate the legacy String entry point completely before the page or a global dictionary mutates. */
+  private void validateLegacyRow(final long[] longValues, final boolean[] boolValues, final String[] stringValues,
+      final String[][] stringSetValues, final boolean[] present, final boolean[] unrepresentable,
+      final boolean[] nonIntegral, final boolean[] nonDoubleSource) {
+    if (longValues == null || longValues.length < columnCount) {
+      throw new IllegalArgumentException("longValues must contain at least " + columnCount + " columns");
+    }
+    if (boolValues == null || boolValues.length < columnCount) {
+      throw new IllegalArgumentException("boolValues must contain at least " + columnCount + " columns");
+    }
+    if (stringValues == null || stringValues.length < columnCount) {
+      throw new IllegalArgumentException("stringValues must contain at least " + columnCount + " columns");
+    }
+    if (stringSetValues != null && stringSetValues.length < columnCount) {
+      throw new IllegalArgumentException("stringSetValues must contain at least " + columnCount + " columns");
+    }
+    if (present != null && present.length < columnCount) {
+      throw new IllegalArgumentException("present must contain at least " + columnCount + " columns");
+    }
+    if (unrepresentable != null && unrepresentable.length < columnCount) {
+      throw new IllegalArgumentException("unrepresentable must contain at least " + columnCount + " columns");
+    }
+    if (nonIntegral != null && nonIntegral.length < columnCount) {
+      throw new IllegalArgumentException("nonIntegral must contain at least " + columnCount + " columns");
+    }
+    if (nonDoubleSource != null && nonDoubleSource.length < columnCount) {
+      throw new IllegalArgumentException("nonDoubleSource must contain at least " + columnCount + " columns");
+    }
+    for (int c = 0; c < columnCount; c++) {
+      final boolean clean = (present == null || present[c]) && (unrepresentable == null || !unrepresentable[c]);
+      if (!clean) {
+        continue;
+      }
+      if (columnKinds[c] == COLUMN_KIND_STRING_DICT && stringValues[c] == null) {
+        throw new IllegalArgumentException("stringValues[" + c + "] must not be null for a clean STRING_DICT cell");
+      }
+      if (columnKinds[c] == COLUMN_KIND_STRING_GLOBAL
+          && (globalDicts == null || globalDicts.length <= c || globalDicts[c] == null)) {
+        throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+      }
+    }
+  }
+
   /**
    * Intern {@code value} into column {@code c}'s per-leaf dictionary and return its dict-id.
    * Dictionary is append-only within one leaf; grown amortised. Dict-id fits in the
@@ -710,8 +1384,312 @@ public final class ProjectionIndexRowGroupPage {
     stringSetLen[c] = len + 1;
   }
 
+  /**
+   * Attach the resource-wide value dictionaries a {@link #COLUMN_KIND_STRING_GLOBAL} column interns
+   * into. One array shared by every leaf of a build; slots for other kinds stay {@code null}.
+   *
+   * @param dictionaries per-column writers, index-aligned with the column kinds
+   */
+  void setGlobalDictionaries(final GlobalValueDictionaryEncoder[] dictionaries) {
+    this.globalDicts = dictionaries;
+  }
+
+  /** Intern one value into column {@code c}'s resource-wide dictionary and return its id. */
+  private long internGlobal(final int c, final String value) {
+    final GlobalValueDictionaryEncoder dictionary = globalDicts == null
+        ? null
+        : globalDicts[c];
+    if (dictionary == null) {
+      throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+    }
+    return dictionary.intern(value == null ? "" : value);
+  }
+
+  /** Intern semantic UTF-8 bytes without manufacturing an intermediate {@link String}. */
+  private long internGlobalUtf8(final int c, final byte[] bytes, final int length) {
+    final GlobalValueDictionaryEncoder dictionary = globalDicts == null
+        ? null
+        : globalDicts[c];
+    if (dictionary == null) {
+      throw new IllegalStateException("column " + c + " is STRING_GLOBAL but no value dictionary was attached");
+    }
+    return dictionary.intern(bytes, 0, length);
+  }
+
+  /**
+   * Re-encode a {@link #COLUMN_KIND_STRING_DICT} column as {@link #COLUMN_KIND_STRING_GLOBAL},
+   * interning this leaf's dictionary entries into the resource-wide one.
+   *
+   * <p>Exists because the cardinality that decides between the two kinds is only knowable after
+   * some rows have been seen. The builder buffers the leading leaves, measures, and then converts
+   * the ones it already built rather than walking the resource twice — the per-leaf dictionary it
+   * is converting from is exactly the set of distinct values it would otherwise have to re-derive.
+   *
+   * <p>Interning is per DICTIONARY ENTRY, not per row: a leaf's rows are then remapped by an array
+   * lookup.
+   *
+   * <p>Flips the column's KIND on this page. Each page holds its OWN copy of the kinds array (the
+   * constructor clones what it is handed), so this affects nothing else — the builder separately
+   * flips the extractor's array so that later leaves are built as global from the start.
+   *
+   * @param c the column to convert
+   * @param dictionary the resource-wide dictionary to intern into
+   */
+  void convertStringDictColumnToGlobal(final int c, final GlobalValueDictionaryWriter dictionary) {
+    checkColumn(c);
+    if (columnKinds[c] != COLUMN_KIND_STRING_DICT) {
+      throw new IllegalStateException("column " + c + " is kind " + columnKinds[c] + ", not STRING_DICT");
+    }
+    if (dictionary == null) {
+      throw new NullPointerException("dictionary must not be null");
+    }
+    final long[] converted = new long[MAX_ROWS];
+    if (rowCount > 0) {
+      final int[] ids = stringDictIdCols[c];
+      // Memo per dict entry; 0 doubles as "not yet interned" because minted ids start at 1.
+      final long[] localToGlobal = new long[stringDictionarySize(c)];
+      final long[] presence = presenceCols[c];
+      long min = Long.MAX_VALUE;
+      long max = Long.MIN_VALUE;
+      for (int row = 0; row < rowCount; row++) {
+        // Absent cells carry the "" a dict column interns as a placeholder; they map to id 0
+        // ("no id"), matching what the streaming append path stores, rather than to a real entry
+        // for the empty string. Present-but-unrepresentable cells are not distinguishable here
+        // (the flag is per column, not per row) and do not need to be: a column carrying one is
+        // declined wholesale by every consumer.
+        if ((presence[row >>> 6] & (1L << (row & 63))) == 0) {
+          converted[row] = 0L;
+          continue;
+        }
+        final int local = ids[row];
+        long global = localToGlobal[local];
+        if (global == 0L) {
+          final byte[] bytes = stringDictionaryEntryBacking(c, local);
+          global = dictionary.intern(bytes, stringDictionaryEntryOffset(c, local),
+              stringDictionaryEntryLength(c, local));
+          localToGlobal[local] = global;
+        }
+        converted[row] = global;
+        if (global < min) {
+          min = global;
+        }
+        if (global > max) {
+          max = global;
+        }
+      }
+      columnMin[c] = min;
+      columnMax[c] = max;
+    }
+    numericCols[c] = converted;
+    stringDictIdCols[c] = null;
+    stringDicts[c] = null;
+    stringDictSlabs[c] = null;
+    stringDictOffsets[c] = null;
+    stringDictLengths[c] = null;
+    stringDictSizes[c] = 0;
+    stringDictSlabLengths[c] = 0;
+    stringDictHashes[c] = null;
+    stringDictHashSlots[c] = null;
+    stringDictHashActive[c] = false;
+    columnKinds[c] = COLUMN_KIND_STRING_GLOBAL;
+  }
+
   private int appendString(final int c, final String value) {
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+    return appendStringUtf8(c, bytes, bytes.length, false);
+  }
+
+  /**
+   * Intern a caller-owned semantic UTF-8 slice into a local dictionary. A newly-distinct value is
+   * copied exactly once; a duplicate is compared in place and retained nowhere.
+   */
+  private int appendBorrowedStringUtf8(final int c, final byte[] bytes, final int length) {
+    return appendStringUtf8(c, bytes, length, true);
+  }
+
+  /** Legacy String lane owns its freshly encoded array, while the extractor lane borrows scratch. */
+  private int appendStringUtf8(final int c, final byte[] bytes, final int length, final boolean borrowed) {
+    if (stringDictSlabs[c] != null) {
+      return appendStringUtf8ToSlab(c, bytes, length);
+    }
+    return appendStringUtf8Legacy(c, bytes, length, borrowed);
+  }
+
+  /** Append to a newly-built scalar dictionary without retaining one array per distinct value. */
+  private int appendStringUtf8ToSlab(final int c, final byte[] bytes, final int length) {
+    final int size = stringDictSizes[c];
+    final byte[] slab = stringDictSlabs[c];
+    final int[] offsets = stringDictOffsets[c];
+    final int[] lengths = stringDictLengths[c];
+    int hash = 0;
+    if (!stringDictHashActive[c]) {
+      // Linear probe for genuinely small dictionaries is cheaper than hashing every input byte.
+      // Comparing the borrowed extractor slice directly against the slab retains no caller-owned
+      // storage.
+      for (int i = 0; i < size; i++) {
+        if (bytesEqual(slab, offsets[i], lengths[i], bytes, length)) {
+          return i;
+        }
+      }
+      if (size + 1 >= STRING_DICTIONARY_HASH_THRESHOLD) {
+        initializeStringDictionaryHashIndex(c);
+        hash = hashUtf8(bytes, 0, length);
+      }
+    } else {
+      hash = hashUtf8(bytes, 0, length);
+      final int existing = findStringDictionaryEntry(c, bytes, length, hash);
+      if (existing >= 0) {
+        return existing;
+      }
+    }
+
+    final int used = stringDictSlabLengths[c];
+    if (length > Integer.MAX_VALUE - used) {
+      throw new IllegalStateException("STRING_DICT slab exceeds the maximum Java array size");
+    }
+    ensureStringDictionaryEntryCapacity(c, size + 1);
+    ensureStringDictionarySlabCapacity(c, used + length);
+    if (stringDictHashActive[c]) {
+      ensureStringDictionaryHashCapacity(c, size + 1);
+    }
+    final byte[] destination = stringDictSlabs[c];
+    if (length > 0) {
+      System.arraycopy(bytes, 0, destination, used, length);
+    }
+    stringDictOffsets[c][size] = used;
+    stringDictLengths[c][size] = length;
+    stringDictSlabLengths[c] = used + length;
+    stringDictSizes[c] = size + 1;
+    if (stringDictHashActive[c]) {
+      stringDictHashes[c][size] = hash;
+      insertStringDictionaryHashSlot(stringDictHashSlots[c], hash, size);
+    }
+    // Any compatibility snapshot belongs to the preceding dictionary generation. It is detached,
+    // so dropping this reference cannot mutate a caller that retained it.
+    stringDicts[c] = null;
+    updateStringDictionaryZoneMap(c, size);
+    return size;
+  }
+
+  private void ensureStringDictionaryEntryCapacity(final int c, final int required) {
+    final int[] currentOffsets = stringDictOffsets[c];
+    if (currentOffsets.length >= required) {
+      return;
+    }
+    final int capacity = Math.max(required, currentOffsets.length << 1);
+    final int[] grownOffsets = new int[capacity];
+    final int[] grownLengths = new int[capacity];
+    System.arraycopy(currentOffsets, 0, grownOffsets, 0, stringDictSizes[c]);
+    System.arraycopy(stringDictLengths[c], 0, grownLengths, 0, stringDictSizes[c]);
+    stringDictOffsets[c] = grownOffsets;
+    stringDictLengths[c] = grownLengths;
+    final int[] currentHashes = stringDictHashes[c];
+    if (currentHashes != null) {
+      final int[] grownHashes = new int[capacity];
+      System.arraycopy(currentHashes, 0, grownHashes, 0, stringDictSizes[c]);
+      stringDictHashes[c] = grownHashes;
+    }
+  }
+
+  private void initializeStringDictionaryHashIndex(final int c) {
+    int[] hashes = stringDictHashes[c];
+    if (hashes == null) {
+      hashes = new int[stringDictOffsets[c].length];
+    }
+    int[] slots = stringDictHashSlots[c];
+    if (slots == null) {
+      slots = new int[INITIAL_STRING_DICTIONARY_HASH_CAPACITY];
+    } else {
+      Arrays.fill(slots, 0);
+    }
+    final byte[] slab = stringDictSlabs[c];
+    final int size = stringDictSizes[c];
+    for (int dictId = 0; dictId < size; dictId++) {
+      final int hash = hashUtf8(slab, stringDictOffsets[c][dictId], stringDictLengths[c][dictId]);
+      hashes[dictId] = hash;
+      insertStringDictionaryHashSlot(slots, hash, dictId);
+    }
+    stringDictHashes[c] = hashes;
+    stringDictHashSlots[c] = slots;
+    stringDictHashActive[c] = true;
+  }
+
+  private int findStringDictionaryEntry(final int c, final byte[] bytes, final int length, final int hash) {
+    final int[] slots = stringDictHashSlots[c];
+    final int mask = slots.length - 1;
+    int slot = mixUtf8Hash(hash) & mask;
+    int encodedId;
+    while ((encodedId = slots[slot]) != 0) {
+      final int dictId = encodedId - 1;
+      if (stringDictHashes[c][dictId] == hash && stringDictLengths[c][dictId] == length
+          && bytesEqual(stringDictSlabs[c], stringDictOffsets[c][dictId], length, bytes, length)) {
+        return dictId;
+      }
+      slot = (slot + 1) & mask;
+    }
+    return -1;
+  }
+
+  private void ensureStringDictionaryHashCapacity(final int c, final int requiredEntries) {
+    final int[] current = stringDictHashSlots[c];
+    if (requiredEntries <= (current.length >>> 1)) {
+      return;
+    }
+    int capacity = current.length << 1;
+    while (requiredEntries > (capacity >>> 1)) {
+      capacity <<= 1;
+    }
+    final int[] replacement = new int[capacity];
+    final int size = stringDictSizes[c];
+    for (int dictId = 0; dictId < size; dictId++) {
+      insertStringDictionaryHashSlot(replacement, stringDictHashes[c][dictId], dictId);
+    }
+    stringDictHashSlots[c] = replacement;
+  }
+
+  private static void insertStringDictionaryHashSlot(final int[] slots, final int hash, final int dictId) {
+    final int mask = slots.length - 1;
+    int slot = mixUtf8Hash(hash) & mask;
+    while (slots[slot] != 0) {
+      slot = (slot + 1) & mask;
+    }
+    slots[slot] = dictId + 1;
+  }
+
+  private static int hashUtf8(final byte[] bytes, final int offset, final int length) {
+    int hash = 1;
+    for (int i = offset, end = offset + length; i < end; i++) {
+      hash = 31 * hash + bytes[i];
+    }
+    return hash;
+  }
+
+  private static int mixUtf8Hash(final int hash) {
+    final int mixed = hash * 0x9E3779B9;
+    return mixed ^ mixed >>> 16;
+  }
+
+  private void ensureStringDictionarySlabCapacity(final int c, final int required) {
+    final byte[] current = stringDictSlabs[c];
+    if (current.length >= required) {
+      return;
+    }
+    int capacity = current.length;
+    while (capacity < required) {
+      final int grown = capacity << 1;
+      if (grown <= capacity) {
+        capacity = required;
+        break;
+      }
+      capacity = grown;
+    }
+    final byte[] replacement = new byte[capacity];
+    System.arraycopy(current, 0, replacement, 0, stringDictSlabLengths[c]);
+    stringDictSlabs[c] = replacement;
+  }
+
+  /** Historical pointer-array append used by STRING_SET and deserialised scalar dictionaries. */
+  private int appendStringUtf8Legacy(final int c, final byte[] bytes, final int length, final boolean borrowed) {
     final byte[][] dict = stringDicts[c];
     // Linear probe for small dictionaries is cheaper than HashMap bookkeeping;
     // at the typical analytical-column cardinality (8-50) this is 1-2 cache lines.
@@ -722,7 +1700,7 @@ public final class ProjectionIndexRowGroupPage {
         break;
       }
       size = i + 1;
-      if (bytesEqual(dict[i], bytes))
+      if (bytesEqual(dict[i], bytes, length))
         return i;
     }
     if (size == dict.length) {
@@ -730,21 +1708,46 @@ public final class ProjectionIndexRowGroupPage {
       System.arraycopy(dict, 0, grown, 0, dict.length);
       stringDicts[c] = grown;
     }
-    stringDicts[c][size] = bytes;
-    if (size < columnMin[c])
-      columnMin[c] = size;
-    if (size > columnMax[c])
-      columnMax[c] = size;
+    if (length == 0) {
+      stringDicts[c][size] = EMPTY_UTF8;
+    } else if (borrowed) {
+      final byte[] owned = new byte[length];
+      System.arraycopy(bytes, 0, owned, 0, length);
+      stringDicts[c][size] = owned;
+    } else {
+      stringDicts[c][size] = bytes;
+    }
+    updateStringDictionaryZoneMap(c, size);
     return size;
   }
 
-  private static boolean bytesEqual(final byte[] a, final byte[] b) {
-    if (a.length != b.length)
-      return false;
-    for (int i = 0; i < a.length; i++)
-      if (a[i] != b[i])
-        return false;
-    return true;
+  private void updateStringDictionaryZoneMap(final int c, final int dictId) {
+    if (dictId < columnMin[c])
+      columnMin[c] = dictId;
+    if (dictId > columnMax[c])
+      columnMax[c] = dictId;
+  }
+
+  private static int extractedUtf8Length(final int column, final byte[] value, final int[] lengths) {
+    if (value == null) {
+      throw new IllegalStateException(
+          "extractor supplied null UTF-8 bytes for clean scalar string column " + column);
+    }
+    final int length = lengths == null ? value.length : lengths[column];
+    if (length < 0 || length > value.length) {
+      throw new IllegalArgumentException("extractor supplied UTF-8 length " + length + " for column " + column
+          + " backed by a " + value.length + "-byte array");
+    }
+    return length;
+  }
+
+  private static boolean bytesEqual(final byte[] a, final byte[] b, final int bLength) {
+    return bytesEqual(a, 0, a.length, b, bLength);
+  }
+
+  private static boolean bytesEqual(final byte[] a, final int aOffset, final int aLength, final byte[] b,
+      final int bLength) {
+    return aLength == bLength && Arrays.equals(a, aOffset, aOffset + aLength, b, 0, bLength);
   }
 
   /**
@@ -768,14 +1771,30 @@ public final class ProjectionIndexRowGroupPage {
     page.firstRecordKey = firstRecordKey;
     page.lastRecordKey = lastRecordKey;
     if (rowCount > 0) {
-      page.ensureCapacity();
+      page.ensureCapacity(false);
       for (int i = 0; i < rowCount; i++)
         page.recordKeys[i] = bb.getLong();
+    }
+    final byte orderKind = bb.get();
+    if (orderKind == ORDER_EXCEPTIONS_DENSE) {
+      final int orderWords = (rowCount + 63) >>> 6;
+      if (orderWords == 0) {
+        throw new IllegalStateException("empty projection leaf cannot carry a dense order bitmap");
+      }
+      page.orderExceptionBits = new long[orderWords];
+      page.hasOrderExceptions = true;
+      for (int i = 0; i < orderWords; i++)
+        page.orderExceptionBits[i] = bb.getLong();
+    } else if (orderKind != ORDER_EXCEPTIONS_NONE) {
+      throw new IllegalStateException("unknown projection order-exception kind " + orderKind);
+    }
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, page.recordKeys, page.orderExceptionBits);
+    if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
         page.columnMin[c] = bb.getLong();
         page.columnMax[c] = bb.getLong();
         switch (kinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> {
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL -> {
             final long[] col = page.numericCols[c];
             for (int i = 0; i < rowCount; i++)
               col[i] = bb.getLong();
@@ -797,6 +1816,11 @@ public final class ProjectionIndexRowGroupPage {
               bb.get(dict[i]);
             }
             page.stringDicts[c] = dict;
+            // Cold/raw compatibility keeps the historical byte[][] ownership shape. Disable the
+            // empty builder slab ensureCapacity created for this constructor instance.
+            page.stringDictSlabs[c] = null;
+            page.stringDictOffsets[c] = null;
+            page.stringDictLengths[c] = null;
             final int[] ids = page.stringDictIdCols[c];
             for (int i = 0; i < rowCount; i++)
               ids[i] = bb.getInt();
@@ -875,6 +1899,8 @@ public final class ProjectionIndexRowGroupPage {
    * used only during commit.
    */
   public byte[] serialize() {
+    validateOrderMetadata(rowCount, firstRecordKey, lastRecordKey, recordKeys,
+        hasOrderExceptions ? orderExceptionBits : null);
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
     header.putInt(rowCount);
@@ -885,7 +1911,7 @@ public final class ProjectionIndexRowGroupPage {
       header.put(columnKinds[c]);
     baos.write(header.array(), 0, header.position());
     if (rowCount == 0) {
-      // Empty page — only the presence tail (if tracked) follows the header.
+      baos.write(ORDER_EXCEPTIONS_NONE);
       writePresenceTail(baos);
       return baos.toByteArray();
     }
@@ -894,6 +1920,16 @@ public final class ProjectionIndexRowGroupPage {
     for (int i = 0; i < rowCount; i++)
       recBuf.putLong(recordKeys[i]);
     baos.write(recBuf.array(), 0, recBuf.position());
+    if (!hasOrderExceptions) {
+      baos.write(ORDER_EXCEPTIONS_NONE);
+    } else {
+      baos.write(ORDER_EXCEPTIONS_DENSE);
+      final int orderWords = (rowCount + 63) >>> 6;
+      final ByteBuffer orderBuf = ByteBuffer.allocate(orderWords * Long.BYTES).order(ByteOrder.LITTLE_ENDIAN);
+      for (int i = 0; i < orderWords; i++)
+        orderBuf.putLong(orderExceptionBits[i]);
+      baos.write(orderBuf.array(), 0, orderBuf.position());
+    }
     // per-column
     for (int c = 0; c < columnCount; c++) {
       final ByteBuffer colHdr = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
@@ -901,15 +1937,16 @@ public final class ProjectionIndexRowGroupPage {
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE -> writeLongs(baos, numericCols[c], rowCount);
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_DOUBLE, COLUMN_KIND_STRING_GLOBAL ->
+            writeLongs(baos, numericCols[c], rowCount);
         case COLUMN_KIND_BOOLEAN -> writeLongs(baos, booleanCols[c], (rowCount + 63) >>> 6);
         case COLUMN_KIND_STRING_DICT -> {
-          writeDictionary(baos, stringDicts[c]);
+          writeDictionary(baos, c);
           // dict-ids — packed 32-bit per entry for now; bit-packing is a later codec refinement.
           writeInts(baos, stringDictIdCols[c], rowCount);
         }
         case COLUMN_KIND_STRING_SET -> {
-          writeDictionary(baos, stringDicts[c]);
+          writeDictionary(baos, c);
           // Per-row counts, then the flat element run. The counts come first so a reader can size
           // the run before reading it, and their sum IS the run length — no separate total.
           writeInts(baos, stringSetCountCols[c], rowCount);
@@ -939,20 +1976,18 @@ public final class ProjectionIndexRowGroupPage {
   }
 
   /** Entry count, then each entry's length, then the entries — the layout both string kinds share. */
-  private static void writeDictionary(final ByteArrayOutputStream baos, final byte[][] dict) {
-    int dictSize = 0;
-    while (dictSize < dict.length && dict[dictSize] != null) {
-      dictSize++;
-    }
+  private void writeDictionary(final ByteArrayOutputStream baos, final int column) {
+    final int dictSize = stringDictionarySize(column);
     final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
     baos.write(dh.array(), 0, dh.position());
     final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
     for (int i = 0; i < dictSize; i++) {
-      dl.putInt(dict[i].length);
+      dl.putInt(stringDictionaryEntryLength(column, i));
     }
     baos.write(dl.array(), 0, dl.position());
     for (int i = 0; i < dictSize; i++) {
-      baos.write(dict[i], 0, dict[i].length);
+      baos.write(stringDictionaryEntryBacking(column, i), stringDictionaryEntryOffset(column, i),
+          stringDictionaryEntryLength(column, i));
     }
   }
 

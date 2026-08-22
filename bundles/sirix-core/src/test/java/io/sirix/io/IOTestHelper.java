@@ -30,6 +30,7 @@ import io.sirix.api.ResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.page.PageReference;
+import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 
 import java.nio.ByteBuffer;
@@ -70,6 +71,16 @@ public final class IOTestHelper {
    */
   public static void clean() throws SirixException {
     XmlTestHelper.deleteEverything();
+  }
+
+  /**
+   * Append the real revision-zero root required before a synthetic direct-writer test publishes its
+   * first uber beacon. Besides the data frame, {@link Writer#write} creates the checksummed revision
+   * locator that the preallocated frontier handoff validates before publication.
+   */
+  public static void writeRevisionZeroRoot(final Writer writer,
+      final ResourceConfiguration resourceConfiguration, final BytesOut<?> bufferedBytes) {
+    writer.write(resourceConfiguration, new PageReference(), new RevisionRootPage(), bufferedBytes);
   }
 
   /**

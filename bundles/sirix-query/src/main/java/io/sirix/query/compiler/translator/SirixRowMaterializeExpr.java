@@ -49,17 +49,21 @@ public final class SirixRowMaterializeExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    // Runtime source gate — see SirixGroupAggregateExpr#evaluate.
-    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
-      return genericFallback.evaluate(ctx, tuple);
-    }
-    if (executor.canExecute(ctx)) {
-      final Sequence served =
-          executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames, direct,
-              codes, consts);
-      if (served != null) {
-        return served;
+    executor.enterExecution();
+    try {
+      // Runtime source gate — see SirixGroupAggregateExpr#evaluate. The generic fallback runs only
+      // after releasing this executor admission.
+      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
+          && executor.canExecute(ctx)) {
+        final Sequence served =
+            executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames, direct,
+                codes, consts);
+        if (served != null) {
+          return served;
+        }
       }
+    } finally {
+      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

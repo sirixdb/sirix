@@ -92,7 +92,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public void commitFresh(final MemorySegment slot) {
+  public boolean commitFresh(final MemorySegment slot) {
     try {
       final MemorySegment addr = (MemorySegment) VIRTUAL_ALLOC.invokeExact(
           slot, slot.byteSize(), MEM_COMMIT, PAGE_READWRITE);
@@ -100,6 +100,7 @@ final class WindowsVirtualMemory implements VirtualMemory {
         throw new OutOfMemoryError("VirtualAlloc(MEM_COMMIT) failed for slot of "
             + slot.byteSize() + " bytes — physical memory (commit charge) exhausted");
       }
+      return true;
     } catch (final OutOfMemoryError oom) {
       throw oom;
     } catch (final Throwable t) {
@@ -130,14 +131,16 @@ final class WindowsVirtualMemory implements VirtualMemory {
   }
 
   @Override
-  public void release(final MemorySegment region) {
+  public boolean release(final MemorySegment region) {
     try {
       final int freed = (int) VIRTUAL_FREE.invokeExact(region, 0L, MEM_RELEASE);
       if (freed == 0) {
         LOGGER.warn("VirtualFree(MEM_RELEASE) failed for region size {}", region.byteSize());
       }
+      return freed != 0;
     } catch (final Throwable t) {
       LOGGER.warn("VirtualFree failed on shutdown: {}", t.getMessage());
+      return false;
     }
   }
 }
