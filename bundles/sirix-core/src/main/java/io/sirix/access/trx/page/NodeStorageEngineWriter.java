@@ -141,10 +141,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * <p>Snapshot pinning can remove structural entries before serialization, so this is a
    * conservative upper bound on attempted KVL pages and matches one serializer window.</p>
    */
-  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 32;
-
-  /** Small first epoch that pays serializer/JIT warm-up without violating the latency budget. */
-  static final int MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT = 16;
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 16;
 
   /**
    * Buffered output for page writes.
@@ -1544,19 +1541,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public boolean isAsyncFlushLogBoundaryReached() {
-    final int threshold = log.getCurrentGeneration() == 0
-        ? MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT
-        : MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
-    return log.liveEntryCount() >= threshold;
+    return log.liveEntryCount() >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
   }
 
-  static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount, final int currentGeneration) {
+  static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount) {
     checkArgument(liveEntryCount >= 0, "Negative live TIL entry count is not accepted.");
-    checkArgument(currentGeneration >= 0, "Negative TIL generation is not accepted.");
-    final int threshold = currentGeneration == 0
-        ? MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT
-        : MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
-    return liveEntryCount >= threshold;
+    return liveEntryCount >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
   }
 
   @Override
@@ -2130,8 +2120,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * pre-serialized in parallel before the sequential append pass writes and closes them. Two windows
    * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
    * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
-   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. At the current 32-page
-   * window this permits at most 64 pooled copies plus their encodings. The double buffering keeps
+   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. At the current 16-page
+   * window this permits at most 32 pooled copies plus their encodings. The double buffering keeps
    * the flush pool's workers serializing while this thread appends; widening the window past the
    * pool's appetite only inflates the footprint.
    */

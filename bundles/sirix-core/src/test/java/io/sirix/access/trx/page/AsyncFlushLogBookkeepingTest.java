@@ -232,8 +232,8 @@ final class AsyncFlushLogBookkeepingTest {
 
   @Test
   @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
-  @DisplayName("One hot record rotates at the cold and steady node-count bounds")
-  void repeatedUpdatesTransitionFromColdToSteadyNodeCountBound() {
+  @DisplayName("One hot record rotates at the node-count bound in every epoch")
+  void repeatedUpdatesUseNodeCountBoundInEveryEpoch() {
     final AtomicInteger flushes = new AtomicInteger();
     NodeStorageEngineWriter.asyncFlushFaultHook = (engineWriter, site) -> {
       if ("prepare".equals(site)) {
@@ -241,8 +241,7 @@ final class AsyncFlushLogBookkeepingTest {
       }
     };
 
-    final int coldNodeCount = AfterCommitState.MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT;
-    final int steadyNodeCount = AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT;
+    final int nodeCount = AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT;
     Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
@@ -255,41 +254,41 @@ final class AsyncFlushLogBookkeepingTest {
       try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
            final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
                                                         AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
-        final long valueNodeKey = wtx.insertStringValueAsFirstChild("cold-a").getNodeKey();
+        final long valueNodeKey = wtx.insertStringValueAsFirstChild("first-a").getNodeKey();
         final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
         final TransactionIntentLog log = writer.getLog();
 
-        // The insert is modification one. Stop exactly at the cold count: rotation is deliberately
+        // The insert is modification one. Stop exactly at the bound: rotation is deliberately
         // checked only at the next compound-operation-safe mutation boundary.
-        for (int mutation = 1; mutation < coldNodeCount; mutation++) {
+        for (int mutation = 1; mutation < nodeCount; mutation++) {
           assertTrue(wtx.moveTo(valueNodeKey));
-          wtx.setStringValue((mutation & 1) == 0 ? "cold-a" : "cold-b");
+          wtx.setStringValue((mutation & 1) == 0 ? "first-a" : "first-b");
         }
         assertEquals(0, flushes.get());
         assertEquals(0, log.getCurrentGeneration());
-        assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT,
-            "one write-hot page must leave the live-TIL page bound below the cold threshold");
+        assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT,
+            "one write-hot page must leave the live-TIL page bound below the threshold");
 
         assertTrue(wtx.moveTo(valueNodeKey));
-        wtx.setStringValue("steady-a");
-        assertEquals(1, flushes.get(), "the next mutation must rotate the completed cold epoch");
+        wtx.setStringValue("second-a");
+        assertEquals(1, flushes.get(), "the next mutation must rotate the completed first epoch");
         assertEquals(1, log.getCurrentGeneration());
         writer.awaitPendingAsyncFlush();
 
-        // The triggering update is modification one of the steady epoch. Again stop exactly at the
+        // The triggering update is modification one of the second epoch. Again stop exactly at the
         // threshold, then prove that only the following mutation rotates it.
-        for (int mutation = 1; mutation < steadyNodeCount; mutation++) {
+        for (int mutation = 1; mutation < nodeCount; mutation++) {
           assertTrue(wtx.moveTo(valueNodeKey));
-          wtx.setStringValue((mutation & 1) == 0 ? "steady-a" : "steady-b");
+          wtx.setStringValue((mutation & 1) == 0 ? "second-a" : "second-b");
         }
         assertEquals(1, flushes.get());
         assertEquals(1, log.getCurrentGeneration());
         assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT,
-            "one write-hot page must leave the live-TIL page bound below the steady threshold");
+            "one write-hot page must leave the live-TIL page bound below the threshold");
 
         assertTrue(wtx.moveTo(valueNodeKey));
         wtx.setStringValue("final-value");
-        assertEquals(2, flushes.get(), "the next mutation must rotate the completed steady epoch");
+        assertEquals(2, flushes.get(), "the next mutation must rotate the completed second epoch");
         assertEquals(2, log.getCurrentGeneration());
         wtx.commit();
       }

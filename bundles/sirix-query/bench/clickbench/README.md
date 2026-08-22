@@ -210,11 +210,9 @@ region-size value present in the unified heap log must agree or the gate fails c
 `-XX:MaxNewSize=1g` remains the canonical production/development profile: it gives short-lived
 async serialization graphs enough nursery lifetime to die young without hiding unbounded retained
 occupancy in the 4 GiB old generation. The 4,194,304-node value remains the logical auto-commit
-threshold, while `KEEP_OPEN_ASYNC_FLUSH` caps every storage-only epoch at 32,768 modifications and
-the transaction-intent log may rotate earlier at 32 live entries. Its cold first epoch uses
-16,384 modifications or 16 live entries to pay serializer/JIT and projection-maintenance warm-up
-on a deliberately small unit. The emitted
-`asyncFlushNodeCap=32768` comes from the engine's active mode policy; it is independent of the
+threshold, while `KEEP_OPEN_ASYNC_FLUSH` caps every storage-only epoch at 16,384 modifications and
+the transaction-intent log may rotate earlier at 16 live entries. The emitted
+`asyncFlushNodeCap=16384` comes from the engine's active mode policy; it is independent of the
 separately configured `sirix.asyncFlush.sidePageCount=131072` object bound. The bounded append permit still limits
 overlap. Both prefixes use
 `-Dsirix.projection.globalDict=never`; otherwise dictionary election changes with the generated row
@@ -265,7 +263,7 @@ The deterministic native side-page path requires `-Dsirix.arena.strategy=shared`
 reclamation to a Cleaner and `global` never reclaims, so both deliberately fall back to the ordinary
 resident final-commit path. The loader resolves the effective HotSpot `MaxNewSize` and arena strategy
 before measurement, then emits exactly one `# HFT_CONFIG` record inside the boundary. The parser
-requires the canonical dictionary, logical auto-commit, `asyncFlushNodeCap=32768`, exact 4 MiB G1
+requires the canonical dictionary, logical auto-commit, `asyncFlushNodeCap=16384`, exact 4 MiB G1
 region, arena, storage, projection-mode, and row-count values. It also requires
 `versioningType=FULL` and the resolved pinned-trie limits `pinnedTrieScanBudget=1024` and
 `pinnedTrieBatchCapacity=64`. Changing or omitting one fails closed instead of silently measuring a
@@ -284,7 +282,7 @@ allocation stall, preventive/humongous-allocation collection, or OOM. It also re
   scoped serializer directly into the disposable native page frame with zero heap/capacity fallback,
   and that every epoch completed. The KVL proof is fail-closed: `kvlAttemptedPages` must equal
   `kvlPages + kvlPromotedPages`, `kvlPromotedPages` must be zero,
-  `kvlAttemptedPagesMax` must be nonzero when pages were attempted, no greater than both 32 and the
+  `kvlAttemptedPagesMax` must be nonzero when pages were attempted, no greater than both 16 and the
   total attempted pages, and large enough that its product with the combined-epoch count covers the
   aggregate attempts; the
   frame/fallback split must account for every appended `kvlPages` page. Thus an over-capacity or
@@ -343,7 +341,7 @@ profile_agent="-agentpath:$ASYNC_PROFILER/lib/libasyncProfiler.so=start,event=al
   > "$profile_root/load.log" 2>&1
 ```
 
-Acceptance requires the log to show `asyncFlushNodeCap=32768` and the exact 1024/64
+Acceptance requires the log to show `asyncFlushNodeCap=16384` and the exact 1024/64
 `# HFT_CONFIG` limits,
 `pinnedTrieSpillPages > 0`, and `pinnedTrieSpillBatchMax <= 64`. The full operation is the unit of
 profile evidence: after first-use scratch growth, there must be no recurring allocation sample whose
@@ -383,7 +381,7 @@ ids plus value-sensitive predicate results through every cold historical fast ro
 touched-unit operations and bytes across the two arms. Both the producer and gate derive `HEAD`,
 reject tracked worktree changes, and require it to match the SHA embedded in the log and manifest.
 The maintenance writer uses `KEEP_OPEN_ASYNC_COMMIT`, so its logical 16,384-node threshold creates
-real revisions and its configuration must report `asyncFlushNodeCap=0`; the 32,768 storage-only
+real revisions and its configuration must report `asyncFlushNodeCap=0`; the 16,384 storage-only
 epoch cap applies only to ingestion's `KEEP_OPEN_ASYNC_FLUSH` mode. Maintenance may publish
 side-page-only epochs, but its combined-TIL, KVL-frame, foreground-full-flush, and pinned-trie
 full-epoch counters must all remain zero. Canonical `globalDict=never` ingestion and AUTO-global

@@ -225,7 +225,7 @@ class MaintenanceGateTest(unittest.TestCase):
 
     def test_mode_specific_cap_and_canonical_region_are_required(self) -> None:
         cases = (
-            ("asyncFlushNodeCap=0", "asyncFlushNodeCap=32768", "asyncFlushNodeCap"),
+            ("asyncFlushNodeCap=0", "asyncFlushNodeCap=16384", "asyncFlushNodeCap"),
             (
                 f"g1RegionSizeBytes={4 * MIB}",
                 f"g1RegionSizeBytes={2 * MIB}",
