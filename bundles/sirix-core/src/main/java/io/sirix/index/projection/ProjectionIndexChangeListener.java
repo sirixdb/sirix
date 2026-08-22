@@ -1356,7 +1356,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             orderRelabels = relabels;
           }
           relabels.add(nodeKey);
-          markDirty(nodeKey, allColumnWords);
         }
       };
       orderRelabelSink = sink;

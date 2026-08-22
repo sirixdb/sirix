@@ -111,11 +111,6 @@ public final class ProjectionIndexBuilder {
   private long leavesEmitted;
   /** Greatest normal routing-backbone key emitted so far; exceptions never advance it. */
   private long lastNormalRecordKey = Long.MIN_VALUE;
-  /** Even ORDPATH separator the build's own label sequence carries through on overflow. */
-  private static final int ORDER_LABEL_CARRY_SEPARATOR = 2;
-  /** Odd division a carried label restarts its sequence at. */
-  private static final int ORDER_LABEL_CARRY_DIVISION = 17;
-
   private @Nullable SirixDeweyID lastOrderLabel;
   private final @Nullable LongFunction<SirixDeweyID> orderLabelResolver;
 
@@ -1195,18 +1190,7 @@ public final class ProjectionIndexBuilder {
     if (previous == null) {
       return SirixDeweyID.newRootID().getNewChildID();
     }
-    final int[] divisions = previous.getDivisionValues();
-    final int lastDivision = divisions[divisions.length - 1];
-    final SirixDeweyID candidate = SirixDeweyID.newBetween(previous, null);
-    final int[] candidateDivisions = candidate.getDivisionValues();
-    if (candidateDivisions.length == divisions.length
-        && candidateDivisions[candidateDivisions.length - 1] > lastDivision) {
-      return candidate;
-    }
-    final int[] carried = Arrays.copyOf(divisions, divisions.length + 2);
-    carried[divisions.length] = ORDER_LABEL_CARRY_SEPARATOR;
-    carried[divisions.length + 1] = ORDER_LABEL_CARRY_DIVISION;
-    return new SirixDeweyID(carried);
+    return ProjectionStructuralOrderDirectory.Accessor.nextAppendLabel(previous);
   }
 
   private SirixDeweyID resolveOrderLabel(final long recordKey) {

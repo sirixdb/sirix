@@ -60,6 +60,8 @@ final class ProjectionStructuralOrderDirectory {
   private static final int SPREAD_SLACK = 1 << 12;
   /** Hard bound on how many divisions one spread may descend through before it fits. */
   private static final int MAX_SPREAD_DESCENTS = 8;
+  /** Even division an exhausted append sequence carries through; it adds no odd division. */
+  private static final int APPEND_CARRY_DIVISION = 2;
   /** Division the very first label under a parent takes, leaving slack on BOTH sides. */
   private static final int FIRST_LOCAL_DIVISION = (SPREAD_SLACK << 1) + 1;
 
@@ -215,8 +217,9 @@ final class ProjectionStructuralOrderDirectory {
       divisions[0] = 1;
       for (int ancestryIndex = depth - 1; ancestryIndex >= 0; ancestryIndex--) {
         final long ancestorKey = ancestry[ancestryIndex];
-        final SirixDeweyID localLabel =
-            ensureLocalLabel(ancestorKey, nodeLookup, ancestryIndex == 0 ? sink : RelabelSink.SEALED);
+        final SirixDeweyID localLabel = ancestryIndex == 0
+            ? ensureLocalLabel(ancestorKey, nodeLookup, sink, false)
+            : ensureLocalLabel(ancestorKey, nodeLookup, RelabelSink.SEALED, true);
         final int[] localDivisions = localLabel.getDivisionValues();
         final int suffixLength = localDivisions.length - 1;
         final int required = Math.addExact(divisionCount, suffixLength);
@@ -255,10 +258,20 @@ final class ProjectionStructuralOrderDirectory {
      * but perfectly valid array.
      */
     private SirixDeweyID ensureLocalLabel(final long nodeKey, final LongFunction<ImmutableNode> nodeLookup,
-        final RelabelSink sink) {
+        final RelabelSink sink, final boolean container) {
       final SirixDeweyID existing = localLabel(nodeKey);
       if (existing != null) {
         return existing;
+      }
+      if (container) {
+        // A container is labelled ALONE. Run minting exists to amortise a run of projected records
+        // over one bound resolution; a container has no run — the siblings beside it are ordinary
+        // document nodes that no record's root path crosses. Handing them slots would make them
+        // rebalance-ineligible neighbours of a container, and a container's label is a shared prefix
+        // of every record beneath it, so it can never be re-spread away from them: a repeatedly
+        // moved container would then grow its label with nothing able to reclaim it.
+        return mint(nodeKey, neighbourLabel(nodeKey, true, nodeLookup),
+            neighbourLabel(nodeKey, false, nodeLookup), nodeLookup, sink);
       }
       mintRun(nodeKey, nodeLookup, sink);
       return requireLocalLabel(nodeKey, "freshly minted");
@@ -319,7 +332,7 @@ final class ProjectionStructuralOrderDirectory {
       for (long index = 0L; index < count; index++) {
         final SirixDeweyID label = previous == null
             ? firstLocalLabel()
-            : SirixDeweyID.newBetween(previous, null);
+            : nextAppendLabel(previous);
         putLocalLabel(cursor, label);
         previous = label;
         assigned = label;
@@ -604,6 +617,47 @@ final class ProjectionStructuralOrderDirectory {
       encoded[0] = FORMAT_VERSION;
       System.arraycopy(payload, 0, encoded, FORMAT_HEADER_BYTES, payload.length);
       storage.putStructuralOrderSlot(slotKey(nodeKey), encoded);
+    }
+
+    /**
+     * One step of an open-ended append sequence.
+     *
+     * <p>
+     * {@link SirixDeweyID#newBetween(SirixDeweyID, SirixDeweyID)}'s open-ended branch advances the
+     * final division by an unchecked {@code int} addition, so a long enough append run under one
+     * parent wraps it negative — from {@link #FIRST_LOCAL_DIVISION} stepping by the sibling distance
+     * that is reachable in the hundreds of millions of records. The wrap then surfaces from
+     * {@code toBytes()} as an encoder complaint about a negative division, which names neither
+     * ordering nor the append that caused it.
+     *
+     * <p>
+     * The carry is applied HERE rather than inside {@code newBetween} because that method's contract
+     * is to return a SIBLING at the same level: it forces the operand's level onto the result, and
+     * for the document's own Dewey IDs an extra division is a descendant, not a sibling. Carrying
+     * there would relocate nodes in the document's Dewey space. A projection order label is only
+     * ever compared, never read as a tree position, so it may carry.
+     *
+     * <p>
+     * The carry appends an EVEN division, which keeps the label's odd-division count — and therefore
+     * the level a byte round-trip recomputes — exactly what {@link #putLocalLabel} requires, while
+     * being strictly greater because the previous label's divisions are its prefix.
+     */
+    static SirixDeweyID nextAppendLabel(final SirixDeweyID previous) {
+      final int[] divisions = previous.getDivisionValues();
+      final int lastDivision = divisions[divisions.length - 1];
+      final SirixDeweyID candidate = SirixDeweyID.newBetween(previous, null);
+      final int[] candidateDivisions = candidate.getDivisionValues();
+      if (candidateDivisions.length == divisions.length
+          && candidateDivisions[candidateDivisions.length - 1] > lastDivision) {
+        return candidate;
+      }
+      final int[] carried = Arrays.copyOf(divisions, divisions.length + 1);
+      carried[divisions.length] = APPEND_CARRY_DIVISION;
+      if (carried.length > MAX_FULL_LABEL_DIVISIONS) {
+        throw new IllegalStateException(
+            "projection structural-order append sequence exhausted its division budget");
+      }
+      return new SirixDeweyID(carried, previous.getLevel() + 1);
     }
 
     private static SirixDeweyID firstLocalLabel() {

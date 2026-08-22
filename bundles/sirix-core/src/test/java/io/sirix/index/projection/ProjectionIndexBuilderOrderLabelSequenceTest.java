@@ -6,6 +6,7 @@ package io.sirix.index.projection;
 import io.sirix.node.SirixDeweyID;
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -52,6 +53,14 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
       assertTrue(ProjectionIndexRowGroupPage.compareOrderLabels(previousBytes, 0, previousBytes.length,
           nextBytes, 0, nextBytes.length) < 0,
           "append " + append + " did not advance the PERSISTED order label encoding");
+
+      // The directory persists these labels through putLocalLabel, which rejects anything whose
+      // level is not 1, and re-reads them through a byte round-trip that RECOMPUTES that level from
+      // the odd-division count. A carry that added an odd division would satisfy the first check and
+      // fail the second, so assert both — this is the shape constraint the shared carry must meet.
+      assertEquals(1, next.getLevel(), "append " + append + " left the local-label level behind: " + next);
+      assertEquals(1, new SirixDeweyID(nextBytes).getLevel(),
+          "append " + append + " did not survive a byte round-trip at level 1: " + next);
 
       previous = next;
       previousBytes = nextBytes;
