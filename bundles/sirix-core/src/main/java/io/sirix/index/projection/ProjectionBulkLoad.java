@@ -126,8 +126,8 @@ public final class ProjectionBulkLoad {
 
   /**
    * Records proven complete (a later record has started) and not yet extracted. Bounded by the
-   * async-flush storage epoch — roughly 300 records for ClickBench and 1.1k for Bluesky at the
-   * 32,768-node steady bound — and drained at every commit or storage-only rotation.
+   * async-flush storage epoch — roughly 150 records for ClickBench and 525 for Bluesky at the
+   * 16,384-node bound — and drained at every commit or storage-only rotation.
    */
   private final LongArrayList completedRecordKeys = new LongArrayList();
 

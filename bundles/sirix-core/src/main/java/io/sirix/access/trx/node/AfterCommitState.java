@@ -39,9 +39,6 @@ public enum AfterCommitState {
 
   CLOSE;
 
-  /** Cold-start bound used only for the first async-flush storage epoch. */
-  public static final int MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT = 1 << 14;
-
   /**
    * Maximum number of completed node modifications in one async-flush storage epoch.
    *
@@ -49,5 +46,5 @@ public enum AfterCommitState {
    * page-work bound. This second bound limits foreground index/projection maintenance even when a
    * workload modifies relatively few storage pages.</p>
    */
-  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 15;
+  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 14;
 }

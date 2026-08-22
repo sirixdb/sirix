@@ -74,7 +74,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * Active count threshold. Async storage-only epochs are capped independently of the configured
    * logical auto-commit threshold; other commit modes use {@link #maxNodeCount} unchanged.
    */
-  private int autoCommitNodeCountThreshold;
+  private final int autoCommitNodeCountThreshold;
 
   /**
    * {@code true} if transaction is auto-committing (by count or by delay), {@code false} otherwise.
@@ -249,7 +249,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
-    this.autoCommitNodeCountThreshold = initialAutoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
+    this.autoCommitNodeCountThreshold = autoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
     this.isAutoCommitting = maxNodeCount > 0 || !afterCommitDelay.isZero();
     this.modificationCount = 0L;
 
@@ -261,18 +261,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
-  /** Resolve the cold-start storage-epoch threshold without changing any other commit mode. */
-  static int initialAutoCommitNodeCountThreshold(final int maxNodeCount,
-      final AfterCommitState afterCommitState) {
-    checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
-    requireNonNull(afterCommitState);
-    return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-        ? Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT)
-        : maxNodeCount;
-  }
-
-  /** Resolve the steady storage-epoch threshold without changing any other commit mode. */
-  static int steadyAutoCommitNodeCountThreshold(final int maxNodeCount,
+  /** Resolve the bounded storage-epoch threshold without changing any other commit mode. */
+  static int autoCommitNodeCountThreshold(final int maxNodeCount,
       final AfterCommitState afterCommitState) {
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     requireNonNull(afterCommitState);
@@ -844,8 +834,6 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Keep failure semantics unchanged: the dirty counter is not reset if index maintenance or the
       // async rotation throws.
       modificationCount = 0;
-      autoCommitNodeCountThreshold = steadyAutoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
-
       // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false. Without this,
       // rollingAdd() walks the full ancestor chain on every insert; bulk insertion skips hashing during
       // intermediate epochs in the same way as the synchronous path.

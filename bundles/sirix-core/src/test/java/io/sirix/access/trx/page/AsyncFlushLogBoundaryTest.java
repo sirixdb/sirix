@@ -48,23 +48,18 @@ final class AsyncFlushLogBoundaryTest {
   }
 
   @Test
-  void usesSmallColdAndOneSteadySnapshotWindow() {
-    final int primingLimit = NodeStorageEngineWriter.MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT;
+  void usesOneBoundedSnapshotWindowForEveryGeneration() {
     final int limit = NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
 
-    assertFalse(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(primingLimit - 1, 0));
-    assertTrue(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(primingLimit, 0));
-    assertFalse(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(limit - 1, 1));
-    assertTrue(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(limit, 1));
-    assertTrue(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(Integer.MAX_VALUE, 1));
+    assertFalse(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(limit - 1));
+    assertTrue(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(limit));
+    assertTrue(NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(Integer.MAX_VALUE));
   }
 
   @Test
   void rejectsNegativeLiveEntryCount() {
     assertThrows(IllegalArgumentException.class,
-        () -> NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(-1, 0));
-    assertThrows(IllegalArgumentException.class,
-        () -> NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(0, -1));
+        () -> NodeStorageEngineWriter.isAsyncFlushLogBoundaryReached(-1));
   }
 
   @Test
@@ -96,12 +91,12 @@ final class AsyncFlushLogBoundaryTest {
         final ResourceConfiguration config = session.getResourceConfig();
 
         // Populate distinct record-page identities directly so the logical mutation count stays at
-        // one. The cold async node cap is 16,384, hence only the live-TIL boundary can rotate before
+        // one. The async node cap is 16,384, hence only the live-TIL boundary can rotate before
         // the mutation below. These pages are intentionally unattached test records: the
         // real async serializer writes and retires them, while the document mutation proves the
         // production safe-point predicate initiated that epoch.
         long pageKey = 1_000_000L;
-        while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT) {
+        while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT) {
           final KeyValueLeafPage page =
               new KeyValueLeafPage(pageKey++, IndexType.DOCUMENT, config, writer.getRevisionNumber(),
                                    null, null, false);
@@ -112,7 +107,7 @@ final class AsyncFlushLogBoundaryTest {
 
         assertEquals(0, flushes.get());
         assertEquals(0, log.getCurrentGeneration());
-        assertEquals(NodeStorageEngineWriter.MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT, log.liveEntryCount());
+        assertEquals(NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT, log.liveEntryCount());
 
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("trigger");
@@ -131,10 +126,10 @@ final class AsyncFlushLogBoundaryTest {
           log.put(reference, PageContainer.getInstance(page, page));
         }
 
-        // Generation one must use the steady 32-entry bound, not retain the 16-entry cold bound.
+        // Every generation must use the same 16-entry bound.
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("steady-no-rotate");
-        assertEquals(1, flushes.get(), "31 steady entries must not rotate the second epoch");
+        assertEquals(1, flushes.get(), "15 entries must not rotate the second epoch");
 
         while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT) {
           final KeyValueLeafPage page =
@@ -146,7 +141,7 @@ final class AsyncFlushLogBoundaryTest {
         }
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("steady-trigger");
-        assertEquals(2, flushes.get(), "32 steady entries must rotate the second epoch");
+        assertEquals(2, flushes.get(), "16 entries must rotate the second epoch");
         assertEquals(2, log.getCurrentGeneration());
         wtx.commit();
       }
