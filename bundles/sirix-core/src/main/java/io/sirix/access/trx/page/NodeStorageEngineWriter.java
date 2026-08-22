@@ -141,7 +141,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * <p>Snapshot pinning can remove structural entries before serialization, so this is a
    * conservative upper bound on attempted KVL pages and matches one serializer window.</p>
    */
-  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 128;
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 32;
 
   /** Small first epoch that pays serializer/JIT warm-up without violating the latency budget. */
   static final int MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT = 16;
@@ -2130,10 +2130,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * pre-serialized in parallel before the sequential append pass writes and closes them. Two windows
    * are in flight at once (double buffering), so the transient draw on the shared segment-allocator
    * budget is bounded by {@code 2 × WINDOW} copies, each holding a pooled slotted segment
-   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form — roughly 35&nbsp;MB
-   * typical, ≈100&nbsp;MB worst case, per in-flight flush. The double buffering keeps the flush
-   * pool's workers serializing while this thread appends; widening the window past the pool's
-   * appetite only inflates the footprint.
+   * (64&nbsp;KiB typical, up to 256&nbsp;KiB) plus its cached encoded form. At the current 32-page
+   * window this permits at most 64 pooled copies plus their encodings. The double buffering keeps
+   * the flush pool's workers serializing while this thread appends; widening the window past the
+   * pool's appetite only inflates the footprint.
    */
   private static final int SNAPSHOT_FLUSH_WINDOW = MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
 

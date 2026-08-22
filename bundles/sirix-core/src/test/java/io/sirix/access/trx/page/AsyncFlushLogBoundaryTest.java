@@ -131,10 +131,10 @@ final class AsyncFlushLogBoundaryTest {
           log.put(reference, PageContainer.getInstance(page, page));
         }
 
-        // Generation one must use the steady 128-entry bound, not retain the 16-entry cold bound.
+        // Generation one must use the steady 32-entry bound, not retain the 16-entry cold bound.
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("steady-no-rotate");
-        assertEquals(1, flushes.get(), "127 steady entries must not rotate the second epoch");
+        assertEquals(1, flushes.get(), "31 steady entries must not rotate the second epoch");
 
         while (log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT) {
           final KeyValueLeafPage page =
@@ -146,7 +146,7 @@ final class AsyncFlushLogBoundaryTest {
         }
         assertTrue(wtx.moveTo(arrayNodeKey));
         wtx.insertStringValueAsFirstChild("steady-trigger");
-        assertEquals(2, flushes.get(), "128 steady entries must rotate the second epoch");
+        assertEquals(2, flushes.get(), "32 steady entries must rotate the second epoch");
         assertEquals(2, log.getCurrentGeneration());
         wtx.commit();
       }

@@ -49,5 +49,5 @@ public enum AfterCommitState {
    * page-work bound. This second bound limits foreground index/projection maintenance even when a
    * workload modifies relatively few storage pages.</p>
    */
-  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 17;
+  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 15;
 }
