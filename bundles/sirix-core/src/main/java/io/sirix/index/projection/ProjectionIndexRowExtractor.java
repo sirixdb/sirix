@@ -9,7 +9,6 @@ import io.brackit.query.util.path.Path;
 import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.access.trx.node.json.PrimitiveNumberCursor;
 import io.sirix.access.trx.node.json.objectvalue.PrimitiveNumberValue;
-import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
@@ -99,7 +98,6 @@ public final class ProjectionIndexRowExtractor {
 
   /** Live element count per set column for the row being built. */
   private final int[] rowStringSetLen;
-  private byte[] rowOrderLabel = new byte[0];
   /** Per-row presence: the field EXISTS on the record (even when unrepresentable). */
   private final boolean[] rowPresent;
   /**
@@ -332,26 +330,12 @@ public final class ProjectionIndexRowExtractor {
    *
    * @return {@code false} when {@code leaf} is at capacity (caller opens a fresh leaf and retries)
    */
-  public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey) {
-    return appendTo(leaf, recordKey, false);
-  }
-
-  /** Append the extracted row with its persisted sparse document-order classification. */
-  public boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey,
-      final boolean orderException) {
-    return appendTo(leaf, recordKey, orderException, rowOrderLabel);
-  }
-
   boolean appendTo(final ProjectionIndexRowGroupPage leaf, final long recordKey,
       final boolean orderException, final byte[] orderLabel) {
-    final boolean appended = leaf.appendExtractedUtf8Row(recordKey, rowLongs, rowBools, rowStringUtf8,
+    return leaf.appendExtractedUtf8Row(recordKey, rowLongs, rowBools, rowStringUtf8,
         rowStringUtf8Lengths,
         stringSetsForAppend(), rowPresent, rowUnrepresentable, rowNonIntegral, rowNonDoubleSource,
-        orderException);
-    if (appended) {
-      leaf.replaceLastOrderLabel(orderLabel);
-    }
-    return appended;
+        orderException, orderLabel);
   }
 
   /**
@@ -413,7 +397,6 @@ public final class ProjectionIndexRowExtractor {
 
   private void extractAt(final JsonNodeReadOnlyTrx rtx, final long recordKey,
       final long[] selectedColumns) {
-    captureOrderLabel(rtx, recordKey);
     resetRow(selectedColumns);
     // Generic DFS: walk every descendant of recordKey via an explicit
     // work-list of unvisited first-children. For each node we visit:
@@ -482,7 +465,6 @@ public final class ProjectionIndexRowExtractor {
 
   private void extractAt(final XmlNodeReadOnlyTrx rtx, final long recordKey,
       final long[] selectedColumns) {
-    captureOrderLabel(rtx, recordKey);
     resetRow(selectedColumns);
     workListSize = 0;
     if (!rtx.moveTo(recordKey) || rtx.getKind() != NodeKind.ELEMENT) {
@@ -513,14 +495,6 @@ public final class ProjectionIndexRowExtractor {
       } while (true);
     }
     rtx.moveTo(recordKey);
-  }
-
-  private void captureOrderLabel(final NodeReadOnlyTrx rtx, final long recordKey) {
-    if (!rtx.storeDeweyIDs() || rtx.getDeweyID() == null) {
-      throw new IllegalStateException("Projection indexes require stored Dewey IDs; resource containing record "
-          + recordKey + " has Dewey IDs disabled");
-    }
-    rowOrderLabel = rtx.getDeweyID().toBytes();
   }
 
   private void extractXmlAttributes(final XmlNodeReadOnlyTrx rtx, final long elementKey,

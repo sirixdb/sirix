@@ -15,6 +15,7 @@ import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
@@ -75,7 +76,7 @@ final class ProjectionIndexNestedPathTest {
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(JSON),
@@ -90,7 +91,7 @@ final class ProjectionIndexNestedPathTest {
 
   private static List<byte[]> buildLeaves(final String rootPath, final String agePath,
       final String namePath, final String cityPath) {
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx();
          final var pathSummary = manager.openPathSummary()) {
@@ -142,6 +143,137 @@ final class ProjectionIndexNestedPathTest {
           List.of(Type.LON), 0, IndexDef.DbType.JSON);
       assertThrows(IllegalStateException.class,
           () -> new ProjectionIndexBuilder(def, pathSummary, payload -> { }));
+    }
+  }
+
+  @Test
+  void liveDescendantProjectionRejectsNewSelfNestedRootWithoutPublishing() {
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        parse("//records/[]", PathParser.Type.JSON),
+        List.of(parse("//records/[]/age", PathParser.Type.JSON)),
+        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      manager.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
+      wtx.commit();
+    }
+
+    final int baselineRevision;
+    final long outerRecordKey;
+    final List<byte[]> baselinePayloads;
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx()) {
+      baselineRevision = manager.getMostRecentRevisionNumber();
+      final Axis descendants = new DescendantAxis(rtx);
+      long firstRecordsArray = -1L;
+      while (descendants.hasNext()) {
+        descendants.nextLong();
+        if (isNamedArray(rtx, "records")) {
+          firstRecordsArray = rtx.getNodeKey();
+          break;
+        }
+      }
+      assertTrue(firstRecordsArray >= 0);
+      assertTrue(rtx.moveTo(firstRecordsArray));
+      assertTrue(rtx.moveToFirstChild());
+      outerRecordKey = rtx.getNodeKey();
+      baselinePayloads = projectionPayloads(manager, definition, baselineRevision);
+      assertEquals(List.of(30L, 45L, 50L, 20L), numericValues(baselinePayloads));
+    }
+
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      assertTrue(wtx.moveTo(outerRecordKey));
+      final IllegalStateException failure = assertThrows(IllegalStateException.class, () -> {
+        wtx.insertObjectRecordAsFirstChild("records", new ArrayValue());
+        wtx.insertObjectAsFirstChild()
+            .insertObjectRecordAsFirstChild("age", new NumberValue(99));
+        wtx.commit();
+      });
+      assertTrue(hasFailureMessage(failure, "overlapping nested root matches"));
+      wtx.rollback();
+      assertEquals(baselineRevision, manager.getMostRecentRevisionNumber());
+    }
+
+    database.close();
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final var reopened = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var manager = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      assertEquals(baselineRevision, manager.getMostRecentRevisionNumber());
+      final List<byte[]> reopenedPayloads = projectionPayloads(manager, definition, baselineRevision);
+      assertEquals(baselinePayloads.size(), reopenedPayloads.size());
+      for (int index = 0; index < baselinePayloads.size(); index++) {
+        assertArrayEquals(baselinePayloads.get(index), reopenedPayloads.get(index));
+      }
+    }
+  }
+
+  @Test
+  void structuralMoveStreamsMoreThanOneBoundedRecordBatchAndColdReopens() {
+    JsonTestHelper.deleteEverything();
+    final int movedRecords = 300;
+    final StringBuilder json = new StringBuilder(16 << 10);
+    json.append("[{\"records\":[");
+    for (int value = 0; value < movedRecords; value++) {
+      if (value > 0) {
+        json.append(',');
+      }
+      json.append("{\"age\":").append(value).append('}');
+    }
+    json.append("]},{\"records\":[{\"age\":1000}]}]");
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json.toString()),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        parse("//records/[]", PathParser.Type.JSON),
+        List.of(parse("//records/[]/age", PathParser.Type.JSON)),
+        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      manager.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
+      wtx.commit();
+    }
+
+    final long leftKey;
+    final long rightKey;
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx()) {
+      rtx.moveToDocumentRoot();
+      assertTrue(rtx.moveToFirstChild());
+      assertTrue(rtx.moveToFirstChild());
+      leftKey = rtx.getNodeKey();
+      assertTrue(rtx.moveToRightSibling());
+      rightKey = rtx.getNodeKey();
+    }
+    ProjectionIndexChangeListener.resetMaintenanceTelemetry();
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      assertTrue(wtx.moveTo(rightKey));
+      wtx.moveSubtreeToRightSibling(leftKey);
+      wtx.commit();
+    }
+    assertEquals(0L, ProjectionIndexChangeListener.maintenanceTelemetry().fullRebuilds());
+
+    database.close();
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final var reopened = Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+         final var manager = reopened.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final List<Long> values = numericValues(projectionPayloads(
+          manager, definition, manager.getMostRecentRevisionNumber()));
+      assertEquals(movedRecords + 1, values.size());
+      assertEquals(1000L, values.getFirst());
+      for (int value = 0; value < movedRecords; value++) {
+        assertEquals((long) value, values.get(value + 1));
+      }
     }
   }
 
@@ -326,7 +458,7 @@ final class ProjectionIndexNestedPathTest {
     }
     json.append(",\"right\":{\"records\":[]}}");
 
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json.toString()),
@@ -391,7 +523,7 @@ final class ProjectionIndexNestedPathTest {
   @Test
   void loadTimeSiblingArraysSurviveAsyncEpochsAndColdReopen() {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef definition = IndexDefs.createProjectionIdxDef(
         parse("//records/[]", PathParser.Type.JSON),
         List.of(parse("//records/[]/age", PathParser.Type.JSON)),
@@ -468,6 +600,37 @@ final class ProjectionIndexNestedPathTest {
         && name.equals(rtx.getName().getLocalName());
     rtx.moveTo(nodeKey);
     return named;
+  }
+
+  private static List<byte[]> projectionPayloads(final JsonResourceSession manager,
+      final IndexDef definition, final int revision) {
+    ProjectionIndexCatalog.clearCache();
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(manager, revision, definition);
+    assertNotNull(handle);
+    return handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+        manager, revision, definition.getID(), handle.rowGroupCount()));
+  }
+
+  private static List<Long> numericValues(final List<byte[]> payloads) {
+    final List<Long> values = new ArrayList<>();
+    for (final byte[] payload : payloads) {
+      final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(payload);
+      for (int row = 0; row < page.getRowCount(); row++) {
+        values.add(page.numericColumn(0)[row]);
+      }
+    }
+    return values;
+  }
+
+  private static boolean hasFailureMessage(final Throwable failure, final String expected) {
+    Throwable current = failure;
+    while (current != null) {
+      if (current.getMessage() != null && current.getMessage().contains(expected)) {
+        return true;
+      }
+      current = current.getCause();
+    }
+    return false;
   }
 
   @Test

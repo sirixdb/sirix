@@ -125,8 +125,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
    */
   private final boolean useDeweyIDs;
 
-  private final boolean deweyIdsConfigured;
-
   /**
    * Determines the hash type to use (default: rolling).
    */
@@ -226,8 +224,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
     private boolean useDeweyIDs = System.getProperty("useDeweyIDs") != null
         && Boolean.parseBoolean(System.getProperty("useDeweyIDs"));
 
-    private boolean deweyIdsConfigured = System.getProperty("useDeweyIDs") != null;
-
     /**
      * Determines the hash type to use (default: rolling).
      */
@@ -326,7 +322,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
      */
     public Builder storeDeweyIds(final boolean storeDeweyIDs) {
       this.useDeweyIDs = storeDeweyIDs;
-      deweyIdsConfigured = true;
       return this;
     }
 
@@ -415,7 +410,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
     buildPathSummary = builder.buildPathSummary;
     buildPathStatistics = builder.effectiveBuildPathStatistics();
     useDeweyIDs = builder.useDeweyIDs;
-    deweyIdsConfigured = builder.deweyIdsConfigured;
     hashType = builder.hashType;
     versioningType = builder.versioningType;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
@@ -670,7 +664,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
         resourceName = "resource" + (database.listResources().size() + 1);
       }
 
-      final var resourceOptions = createResource(options, database, resourceName, projection != null);
+      final var resourceOptions = createResource(options, database, resourceName);
 
       final JsonDBCollection collection = new JsonDBCollectionImpl(collName, database, this);
       collections.put(database, collection);
@@ -756,17 +750,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   private Options createResource(final Object options, final Database<JsonResourceSession> database,
-      final String resourceName, final boolean projectionRequested) {
-    Options resourceOptions = OptionsFactory.createOptions(options, options());
-    if (projectionRequested && !deweyIdsConfigured) {
-      resourceOptions = new Options(resourceOptions.commitMessage(), resourceOptions.commitTimestamp(),
-          resourceOptions.useTextCompression(), resourceOptions.buildPathSummary(),
-          resourceOptions.buildPathStatistics(), resourceOptions.storageType(), true, resourceOptions.hashType(),
-          resourceOptions.versioningType(), resourceOptions.numberOfNodesBeforeAutoCommit(),
-          resourceOptions.storeNodeHistory(), resourceOptions.validTimeConfig(),
-          resourceOptions.autoCreateValidTimeIndex());
-    }
-
+      final String resourceName) {
+    final Options resourceOptions = OptionsFactory.createOptions(options, options());
     database.createResource(ResourceConfigurations.create(resourceName, resourceOptions));
     return resourceOptions;
   }

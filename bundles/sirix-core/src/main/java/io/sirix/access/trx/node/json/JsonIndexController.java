@@ -57,7 +57,6 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
 
   @Override
   public JsonIndexController createIndexes(final Set<IndexDef> indexDefs, final JsonNodeTrx nodeWriteTrx) {
-    requireProjectionDeweyIds(indexDefs, nodeWriteTrx);
     // Build the visitor-driven indexes (PATH/CAS/NAME/VALIDTIME) in one
     // shared document traversal.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
@@ -131,7 +130,6 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    */
   private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final JsonNodeTrx nodeWriteTrx, final long expectedRows) {
-    requireProjectionDeweyIds(indexDefs, nodeWriteTrx);
     final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
     for (final IndexDef indexDef : indexDefs) {
       if (!indexDef.isProjectionIndex()) {
@@ -179,19 +177,6 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
         }
       }
       throw JsonIndexController.<RuntimeException>rethrowUnchecked(armFailure);
-    }
-  }
-
-  private static void requireProjectionDeweyIds(final Set<IndexDef> indexDefs,
-      final JsonNodeReadOnlyTrx nodeReadTrx) {
-    if (nodeReadTrx.storeDeweyIDs()) {
-      return;
-    }
-    for (final IndexDef indexDef : indexDefs) {
-      if (indexDef.isProjectionIndex()) {
-        throw new IllegalStateException("Projection index " + indexDef.getID()
-            + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
-      }
     }
   }
 

@@ -1390,21 +1390,12 @@ final class JsonNodeTrxImpl extends
     }
     final long valueNodeKey = node.getNodeKey();
     switch (kind) {
-      case STRING_VALUE -> transferBytesStat(pathNodeKey, ((ValueNode) node).getRawValue(),
-                                             valueNodeKey, reAttach);
-      case OBJECT_NAMED_STRING -> transferBytesStat(pathNodeKey,
-                                                    ((ObjectNamedStringNode) node).getRawValue(),
-                                                    valueNodeKey, reAttach);
-      case NUMBER_VALUE -> transferNumberStat(pathNodeKey, ((NumberNode) node).getValue(),
-                                              valueNodeKey, reAttach);
-      case OBJECT_NAMED_NUMBER -> transferNumberStat(pathNodeKey,
-                                                     ((ObjectNamedNumberNode) node).getValue(),
-                                                     valueNodeKey, reAttach);
-      case BOOLEAN_VALUE -> transferBooleanStat(pathNodeKey, ((BooleanNode) node).getValue(),
-                                                valueNodeKey, reAttach);
-      case OBJECT_NAMED_BOOLEAN -> transferBooleanStat(pathNodeKey,
-                                                       ((ObjectNamedBooleanNode) node).getValue(),
-                                                       valueNodeKey, reAttach);
+      case STRING_VALUE, OBJECT_NAMED_STRING ->
+          transferBytesStat(pathNodeKey, nodeReadOnlyTrx.getValueBytes(), valueNodeKey, reAttach);
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
+          transferNumberStat(pathNodeKey, nodeReadOnlyTrx.getNumberValue(), valueNodeKey, reAttach);
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
+          transferBooleanStat(pathNodeKey, nodeReadOnlyTrx.getBooleanValue(), valueNodeKey, reAttach);
       case NULL_VALUE, OBJECT_NAMED_NULL -> {
         if (reAttach) {
           pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
@@ -3050,6 +3041,7 @@ final class JsonNodeTrxImpl extends
     assert fromNode != null;
     assert toNode != null;
     assert pos != null;
+    markStructuralMutation();
 
     // === Source side: detach fromNode from its current position ===
 
@@ -4057,6 +4049,7 @@ final class JsonNodeTrxImpl extends
    */
   private long adaptForInsert(final long structNodeKey, final long parentKey,
       final long leftSibKey, final long rightSibKey, final boolean resolveParentPathNodeKey) {
+    markStructuralMutation();
     final boolean hasLeft = leftSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
     final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 
@@ -4108,6 +4101,7 @@ final class JsonNodeTrxImpl extends
    */
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
+    markStructuralMutation();
     // Capture all needed values from oldNode before any prepareRecordForModification calls.
     // With write-path singletons, subsequent calls for the same kind would overwrite the singleton.
     final long leftSibKey = oldNode.getLeftSiblingKey();

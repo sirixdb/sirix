@@ -162,14 +162,17 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * this array, and the sibling chain reachable from an anchor is by construction this array's
    * elements. Under a writer it can: an edit made through a DIFFERENT item bound to the same array,
    * or straight through the transaction, is invisible here — the same reason {@link #childCount} is
-   * left unknown for a writer. A writer therefore discards every cached position and materialized
-   * value list whenever its transaction's monotonic mutation sequence changes, then verifies an
-   * anchor's parent before trusting it. A reader — which is every scan — pays neither check.
+   * left unknown for a writer. A writer therefore tracks value and structural mutation sequences
+   * separately: every mutation invalidates materialized values, while only document-order changes
+   * discard positional anchors. A reader — which is every scan — pays neither check.
    */
   private final boolean cursorMayMutate;
 
-  /** Writer mutation sequence against which all cached positional state is valid. */
+  /** Writer mutation sequence against which materialized values are valid. */
   private long observedMutationSequence;
+
+  /** Writer structural mutation sequence against which cached positional state is valid. */
+  private long observedStructuralMutationSequence;
 
   private enum Op {
     Replace,
@@ -236,6 +239,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     observedMutationSequence = cursorMayMutate
         ? ((JsonNodeTrx) rtx).getMutationSequence()
         : 0L;
+    observedStructuralMutationSequence = cursorMayMutate
+        ? ((JsonNodeTrx) rtx).getStructuralMutationSequence()
+        : 0L;
     childCount = cursorMayMutate
         ? CHILD_COUNT_UNKNOWN
         : rtx.getChildCount();
@@ -281,9 +287,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
-    // The element list is now one short, and len()/length() answer from it.
-    values = null;
-    invalidateScanState();
+    invalidateAfterStructuralMutation();
 
     return this;
   }
@@ -314,8 +318,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     jsonItemSequence.insert(value, trx, nodeKey);
 
-    values = null;
-    invalidateScanState();
+    invalidateAfterStructuralMutation();
   }
 
   private void moveToIndex(int index, JsonNodeTrx trx) {
@@ -385,9 +388,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
     trx.remove();
 
-    // Drop the memo: it still holds the removed element, and len()/length() read its size.
-    values = null;
-    invalidateScanState();
+    invalidateAfterStructuralMutation();
 
     return this;
   }
@@ -548,8 +549,16 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // shape that no longer exists.
     closePrefetcher();
     if (cursorMayMutate) {
+      observedStructuralMutationSequence = ((JsonNodeTrx) rtx).getStructuralMutationSequence();
+    }
+  }
+
+  private void invalidateAfterStructuralMutation() {
+    values = null;
+    if (cursorMayMutate) {
       observedMutationSequence = ((JsonNodeTrx) rtx).getMutationSequence();
     }
+    invalidateScanState();
   }
 
   private void refreshMutableState() {
@@ -559,6 +568,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     final long currentSequence = ((JsonNodeTrx) rtx).getMutationSequence();
     if (currentSequence != observedMutationSequence) {
       values = null;
+      observedMutationSequence = currentSequence;
+    }
+    if (((JsonNodeTrx) rtx).getStructuralMutationSequence() != observedStructuralMutationSequence) {
       invalidateScanState();
     }
   }

@@ -12,7 +12,6 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
-import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.Axis;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -39,8 +38,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionIndexXmlIntegrationTest {
@@ -110,7 +107,7 @@ final class ProjectionIndexXmlIntegrationTest {
   }
 
   @Test
-  void projectionCreationRejectsDeweyDisabledXmlResourceWithoutResidue() {
+  void projectionCreationSupportsDeweyDisabledXmlResource() {
     final String disabled = "projection-xml-dewey-disabled";
     final Database<XmlResourceSession> database =
         XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
@@ -124,38 +121,42 @@ final class ProjectionIndexXmlIntegrationTest {
 
     try (final var session = database.beginResourceSession(disabled);
          final var wtx = session.beginNodeTrx()) {
-      final XmlIndexController controller =
-          (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> controller.createProjectionIndexAtLoadStart(definition, wtx, -1L));
-      assertTrue(failure.getMessage().contains("Dewey IDs"));
-      assertNull(ProjectionBulkLoad.active(
-          session.getResourceConfig().getResource().toString(), definition.getID()));
-      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-      assertFalse(controller.hasProjectionIndex());
+      assertFalse(session.getResourceConfig().areDeweyIDsStored);
       new XmlShredder.Builder(wtx,
-          XmlShredder.createStringReader("<records><record><score>1</score></record></records>"),
-          InsertPosition.AS_FIRST_CHILD).build().call();
-      wtx.commit();
+          XmlShredder.createStringReader("<records><record><score>1</score></record>"
+              + "<record><score>2</score></record></records>"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
 
     try (final var session = database.beginResourceSession(disabled);
          final var wtx = session.beginNodeTrx()) {
-      final XmlIndexController controller =
-          (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
-      final IllegalStateException failure = assertThrows(IllegalStateException.class,
-          () -> controller.createIndexes(Set.of(definition), wtx));
-      assertTrue(failure.getMessage().contains("Dewey IDs"));
-      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-      assertFalse(controller.hasProjectionIndex());
+      session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
       wtx.commit();
     }
 
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
     try (final var session = database.beginResourceSession(disabled);
          final var rtx = session.beginNodeReadOnlyTrx()) {
+      assertFalse(session.getResourceConfig().areDeweyIDsStored);
       final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
-      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-      assertFalse(controller.hasProjectionIndex());
+      assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
+      assertTrue(controller.hasProjectionIndex());
+      final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(
+          session, rtx.getRevisionNumber(), definition);
+      assertNotNull(handle);
+      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          session, rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
+      final long[] values = new long[2];
+      int offset = 0;
+      for (final byte[] payload : leaves) {
+        final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(payload);
+        System.arraycopy(page.numericColumn(0), 0, values, offset, page.getRowCount());
+        offset += page.getRowCount();
+      }
+      assertEquals(values.length, offset);
+      assertArrayEquals(new long[] {1L, 2L}, values);
     }
   }
 

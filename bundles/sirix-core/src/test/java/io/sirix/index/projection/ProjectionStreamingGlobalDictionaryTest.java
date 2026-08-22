@@ -72,20 +72,49 @@ final class ProjectionStreamingGlobalDictionaryTest {
       storage.awaitPendingAsyncFlush();
 
       dictionary.bind(storage);
-      assertEquals(1, dictionary.intern("alpha"));
-      assertEquals(3, dictionary.intern("gamma"));
+      for (int repeat = 0; repeat < 256; repeat++) {
+        assertEquals(1, dictionary.intern("alpha"));
+      }
+      for (int repeat = 0; repeat < 256; repeat++) {
+        assertEquals(3, dictionary.intern("gamma"));
+      }
+      assertEquals(2L, dictionary.persistentProbeCount());
       assertEquals(headerKey, dictionary.flush());
       storage.asyncFlush();
       storage.awaitPendingAsyncFlush();
 
       dictionary.bind(storage);
-      assertEquals(2, dictionary.intern("beta"));
-      assertEquals(3, dictionary.intern("gamma"));
-      assertEquals(4, dictionary.intern("delta"));
+      for (int repeat = 0; repeat < 256; repeat++) {
+        assertEquals(2, dictionary.intern("beta"));
+      }
+      for (int repeat = 0; repeat < 256; repeat++) {
+        assertEquals(3, dictionary.intern("gamma"));
+      }
+      for (int repeat = 0; repeat < 256; repeat++) {
+        assertEquals(4, dictionary.intern("delta"));
+      }
+      assertEquals(5L, dictionary.persistentProbeCount());
       assertEquals(headerKey, dictionary.flush());
       wtx.commit();
     } finally {
       dictionary.release();
+    }
+
+    try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexChangeListener.MaintenanceGlobalDictionary maintenanceDictionary =
+          new ProjectionIndexChangeListener.MaintenanceGlobalDictionary(0, headerKey,
+              wtx.getStorageEngineWriter(), Long.MAX_VALUE);
+      try {
+        for (int repeat = 0; repeat < 256; repeat++) {
+          assertEquals(1, maintenanceDictionary.intern("alpha"));
+          assertEquals(5, maintenanceDictionary.intern("epsilon"));
+        }
+        assertEquals(2L, maintenanceDictionary.persistentProbeCount());
+      } finally {
+        maintenanceDictionary.release();
+      }
     }
 
     Databases.clearGlobalCaches();

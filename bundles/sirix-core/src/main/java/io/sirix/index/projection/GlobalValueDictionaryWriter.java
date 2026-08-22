@@ -270,6 +270,12 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
         src, off, len);
   }
 
+  int findId(final byte[] src, final int off, final int len) {
+    checkInternArguments(src, off, len);
+    final long hash = GlobalValueDictionary.valueHash(src, off, len);
+    return tableIds[findSlot(hash, src, off, len)];
+  }
+
   @Override
   public int intern(final String value) {
     Objects.requireNonNull(value, "value must not be null");

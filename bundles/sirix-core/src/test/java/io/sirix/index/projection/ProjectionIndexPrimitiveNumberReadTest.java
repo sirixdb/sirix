@@ -38,8 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Projection parity and cold-read coverage for the unboxed fused integral-number path. */
@@ -152,7 +151,7 @@ final class ProjectionIndexPrimitiveNumberReadTest {
   }
 
   @Test
-  void projectionCreationRejectsDeweyDisabledResource() throws Exception {
+  void loadTimeProjectionSupportsDeweyDisabledResource() throws Exception {
     final String disabled = "projection-dewey-disabled";
     try (Database<JsonResourceSession> database = Databases.openJsonDatabase(databasePath)) {
       assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled)
@@ -163,45 +162,33 @@ final class ProjectionIndexPrimitiveNumberReadTest {
       try (JsonResourceSession session = database.beginResourceSession(disabled);
            var wtx = session.beginNodeTrx();
            var parser = JacksonJsonShredder.createStringParser("[{\"i\":1}]")) {
-        final byte[] retainedBlob = {1, 3, 3, 7};
-        final ProjectionIndexHOTStorage storage =
-            ProjectionIndexHOTStorage.forBulkBuild(wtx.getStorageEngineWriter(), definition.getID());
-        storage.putBlob(1L, retainedBlob);
-        final String resourceKey = session.getResourceConfig().getResource().toString();
-        final IllegalStateException directFailure = assertThrows(IllegalStateException.class,
-            () -> ProjectionBulkLoad.begin(definition, resourceKey, wtx.getPathSummary(),
-                wtx.getStorageEngineWriter()));
-        assertTrue(directFailure.getMessage().contains("Dewey IDs"));
-        assertArrayEquals(retainedBlob, storage.getBlob(1L));
-        assertNull(ProjectionBulkLoad.active(resourceKey, definition.getID()));
-
+        assertFalse(session.getResourceConfig().areDeweyIDsStored);
         final JsonIndexController controller =
             (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
-        final IllegalStateException failure = assertThrows(IllegalStateException.class,
-            () -> controller.createProjectionIndexAtLoadStart(definition, wtx, -1L));
-        assertTrue(failure.getMessage().contains("Dewey IDs"));
-        assertNull(ProjectionBulkLoad.active(resourceKey, definition.getID()));
-        assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-        assertFalse(controller.hasProjectionIndex());
+        final ProjectionBulkLoad load = controller.createProjectionIndexAtLoadStart(definition, wtx, 1L);
         new JacksonJsonShredder.Builder(wtx, parser, InsertPosition.AS_FIRST_CHILD).build().call();
         wtx.commit();
+        assertTrue(load.isFinished());
       }
-      try (JsonResourceSession session = database.beginResourceSession(disabled);
-           var wtx = session.beginNodeTrx()) {
-        final JsonIndexController controller =
-            (JsonIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
-        final IllegalStateException failure = assertThrows(IllegalStateException.class,
-            () -> controller.createIndexes(java.util.Set.of(definition), wtx));
-        assertTrue(failure.getMessage().contains("Dewey IDs"));
-        assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-        assertFalse(controller.hasProjectionIndex());
-        wtx.commit();
-      }
+
+      ProjectionIndexRegistry.clear();
+      ProjectionIndexCatalog.clearCache();
+      Databases.clearGlobalCaches();
       try (JsonResourceSession session = database.beginResourceSession(disabled);
            var rtx = session.beginNodeReadOnlyTrx()) {
+        assertFalse(session.getResourceConfig().areDeweyIDsStored);
         final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
-        assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
-        assertFalse(controller.hasProjectionIndex());
+        assertNotNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
+        assertTrue(controller.hasProjectionIndex());
+        final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.load(
+            session, rtx.getRevisionNumber(), definition);
+        assertNotNull(handle);
+        final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+            session, rtx.getRevisionNumber(), definition.getID(), handle.rowGroupCount()));
+        assertEquals(1, leaves.size());
+        final ProjectionIndexRowGroupPage page = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
+        assertEquals(1, page.getRowCount());
+        assertEquals(1L, page.numericColumn(0)[0]);
       }
     }
   }

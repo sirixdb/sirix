@@ -157,9 +157,23 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private long mutationSequence;
 
+  /**
+   * Monotonic sequence of changes to document order and transaction lineage.
+   */
+  private long structuralMutationSequence;
+
   @Override
   public final long getMutationSequence() {
     return mutationSequence;
+  }
+
+  @Override
+  public final long getStructuralMutationSequence() {
+    return structuralMutationSequence;
+  }
+
+  protected final void markStructuralMutation() {
+    structuralMutationSequence++;
   }
 
   /**
@@ -1018,6 +1032,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
       nodeReadOnlyTrx.moveTo(rollbackNodeKey);
       mutationSequence++;
+      markStructuralMutation();
 
       return self();
     } finally {
@@ -1082,6 +1097,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       // Move to document root.
       moveToDocumentRoot();
       mutationSequence++;
+      markStructuralMutation();
     } finally {
       if (lock != null) {
         lock.unlock();

@@ -77,9 +77,8 @@ import java.util.concurrent.atomic.AtomicLong;
  * their touched leaves; an update that does not change row membership re-extracts only
  * its dirty column across the leaf and patches only that column's immutable segments. Extraction
  * semantics are shared 1:1 with the bulk builder via {@link ProjectionIndexRowExtractor}. Stable
- * node keys identify rows but never determine their order: persisted Dewey labels and the bounded
- * document skip directory place new and moved rows, while sparse record locators route order
- * exceptions.
+ * node keys identify rows but never determine their order: persisted projection-owned order labels
+ * place new and moved rows, while sparse record locators route order exceptions.
  * Slot 0's metadata is rewritten with the updated leaf count and the committing revision as the new
  * build revision, which re-keys the catalog's decoded-leaf cache. All writes ride the write
  * transaction — invisible to concurrent readers until commit, discarded on rollback, and historical
@@ -137,6 +136,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private static final byte FIRST_ROOT_DELETE = 0x02;
   private static final byte STRUCTURAL_ENTER = 0x04;
   private static final byte STRUCTURAL_EXIT = 0x08;
+  private static final int STRUCTURAL_BATCH_SIZE = 256;
+  private static final int STRUCTURAL_BATCH_LABEL_BYTES = ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES;
 
   private final StorageEngineWriter storageEngineWriter;
   private final PathSummaryReader pathSummary;
@@ -148,6 +149,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * first relevant change tombstones the projection.
    */
   private final @Nullable NodeReadOnlyTrx maintenanceTrx;
+
+  private ProjectionStructuralOrderDirectory.@Nullable Accessor structuralOrderDirectory;
 
   /**
    * The load-time build this transaction is feeding, or {@code null} for ordinary maintenance. When
@@ -187,8 +190,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   /** First authoritative root event plus structural membership provenance, keyed by record identity. */
   private @Nullable Long2ByteOpenHashMap rootProvenanceByRecord;
   /** One active surgery and the completed deltas retained until apply-time placement. */
-  private @Nullable StructuralSnapshot pendingStructuralRecords;
+  private @Nullable StructuralRange pendingStructuralRecords;
   private @Nullable ArrayList<StructuralDelta> structuralDeltas;
+  private @Nullable LongOpenHashSet pendingStructuralDeletes;
 
   /**
    * Positive resolution memo: nodeKey → enclosing record's nodeKey, for nodes proven to lie INSIDE a
@@ -231,10 +235,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionIndexChangeListener requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
-    }
-    if (maintenanceTrx != null && !maintenanceTrx.storeDeweyIDs()) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
     }
     this.storageEngineWriter = storageEngineWriter;
     this.pathSummary = pathSummary;
@@ -299,6 +299,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       rootProvenanceByRecord = null;
       pendingStructuralRecords = null;
       structuralDeltas = null;
+      pendingStructuralDeletes = null;
+      structuralOrderDirectory = null;
       resolvedRecordMemo = null;
       deepWalkVisited = null;
       arrayRootInstances = null;
@@ -326,40 +328,40 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       throw new IllegalStateException("Projection index " + indexDef.getID()
           + " received nested structural changes");
     }
-    pendingStructuralRecords = collectStructuralRecords(movedNodeKey);
+    applyPendingMaintenance();
+    pendingStructuralRecords = collectStructuralRange(movedNodeKey);
   }
 
   @Override
   public void afterStructuralChange(final long movedNodeKey) {
-    if (invalidated || maintenanceTrx == null) {
-      return;
-    }
-    final StructuralSnapshot before = pendingStructuralRecords;
-    pendingStructuralRecords = null;
-    if (before == null) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " did not observe the start of structural change " + movedNodeKey);
-    }
-    resolvedRecordMemo = null;
-    arrayRootInstances = null;
-    final StructuralSnapshot after = collectStructuralRecords(movedNodeKey);
-    if (!before.containedInDocumentOrder().isEmpty() || !after.containedInDocumentOrder().isEmpty()) {
-      if (structuralDeltas == null) {
-        structuralDeltas = new ArrayList<>();
+    try {
+      if (invalidated || maintenanceTrx == null) {
+        return;
       }
-      final byte[] afterSubtreeRootOrderLabel = recomputeStructuralRootOrderLabel(movedNodeKey);
-      final Long2ObjectOpenHashMap<byte[]> afterRecordOrderLabels =
-          translateStructuralRecordOrderLabels(before, after, afterSubtreeRootOrderLabel);
-      structuralDeltas.add(new StructuralDelta(before, after, afterSubtreeRootOrderLabel, afterRecordOrderLabels));
-      for (final LongIterator iterator = before.contained().iterator(); iterator.hasNext();) {
-        recordStructuralProvenance(iterator.nextLong(), STRUCTURAL_EXIT);
+      final StructuralRange before = pendingStructuralRecords;
+      pendingStructuralRecords = null;
+      if (before == null) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " did not observe the start of structural change " + movedNodeKey);
       }
-      for (final LongIterator iterator = after.contained().iterator(); iterator.hasNext();) {
-        recordStructuralProvenance(iterator.nextLong(), STRUCTURAL_ENTER);
+      resolvedRecordMemo = null;
+      arrayRootInstances = null;
+      relabelStructuralOrder(movedNodeKey);
+      final StructuralRange after = collectStructuralRange(movedNodeKey);
+      removeStructuralExits(before);
+      applyStructuralEntries(movedNodeKey, after);
+      if (before.enclosingRecordKey() >= 0) {
+        markDirty(before.enclosingRecordKey(), allColumnWords);
       }
+      if (after.enclosingRecordKey() >= 0
+          && after.enclosingRecordKey() != before.enclosingRecordKey()) {
+        markDirty(after.enclosingRecordKey(), allColumnWords);
+      }
+      applyPendingMaintenance();
+    } catch (final RuntimeException | Error failure) {
+      failMaintenance(failure);
+      throw failure;
     }
-    markAllDirty(before.affected());
-    markAllDirty(after.affected());
   }
 
   @Override
@@ -369,10 +371,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     arrayRootInstances = null;
   }
 
-  private StructuralSnapshot collectStructuralRecords(final long movedNodeKey) {
-    final LongOpenHashSet affected = new LongOpenHashSet();
-    final LongOpenHashSet contained = new LongOpenHashSet();
-    final LongArrayList containedInDocumentOrder = new LongArrayList();
+  private StructuralRange collectStructuralRange(final long movedNodeKey) {
+    long enclosingRecordKey = NO_RECORD_KEY;
+    long firstContainedRecordKey = NO_RECORD_KEY;
+    long lastContainedRecordKey = NO_RECORD_KEY;
+    long containedRecordCount = 0L;
+    int recordsSinceMemoReset = 0;
     long currentKey = movedNodeKey;
     for (;;) {
       final ImmutableNode node = readNode(currentKey);
@@ -387,10 +391,26 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       final long recordKey = resolveRecordKey(currentKey, node.getKind(), node.getParentKey(), pathNodeKey);
       if (recordKey >= 0) {
-        affected.add(recordKey);
-        if (recordKey == currentKey && contained.add(recordKey)) {
-          containedInDocumentOrder.add(recordKey);
+        if (recordKey != currentKey) {
+          enclosingRecordKey = recordKey;
+          return new StructuralRange(enclosingRecordKey, NO_RECORD_KEY, NO_RECORD_KEY, 0L);
         }
+        if (firstContainedRecordKey < 0) {
+          firstContainedRecordKey = recordKey;
+        }
+        lastContainedRecordKey = recordKey;
+        containedRecordCount++;
+        if (++recordsSinceMemoReset == STRUCTURAL_BATCH_SIZE) {
+          resolvedRecordMemo = null;
+          arrayRootInstances = null;
+          recordsSinceMemoReset = 0;
+        }
+        currentKey = nextNodeAfterSubtreeWithin(currentKey, movedNodeKey);
+        if (currentKey < 0) {
+          return new StructuralRange(enclosingRecordKey, firstContainedRecordKey, lastContainedRecordKey,
+              containedRecordCount);
+        }
+        continue;
       } else if (recordKey == UNRESOLVED) {
         throw new IllegalStateException("Projection index " + indexDef.getID()
             + " cannot attribute moved subtree node " + currentKey);
@@ -411,40 +431,44 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         walk = parentStructural;
       }
       if (walkKey == movedNodeKey) {
-        return new StructuralSnapshot(affected, contained, containedInDocumentOrder,
-            coherentCurrentOrderLabel(movedNodeKey));
+        return new StructuralRange(enclosingRecordKey, firstContainedRecordKey, lastContainedRecordKey,
+            containedRecordCount);
       }
       currentKey = walk.getRightSiblingKey();
     }
   }
 
-  private record StructuralSnapshot(LongOpenHashSet affected, LongOpenHashSet contained,
-                                    LongArrayList containedInDocumentOrder,
-                                    byte[] subtreeRootOrderLabel) {
+  private long nextNodeAfterSubtreeWithin(final long nodeKey, final long boundaryKey) {
+    long current = nodeKey;
+    for (;;) {
+      final ImmutableNode node = readNode(current);
+      if (!(node instanceof final StructNode structural)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot navigate structural subtree from " + current);
+      }
+      if (current == boundaryKey) {
+        return NO_RECORD_KEY;
+      }
+      if (structural.hasRightSibling()) {
+        return structural.getRightSiblingKey();
+      }
+      current = structural.getParentKey();
+      if (current < 0 || current == boundaryKey) {
+        return NO_RECORD_KEY;
+      }
+    }
+  }
+
+  private record StructuralRange(long enclosingRecordKey, long firstContainedRecordKey,
+                                 long lastContainedRecordKey, long containedRecordCount) {
+  }
+
+  private record StructuralSnapshot(LongOpenHashSet contained,
+                                    LongArrayList containedInDocumentOrder) {
   }
 
   private record StructuralDelta(StructuralSnapshot before, StructuralSnapshot after,
-                                 byte[] afterSubtreeRootOrderLabel,
                                  Long2ObjectOpenHashMap<byte[]> afterRecordOrderLabels) {
-  }
-
-  private byte[] recomputeStructuralRootOrderLabel(final long subtreeRootKey) {
-    final ImmutableNode node = readNode(subtreeRootKey);
-    if (!(node instanceof final StructNode structural)) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " cannot relabel moved subtree node " + subtreeRootKey);
-    }
-    final ProjectionPersistedRecordLookup persistedLookup = openPersistedRecordLookup();
-    final SirixDeweyID left = structural.hasLeftSibling()
-        ? new SirixDeweyID(coherentStructuralNodeOrderLabel(structural.getLeftSiblingKey(), persistedLookup))
-        : null;
-    final SirixDeweyID right = structural.hasRightSibling()
-        ? new SirixDeweyID(coherentStructuralNodeOrderLabel(structural.getRightSiblingKey(), persistedLookup))
-        : null;
-    final SirixDeweyID relabeled = left != null || right != null
-        ? SirixDeweyID.newBetween(left, right)
-        : new SirixDeweyID(coherentStructuralNodeOrderLabel(structural.getParentKey(), persistedLookup)).getNewChildID();
-    return relabeled.toBytes();
   }
 
   private @Nullable ProjectionPersistedRecordLookup openPersistedRecordLookup() {
@@ -457,174 +481,198 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         ProjectionIndexFences.open(storage, metadata.rowGroupCount()), ProjectionRecordLocator.open(storage));
   }
 
-  private byte[] coherentStructuralNodeOrderLabel(final long nodeKey,
-      final @Nullable ProjectionPersistedRecordLookup persistedLookup) {
-    final byte[] currentLabel = currentOrderLabel(nodeKey);
-    if (hasPendingStructuralRelabel(currentLabel)) {
-      return applyPendingStructuralRelabel(currentLabel);
-    }
-    if (persistedLookup != null) {
-      final long location = persistedLookup.find(nodeKey);
-      if (location != ProjectionPersistedRecordLookup.ABSENT) {
-        return persistedLookup.keys(ProjectionPersistedRecordLookup.slot(location))
-            .view()
-            .copyOrderLabelAt(ProjectionPersistedRecordLookup.row(location));
-      }
-    }
-    return currentLabel;
-  }
-
   private void deriveOrdinaryInsertionPositions(final LongOpenHashSet insertions,
-      final Long2ObjectOpenHashMap<InsertionPosition> positions,
-      final ProjectionPersistedRecordLookup persistedLookup) {
-    final LongArrayList block = new LongArrayList();
+      final Long2ObjectOpenHashMap<InsertionPosition> positions) {
     for (final LongIterator iterator = insertions.iterator(); iterator.hasNext();) {
       final long candidate = iterator.nextLong();
       if (positions.containsKey(candidate)) {
         continue;
       }
-      long head = candidate;
-      int traversed = 0;
-      for (;;) {
-        final StructNode node = structuralNode(head);
-        final long leftKey = node.getLeftSiblingKey();
-        if (leftKey < 0 || !insertions.contains(leftKey) || positions.containsKey(leftKey)) {
+      final SirixDeweyID label = structuralOrderDirectory().fullLabel(candidate, this::readNode);
+      positions.put(candidate, new InsertionPosition(label.toBytes(), false, 0L));
+    }
+  }
+
+  private void removeStructuralExits(final StructuralRange before) {
+    if (before.firstContainedRecordKey() < 0) {
+      return;
+    }
+    ProjectionPersistedRecordLookup lookup = openPersistedRecordLookup();
+    if (lookup == null) {
+      return;
+    }
+    final LongArrayList exits = new LongArrayList(STRUCTURAL_BATCH_SIZE);
+    int recordsInBatch = 0;
+    long recordKey = before.firstContainedRecordKey();
+    for (;;) {
+      final long location = lookup.find(recordKey);
+      if (location == ProjectionPersistedRecordLookup.ABSENT) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot locate moved record " + recordKey);
+      }
+      final boolean last = recordKey == before.lastContainedRecordKey();
+      final long nextRecord = last ? NO_RECORD_KEY : lookup.nextRecord(location);
+      if (!isCurrentRecordRoot(recordKey)) {
+        exits.add(recordKey);
+      }
+      recordsInBatch++;
+      if (recordsInBatch == STRUCTURAL_BATCH_SIZE || last) {
+        if (!exits.isEmpty()) {
+          flushStructuralBatch(exits, null, null);
+        }
+        exits.clear();
+        recordsInBatch = 0;
+        resolvedRecordMemo = null;
+        arrayRootInstances = null;
+        if (!last) {
+          lookup = openPersistedRecordLookup();
+          if (lookup == null) {
+            throw new IllegalStateException("Projection index " + indexDef.getID()
+                + " lost its live metadata during structural maintenance");
+          }
+        }
+      }
+      if (last) {
+        return;
+      }
+      if (nextRecord < 0) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot reach the end of its moved record interval");
+      }
+      recordKey = nextRecord;
+    }
+  }
+
+  private void applyStructuralEntries(final long movedNodeKey, final StructuralRange after) {
+    if (after.firstContainedRecordKey() < 0) {
+      return;
+    }
+    final ProjectionStructuralOrderDirectory.Accessor orderDirectory = structuralOrderDirectory();
+    final LongArrayList entries = new LongArrayList(STRUCTURAL_BATCH_SIZE);
+    final ObjectArrayList<byte[]> labels = new ObjectArrayList<>(STRUCTURAL_BATCH_SIZE);
+    int recordsSinceMemoReset = 0;
+    int pendingLabelBytes = 0;
+    long recordOrdinal = 0L;
+    long currentKey = movedNodeKey;
+    for (;;) {
+      final ImmutableNode node = readNode(currentKey);
+      if (!(node instanceof final StructNode structural)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot read moved subtree node " + currentKey);
+      }
+      final long pathNodeKey = pathNodeKeyOf(node);
+      final long recordKey = resolveRecordKey(currentKey, node.getKind(), node.getParentKey(), pathNodeKey);
+      if (recordKey >= 0 && recordKey != currentKey) {
+        return;
+      }
+      if (recordKey == currentKey) {
+        final SirixDeweyID orderLabel = orderDirectory.fullLabel(recordKey, this::readNode);
+        final byte[] encodedLabel = orderLabel.toBytes();
+        if (!entries.isEmpty()
+            && Math.addExact(pendingLabelBytes, encodedLabel.length) > STRUCTURAL_BATCH_LABEL_BYTES) {
+          flushStructuralBatch(null, entries, labels);
+          entries.clear();
+          labels.clear();
+          pendingLabelBytes = 0;
+        }
+        recordOrdinal++;
+        entries.add(recordKey);
+        labels.add(encodedLabel);
+        pendingLabelBytes = Math.addExact(pendingLabelBytes, encodedLabel.length);
+        if (entries.size() == STRUCTURAL_BATCH_SIZE
+            || pendingLabelBytes >= STRUCTURAL_BATCH_LABEL_BYTES) {
+          flushStructuralBatch(null, entries, labels);
+          entries.clear();
+          labels.clear();
+          pendingLabelBytes = 0;
+        }
+        if (++recordsSinceMemoReset == STRUCTURAL_BATCH_SIZE) {
+          resolvedRecordMemo = null;
+          arrayRootInstances = null;
+          recordsSinceMemoReset = 0;
+        }
+        currentKey = nextNodeAfterSubtreeWithin(currentKey, movedNodeKey);
+        if (currentKey < 0) {
           break;
         }
-        head = leftKey;
-        if (++traversed > insertions.size()) {
-          throw new IllegalStateException("projection insertion sibling chain did not advance");
-        }
-      }
-
-      block.clear();
-      long current = head;
-      traversed = 0;
-      while (current >= 0 && insertions.contains(current) && !positions.containsKey(current)) {
-        block.add(current);
-        current = structuralNode(current).getRightSiblingKey();
-        if (++traversed > insertions.size()) {
-          throw new IllegalStateException("projection insertion sibling chain did not terminate");
-        }
-      }
-      if (block.isEmpty()) {
         continue;
       }
-
-      final StructNode headNode = structuralNode(head);
-      final long leftKey = headNode.getLeftSiblingKey();
-      final long rightKey = structuralNode(block.getLong(block.size() - 1)).getRightSiblingKey();
-      SirixDeweyID left = leftKey < 0
-          ? null
-          : new SirixDeweyID(insertionBoundaryOrderLabel(leftKey, positions, persistedLookup));
-      final SirixDeweyID right = rightKey < 0
-          ? null
-          : new SirixDeweyID(insertionBoundaryOrderLabel(rightKey, positions, persistedLookup));
-      int offset = 0;
-      if (left == null && right == null) {
-        left = new SirixDeweyID(insertionBoundaryOrderLabel(headNode.getParentKey(), positions, persistedLookup))
-            .getNewChildID();
-        positions.put(block.getLong(offset++), new InsertionPosition(left.toBytes(), false, 0L));
+      if (recordKey == UNRESOLVED) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " cannot attribute moved subtree node " + currentKey);
       }
-      while (offset < block.size()) {
-        left = SirixDeweyID.newBetween(left, right);
-        positions.put(block.getLong(offset++), new InsertionPosition(left.toBytes(), false, 0L));
+      if (structural.hasFirstChild()) {
+        currentKey = structural.getFirstChildKey();
+        continue;
+      }
+      currentKey = nextNodeAfterSubtreeWithin(currentKey, movedNodeKey);
+      if (currentKey < 0) {
+        break;
       }
     }
-  }
-
-  private byte[] insertionBoundaryOrderLabel(final long nodeKey,
-      final Long2ObjectOpenHashMap<InsertionPosition> positions,
-      final ProjectionPersistedRecordLookup persistedLookup) {
-    final InsertionPosition position = positions.get(nodeKey);
-    return position == null
-        ? coherentStructuralNodeOrderLabel(nodeKey, persistedLookup)
-        : position.orderLabel();
-  }
-
-  private StructNode structuralNode(final long nodeKey) {
-    final ImmutableNode node = readNode(nodeKey);
-    if (node instanceof final StructNode structural) {
-      return structural;
+    if (!entries.isEmpty()) {
+      flushStructuralBatch(null, entries, labels);
     }
-    throw new IllegalStateException("Projection index " + indexDef.getID()
-        + " cannot navigate insertion node " + nodeKey);
-  }
-
-  private Long2ObjectOpenHashMap<byte[]> translateStructuralRecordOrderLabels(
-      final StructuralSnapshot before, final StructuralSnapshot after,
-      final byte[] afterSubtreeRootOrderLabel) {
-    final Long2ObjectOpenHashMap<byte[]> translated = new Long2ObjectOpenHashMap<>();
-    for (int index = 0; index < after.containedInDocumentOrder().size(); index++) {
-      final long recordKey = after.containedInDocumentOrder().getLong(index);
-      translated.put(recordKey, translateSubtreeOrderLabel(coherentCurrentOrderLabel(recordKey),
-          before.subtreeRootOrderLabel(), afterSubtreeRootOrderLabel, true));
+    if (recordOrdinal != after.containedRecordCount()) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " structural record count changed during bounded maintenance");
     }
-    return translated;
   }
 
-  private byte[] coherentCurrentOrderLabel(final long nodeKey) {
-    return applyPendingStructuralRelabel(currentOrderLabel(nodeKey));
-  }
-
-  private byte[] applyPendingStructuralRelabel(final byte[] currentLabel) {
-    byte[] label = currentLabel;
-    if (structuralDeltas != null) {
-      for (final StructuralDelta delta : structuralDeltas) {
-        label = translateSubtreeOrderLabel(label, delta.before().subtreeRootOrderLabel(),
-            delta.afterSubtreeRootOrderLabel(), false);
+  private void flushStructuralBatch(final @Nullable LongArrayList exits,
+      final @Nullable LongArrayList entries, final @Nullable ObjectArrayList<byte[]> entryLabels) {
+    final LongOpenHashSet beforeKeys = new LongOpenHashSet(STRUCTURAL_BATCH_SIZE);
+    final LongOpenHashSet afterKeys = new LongOpenHashSet(STRUCTURAL_BATCH_SIZE);
+    final LongArrayList beforeOrder = new LongArrayList(STRUCTURAL_BATCH_SIZE);
+    final LongArrayList afterOrder = new LongArrayList(STRUCTURAL_BATCH_SIZE);
+    final Long2ObjectOpenHashMap<byte[]> labels = new Long2ObjectOpenHashMap<>(STRUCTURAL_BATCH_SIZE);
+    final ProjectionPersistedRecordLookup lookup = openPersistedRecordLookup();
+    if (lookup == null) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " lost its live metadata during structural maintenance");
+    }
+    if (exits != null) {
+      for (int index = 0; index < exits.size(); index++) {
+        final long recordKey = exits.getLong(index);
+        beforeKeys.add(recordKey);
+        beforeOrder.add(recordKey);
       }
     }
-    return label;
-  }
-
-  private boolean hasPendingStructuralRelabel(final byte[] label) {
-    if (structuralDeltas == null) {
-      return false;
-    }
-    final int[] divisions = new SirixDeweyID(label).getDivisionValues();
-    for (final StructuralDelta delta : structuralDeltas) {
-      final int[] beforeDivisions =
-          new SirixDeweyID(delta.before().subtreeRootOrderLabel()).getDivisionValues();
-      final int[] afterDivisions = new SirixDeweyID(delta.afterSubtreeRootOrderLabel()).getDivisionValues();
-      if (startsWith(divisions, beforeDivisions) || startsWith(divisions, afterDivisions)) {
-        return true;
+    if (entries != null) {
+      if (entryLabels == null || entryLabels.size() != entries.size()) {
+        throw new IllegalArgumentException("projection structural labels do not match their records");
+      }
+      for (int index = 0; index < entries.size(); index++) {
+        final long recordKey = entries.getLong(index);
+        if (lookup.find(recordKey) != ProjectionPersistedRecordLookup.ABSENT) {
+          beforeKeys.add(recordKey);
+          beforeOrder.add(recordKey);
+        }
+        afterKeys.add(recordKey);
+        afterOrder.add(recordKey);
+        labels.put(recordKey, entryLabels.get(index));
       }
     }
-    return false;
-  }
-
-  private static byte[] translateSubtreeOrderLabel(final byte[] label, final byte[] beforeRootLabel,
-      final byte[] afterRootLabel, final boolean required) {
-    final int[] divisions = new SirixDeweyID(label).getDivisionValues();
-    final int[] beforeDivisions = new SirixDeweyID(beforeRootLabel).getDivisionValues();
-    final int[] afterDivisions = new SirixDeweyID(afterRootLabel).getDivisionValues();
-    if (startsWith(divisions, afterDivisions)) {
-      return label;
+    if (beforeKeys.isEmpty() && afterKeys.isEmpty()) {
+      return;
     }
-    if (!startsWith(divisions, beforeDivisions)) {
-      if (required) {
-        throw new IllegalStateException("projection structural record label is outside the moved subtree");
-      }
-      return label;
+    final StructuralSnapshot before = new StructuralSnapshot(beforeKeys, beforeOrder);
+    final StructuralSnapshot after = new StructuralSnapshot(afterKeys, afterOrder);
+    structuralDeltas = new ArrayList<>(1);
+    structuralDeltas.add(new StructuralDelta(before, after, labels));
+    for (final LongIterator iterator = beforeKeys.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      recordStructuralProvenance(recordKey, STRUCTURAL_EXIT);
+      markDirty(recordKey, allColumnWords);
     }
-    final int[] translated = Arrays.copyOf(afterDivisions,
-        afterDivisions.length + divisions.length - beforeDivisions.length);
-    System.arraycopy(divisions, beforeDivisions.length, translated, afterDivisions.length,
-        divisions.length - beforeDivisions.length);
-    return new SirixDeweyID(translated).toBytes();
-  }
-
-  private static boolean startsWith(final int[] divisions, final int[] prefix) {
-    if (divisions.length < prefix.length) {
-      return false;
+    for (final LongIterator iterator = afterKeys.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      recordStructuralProvenance(recordKey, STRUCTURAL_ENTER);
+      markDirty(recordKey, allColumnWords);
     }
-    for (int index = 0; index < prefix.length; index++) {
-      if (divisions[index] != prefix[index]) {
-        return false;
-      }
-    }
-    return true;
+    applyPendingMaintenance();
+    resolvedRecordMemo = null;
+    arrayRootInstances = null;
   }
 
   private void recordStructuralProvenance(final long recordKey, final byte flag) {
@@ -632,12 +680,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       rootProvenanceByRecord = new Long2ByteOpenHashMap();
     }
     rootProvenanceByRecord.put(recordKey, (byte) (rootProvenanceByRecord.get(recordKey) | flag));
-  }
-
-  private void markAllDirty(final LongOpenHashSet recordKeys) {
-    for (final LongIterator iterator = recordKeys.iterator(); iterator.hasNext();) {
-      markDirty(iterator.nextLong(), allColumnWords);
-    }
   }
 
   @Override
@@ -659,12 +701,32 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private void onChange(final IndexController.ChangeType type, final long nodeKey, final NodeKind kind,
       final long parentKey, final long pathNodeKey) {
+    try {
+      onChangeInternal(type, nodeKey, kind, parentKey, pathNodeKey);
+    } catch (final RuntimeException | Error failure) {
+      failMaintenance(failure);
+      throw failure;
+    }
+  }
+
+  private void onChangeInternal(final IndexController.ChangeType type, final long nodeKey, final NodeKind kind,
+      final long parentKey, final long pathNodeKey) {
     final ProjectionBulkLoad load = activeBulkLoad();
-    if (load != null) {
-      onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
+    if (invalidated) {
       return;
     }
-    if (invalidated) {
+    if (pendingStructuralRecords != null) {
+      if (pathNodeKey > 0 && !relevantPcrs.contains(pathNodeKey)
+          && !irrelevantPcrs.contains(pathNodeKey)) {
+        classifyUnseenPcr(pathNodeKey);
+      }
+      return;
+    }
+    if (maintenanceTrx != null) {
+      maintainStructuralOrder(type, nodeKey);
+    }
+    if (load != null) {
+      onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
       return;
     }
     if (!seeded) {
@@ -973,6 +1035,28 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   }
 
   private void registerRootPcr(final long pathNodeKey) {
+    if (!rootPcrs.contains(pathNodeKey)) {
+      final long savedNodeKey = pathSummary.getNodeKey();
+      try {
+        if (!pathSummary.moveTo(pathNodeKey)) {
+          throw new IllegalStateException("Projection index " + indexDef.getID()
+              + " cannot resolve record-set path node " + pathNodeKey);
+        }
+        while (pathSummary.moveToParent()) {
+          final long ancestor = pathSummary.getNodeKey();
+          if (ancestor <= 0) {
+            break;
+          }
+          if (rootPcrs.contains(ancestor)) {
+            throw new IllegalStateException("Projection ROOT path '" + indexDef.getProjectionRootPath()
+                + "' resolves to overlapping nested root matches (matched pathNodeKey " + pathNodeKey
+                + " lies below matched root pathNodeKey " + ancestor + ")");
+          }
+        }
+      } finally {
+        pathSummary.moveTo(savedNodeKey);
+      }
+    }
     rootPcrs.add(pathNodeKey);
     relevantPcrs.add(pathNodeKey);
     PathNode node = pathSummary.getPathNodeForPathNodeKey(pathNodeKey);
@@ -1227,6 +1311,91 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
   }
 
+  private ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory() {
+    ProjectionStructuralOrderDirectory.Accessor directory = structuralOrderDirectory;
+    if (directory == null) {
+      directory = ProjectionStructuralOrderDirectory.open(
+          new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID()));
+      structuralOrderDirectory = directory;
+    }
+    return directory;
+  }
+
+  private void maintainStructuralOrder(final IndexController.ChangeType type, final long nodeKey) {
+    if (type == IndexController.ChangeType.DELETE) {
+      stageStructuralDelete(nodeKey);
+      return;
+    }
+    cancelStructuralDelete(nodeKey);
+    drainStructuralDeleteCandidates(false);
+    final ImmutableNode node = readNode(nodeKey);
+    if (node == null) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot read changed node " + nodeKey + " for structural ordering");
+    }
+    if (!(node instanceof final StructNode structural)) {
+      return;
+    }
+    structuralOrderDirectory().relabel(nodeKey, structural.getLeftSiblingKey(), structural.getRightSiblingKey());
+  }
+
+  private void stageStructuralDelete(final long nodeKey) {
+    drainStructuralDeleteCandidates(false);
+    LongOpenHashSet candidates = pendingStructuralDeletes;
+    if (candidates == null) {
+      candidates = new LongOpenHashSet(STRUCTURAL_BATCH_SIZE);
+      pendingStructuralDeletes = candidates;
+    }
+    if (!candidates.contains(nodeKey) && candidates.size() == STRUCTURAL_BATCH_SIZE) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " structural delete staging exceeded its bounded capacity");
+    }
+    candidates.add(nodeKey);
+  }
+
+  private void cancelStructuralDelete(final long nodeKey) {
+    final LongOpenHashSet candidates = pendingStructuralDeletes;
+    if (candidates == null) {
+      return;
+    }
+    candidates.remove(nodeKey);
+    if (candidates.isEmpty()) {
+      pendingStructuralDeletes = null;
+    }
+  }
+
+  private void drainStructuralDeleteCandidates(final boolean discardLiveCandidates) {
+    final LongOpenHashSet candidates = pendingStructuralDeletes;
+    if (candidates == null) {
+      return;
+    }
+    for (final LongIterator iterator = candidates.iterator(); iterator.hasNext();) {
+      final long nodeKey = iterator.nextLong();
+      final DataRecord record = storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      if (record == null) {
+        structuralOrderDirectory().remove(nodeKey);
+        iterator.remove();
+      } else if (!(record instanceof ImmutableNode)) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " found a non-node document record while retiring structural order for " + nodeKey);
+      } else if (discardLiveCandidates) {
+        iterator.remove();
+      }
+    }
+    if (candidates.isEmpty()) {
+      pendingStructuralDeletes = null;
+    }
+  }
+
+  private void relabelStructuralOrder(final long nodeKey) {
+    final ImmutableNode node = readNode(nodeKey);
+    if (!(node instanceof final StructNode structural)) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " cannot relabel moved structural node " + nodeKey);
+    }
+    structuralOrderDirectory().relabel(nodeKey, structural.getLeftSiblingKey(), structural.getRightSiblingKey());
+  }
+
   private void markDirty(final long recordKey, final long[] changedColumnWords) {
     if (dirtyRecordKeys == null) {
       dirtyRecordKeys = new LongOpenHashSet();
@@ -1394,6 +1563,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // the fingerprint blocks, the fences and the metadata that replaces the tombstone, after which
       // activeBulkLoad() hands this listener back to ordinary maintenance.
       try {
+        drainStructuralDeleteCandidates(true);
         if (finalCommit) {
           load.finish(storageEngineWriter, pathSummary, maintenanceTrx, maintenanceTrx.getRevisionNumber());
         } else {
@@ -1446,6 +1616,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       // ProjectionLoadTimeBuildEquivalenceTest#theShredSurvivesDrainsFiredMidRecord pins that by
       // reading every shredded record back through the row path.
       try {
+        drainStructuralDeleteCandidates(true);
         load.drain(storageEngineWriter, pathSummary, maintenanceTrx);
       } catch (final GlobalDictionaryBudgetExceededException tooBig) {
         abandonForOversizedDictionary(load, tooBig);
@@ -1468,6 +1639,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (maintenanceFailed) {
       throw new IllegalStateException("Projection index " + indexDef.getID()
           + " maintenance previously failed; rollback is required before another commit");
+    }
+    try {
+      drainStructuralDeleteCandidates(true);
+    } catch (final RuntimeException | Error failure) {
+      failMaintenance(failure);
+      throw failure;
     }
     if (pendingStructuralRecords != null) {
       final IllegalStateException failure = new IllegalStateException("Projection index " + indexDef.getID()
@@ -1603,11 +1780,13 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             return false; // a missing locator/fence row is never inferred to be a new record
           }
           insertions.add(recordKey);
-        } else if (!created && !provenStructuralCreation) {
-          // FIRST_DELETE proves this was pre-existing, so its missing persistent row is corruption;
-          // mere field dirtiness has the same fail-closed answer. Only a first INSERT or an
-          // explicitly observed outside→inside entry can prove an absent→absent net no-op.
-          return false;
+        } else {
+          if (!created && !provenStructuralCreation) {
+            // FIRST_DELETE proves this was pre-existing, so its missing persistent row is corruption;
+            // mere field dirtiness has the same fail-closed answer. Only a first INSERT or an
+            // explicitly observed outside→inside entry can prove an absent→absent net no-op.
+            return false;
+          }
         }
         continue;
       }
@@ -1658,7 +1837,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         }
       }
     }
-    deriveOrdinaryInsertionPositions(insertions, positionByInsertion, persistedLookup);
+    deriveOrdinaryInsertionPositions(insertions, positionByInsertion);
     LongArrays.quickSort(insertionOrder, (left, right) -> compareInsertionPositions(
         positionByInsertion.get(left), left, positionByInsertion.get(right), right));
     long previousInsertion = NO_RECORD_KEY;
@@ -1848,26 +2027,39 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
           continue;
         }
 
-        final int groups = Math.max(1,
+        final int plannedGroups = Math.max(1,
             (rows + ProjectionIndexRowGroupPage.MAX_ROWS - 1) / ProjectionIndexRowGroupPage.MAX_ROWS);
-        final int smallerGroupSize = rows / groups;
-        final int largerGroups = rows % groups;
+        final int smallerGroupSize = rows / plannedGroups;
+        final int largerGroups = rows % plannedGroups;
         int from = 0;
         int previousSlot = edit.slot;
-        for (int group = 0; group < groups; group++) {
-          final int groupSize = smallerGroupSize + (group < largerGroups ? 1 : 0);
+        int group = 0;
+        while (from < rows) {
+          final int targetGroupSize = group < plannedGroups
+              ? smallerGroupSize + (group < largerGroups ? 1 : 0)
+              : Math.min(ProjectionIndexRowGroupPage.MAX_ROWS, rows - from);
           final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(persistedKinds);
           page.setGlobalDictionaries(globalDictionaries);
-          for (int index = from; index < from + groupSize; index++) {
-            final long key = edit.recordKeys.getLong(index);
+          int appendedRows = 0;
+          while (from < rows && appendedRows < targetGroupSize) {
+            final long key = edit.recordKeys.getLong(from);
+            final byte[] orderLabel = edit.orderLabels.get(from);
+            if (!page.canAppendOrderLabel(orderLabel)) {
+              if (appendedRows == 0) {
+                return false;
+              }
+              break;
+            }
             if (!extractInto(extractor, rtx, key)) {
               return false;
             }
-            final boolean appended = extractor.appendTo(page, key, edit.orderExceptions.getBoolean(index),
-                edit.orderLabels.get(index));
+            final boolean appended = extractor.appendTo(page, key, edit.orderExceptions.getBoolean(from),
+                orderLabel);
             if (!appended) {
-              return false;
+              throw new IllegalStateException("a preflighted projection maintenance row was rejected");
             }
+            from++;
+            appendedRows++;
           }
           final int physicalSlot = group == 0 ? edit.slot : fences.allocateSlot();
           updateExceptionLocators(locator, page, physicalSlot, edit.slot, insertedOrMoved);
@@ -1882,7 +2074,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             fences.linkAfter(previousSlot, physicalSlot, position);
           }
           previousSlot = physicalSlot;
-          from += groupSize;
+          group++;
         }
       }
 
@@ -1972,16 +2164,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
     }
     return entriesWithoutPriorMembership;
-  }
-
-  private byte[] currentOrderLabel(final long recordKey) {
-    final DataRecord record = storageEngineWriter.getRecord(recordKey, IndexType.DOCUMENT, -1);
-    final byte[] label = record == null ? null : record.getDeweyIDAsBytes();
-    if (label == null || label.length == 0) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " cannot read the Dewey order label of record " + recordKey);
-    }
-    return label.clone();
   }
 
   private record InsertionPosition(byte[] orderLabel, boolean structural, long sequence) {
@@ -2589,7 +2771,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         && (changedColumnWords[word] & (1L << (column & 63))) != 0L;
   }
 
-  private static final class MaintenanceGlobalDictionary implements GlobalValueDictionaryEncoder {
+  static final class MaintenanceGlobalDictionary implements GlobalValueDictionaryEncoder {
 
     private final int column;
     private final long headerKey;
@@ -2597,9 +2779,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     private final ValueDictionaryHeaderNode baseHeader;
     private final int baseEntryCount;
     private final long budgetBytes;
+    private final GlobalValueDictionaryHotCache hotValues = new GlobalValueDictionaryHotCache();
     private @Nullable GlobalValueDictionaryWriter additions;
+    private long persistentProbeCount;
 
-    private MaintenanceGlobalDictionary(final int column, final long headerKey,
+    MaintenanceGlobalDictionary(final int column, final long headerKey,
         final StorageEngineWriter storageEngineWriter, final long budgetBytes) {
       final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, storageEngineWriter);
       if (header == null || !header.isDirectoryComplete()) {
@@ -2635,12 +2819,24 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             + " cannot persist a value above the safe V0 limit of "
             + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
       }
+      if (additions != null) {
+        final int localId = additions.findId(source, offset, length);
+        if (localId > 0) {
+          return Math.addExact(baseEntryCount, localId);
+        }
+      }
+      final int hotId = hotValues.find(source, offset, length);
+      if (hotId > 0) {
+        return hotId;
+      }
+      persistentProbeCount++;
       final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length,
           storageEngineWriter);
       if (HFT_TELEMETRY_ENABLED) {
         HFT_DICTIONARY_PROBES.incrementAndGet();
       }
       if (existing > 0) {
+        hotValues.put(source, offset, length, existing);
         return existing;
       }
       if (existing == GlobalValueDictionary.ID_UNKNOWN) {
@@ -2656,6 +2852,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         throw new IllegalStateException("global projection column " + column + " exhausted dictionary ids");
       }
       return (int) id;
+    }
+
+    long persistentProbeCount() {
+      return persistentProbeCount;
     }
 
     private long flush() {
@@ -2676,7 +2876,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return additions == null ? 0L : additions.logicalPersistedBytes();
     }
 
-    private void release() {
+    void release() {
       if (additions != null) {
         additions.release();
         additions = null;

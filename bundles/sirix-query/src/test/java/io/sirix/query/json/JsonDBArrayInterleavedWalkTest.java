@@ -305,6 +305,102 @@ final class JsonDBArrayInterleavedWalkTest {
   }
 
   @Test
+  @DisplayName("in-place value updates preserve the sequential array walk")
+  void scalarUpdatesDoNotDiscardPositionalAnchors() {
+    store.create(COLL, RES, numbers(ELEMENTS));
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    final JsonDBArray array = new JsonDBArray(wtx, coll);
+
+    final long reanchorsBefore = AbstractJsonDBArray.positionalReanchors();
+    for (int i = 0; i < ELEMENTS; i++) {
+      final Item item = (Item) array.at(i);
+      assertNotNull(item);
+      assertEquals(i, Integer.parseInt(item.atomize().stringValue()));
+      wtx.moveTo(((JsonDBItem) item).getNodeKey());
+      wtx.setNumberValue(ELEMENTS + i);
+    }
+
+    assertEquals(1L, AbstractJsonDBArray.positionalReanchors() - reanchorsBefore,
+        "scalar updates must invalidate values without restarting the sibling walk");
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
+  @DisplayName("moving an element invalidates its cached ordinal")
+  void subtreeMoveInvalidatesPositionalAnchors() {
+    store.create(COLL, RES, "[0,1,2,3]");
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    final JsonDBArray array = new JsonDBArray(wtx, coll);
+    final long arrayKey = array.getNodeKey();
+
+    wtx.moveTo(arrayKey);
+    wtx.moveToLastChild();
+    final long lastElementKey = wtx.getNodeKey();
+    assertEquals(0, elementAt(array, 0));
+
+    wtx.moveTo(arrayKey);
+    wtx.moveSubtreeToFirstChild(lastElementKey);
+
+    assertEquals(3, elementAt(array, 0));
+    assertEquals(0, elementAt(array, 1));
+    assertEquals(2, elementAt(array, 3));
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
+  @DisplayName("the structural sequence covers order changes and lineage resets only")
+  void structuralMutationSequenceClassifiesTransactionChanges() {
+    store.create(COLL, RES, "[0,1,2,3]");
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    final long arrayKey = wtx.getNodeKey();
+    wtx.moveToFirstChild();
+
+    final long beforeValueUpdate = wtx.getStructuralMutationSequence();
+    wtx.setNumberValue(10);
+    assertEquals(beforeValueUpdate, wtx.getStructuralMutationSequence());
+
+    final long beforeRollback = wtx.getStructuralMutationSequence();
+    wtx.rollback();
+    assertTrue(wtx.getStructuralMutationSequence() > beforeRollback);
+
+    wtx.moveTo(arrayKey);
+    final long beforeInsert = wtx.getStructuralMutationSequence();
+    wtx.insertNumberValueAsFirstChild(99);
+    assertTrue(wtx.getStructuralMutationSequence() > beforeInsert);
+
+    final long beforeRemove = wtx.getStructuralMutationSequence();
+    wtx.remove();
+    assertTrue(wtx.getStructuralMutationSequence() > beforeRemove);
+
+    wtx.moveTo(arrayKey);
+    wtx.moveToLastChild();
+    final long lastElementKey = wtx.getNodeKey();
+    wtx.moveTo(arrayKey);
+    final long beforeMove = wtx.getStructuralMutationSequence();
+    wtx.moveSubtreeToFirstChild(lastElementKey);
+    assertTrue(wtx.getStructuralMutationSequence() > beforeMove);
+
+    wtx.commit();
+    final long beforeRevert = wtx.getStructuralMutationSequence();
+    wtx.revertTo(1);
+    assertTrue(wtx.getStructuralMutationSequence() > beforeRevert);
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
   @DisplayName("materialized values are discarded when the transaction rolls back")
   void rollbackInvalidatesMaterializedValues() {
     store.create(COLL, RES, "[0,1,2]");

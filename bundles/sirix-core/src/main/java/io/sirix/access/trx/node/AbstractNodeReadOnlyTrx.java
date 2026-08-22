@@ -595,7 +595,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // resolving the page through the TIL again. The slot binder below rereads the directory entry,
     // so parent/sibling updates that resized the same page's heap cannot leave a stale offset.
     prepareForMove();
-    return bindWritePageSlot(nodeKey, page, slotOffset, false);
+    return bindWritePageSlot(nodeKey, page, slotOffset, false, writer);
   }
 
   private void prepareForMove() {
@@ -1045,7 +1045,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moved;
     }
 
-    boolean moved = bindWritePageSlot(nodeKey, page, slotOffset, false);
+    boolean moved = bindWritePageSlot(nodeKey, page, slotOffset, false, writer);
     if (!moved) {
       moved = moveToLegacyWrite(nodeKey, writer);
     }
@@ -1104,18 +1104,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * singleton, exactly like the ordinary TIL-aware write move.</p>
    */
   private boolean bindWritePageSlot(final long nodeKey, final KeyValueLeafPage page,
-      final int slotOffset, final boolean fallbackToLegacy) {
+      final int slotOffset, final boolean fallbackToLegacy, final StorageEngineWriter writer) {
     final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
-    if (page != currentPage) {
-      // Release previous guard (if any) and update page tracking
-      // TIL pages don't need guarding — they're pinned by the transaction
-      if (currentPageGuard != null) {
-        currentPageGuard.close();
-        currentPageGuard = null;
-      }
-      currentPage = page;
-      currentPageKey = targetPageKey;
-    }
 
     // Check records[] first: authoritative for writes (prepareRecordForModification stores here)
     final DataRecord fromRecords = page.getRecord(slotOffset);
@@ -1130,6 +1120,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       this.currentNodeKey = nodeKey;
       this.currentSingleton = null;
       this.singletonMode = false;
+      replaceCurrentWritePage(page, targetPageKey, writer);
       return true;
     }
 
@@ -1197,8 +1188,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNodeKey = nodeKey;
     this.currentNode = null;
     this.singletonMode = true;
+    replaceCurrentWritePage(page, targetPageKey, writer);
 
     return true;
+  }
+
+  private void replaceCurrentWritePage(final KeyValueLeafPage page, final long pageKey,
+      final StorageEngineWriter writer) {
+    final KeyValueLeafPage previousPage = currentPage;
+    if (previousPage != page) {
+      if (currentPageGuard != null) {
+        currentPageGuard.close();
+        currentPageGuard = null;
+      }
+      currentPage = page;
+      writer.releasePageForRead(previousPage);
+    }
+    currentPageKey = pageKey;
   }
 
   /**

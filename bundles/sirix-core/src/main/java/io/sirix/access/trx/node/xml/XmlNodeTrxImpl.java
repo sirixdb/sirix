@@ -482,6 +482,7 @@ final class XmlNodeTrxImpl extends
     assert fromNode != null;
     assert toNode != null;
     assert insertPos != null;
+    markStructuralMutation();
 
     // Modify nodes where the subtree has been moved from.
     // ==============================================================================
@@ -1857,6 +1858,7 @@ final class XmlNodeTrxImpl extends
     assert insertPos != null;
 
     if (newNode instanceof StructNode structNode) {
+      markStructuralMutation();
       // Capture all needed keys before any prepareRecordForModification calls.
       // With write-path singletons, prepareRecordForModification for a node of the same kind
       // would overwrite the singleton, invalidating prior references.
@@ -1909,6 +1911,7 @@ final class XmlNodeTrxImpl extends
    */
   private void adaptForRemove(final StructNode oldNode) {
     assert oldNode != null;
+    markStructuralMutation();
     // Capture all needed values from oldNode before any prepareRecordForModification calls.
     // With write-path singletons, subsequent calls for the same kind would overwrite the singleton.
     final long leftSibKey = oldNode.getLeftSiblingKey();

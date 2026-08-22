@@ -14,6 +14,7 @@ import java.util.Arrays;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -41,6 +42,13 @@ final class ProjectionIndexRowGroupPageTest {
         new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], orderException);
   }
 
+  private static boolean appendNumericRow(final ProjectionIndexRowGroupPage page, final long recordKey,
+      final long value, final byte[] orderLabel) {
+    return page.appendExtractedUtf8Row(recordKey, new long[] {value}, new boolean[1], new byte[1][], new int[1],
+        new String[1][], new boolean[] {true}, new boolean[1], new boolean[1], new boolean[1], false,
+        orderLabel);
+  }
+
   private static int orderMarkerOffset(final ProjectionIndexRowGroupPage page) {
     return 24 + page.getColumnCount() + page.getRowCount() * Long.BYTES;
   }
@@ -54,6 +62,49 @@ final class ProjectionIndexRowGroupPageTest {
     assertEquals(3, rt.getColumnCount());
     assertEquals(Long.MAX_VALUE, rt.firstRecordKey());
     assertEquals(Long.MIN_VALUE, rt.lastRecordKey());
+  }
+
+  @Test
+  void longOrderLabelsRollOverBeforeAppendingTheRow() {
+    final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+    ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
+    ProjectionIndexRowGroupPage fullPage = null;
+    for (int row = 1; row <= ProjectionIndexRowGroupPage.MAX_ROWS; row++) {
+      final byte[] orderLabel = new byte[257];
+      ByteBuffer.wrap(orderLabel).putInt(row);
+      final int rowsBeforeAppend = page.getRowCount();
+      if (!appendNumericRow(page, row, row, orderLabel)) {
+        assertEquals(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES / orderLabel.length,
+            rowsBeforeAppend);
+        assertEquals(rowsBeforeAppend, page.getRowCount());
+        fullPage = page;
+        page = new ProjectionIndexRowGroupPage(kinds);
+        assertTrue(appendNumericRow(page, row, row, orderLabel));
+      }
+    }
+
+    assertNotNull(fullPage);
+    assertEquals(ProjectionIndexRowGroupPage.MAX_ROWS,
+        fullPage.getRowCount() + page.getRowCount());
+    assertEquals(fullPage.getRowCount(),
+        ProjectionIndexRowGroupPage.deserialize(fullPage.serialize()).getRowCount());
+    assertEquals(page.getRowCount(), ProjectionIndexRowGroupPage.deserialize(page.serialize()).getRowCount());
+  }
+
+  @Test
+  void shortOrderLabelRollsOverBeforeItsSyntheticAppend() {
+    final byte[] kinds = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(kinds);
+    for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS - 1; row++) {
+      final byte[] orderLabel = new byte[row < 254 ? 257 : 256];
+      ByteBuffer.wrap(orderLabel).putInt(row);
+      assertTrue(appendNumericRow(page, row, row, orderLabel));
+    }
+
+    assertEquals(ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES - 2, page.orderLabelLength());
+    assertFalse(appendNumericRow(page, ProjectionIndexRowGroupPage.MAX_ROWS,
+        ProjectionIndexRowGroupPage.MAX_ROWS, new byte[] {1}));
+    assertEquals(ProjectionIndexRowGroupPage.MAX_ROWS - 1, page.getRowCount());
   }
 
   @Test

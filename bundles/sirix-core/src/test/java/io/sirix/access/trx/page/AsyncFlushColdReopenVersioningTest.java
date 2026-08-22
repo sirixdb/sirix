@@ -18,7 +18,10 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.io.StorageType;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageReference;
 import io.sirix.node.RevisionReferencesNode;
+import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Multi-epoch async-flush integrity coverage across every versioning strategy. */
@@ -162,6 +167,69 @@ final class AsyncFlushColdReopenVersioningTest {
     }
   }
 
+  @ParameterizedTest(name = "{0} inserted-node binds release exact durable cursor pages")
+  @EnumSource(VersioningType.class)
+  @Timeout(value = 3, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void insertedNodeBindsReleaseExactDurableCursorPages(final VersioningType versioningType) {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    final long[] durablePageNodeKeys = new long[3];
+    final long[] insertedNodeKeys = new long[3];
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createVersionedResource(database, versioningType);
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        ((InternalNodeTrx<?>) wtx).setBulkInsertion(true);
+        final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
+        for (int i = 0; i < (4 * Constants.NDP_NODE_COUNT); i++) {
+          assertTrue(wtx.moveTo(arrayNodeKey));
+          final long nodeKey = wtx.insertStringValueAsFirstChild("fixture-" + i).getNodeKey();
+          final long pageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+          final int slotOffset = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
+          if (pageKey >= 1 && pageKey <= durablePageNodeKeys.length
+              && slotOffset == Constants.NDP_NODE_COUNT / 2) {
+            durablePageNodeKeys[(int) pageKey - 1] = nodeKey;
+          }
+        }
+        wtx.commit();
+      }
+
+      for (final long nodeKey : durablePageNodeKeys) {
+        assertTrue(nodeKey > 0);
+      }
+
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
+               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        for (int i = 0; i < durablePageNodeKeys.length; i++) {
+          assertTrue(wtx.moveTo(durablePageNodeKeys[i]));
+          wtx.setStringValue("durable-" + i);
+        }
+        final StorageEngineWriter writer = wtx.getStorageEngineWriter();
+        writer.asyncFlush();
+        writer.awaitPendingAsyncFlush();
+        rotatePastFlushedDocumentPage(writer);
+
+        for (int i = 0; i < durablePageNodeKeys.length; i++) {
+          assertTrue(wtx.moveTo(durablePageNodeKeys[i]));
+          insertedNodeKeys[i] = wtx.insertStringValueAsRightSibling("inserted-" + i).getNodeKey();
+        }
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      for (int i = 0; i < durablePageNodeKeys.length; i++) {
+        assertTrue(rtx.moveTo(durablePageNodeKeys[i]));
+        assertEquals("durable-" + i, rtx.getValue());
+        assertTrue(rtx.moveTo(insertedNodeKeys[i]));
+        assertEquals("inserted-" + i, rtx.getValue());
+      }
+    }
+  }
+
   @ParameterizedTest(name = "{0} rollback invalidates reclaimable async-page offsets")
   @EnumSource(VersioningType.class)
   @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
@@ -189,9 +257,27 @@ final class AsyncFlushColdReopenVersioningTest {
         assertTrue(wtx.moveTo(valueNodeKey));
         assertEquals("aborted", wtx.getValue());
 
+        final NodeStorageEngineReader reader = (NodeStorageEngineReader) writer.getStorageEngineReader();
+        final PageReference abortedReference = currentDocumentPageReference(writer, valueNodeKey);
+        final long abortedOffset = abortedReference.getKey();
+        cachePageFragments(reader, abortedReference);
+        final PageReference cacheKey = new PageReference().setKey(abortedOffset)
+                                                          .setDatabaseId(reader.getDatabaseId())
+                                                          .setResourceId(reader.getResourceId());
+        final var fragmentCache = versioningType == VersioningType.FULL
+            ? reader.getBufferManager().getRecordPageCache()
+            : reader.getBufferManager().getRecordPageFragmentCache();
+        assertNotNull(fragmentCache.get(cacheKey));
+
         wtx.rollback();
+        assertNull(fragmentCache.get(cacheKey));
         assertTrue(wtx.moveTo(valueNodeKey));
         wtx.setStringValue("successor");
+        final StorageEngineWriter successorWriter = wtx.getStorageEngineWriter();
+        successorWriter.asyncFlush();
+        successorWriter.awaitPendingAsyncFlush();
+        final PageReference successorReference = currentDocumentPageReference(successorWriter, valueNodeKey);
+        assertEquals(abortedOffset, successorReference.getKey());
         wtx.commit();
 
         try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
@@ -284,6 +370,31 @@ final class AsyncFlushColdReopenVersioningTest {
     writer.createRecord(new RevisionReferencesNode(changedNodeKey, new int[] {1}), IndexType.CHANGED_NODES, -1);
     writer.asyncFlush();
     writer.awaitPendingAsyncFlush();
+  }
+
+  private static PageReference currentDocumentPageReference(final StorageEngineWriter writer,
+      final long nodeKey) {
+    final NodeStorageEngineReader reader = (NodeStorageEngineReader) writer.getStorageEngineReader();
+    final var revisionRoot = writer.getActualRevisionRootPage();
+    final PageReference documentRoot = reader.getPageReference(revisionRoot, IndexType.DOCUMENT, -1);
+    final PageReference reference = reader.getLeafPageReference(documentRoot,
+        nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT, -1, IndexType.DOCUMENT, revisionRoot);
+    assertNotNull(reference);
+    reference.refreshTransactionLogReference();
+    assertTrue(reference.getKey() >= 0);
+    return reference;
+  }
+
+  private static void cachePageFragments(final NodeStorageEngineReader reader,
+      final PageReference reference) {
+    final var fragments = reader.getPageFragments(reference);
+    try {
+      assertFalse(fragments.pages().isEmpty());
+    } finally {
+      for (final var page : fragments.pages()) {
+        ((KeyValueLeafPage) page).releaseGuard();
+      }
+    }
   }
 
   private static void insertHashedArray(final Database<JsonResourceSession> database,

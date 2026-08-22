@@ -3122,6 +3122,33 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     }
   }
 
+  byte @Nullable [] getStructuralOrderSlot(final long slotKey) {
+    validateStructuralOrderSlot(slotKey);
+    return getRawSlot(slotKey);
+  }
+
+  void putStructuralOrderSlot(final long slotKey, final byte[] value) {
+    validateStructuralOrderSlot(slotKey);
+    if (value == null || value.length == 0) {
+      throw new IllegalArgumentException("structural-order slot value must be non-empty");
+    }
+    writeSlotValue(slotKey, value);
+  }
+
+  void tombstoneStructuralOrderSlot(final long slotKey) {
+    validateStructuralOrderSlot(slotKey);
+    final byte[] prior = readSlotValueForWrite(slotKey);
+    if (prior != null && prior.length > 0) {
+      writeSlotValue(slotKey, TOMBSTONE);
+    }
+  }
+
+  private static void validateStructuralOrderSlot(final long slotKey) {
+    if (!ProjectionStructuralOrderDirectory.ownsSlot(slotKey)) {
+      throw new IllegalArgumentException("slot is outside the structural-order namespace: " + slotKey);
+    }
+  }
+
   /** Reader-side committed read of one raw HOT slot (no blob/segment interpretation). */
   static byte @Nullable [] readRawSlot(final StorageEngineReader reader, final int indexNumber,
       final long slotKey) {

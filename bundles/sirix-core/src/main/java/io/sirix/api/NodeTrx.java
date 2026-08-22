@@ -108,6 +108,15 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   long getMutationSequence();
 
   /**
+   * Get the transaction-local sequence of document-order changes and lineage resets.
+   *
+   * @return the monotonic structural-state sequence
+   */
+  default long getStructuralMutationSequence() {
+    return getMutationSequence();
+  }
+
+  /**
    * Truncate to a revision.
    *
    * @param revision the revision to truncate to

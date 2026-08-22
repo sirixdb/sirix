@@ -14,11 +14,14 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.ValueDictionaryHeaderNode;
+import io.sirix.node.interfaces.immutable.ImmutableNode;
 
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -36,6 +39,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.LongFunction;
 
 /**
  * Walks a JSON resource's current revision and materialises one row per record (= node whose
@@ -106,6 +110,8 @@ public final class ProjectionIndexBuilder {
   private long leavesEmitted;
   /** Greatest normal routing-backbone key emitted so far; exceptions never advance it. */
   private long lastNormalRecordKey = Long.MIN_VALUE;
+  private @Nullable SirixDeweyID lastOrderLabel;
+  private final @Nullable LongFunction<SirixDeweyID> orderLabelResolver;
 
   /**
    * How many leading leaves are held back to measure string-column cardinality on. Sixteen leaves
@@ -339,22 +345,23 @@ public final class ProjectionIndexBuilder {
    */
   public static ProjectionIndexBuilder streaming(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final Consumer<byte[]> leafSink) {
-    return new ProjectionIndexBuilder(indexDef, pathSummary, serializingLeafSink(leafSink), true);
+    return new ProjectionIndexBuilder(indexDef, pathSummary, serializingLeafSink(leafSink), true, null);
   }
 
   /** Internal zero-copy row-group hand-off used by the synchronous bulk-load writer. */
   static ProjectionIndexBuilder streamingBorrowed(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final BorrowedLeafSink leafSink) {
-    return new ProjectionIndexBuilder(indexDef, pathSummary, leafSink, true);
+    return new ProjectionIndexBuilder(indexDef, pathSummary, leafSink, true, null);
   }
 
   public ProjectionIndexBuilder(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final Consumer<byte[]> leafSink) {
-    this(indexDef, pathSummary, serializingLeafSink(leafSink), false);
+    this(indexDef, pathSummary, serializingLeafSink(leafSink), false, null);
   }
 
   private ProjectionIndexBuilder(final IndexDef indexDef, final PathSummaryReader pathSummary,
-      final BorrowedLeafSink leafSink, final boolean streaming) {
+      final BorrowedLeafSink leafSink, final boolean streaming,
+      final @Nullable LongFunction<SirixDeweyID> orderLabelResolver) {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionIndexBuilder requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
@@ -362,6 +369,7 @@ public final class ProjectionIndexBuilder {
     this.leafSink = Objects.requireNonNull(leafSink, "leafSink must not be null");
     this.globalDictionaryMode = globalDictionaryMode();
     this.streaming = streaming;
+    this.orderLabelResolver = orderLabelResolver;
     if (streaming) {
       this.rootPathNodeKeys = LongSets.EMPTY_SET;
       this.rootAncestorPathNodeKeys = LongSets.EMPTY_SET;
@@ -558,16 +566,19 @@ public final class ProjectionIndexBuilder {
   private static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final NodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
-    if (!rtx.storeDeweyIDs()) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
-    }
     final ProjectionIndexHOTStorage storage =
         ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
     // Explicit creation/recreation owns this complete index sub-tree. Reset it before emitting V0
     // so stale row groups and sparse negative record locators from an earlier incarnation cannot
     // survive under the new metadata. Ordinary transaction maintenance never takes this path.
     storage.resetTree();
+    ProjectionStructuralOrderDirectory.initialize(rtx, storage);
+    final ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory =
+        ProjectionStructuralOrderDirectory.open(storage);
+    final LongFunction<ImmutableNode> documentNodeLookup =
+        nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+    final LongFunction<SirixDeweyID> orderLabelResolver =
+        recordKey -> structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup);
     final int priorRowGroupCount = 0;
     final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
         new ProjectionSetSummaryChunks.BuildAccumulator();
@@ -614,7 +625,7 @@ public final class ProjectionIndexBuilder {
       fenceWriter.append(storage, leaf.firstRecordKey(), leaf.lastRecordKey());
       persistOrderExceptionLocators(leaf, physicalSlot, recordLocator);
       bloomChunks.append(encoded, physicalSlot, storage);
-    }, false);
+    }, false, orderLabelResolver);
     try {
       if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
         builder.build(jsonRtx);
@@ -1030,40 +1041,38 @@ public final class ProjectionIndexBuilder {
    *         which case no row was appended
    */
   public boolean appendRecord(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    return appendRecord(rtx, recordKey, nextOrderLabel());
+  }
+
+  boolean appendRecord(final JsonNodeReadOnlyTrx rtx, final long recordKey,
+      final SirixDeweyID orderLabel) {
     if (!streaming) {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
+    final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
+    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
     if (!extractor.extractInto(rtx, recordKey)) {
       return false;
     }
-    final boolean orderException = isOrderException(recordKey);
-    if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-      flushCurrentRowGroup();
-      currentLeaf = newLeaf();
-      if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-        throw new IllegalStateException("an empty projection row group rejected one JSON record");
-      }
-    }
-    recordAppended(recordKey, orderException);
+    appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "JSON");
     return true;
   }
 
   public boolean appendRecord(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
+    return appendRecord(rtx, recordKey, nextOrderLabel());
+  }
+
+  boolean appendRecord(final XmlNodeReadOnlyTrx rtx, final long recordKey,
+      final SirixDeweyID orderLabel) {
     if (!streaming) {
       throw new IllegalStateException("appendRecord() is the streaming builder's entry point; this builder walks");
     }
+    final byte[] orderLabelBytes = Objects.requireNonNull(orderLabel, "orderLabel must not be null").toBytes();
+    prepareLeafForOrderLabel(orderLabelBytes, "XML");
     if (!extractor.extractInto(rtx, recordKey)) {
       return false;
     }
-    final boolean orderException = isOrderException(recordKey);
-    if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-      flushCurrentRowGroup();
-      currentLeaf = newLeaf();
-      if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-        throw new IllegalStateException("an empty projection row group rejected one XML record");
-      }
-    }
-    recordAppended(recordKey, orderException);
+    appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "XML");
     return true;
   }
 
@@ -1137,28 +1146,54 @@ public final class ProjectionIndexBuilder {
   }
 
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
+    final SirixDeweyID orderLabel = resolveOrderLabel(recordKey);
+    final byte[] orderLabelBytes = orderLabel.toBytes();
+    prepareLeafForOrderLabel(orderLabelBytes, "JSON");
     extractor.extractAt(rtx, recordKey);
-    final boolean orderException = isOrderException(recordKey);
-    if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-      flushCurrentRowGroup();
-      currentLeaf = newLeaf();
-      if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-        throw new IllegalStateException("an empty projection row group rejected one JSON record");
-      }
-    }
-    recordAppended(recordKey, orderException);
+    appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "JSON");
   }
 
   private void extractRow(final XmlNodeReadOnlyTrx rtx, final long recordKey) {
+    final SirixDeweyID orderLabel = resolveOrderLabel(recordKey);
+    final byte[] orderLabelBytes = orderLabel.toBytes();
+    prepareLeafForOrderLabel(orderLabelBytes, "XML");
     extractor.extractAt(rtx, recordKey);
-    final boolean orderException = isOrderException(recordKey);
-    if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
+    appendExtractedRecord(recordKey, orderLabel, orderLabelBytes, "XML");
+  }
+
+  private SirixDeweyID nextOrderLabel() {
+    return lastOrderLabel == null
+        ? SirixDeweyID.newRootID().getNewChildID()
+        : SirixDeweyID.newBetween(lastOrderLabel, null);
+  }
+
+  private SirixDeweyID resolveOrderLabel(final long recordKey) {
+    final LongFunction<SirixDeweyID> resolver = orderLabelResolver;
+    return resolver == null ? nextOrderLabel() : resolver.apply(recordKey);
+  }
+
+  private void prepareLeafForOrderLabel(final byte[] orderLabel, final String databaseType) {
+    if (!currentLeaf.canAppendOrderLabel(orderLabel)) {
       flushCurrentRowGroup();
       currentLeaf = newLeaf();
-      if (!extractor.appendTo(currentLeaf, recordKey, orderException)) {
-        throw new IllegalStateException("an empty projection row group rejected one XML record");
+      if (!currentLeaf.canAppendOrderLabel(orderLabel)) {
+        throw new IllegalStateException("an empty projection row group rejected one " + databaseType
+            + " record order label");
       }
     }
+  }
+
+  private void appendExtractedRecord(final long recordKey, final SirixDeweyID orderLabel,
+      final byte[] orderLabelBytes, final String databaseType) {
+    if (lastOrderLabel != null && lastOrderLabel.compareTo(orderLabel) >= 0) {
+      throw new IllegalStateException("projection " + databaseType
+          + " record order labels are not strictly increasing at record " + recordKey);
+    }
+    final boolean orderException = isOrderException(recordKey);
+    if (!extractor.appendTo(currentLeaf, recordKey, orderException, orderLabelBytes)) {
+      throw new IllegalStateException("a preflighted projection row group rejected one " + databaseType + " record");
+    }
+    lastOrderLabel = orderLabel;
     recordAppended(recordKey, orderException);
   }
 
@@ -1259,11 +1294,13 @@ public final class ProjectionIndexBuilder {
     private final int column;
     private final long budgetBytes;
     private final GlobalValueDictionaryWriter.AdmissionPolicy admissionPolicy;
+    private final GlobalValueDictionaryHotCache hotValues = new GlobalValueDictionaryHotCache();
     private long headerKey;
     private int baseEntryCount;
     private @Nullable ValueDictionaryHeaderNode baseHeader;
     private @Nullable StorageEngineWriter storageEngineWriter;
     private @Nullable GlobalValueDictionaryWriter additions;
+    private long persistentProbeCount;
 
     StreamingGlobalDictionary(final int column,
         final GlobalValueDictionaryWriter initialGeneration) {
@@ -1318,9 +1355,22 @@ public final class ProjectionIndexBuilder {
         throw new IllegalStateException("global dictionary column " + column
             + " cannot persist a value above " + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
       }
+      GlobalValueDictionaryWriter generation = additions;
+      if (generation != null) {
+        final int localId = generation.findId(source, offset, length);
+        if (localId > 0) {
+          return Math.addExact(baseEntryCount, localId);
+        }
+      }
+      final int hotId = hotValues.find(source, offset, length);
+      if (hotId > 0) {
+        return hotId;
+      }
       if (headerKey != 0) {
+        persistentProbeCount++;
         final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length, writer);
         if (existing > 0) {
+          hotValues.put(source, offset, length, existing);
           return existing;
         }
         if (existing == GlobalValueDictionary.ID_UNKNOWN) {
@@ -1328,7 +1378,6 @@ public final class ProjectionIndexBuilder {
               + " cannot probe generation header " + headerKey);
         }
       }
-      GlobalValueDictionaryWriter generation = additions;
       if (generation == null) {
         generation = new GlobalValueDictionaryWriter(column, budgetBytes, admissionPolicy);
         additions = generation;
@@ -1339,6 +1388,10 @@ public final class ProjectionIndexBuilder {
         throw new IllegalStateException("global dictionary column " + column + " exhausted dictionary ids");
       }
       return (int) globalId;
+    }
+
+    long persistentProbeCount() {
+      return persistentProbeCount;
     }
 
     long flush() {

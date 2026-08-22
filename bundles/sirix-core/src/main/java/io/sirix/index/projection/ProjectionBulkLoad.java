@@ -12,7 +12,11 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.SirixDeweyID;
+import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -25,6 +29,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.LongFunction;
 
 /**
  * One-pass (load-time) construction of a projection index: the index is declared on an EMPTY resource
@@ -279,11 +284,6 @@ public final class ProjectionBulkLoad {
       throw new IllegalArgumentException(
           "ProjectionBulkLoad requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
-    if (!storageEngineWriter.getResourceSession().getResourceConfig().areDeweyIDsStored
-        || ownerToken instanceof NodeReadOnlyTrx ownerTrx && !ownerTrx.storeDeweyIDs()) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
-    }
     final String key = keyOf(resourceKey, indexDef.getID());
     final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, ownerToken, pathSummary,
         rowGroupPublisher);
@@ -299,6 +299,8 @@ public final class ProjectionBulkLoad {
       // begin() is an explicit full build boundary. Clear every prior positive storage slot and
       // sparse negative record locator before publishing the fail-closed tombstone for the load.
       storage.resetTree();
+      ProjectionStructuralOrderDirectory.open(storage).putIfAbsent(
+          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       return load;
     } catch (final Throwable failure) {
@@ -456,7 +458,13 @@ public final class ProjectionBulkLoad {
       }
       // Acquisition can allocate/prepare the HOT root and therefore fail. Keep it under the same
       // poison boundary as extraction and publication so no ACTIVE load survives a writer fault.
-      this.storage = ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+      final ProjectionIndexHOTStorage currentStorage =
+          ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+      this.storage = currentStorage;
+      final ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory =
+          ProjectionStructuralOrderDirectory.open(currentStorage);
+      final LongFunction<ImmutableNode> documentNodeLookup =
+          nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
       builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       savedNodeKey = rtx.getNodeKey();
       restoreCursor = true;
@@ -465,7 +473,9 @@ public final class ProjectionBulkLoad {
       builder.refreshFieldPaths(pathSummary);
       diagDrains++;
       for (int i = 0; i < completedRecordKeys.size(); i++) {
-        if (!appendRecord(rtx, completedRecordKeys.getLong(i))) {
+        final long recordKey = completedRecordKeys.getLong(i);
+        final SirixDeweyID orderLabel = structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup);
+        if (!appendRecord(rtx, recordKey, orderLabel)) {
           diagExtractFailures++;
         }
       }
@@ -700,12 +710,13 @@ public final class ProjectionBulkLoad {
     return current;
   }
 
-  private boolean appendRecord(final NodeReadOnlyTrx rtx, final long recordKey) {
+  private boolean appendRecord(final NodeReadOnlyTrx rtx, final long recordKey,
+      final SirixDeweyID orderLabel) {
     if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
-      return builder.appendRecord(jsonRtx, recordKey);
+      return builder.appendRecord(jsonRtx, recordKey, orderLabel);
     }
     if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
-      return builder.appendRecord(xmlRtx, recordKey);
+      return builder.appendRecord(xmlRtx, recordKey, orderLabel);
     }
     throw new IllegalArgumentException("projection bulk load requires a JSON or XML node transaction");
   }

@@ -536,20 +536,41 @@ public final class ProjectionIndexRowGroupPage {
     return Arrays.copyOfRange(orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1]);
   }
 
+  boolean canAppendOrderLabel(final byte[] label) {
+    if (label == null || label.length == 0) {
+      throw new IllegalArgumentException("projection order label must not be empty");
+    }
+    final int appendBytes = Math.max(label.length, Integer.BYTES);
+    if (rowCount == MAX_ROWS || Math.addExact(orderLabelLength, appendBytes) > MAX_ORDER_LABEL_BYTES) {
+      return false;
+    }
+    if (rowCount > 0 && compareOrderLabels(orderLabelBytes, orderLabelOffsets[rowCount - 1],
+        orderLabelOffsets[rowCount], label, 0, label.length) >= 0) {
+      throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
+    }
+    return true;
+  }
+
   void replaceLastOrderLabel(final byte[] label) {
     if (rowCount == 0 || label == null || label.length == 0) {
       throw new IllegalArgumentException("a non-empty Dewey order label requires an appended row");
     }
     final int row = rowCount - 1;
-    orderLabelLength = orderLabelOffsets[row];
-    ensureOrderLabelCapacity(Math.addExact(orderLabelLength, label.length));
+    final int replacementStart = orderLabelOffsets[row];
+    final int required = Math.addExact(replacementStart, label.length);
+    if (required > MAX_ORDER_LABEL_BYTES) {
+      throw new IllegalStateException("projection row group exceeds the bounded Dewey order-label lane of "
+          + MAX_ORDER_LABEL_BYTES + " bytes");
+    }
+    if (row > 0 && compareOrderLabels(orderLabelBytes, orderLabelOffsets[row - 1], replacementStart,
+        label, 0, label.length) >= 0) {
+      throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
+    }
+    ensureOrderLabelCapacity(required);
+    orderLabelLength = replacementStart;
     System.arraycopy(label, 0, orderLabelBytes, orderLabelLength, label.length);
     orderLabelLength += label.length;
     orderLabelOffsets[row + 1] = orderLabelLength;
-    if (row > 0 && compareOrderLabels(orderLabelBytes, orderLabelOffsets[row - 1], orderLabelOffsets[row],
-        orderLabelBytes, orderLabelOffsets[row], orderLabelOffsets[row + 1]) >= 0) {
-      throw new IllegalStateException("projection Dewey order labels are not strictly increasing");
-    }
   }
 
   public long[] orderExceptionBits() {
@@ -1226,6 +1247,23 @@ public final class ProjectionIndexRowGroupPage {
         unrepresentable, nonIntegral, nonDoubleSource);
     return appendRowInternal(recordKey, longValues, boolValues, null, stringUtf8Values, stringUtf8Lengths,
         stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource, orderException);
+  }
+
+  boolean appendExtractedUtf8Row(final long recordKey, final long[] longValues, final boolean[] boolValues,
+      final byte[][] stringUtf8Values, final int[] stringUtf8Lengths, final String[][] stringSetValues,
+      final boolean[] present, final boolean[] unrepresentable, final boolean[] nonIntegral,
+      final boolean[] nonDoubleSource, final boolean orderException, final byte[] orderLabel) {
+    if (!canAppendOrderLabel(orderLabel)) {
+      return false;
+    }
+    final boolean appended = appendExtractedUtf8Row(recordKey, longValues, boolValues, stringUtf8Values,
+        stringUtf8Lengths, stringSetValues, present, unrepresentable, nonIntegral, nonDoubleSource,
+        orderException);
+    if (!appended) {
+      throw new IllegalStateException("projection order-label preflight admitted a full row group");
+    }
+    replaceLastOrderLabel(orderLabel);
+    return true;
   }
 
   /**
