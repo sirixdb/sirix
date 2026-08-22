@@ -26,6 +26,9 @@ class HftCampaignGateTest(unittest.TestCase):
             log.write_text(
                 f"# HFT_BUILD gitSha={GIT_SHA} artifactSha256={SATURATION_ARTIFACT_SHA}\n"
                 "# HFT_MEASURE_START\n"
+                f"# HFT_SATURATION_CONFIG initialHeapBytes={4 * campaign_gate.GIB} "
+                f"maxHeapBytes={4 * campaign_gate.GIB} maxNewSizeBytes={campaign_gate.GIB} "
+                f"g1RegionSizeBytes={4 * campaign_gate.MIB} gcLogging=true safepointLogging=true\n"
                 "# HFT_APPEND_SATURATION versioningType=FULL resources=4 records=4096 appendWorkers=1 "
                 "queueCapacity=1 callerThreadAppendRuns=0 submitWaitCount=4 submitWaitTotalNs=500000000 "
                 "submitWaitMaxNs=150000000 saturatedActiveWorkers=1 saturatedQueuedTasks=1 "
@@ -83,6 +86,7 @@ class HftCampaignGateTest(unittest.TestCase):
                     "dirtyRecords": campaign_gate.CANONICAL_DIRTY_RECORDS,
                     "smallRows": campaign_gate.CANONICAL_SMALL_ROWS,
                     "largeRows": campaign_gate.CANONICAL_LARGE_ROWS,
+                    "expectedHeapBytes": campaign_gate.CANONICAL_HEAP_BYTES,
                     "smallLogSha256": campaign_gate.sha256(maintenance_small),
                     "largeLogSha256": campaign_gate.sha256(maintenance_large),
                     "gateScriptSha256": campaign_gate.sha256(maintenance_gate),
@@ -92,9 +96,13 @@ class HftCampaignGateTest(unittest.TestCase):
                 ingestion_manifest = root / f"ingestion-{version}.json"
                 ingestion_manifest.write_text(json.dumps({
                     "kind": "projection-ingestion", "passed": True, "versioningType": version,
+                    "verdict": "PASS", "occupancyVerdict": "PASS",
                     "gitSha": GIT_SHA, "artifactSha256": INGESTION_ARTIFACT_SHA,
                     "smallRows": campaign_gate.CANONICAL_SMALL_ROWS,
                     "largeRows": campaign_gate.CANONICAL_LARGE_ROWS,
+                    "expectedHeapBytes": campaign_gate.CANONICAL_HEAP_BYTES,
+                    "expectedMaxNewBytes": campaign_gate.CANONICAL_MAX_NEW_BYTES,
+                    "expectedSideBatchBytes": campaign_gate.CANONICAL_SIDE_BATCH_BYTES,
                     "smallLogSha256": campaign_gate.sha256(ingestion_small),
                     "largeLogSha256": campaign_gate.sha256(ingestion_large),
                     "gateScriptSha256": campaign_gate.sha256(ingestion_gate),
@@ -115,6 +123,10 @@ class HftCampaignGateTest(unittest.TestCase):
                     "drainedAvailableAdmissions": 2, "coldReopens": 4,
                     "gcPauseCount": 0, "gcPauseMaxNs": 0, "safepointCount": 0,
                     "safepointMaxNs": 0, "humongousRegionSamples": 0,
+                    "initialHeapBytes": campaign_gate.CANONICAL_HEAP_BYTES,
+                    "maxHeapBytes": campaign_gate.CANONICAL_HEAP_BYTES,
+                    "maxNewSizeBytes": campaign_gate.CANONICAL_MAX_NEW_BYTES,
+                    "g1RegionSizeBytes": 4 * campaign_gate.MIB,
                     "logSha256": campaign_gate.sha256(saturation_log),
                     "gateScriptSha256": campaign_gate.sha256(saturation_gate_script),
                 }), encoding="utf-8")
@@ -132,6 +144,24 @@ class HftCampaignGateTest(unittest.TestCase):
                 )
 
             self.assertEqual([], evaluate())
+
+            first_ingestion = json.loads(ingestion_manifests[0].read_text(encoding="utf-8"))
+            first_ingestion["passed"] = False
+            first_ingestion["verdict"] = "INCONCLUSIVE"
+            first_ingestion["occupancyVerdict"] = "INCONCLUSIVE"
+            ingestion_manifests[0].write_text(json.dumps(first_ingestion), encoding="utf-8")
+
+            first_ingestion["expectedHeapBytes"] = 8 * campaign_gate.GIB
+            ingestion_manifests[0].write_text(json.dumps(first_ingestion), encoding="utf-8")
+            self.assertTrue(any("expectedHeapBytes" in issue for issue in evaluate()))
+            first_ingestion["expectedHeapBytes"] = campaign_gate.CANONICAL_HEAP_BYTES
+            ingestion_manifests[0].write_text(json.dumps(first_ingestion), encoding="utf-8")
+            self.assertTrue(any("not a passing canonical artifact" in issue for issue in evaluate()))
+            first_ingestion["passed"] = True
+            first_ingestion["verdict"] = "PASS"
+            first_ingestion["occupancyVerdict"] = "PASS"
+            ingestion_manifests[0].write_text(json.dumps(first_ingestion), encoding="utf-8")
+
             incomplete = evaluate(maintenance_manifests[:-1])
             self.assertTrue(any("four maintenance" in issue for issue in incomplete))
             self.assertTrue(any("maintenance versions are incomplete" in issue for issue in incomplete))

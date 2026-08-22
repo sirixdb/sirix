@@ -83,6 +83,13 @@ final class AsyncFlushHftPhaseTelemetryTest {
     assertTrue(longField(measuredWriter, "hftMaxWorkerEpochKvlAppendNanos") > 0L);
     assertTrue(longField(measuredWriter, "hftMaxWorkerEpochFinalFlushNanos") > 0L);
     assertTrue(longField(measuredWriter, "hftMaxBlockedEpochForegroundWaitNanos") > 0L);
+    assertTrue(longField(measuredWriter, "hftMaxSnapshotKvlAttemptedPages")
+        <= NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT);
+    assertEquals(longField(measuredWriter, "hftCombinedEpochs"),
+        longField(measuredWriter, "hftForegroundFlushCount"));
+    assertTrue(longField(measuredWriter, "hftMaxForegroundFlushNanos") > 0L);
+    assertTrue(longField(measuredWriter, "hftForegroundFlushNanos")
+        >= longField(measuredWriter, "hftMaxForegroundFlushNanos"));
     assertTrue(booleanField(measuredWriter, "hftMaxWorkerEpochDataGrowExact"));
     assertTrue(booleanField(measuredWriter, "hftMaxBlockedEpochDataGrowExact"));
   }

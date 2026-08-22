@@ -204,21 +204,28 @@ automatic 2 MiB regions, the JDK's `ZipFile` class loader retains the 1,469,478-
 directory of the full `fastutil` JAR in a 1,469,496-byte `byte[]`; that crosses the 1 MiB
 humongous threshold before Sirix begins ingesting. Four-megabyte regions move that immutable
 classpath table below the 2 MiB threshold without weakening the gate's zero-humongous rule. This
-is an effective-runtime setting, so the emitted `g1RegionSizeBytes` and unified heap log must both
-report 4 MiB or the gate fails closed.
+is an effective-runtime setting, so the emitted `g1RegionSizeBytes` must be exactly 4 MiB and every
+region-size value present in the unified heap log must agree or the gate fails closed.
 
 `-XX:MaxNewSize=1g` remains the canonical production/development profile: it gives short-lived
 async serialization graphs enough nursery lifetime to die young without hiding unbounded retained
-occupancy in the 4 GiB old generation. The 4,194,304-node auto-commit window amortizes snapshot
-rotation while the bounded append permit still limits overlap. Both prefixes use
+occupancy in the 4 GiB old generation. The 4,194,304-node value remains the logical auto-commit
+threshold, while `KEEP_OPEN_ASYNC_FLUSH` caps every storage-only epoch at 131,072 modifications and
+the transaction-intent log may rotate earlier at 128 live entries. The emitted
+`asyncFlushNodeCap=131072` comes from the engine's active mode policy; it is unrelated to the
+same-valued `sirix.asyncFlush.sidePageCount` object bound. The bounded append permit still limits
+overlap. Both prefixes use
 `-Dsirix.projection.globalDict=never`; otherwise dictionary election changes with the generated row
 count (and the 1 M/4 M arms no longer model the dictionary shape of the 100 M target).
 
 After an allocation reduction, the canonical profile can produce no organic young collections. A
-genuine zero-event arm is valid because the producer emits the effective heap, region size, and
-enabled GC/safepoint selectors; malformed or absent evidence still fails closed. If collections do
-occur, the unchanged 5/20-sample post-young-occupancy floors apply. Changing the nursery is a
-different, fail-closed measurement contract and needs its own passing ordinary-GC pair.
+genuine zero-event arm is valid latency/GC-safety evidence because the producer emits the effective
+heap, region size, and enabled GC/safepoint selectors; malformed or absent evidence still fails
+closed. It is nevertheless `INCONCLUSIVE` for retained-occupancy behavior because there are no
+post-young observations. The same applies when fewer than the unchanged 5/20 sample floors occur.
+Overall acceptance then requires a larger retention arm or a separate bounded-retention proof.
+Changing the nursery is a different, fail-closed measurement contract and needs its own conclusive
+ordinary-GC pair.
 
 The measured 256 MiB-nursery investigation is therefore negative evidence, not an alternative
 acceptance profile. In fresh 4 M and 12 M runs, the 4 M arm passed by itself, but the 12 M arm never
@@ -256,25 +263,32 @@ The deterministic native side-page path requires `-Dsirix.arena.strategy=shared`
 reclamation to a Cleaner and `global` never reclaims, so both deliberately fall back to the ordinary
 resident final-commit path. The loader resolves the effective HotSpot `MaxNewSize` and arena strategy
 before measurement, then emits exactly one `# HFT_CONFIG` record inside the boundary. The parser
-requires the canonical dictionary, auto-commit, arena, storage, projection-mode, and row-count values;
-it also requires `versioningType=FULL` and the resolved pinned-trie limits `pinnedTrieScanBudget=1024` and
+requires the canonical dictionary, logical auto-commit, `asyncFlushNodeCap=131072`, exact 4 MiB G1
+region, arena, storage, projection-mode, and row-count values. It also requires
+`versioningType=FULL` and the resolved pinned-trie limits `pinnedTrieScanBudget=1024` and
 `pinnedTrieBatchCapacity=64`. Changing or omitting one fails closed instead of silently measuring a
-different workload or an unbounded spill scan.
+different workload or an unbounded flush/spill scan.
 
 The gate exits non-zero if either log contains a full collection, concurrent old-generation cycle,
 remark/cleanup, prepare-mixed/mixed collection, to-space exhaustion, evacuation/allocation failure,
 allocation stall, preventive/humongous-allocation collection, or OOM. It also requires:
 
 * parseable GC and safepoint evidence with the effective heap and G1 region size embedded in the
-  configuration; zero events are valid, while malformed event lines fail closed;
+  configuration; zero events are valid latency/safety evidence but make retained occupancy
+  `INCONCLUSIVE`, while malformed event lines fail closed;
 * exactly one async-append telemetry record proving that projection side pages really used the
   bounded path, that two fixed 64 MiB native reservoirs (128 MiB total) were initialized, that active
   payload stayed within one reservoir, that every async KVL identity encoding was copied from its
   scoped serializer directly into the disposable native page frame with zero heap/capacity fallback,
   and that every epoch completed. The KVL proof is fail-closed: `kvlAttemptedPages` must equal
-  `kvlPages + kvlPromotedPages`, `kvlPromotedPages` must be zero, and the frame/fallback split must
-  account for every appended `kvlPages` page. Thus an over-capacity or unresolved page promoted back
-  into the live TIL cannot disappear from the profiler verdict. Rotation and explicit-drain permit
+  `kvlPages + kvlPromotedPages`, `kvlPromotedPages` must be zero,
+  `kvlAttemptedPagesMax` must be nonzero when pages were attempted, no greater than both 128 and the
+  total attempted pages, and large enough that its product with the combined-epoch count covers the
+  aggregate attempts; the
+  frame/fallback split must account for every appended `kvlPages` page. Thus an over-capacity or
+  unresolved page promoted back into the live TIL cannot disappear from the profiler verdict.
+  `foregroundFlushCount` must equal the combined-epoch count, its total must cover its maximum, and its
+  maximum measures the complete foreground index-maintenance plus async-rotation call. Rotation and explicit-drain permit
   counts/totals/maxima are separate required fields, and their sums/max must reproduce the aggregate
   counters exactly. Append submission wait count/total/maximum are required too, and
   `callerThreadAppendRuns` must be zero: saturated submission may backpressure, but the append itself
@@ -283,8 +297,8 @@ allocation stall, preventive/humongous-allocation collection, or OOM. It also re
   counts and batch maximum are hard evidence; `pinnedTrieLiveMax` and append-only
   `pinnedTrieHighWater` are reported for measurement without imposing an unmeasured
   retained-occupancy limit;
-* no permit, rotation, drain, worker, submission, whole `startAsyncFlush`, final-drain, young-GC, or
-  safepoint stall above the immutable 250 ms canonical cap;
+* no permit, rotation, drain, worker, submission, whole `startAsyncFlush`, complete foreground
+  async-flush, final-drain, young-GC, or safepoint stall above the immutable 250 ms canonical cap;
   `--max-permit-wait-ms` may tighten that cap, and `--expected-side-batch-mib` changes the payload
   contract;
 * a real post-young occupancy plateau after discarding only the first 20% of young collections;
@@ -299,11 +313,13 @@ allocation stall, preventive/humongous-allocation collection, or OOM. It also re
 * bounded last-decile growth; and
 * larger-run steady occupancy no more than `max(256 MiB, 10% of heap)` above the smaller run.
 
-It prints maximum young-GC, total-safepoint, whole `startAsyncFlush`, and whole final-drain elapsed time
-for each arm. The immutable 250 ms limit applies to every one of those foreground or stop-the-world
-latencies. A run with no GC or safepoint in the measured region is valid; if either occurs, its maximum
-must remain within the same limit. Run sampled profiling separately so it does not perturb this hard
-GC verdict.
+It prints maximum young-GC, total-safepoint, whole `startAsyncFlush`, complete foreground
+async-flush, and whole final-drain elapsed time for each arm. The immutable 250 ms limit applies to
+every one of those foreground or stop-the-world latencies. A run with no GC or safepoint in the
+measured region remains valid hard-safety evidence but cannot by itself pass retained-occupancy
+acceptance; if either event occurs, its maximum must remain within the same limit. The gate exits 0
+for `PASS`, 1 for definite `FAIL`, and 3 for `INCONCLUSIVE`. Run sampled profiling separately so it
+does not perturb this hard GC verdict.
 
 For the spill scan itself, run a separate lowest-interval allocation profile. This is an acceptance
 run, not a throughput number: `interval=1` disables additional async-profiler downsampling, but the
@@ -325,7 +341,8 @@ profile_agent="-agentpath:$ASYNC_PROFILER/lib/libasyncProfiler.so=start,event=al
   > "$profile_root/load.log" 2>&1
 ```
 
-Acceptance requires the log to show the exact 1024/64 `# HFT_CONFIG` limits,
+Acceptance requires the log to show `asyncFlushNodeCap=131072` and the exact 1024/64
+`# HFT_CONFIG` limits,
 `pinnedTrieSpillPages > 0`, and `pinnedTrieSpillBatchMax <= 64`. The full operation is the unit of
 profile evidence: after first-use scratch growth, there must be no recurring allocation sample whose
 stack contains `NodeStorageEngineWriter.spillEligiblePinnedTriePages`. This sampling result does not
@@ -363,6 +380,13 @@ three durable dictionary radix generations, clears all global caches, verifies s
 ids plus value-sensitive predicate results through every cold historical fast route, and compares
 touched-unit operations and bytes across the two arms. Both the producer and gate derive `HEAD`,
 reject tracked worktree changes, and require it to match the SHA embedded in the log and manifest.
+The maintenance writer uses `KEEP_OPEN_ASYNC_COMMIT`, so its logical 16,384-node threshold creates
+real revisions and its configuration must report `asyncFlushNodeCap=0`; the 131,072 storage-only
+epoch cap applies only to ingestion's `KEEP_OPEN_ASYNC_FLUSH` mode. Maintenance may publish
+side-page-only epochs, but its combined-TIL, KVL-frame, foreground-full-flush, and pinned-trie
+full-epoch counters must all remain zero. Canonical `globalDict=never` ingestion and AUTO-global
+maintenance deliberately use separate databases: reusing one would either weaken the cross-scale
+ingestion representation or fail to exercise AUTO dictionary maintenance.
 
 ```bash
 test -z "$(git status --porcelain)"
@@ -371,16 +395,17 @@ maintenance_root=$(mktemp -d /tmp/sirix-maintenance-gate.XXXXXX)
 maintenance_classpath=$(./gradlew -q :sirix-query:printClickBenchRuntimeClasspath)
 saturation_classpath=$(./gradlew -q :sirix-query:printClickBenchTestRuntimeClasspath)
 
+ingestion_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:-G1UseAdaptiveIHOP -XX:InitiatingHeapOccupancyPercent=45 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -XX:-UseJVMCICompiler -DstorageType=FILE_CHANNEL -Dsirix.allocator=frame -Dsirix.offheap.bytes=8589934592 -Dsirix.arena.strategy=shared -Dsirix.asyncFlush.parallelism=2 -Dsirix.asyncFlush.appendParallelism=2 -Dsirix.asyncFlush.sidePageBytes=67108864 -Dsirix.asyncFlush.sidePageCount=131072 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.autoCommit.nodes=4194304 -Dsirix.projection.globalDict=never -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
 maintenance_jvm="-XX:+UseG1GC -Xms4g -Xmx4g -XX:G1HeapRegionSize=4m -XX:MaxNewSize=1g -XX:+AlwaysPreTouch -XX:+DisableExplicitGC -XX:+ExitOnOutOfMemoryError -XX:MaxDirectMemorySize=1g -DstorageType=FILE_CHANNEL -Dsirix.arena.strategy=shared -Dsirix.hft.telemetry=true -Dsirix.hft.gitSha=$hft_sha -Dsirix.projection.globalDict=auto -Dsirix.asyncFlush.appendParallelism=1 -Dsirix.asyncFlush.appendQueueCapacity=1 -Dsirix.asyncFlush.stallTimeoutMillis=30000 -Xlog:gc*,gc+heap=debug,gc+humongous=debug,safepoint:stdout:uptime,level,tags"
 
 for versioning in FULL DIFFERENTIAL INCREMENTAL SLIDING_SNAPSHOT; do
   ./gradlew --no-daemon :sirix-query:clickBenchLoad \
-    -Pclickbench.args="$maintenance_root/small-$versioning generate:1000000:42" \
-    -Pclickbench.jvmArgs="$maintenance_jvm -DversioningType=$versioning" \
+    -Pclickbench.args="$maintenance_root/ingestion-db-small-$versioning generate:1000000:42" \
+    -Pclickbench.jvmArgs="$ingestion_jvm -DversioningType=$versioning" \
     > "$maintenance_root/ingestion-small-$versioning-$hft_sha.log" 2>&1
   ./gradlew --no-daemon :sirix-query:clickBenchLoad \
-    -Pclickbench.args="$maintenance_root/large-$versioning generate:4000000:42" \
-    -Pclickbench.jvmArgs="$maintenance_jvm -DversioningType=$versioning" \
+    -Pclickbench.args="$maintenance_root/ingestion-db-large-$versioning generate:4000000:42" \
+    -Pclickbench.jvmArgs="$ingestion_jvm -DversioningType=$versioning" \
     > "$maintenance_root/ingestion-large-$versioning-$hft_sha.log" 2>&1
   python3 bundles/sirix-query/bench/clickbench/hft_gc_gate.py \
     --small-log "$maintenance_root/ingestion-small-$versioning-$hft_sha.log" --small-rows 1000000 \
@@ -388,6 +413,17 @@ for versioning in FULL DIFFERENTIAL INCREMENTAL SLIDING_SNAPSHOT; do
     --versioning-type "$versioning" --expected-git-sha "$hft_sha" \
     --runtime-classpath "$maintenance_classpath" \
     --manifest "$maintenance_root/ingestion-$versioning-$hft_sha.manifest.json"
+
+  # Maintenance must start from a separately built AUTO-global projection. Reusing either
+  # canonical ingestion database would change the projection representation under test.
+  ./gradlew --no-daemon :sirix-query:clickBenchLoad \
+    -Pclickbench.args="$maintenance_root/small-$versioning generate:1000000:42" \
+    -Pclickbench.jvmArgs="$maintenance_jvm -DversioningType=$versioning" \
+    > "$maintenance_root/maintenance-load-small-$versioning-$hft_sha.log" 2>&1
+  ./gradlew --no-daemon :sirix-query:clickBenchLoad \
+    -Pclickbench.args="$maintenance_root/large-$versioning generate:4000000:42" \
+    -Pclickbench.jvmArgs="$maintenance_jvm -DversioningType=$versioning" \
+    > "$maintenance_root/maintenance-load-large-$versioning-$hft_sha.log" 2>&1
   ./gradlew --no-daemon :sirix-query:clickBenchMaintenance \
     -Pclickbench.args="$maintenance_root/small-$versioning 1000000 100001 16384" \
     -Pclickbench.jvmArgs="$maintenance_jvm -DversioningType=$versioning" \
@@ -446,8 +482,11 @@ python3 bundles/sirix-query/bench/clickbench/hft_campaign_gate.py \
 The final campaign manifest passes only when every `VersioningType` has canonical ingestion,
 maintenance, and worker-only p=1/q=1 saturation evidence bound to the required clean commit,
 complete ordered runtime classpaths, child logs, the committed gate scripts, and the committed
-classpath-identity helper. Saturation evidence includes observed full worker/queue/admission
-occupancy, a complete drain, GC and safepoint bounds, and zero positive humongous-region samples.
+classpath-identity helper. Child manifests bind the canonical 4 GiB heap; ingestion additionally
+binds its 1 GiB nursery and 64 MiB side-page batch. Saturation evidence emits its effective heap,
+nursery, and G1 region configuration inside the measured region and requires exactly 4 GiB,
+1 GiB, and 4 MiB respectively, alongside observed full worker/queue/admission occupancy, a complete
+drain, GC and safepoint bounds, and zero positive humongous-region samples.
 
 ---
 

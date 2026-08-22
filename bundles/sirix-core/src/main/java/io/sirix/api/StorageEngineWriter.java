@@ -347,6 +347,28 @@ public interface StorageEngineWriter extends StorageEngineReader {
   default void asyncFlush() {}
 
   /**
+   * Whether the live transaction-intent-log generation has reached the bounded amount of work for
+   * one async-flush epoch.
+   *
+   * <p>The node transaction samples this only at its existing compound-operation-safe pre-mutation
+   * boundary. Implementations that do not support async TIL rotation retain the default
+   * {@code false} result.</p>
+   *
+   * @return {@code true} when the foreground should rotate the current async-flush epoch
+   */
+  default boolean isAsyncFlushLogBoundaryReached() {
+    return false;
+  }
+
+  /**
+   * Record the duration of one complete foreground async-flush rotation, including index
+   * maintenance performed before {@link #asyncFlush()}.
+   *
+   * @param elapsedNanos non-negative elapsed time in nanoseconds
+   */
+  default void recordAsyncFlushForegroundNanos(final long elapsedNanos) {}
+
+  /**
    * Phase 1 of a pipelined commit: create the commit marker, serialize and write every modified
    * page from the TIL (assigning all disk keys) through the buffered data channel. After this
    * returns, the revision's page trie is fully addressed and nothing references TIL-only state —

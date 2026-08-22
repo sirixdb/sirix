@@ -32,7 +32,7 @@ def young_line(
     )
 
 
-def g1_region_line(region_size_mib: int = 2) -> str:
+def g1_region_line(region_size_mib: int = 4) -> str:
     region_size_kib = region_size_mib * 1024
     return (
         "[1.000s][debug][gc,heap] GC(0) "
@@ -52,11 +52,12 @@ def hft_config_line(
     *,
     global_dict: str = "never",
     auto_commit_nodes: int = 4_194_304,
+    async_flush_node_cap: int = 131_072,
     arena_strategy: str = "shared",
     max_new_size_bytes: int = 1024 * MIB,
     initial_heap_bytes: int = 4096 * MIB,
     max_heap_bytes: int = 4096 * MIB,
-    g1_region_size_bytes: int = 2 * MIB,
+    g1_region_size_bytes: int = 4 * MIB,
     gc_logging: bool = True,
     safepoint_logging: bool = True,
     storage: str = "FILE_CHANNEL",
@@ -70,6 +71,7 @@ def hft_config_line(
 ) -> str:
     return (
         f"{gate.HFT_CONFIG_PREFIX}globalDict={global_dict} autoCommitNodes={auto_commit_nodes} "
+        f"asyncFlushNodeCap={async_flush_node_cap} "
         f"arenaStrategy={arena_strategy} maxNewSizeBytes={max_new_size_bytes} "
         f"initialHeapBytes={initial_heap_bytes} maxHeapBytes={max_heap_bytes} "
         f"g1RegionSizeBytes={g1_region_size_bytes} "
@@ -84,6 +86,9 @@ def hft_config_line(
 
 def async_flush_line(
     *,
+    combined_epochs: int = 100,
+    side_only_epochs: int = 1,
+    kvl_pages: int = 12_000,
     side_pages: int = 1_000,
     side_bytes: int = 32 * MIB,
     peak_active_side_bytes: int = 32 * MIB,
@@ -91,6 +96,7 @@ def async_flush_line(
     drain_permit_wait_max_ns: int = 100_000_000,
     kvl_attempted_pages: int = 12_000,
     kvl_promoted_pages: int = 0,
+    kvl_attempted_pages_max: int = 128,
     native_reservoir_count: int = 2,
     native_reservoir_bytes: int = 64 * MIB,
     pinned_trie_spill_epochs: int = 4,
@@ -98,38 +104,55 @@ def async_flush_line(
     pinned_trie_spill_batch_max: int = 64,
     pinned_trie_live_max: int = 311,
     pinned_trie_high_water: int = 487,
+    worker_runs: int | None = None,
     submit_wait_max_ns: int = 500_000,
+    submit_wait_count: int | None = None,
     start_flush_max_ns: int = 10_500_000,
+    start_flush_count: int | None = None,
+    foreground_flush_count: int = 100,
+    foreground_flush_total_ns: int = 100_000_000,
+    foreground_flush_max_ns: int = 20_000_000,
     final_drain_max_ns: int = 200_000_000,
+    kvl_frame_cache_pages: int | None = None,
+    kvl_frame_cache_bytes: int = 157_286_400,
     caller_thread_append_runs: int = 0,
 ) -> str:
+    epochs = combined_epochs + side_only_epochs
+    worker_runs = epochs if worker_runs is None else worker_runs
+    submit_wait_count = epochs if submit_wait_count is None else submit_wait_count
+    start_flush_count = epochs if start_flush_count is None else start_flush_count
+    kvl_frame_cache_pages = kvl_pages if kvl_frame_cache_pages is None else kvl_frame_cache_pages
     rotation_wait_total_ns = max(20_000_000, rotation_permit_wait_max_ns)
     drain_wait_total_ns = max(110_000_000, drain_permit_wait_max_ns)
     permit_wait_total_ns = rotation_wait_total_ns + drain_wait_total_ns
     permit_wait_max_ns = max(rotation_permit_wait_max_ns, drain_permit_wait_max_ns)
     return (
         f"{gate.ASYNC_FLUSH_PREFIX}"
-        "combinedEpochs=5 sideOnlyEpochs=1 kvlPages=12000 "
+        f"combinedEpochs={combined_epochs} sideOnlyEpochs={side_only_epochs} kvlPages={kvl_pages} "
         f"kvlAttemptedPages={kvl_attempted_pages} kvlPromotedPages={kvl_promoted_pages} "
+        f"kvlAttemptedPagesMax={kvl_attempted_pages_max} "
         f"sidePages={side_pages} sideBytes={side_bytes} "
         f"peakActiveSideBytes={peak_active_side_bytes} "
-        f"permitAcquires=8 permitWaitTotalNs={permit_wait_total_ns} "
+        f"permitAcquires=103 permitWaitTotalNs={permit_wait_total_ns} "
         f"permitWaitMaxNs={permit_wait_max_ns} "
-        f"rotationPermitAcquires=6 rotationPermitWaitTotalNs={rotation_wait_total_ns} "
+        f"rotationPermitAcquires=101 rotationPermitWaitTotalNs={rotation_wait_total_ns} "
         f"rotationPermitWaitMaxNs={rotation_permit_wait_max_ns} "
         f"drainPermitAcquires=2 drainPermitWaitTotalNs={drain_wait_total_ns} "
         f"drainPermitWaitMaxNs={drain_permit_wait_max_ns} "
-        "workerRuns=6 workerTotalNs=1200000000 workerMaxNs=250000000 "
-        f"submitWaitCount=6 submitWaitTotalNs={max(1_000_000, submit_wait_max_ns)} "
+        f"workerRuns={worker_runs} workerTotalNs=1200000000 workerMaxNs=250000000 "
+        f"submitWaitCount={submit_wait_count} submitWaitTotalNs={max(1_000_000, submit_wait_max_ns)} "
         f"submitWaitMaxNs={submit_wait_max_ns} "
         f"callerThreadAppendRuns={caller_thread_append_runs} "
-        f"startFlushCount=6 startFlushTotalNs={max(30_000_000, start_flush_max_ns)} "
+        f"startFlushCount={start_flush_count} startFlushTotalNs={max(30_000_000, start_flush_max_ns)} "
         f"startFlushMaxNs={start_flush_max_ns} "
+        f"foregroundFlushCount={foreground_flush_count} "
+        f"foregroundFlushTotalNs={foreground_flush_total_ns} "
+        f"foregroundFlushMaxNs={foreground_flush_max_ns} "
         f"finalDrainCount=1 finalDrainTotalNs={max(200_000_000, final_drain_max_ns)} "
         f"finalDrainMaxNs={final_drain_max_ns} "
         f"nativeReservoirCount={native_reservoir_count} "
         f"nativeReservoirBytes={native_reservoir_bytes} "
-        "kvlFrameCachePages=12000 kvlFrameCacheBytes=157286400 "
+        f"kvlFrameCachePages={kvl_frame_cache_pages} kvlFrameCacheBytes={kvl_frame_cache_bytes} "
         "kvlCacheFallbackPages=0 kvlCacheFallbackBytes=0 "
         f"pinnedTrieSpillEpochs={pinned_trie_spill_epochs} "
         f"pinnedTrieSpillPages={pinned_trie_spill_pages} "
@@ -174,7 +197,7 @@ def occupancy_log(
     *,
     expected_rows: int = 1_000_000,
     max_new_size_bytes: int = 1024 * MIB,
-    region_size_mib: int = 2,
+    region_size_mib: int = 4,
 ) -> list[str]:
     lines = [
         gate.MEASURE_START,
@@ -182,6 +205,7 @@ def occupancy_log(
         hft_config_line(
             expected_rows=expected_rows,
             max_new_size_bytes=max_new_size_bytes,
+            g1_region_size_bytes=region_size_mib * MIB,
         ),
         g1_region_line(region_size_mib),
     ]
@@ -309,6 +333,29 @@ class EvaluationTest(unittest.TestCase):
                 ["--one-million", "1m.log", "--four-million", "4m.log", *CLI_IDENTITY,
                  "--max-permit-wait-ms", "250.001"]
             )
+
+    def test_sample_floor_overrides_cannot_weaken_the_canonical_evidence(self) -> None:
+        exact = gate._parse_arguments(
+            ["--one-million", "1m.log", "--four-million", "4m.log", *CLI_IDENTITY,
+             "--min-small-samples", "5", "--min-large-samples", "20"]
+        )
+        raised = gate._parse_arguments(
+            ["--one-million", "1m.log", "--four-million", "4m.log", *CLI_IDENTITY,
+             "--min-small-samples", "6", "--min-large-samples", "21"]
+        )
+
+        self.assertEqual(5, exact.min_small_samples)
+        self.assertEqual(20, exact.min_large_samples)
+        self.assertEqual(6, raised.min_small_samples)
+        self.assertEqual(21, raised.min_large_samples)
+        for option, weakened in (("--min-small-samples", "4"), ("--min-large-samples", "19")):
+            with self.subTest(option=option):
+                with contextlib.redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        gate._parse_arguments(
+                            ["--one-million", "1m.log", "--four-million", "4m.log", *CLI_IDENTITY,
+                             option, weakened]
+                        )
 
     def test_custom_four_and_twelve_million_pair_passes_with_dynamic_report(self) -> None:
         result = gate.evaluate_pair(
@@ -557,10 +604,10 @@ class EvaluationTest(unittest.TestCase):
 
         self.assertTrue(result.passed, result)
         self.assertEqual(10, result.one_million.plateau_sample)
-        self.assertEqual(41, result.four_million.plateau_sample)
+        self.assertEqual(43, result.four_million.plateau_sample)
         self.assertEqual(6, result.one_million.post_plateau_samples)
-        self.assertEqual(23, result.four_million.post_plateau_samples)
-        self.assertEqual(6 * MIB, result.four_million.plateau_spread_allowance_bytes)
+        self.assertEqual(21, result.four_million.post_plateau_samples)
+        self.assertEqual(12 * MIB, result.four_million.plateau_spread_allowance_bytes)
         self.assertAlmostEqual(14 * MIB, result.cross_scale_growth_bytes)
 
     def test_region_jitter_allowance_does_not_admit_half_mib_per_gc_ramp(self) -> None:
@@ -577,7 +624,7 @@ class EvaluationTest(unittest.TestCase):
         )
 
         self.assertEqual(5.5, max(first_analysis_window) - min(first_analysis_window))
-        self.assertLessEqual(5.5 * MIB, 3 * 2 * MIB)
+        self.assertLessEqual(5.5 * MIB, 3 * 4 * MIB)
         self.assertFalse(result.passed)
         self.assertIsNone(result.plateau_sample)
         self.assertTrue(
@@ -608,7 +655,7 @@ class EvaluationTest(unittest.TestCase):
         self.assertIn("Diagnostic Command", result.issues[0])
 
     def test_more_than_three_regions_of_low_live_jitter_does_not_plateau(self) -> None:
-        values = [100, 100, 100, 93, 100, 93, 100]
+        values = [100, 100, 100, 87, 100, 87, 100]
         result = gate.evaluate_run(
             gate.parse_lines(occupancy_log(values), "wide-jitter.log"),
             "wide-jitter",
@@ -616,12 +663,12 @@ class EvaluationTest(unittest.TestCase):
             expected_rows=1_000_000,
         )
 
-        self.assertGreater(7 * MIB, 3 * 2 * MIB)
+        self.assertGreater(13 * MIB, 3 * 4 * MIB)
         self.assertFalse(result.passed)
         self.assertTrue(any("never plateaued" in issue for issue in result.issues), result.issues)
 
     def test_high_live_plateau_keeps_the_relative_three_percent_allowance(self) -> None:
-        values = [300, 300, 300, 293, 300, 293, 300]
+        values = [500, 500, 500, 487, 500, 487, 500]
         result = gate.evaluate_run(
             gate.parse_lines(occupancy_log(values), "high-live-jitter.log"),
             "high-live-jitter",
@@ -630,14 +677,14 @@ class EvaluationTest(unittest.TestCase):
         )
 
         self.assertTrue(result.passed, result.issues)
-        self.assertEqual(7 * MIB, result.plateau_spread_bytes)
-        self.assertEqual(9 * MIB, result.plateau_spread_allowance_bytes)
+        self.assertEqual(13 * MIB, result.plateau_spread_bytes)
+        self.assertEqual(15 * MIB, result.plateau_spread_allowance_bytes)
 
     def test_effective_g1_region_size_allows_zero_gc_and_rejects_log_mismatch(self) -> None:
         missing = stable_log(100)
         missing.remove(g1_region_line())
         inconsistent = stable_log(100)
-        inconsistent.insert(inconsistent.index(g1_region_line()) + 1, g1_region_line(4))
+        inconsistent.insert(inconsistent.index(g1_region_line()) + 1, g1_region_line(2))
 
         missing_result = gate.evaluate_run(
             gate.parse_lines(missing), "effective-region-size", min_samples=5, expected_rows=1_000_000
@@ -651,6 +698,20 @@ class EvaluationTest(unittest.TestCase):
         self.assertTrue(
             any("G1 region size changed" in issue for issue in inconsistent_result.issues),
             inconsistent_result.issues,
+        )
+
+    def test_noncanonical_g1_region_size_fails_even_when_the_log_matches(self) -> None:
+        result = gate.evaluate_run(
+            gate.parse_lines(occupancy_log([100] * 13, region_size_mib=2)),
+            "noncanonical-region-size",
+            min_samples=5,
+            expected_rows=1_000_000,
+        )
+
+        self.assertFalse(result.passed)
+        self.assertTrue(
+            any("g1RegionSizeBytes" in issue for issue in result.issues),
+            result.issues,
         )
 
     def test_small_run_can_use_five_sample_cross_scale_baseline(self) -> None:
@@ -711,7 +772,7 @@ class EvaluationTest(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertTrue(any("initialHeapBytes" in issue for issue in result.issues), result.issues)
 
-    def test_genuine_zero_gc_and_safepoint_pair_passes(self) -> None:
+    def test_genuine_zero_gc_pair_is_valid_but_occupancy_inconclusive(self) -> None:
         def zero_event_log(rows: int) -> list[str]:
             return [
                 gate.MEASURE_START,
@@ -728,8 +789,43 @@ class EvaluationTest(unittest.TestCase):
             expected_artifact_sha256=ARTIFACT_SHA,
         )
 
-        self.assertTrue(result.passed, result)
+        self.assertFalse(result.passed)
+        self.assertEqual(gate.Verdict.INCONCLUSIVE, result.verdict)
+        self.assertEqual(gate.Verdict.INCONCLUSIVE, result.occupancy_verdict)
         self.assertTrue(result.one_million.zero_young_events)
+
+    def test_low_gc_pair_is_inconclusive_instead_of_failed(self) -> None:
+        result = gate.evaluate_pair(
+            gate.parse_lines(stable_log(100, samples=1), "one-young-gc.log"),
+            gate.parse_lines(
+                stable_log(130, samples=4, expected_rows=4_000_000),
+                "four-young-gcs.log",
+            ),
+        )
+
+        self.assertEqual(gate.Verdict.INCONCLUSIVE, result.verdict)
+        self.assertEqual([], result.one_million.issues)
+        self.assertEqual([], result.four_million.issues)
+        self.assertTrue(result.one_million.inconclusive_reasons)
+        self.assertTrue(result.four_million.inconclusive_reasons)
+
+    def test_under_sampled_occupancy_does_not_hide_hard_latency_failure(self) -> None:
+        lines = stable_log(100, samples=1)
+        lines[lines.index(async_flush_line())] = async_flush_line(
+            foreground_flush_total_ns=250_000_001,
+            foreground_flush_max_ns=250_000_001,
+        )
+
+        result = gate.evaluate_run(gate.parse_lines(lines), "slow-low-gc", min_samples=5)
+
+        self.assertEqual(gate.Verdict.FAIL, result.verdict)
+        self.assertTrue(any("foregroundFlushMaxNs" in issue for issue in result.issues))
+        self.assertTrue(result.inconclusive_reasons)
+
+    def test_verdict_exit_codes_are_distinct(self) -> None:
+        self.assertEqual(0, gate._exit_code(gate.Verdict.PASS))
+        self.assertEqual(1, gate._exit_code(gate.Verdict.FAIL))
+        self.assertEqual(3, gate._exit_code(gate.Verdict.INCONCLUSIVE))
 
     def test_unbounded_late_slope_fails(self) -> None:
         lines = [gate.MEASURE_START, hft_build_line(), hft_config_line(), g1_region_line()]
@@ -866,7 +962,7 @@ class EvaluationTest(unittest.TestCase):
         cases = (
             ({"pinned_trie_spill_pages": 0}, "no pinned trie pages"),
             ({"pinned_trie_spill_batch_max": 65}, "exceeds configured capacity"),
-            ({"pinned_trie_spill_epochs": 13}, "exceed full snapshot epochs"),
+            ({"pinned_trie_spill_epochs": 101}, "exceed full snapshot epochs"),
             ({"pinned_trie_spill_pages": 257}, "epochs x configured capacity"),
         )
         for overrides, expected_issue in cases:
@@ -920,6 +1016,55 @@ class EvaluationTest(unittest.TestCase):
         self.assertFalse(result.passed)
         self.assertTrue(any("attempt coverage is incomplete" in issue for issue in result.issues))
 
+    def test_kvl_attempted_pages_per_epoch_is_bounded_and_covered_by_the_total(self) -> None:
+        cases = (
+            ({"kvl_attempted_pages_max": 129}, "bounded serializer window"),
+            (
+                {"kvl_attempted_pages": 100, "kvl_attempted_pages_max": 101},
+                "exceeds the total attempted KVL pages",
+            ),
+            ({"kvl_attempted_pages_max": 0}, "is zero despite positive"),
+            (
+                {"kvl_attempted_pages": 12_001, "kvl_attempted_pages_max": 120},
+                "per-epoch maximum times combined epochs",
+            ),
+        )
+        for overrides, expected_issue in cases:
+            with self.subTest(overrides=overrides):
+                lines = stable_log(100)
+                lines[lines.index(async_flush_line())] = async_flush_line(**overrides)
+
+                result = gate.evaluate_run(gate.parse_lines(lines), "bad-kvl-epoch", min_samples=5)
+
+                self.assertFalse(result.passed)
+                self.assertTrue(any(expected_issue in issue for issue in result.issues), result.issues)
+
+    def test_foreground_async_flush_telemetry_is_complete_and_bounded(self) -> None:
+        cases = (
+            ({"foreground_flush_count": 99}, "do not equal combined epochs"),
+            ({"foreground_flush_count": 101}, "do not equal combined epochs"),
+            (
+                {"foreground_flush_total_ns": 19_000_000, "foreground_flush_max_ns": 20_000_000},
+                "foreground async-flush maximum exceeds its total",
+            ),
+            (
+                {
+                    "foreground_flush_total_ns": 250_000_001,
+                    "foreground_flush_max_ns": 250_000_001,
+                },
+                "foregroundFlushMaxNs",
+            ),
+        )
+        for overrides, expected_issue in cases:
+            with self.subTest(overrides=overrides):
+                lines = stable_log(100)
+                lines[lines.index(async_flush_line())] = async_flush_line(**overrides)
+
+                result = gate.evaluate_run(gate.parse_lines(lines), "bad-foreground-flush", min_samples=5)
+
+                self.assertFalse(result.passed)
+                self.assertTrue(any(expected_issue in issue for issue in result.issues), result.issues)
+
     def test_split_permit_accounting_must_equal_the_aggregate(self) -> None:
         lines = stable_log(100)
         telemetry_index = lines.index(async_flush_line())
@@ -936,9 +1081,11 @@ class EvaluationTest(unittest.TestCase):
         mismatches = {
             "globalDict=never": "globalDict=auto",
             "autoCommitNodes=4194304": "autoCommitNodes=1048576",
+            "asyncFlushNodeCap=131072": "asyncFlushNodeCap=1048576",
             "arenaStrategy=shared": "arenaStrategy=auto",
             f"maxNewSizeBytes={1024 * MIB}": f"maxNewSizeBytes={512 * MIB}",
             f"maxHeapBytes={4096 * MIB}": f"maxHeapBytes={2048 * MIB}",
+            f"g1RegionSizeBytes={4 * MIB}": f"g1RegionSizeBytes={2 * MIB}",
             "gcLogging=true": "gcLogging=false",
             "safepointLogging=true": "safepointLogging=false",
             "storage=FILE_CHANNEL": "storage=MEMORY_MAPPED",
@@ -1055,6 +1202,16 @@ class EvaluationTest(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertTrue(any("pinnedTrieScanBudget" in issue for issue in result.issues))
+
+    def test_missing_async_flush_node_cap_fails_closed(self) -> None:
+        lines = stable_log(100)
+        config_index = lines.index(hft_config_line())
+        lines[config_index] = lines[config_index].replace(" asyncFlushNodeCap=131072", "")
+
+        result = gate.evaluate_run(gate.parse_lines(lines), "missing-async-cap", min_samples=5)
+
+        self.assertFalse(result.passed)
+        self.assertTrue(any("asyncFlushNodeCap" in issue for issue in result.issues))
 
 
 if __name__ == "__main__":

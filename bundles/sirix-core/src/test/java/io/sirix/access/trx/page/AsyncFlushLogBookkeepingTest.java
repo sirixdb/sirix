@@ -182,6 +182,55 @@ final class AsyncFlushLogBookkeepingTest {
   }
 
   @Test
+  @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  @DisplayName("Repeated updates of one live page do not create page-bound async prewrites")
+  void repeatedUpdatesReuseOneLiveLogEntry() {
+    final AtomicInteger flushes = new AtomicInteger();
+    NodeStorageEngineWriter.asyncFlushFaultHook = (engineWriter, site) -> {
+      if ("prepare".equals(site)) {
+        flushes.incrementAndGet();
+      }
+    };
+
+    final int updates = 10_000;
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(false)
+                                                   .versioningApproach(VersioningType.FULL)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
+                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        final long valueNodeKey = wtx.insertStringValueAsFirstChild("value-0").getNodeKey();
+        for (int update = 1; update <= updates; update++) {
+          assertTrue(wtx.moveTo(valueNodeKey));
+          wtx.setStringValue("value-" + update);
+        }
+
+        final TransactionIntentLog log = ((NodeStorageEngineWriter) wtx.getStorageEngineWriter()).getLog();
+        assertEquals(0, flushes.get(), "one write-hot page must not cross the distinct-page boundary");
+        assertEquals(0, log.getCurrentGeneration(), "no async snapshot generation should be created");
+        assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT,
+            "replacing one live TIL identity must not consume a new slot per update");
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveToFirstChild());
+      assertEquals("value-" + updates, rtx.getValue());
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+  }
+
+  @Test
   @Timeout(value = 5, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   @DisplayName("An import killed by a failed flush strands no pinned entries once the writer is torn down")
   void failedImport_strandsNoPinnedEntries() {

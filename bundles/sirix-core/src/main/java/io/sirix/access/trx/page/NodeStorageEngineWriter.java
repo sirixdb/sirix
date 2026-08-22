@@ -136,6 +136,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
   /**
+   * Maximum generation-scoped TIL entries frozen into one async-flush epoch.
+   *
+   * <p>Snapshot pinning can remove structural entries before serialization, so this is a
+   * conservative upper bound on attempted KVL pages and matches one serializer window.</p>
+   */
+  static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 128;
+
+  /**
    * Buffered output for page writes.
    *
    * <p>
@@ -494,6 +502,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private long hftSnapshotKvlPages;
   private long hftSnapshotKvlAttemptedPages;
   private long hftSnapshotKvlPromotedPages;
+  private long hftMaxSnapshotKvlAttemptedPages;
   private long hftPermitAcquires;
   private long hftPermitWaitNanos;
   private long hftMaxPermitWaitNanos;
@@ -513,6 +522,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private long hftStartFlushCount;
   private long hftStartFlushNanos;
   private long hftMaxStartFlushNanos;
+  private long hftForegroundFlushCount;
+  private long hftForegroundFlushNanos;
+  private long hftMaxForegroundFlushNanos;
   private long hftFinalDrainCount;
   private long hftFinalDrainNanos;
   private long hftMaxFinalDrainNanos;
@@ -768,26 +780,29 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
     hftTelemetryPrinted = true;
     System.out.printf("# HFT_ASYNC_FLUSH combinedEpochs=%d sideOnlyEpochs=%d kvlPages=%d "
-            + "kvlAttemptedPages=%d kvlPromotedPages=%d "
+            + "kvlAttemptedPages=%d kvlPromotedPages=%d kvlAttemptedPagesMax=%d "
             + "sidePages=%d sideBytes=%d peakActiveSideBytes=%d permitAcquires=%d "
             + "permitWaitTotalNs=%d permitWaitMaxNs=%d rotationPermitAcquires=%d "
             + "rotationPermitWaitTotalNs=%d rotationPermitWaitMaxNs=%d drainPermitAcquires=%d "
             + "drainPermitWaitTotalNs=%d drainPermitWaitMaxNs=%d workerRuns=%d workerTotalNs=%d workerMaxNs=%d "
             + "submitWaitCount=%d submitWaitTotalNs=%d submitWaitMaxNs=%d callerThreadAppendRuns=%d "
             + "startFlushCount=%d startFlushTotalNs=%d startFlushMaxNs=%d "
+            + "foregroundFlushCount=%d foregroundFlushTotalNs=%d foregroundFlushMaxNs=%d "
             + "finalDrainCount=%d finalDrainTotalNs=%d finalDrainMaxNs=%d "
             + "nativeReservoirCount=%d nativeReservoirBytes=%d kvlFrameCachePages=%d "
             + "kvlFrameCacheBytes=%d kvlCacheFallbackPages=%d kvlCacheFallbackBytes=%d "
             + "pinnedTrieSpillEpochs=%d pinnedTrieSpillPages=%d pinnedTrieSpillBatchMax=%d "
             + "pinnedTrieLiveMax=%d pinnedTrieHighWater=%d%n",
         hftCombinedEpochs, hftSideOnlyEpochs, hftSnapshotKvlPages, hftSnapshotKvlAttemptedPages,
-        hftSnapshotKvlPromotedPages, hftStagedSidePages, hftStagedSideBytes, hftPeakActiveSideBytes,
+        hftSnapshotKvlPromotedPages, hftMaxSnapshotKvlAttemptedPages, hftStagedSidePages,
+        hftStagedSideBytes, hftPeakActiveSideBytes,
         hftPermitAcquires, hftPermitWaitNanos,
         hftMaxPermitWaitNanos, hftRotationPermitAcquires, hftRotationPermitWaitNanos,
         hftMaxRotationPermitWaitNanos, hftDrainPermitAcquires, hftDrainPermitWaitNanos,
         hftMaxDrainPermitWaitNanos, hftWorkerRuns, hftWorkerNanos, hftMaxWorkerNanos,
         hftSubmitWaitCount, hftSubmitWaitNanos, hftMaxSubmitWaitNanos, hftCallerThreadAppendRuns,
         hftStartFlushCount, hftStartFlushNanos, hftMaxStartFlushNanos,
+        hftForegroundFlushCount, hftForegroundFlushNanos, hftMaxForegroundFlushNanos,
         hftFinalDrainCount, hftFinalDrainNanos, hftMaxFinalDrainNanos,
         hftNativeReservoirCount, hftNativeReservoirBytes, hftKvlFrameCachePages,
         hftKvlFrameCacheBytes, hftKvlCacheFallbackPages, hftKvlCacheFallbackBytes,
@@ -1524,6 +1539,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     startAsyncFlush(true);
   }
 
+  @Override
+  public boolean isAsyncFlushLogBoundaryReached() {
+    return log.liveEntryCount() >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+  }
+
+  static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount) {
+    checkArgument(liveEntryCount >= 0, "Negative live TIL entry count is not accepted.");
+    return liveEntryCount >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+  }
+
+  @Override
+  public void recordAsyncFlushForegroundNanos(final long elapsedNanos) {
+    checkArgument(elapsedNanos >= 0L, "Negative async-flush foreground duration is not accepted.");
+    if (HFT_TELEMETRY_ENABLED) {
+      hftForegroundFlushCount++;
+      hftForegroundFlushNanos += elapsedNanos;
+      hftMaxForegroundFlushNanos = Math.max(hftMaxForegroundFlushNanos, elapsedNanos);
+    }
+  }
+
   /**
    * Flush only immutable side pages, leaving the live TIL untouched.
    *
@@ -2090,7 +2125,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * pool's workers serializing while this thread appends; widening the window past the pool's
    * appetite only inflates the footprint.
    */
-  private static final int SNAPSHOT_FLUSH_WINDOW = 128;
+  private static final int SNAPSHOT_FLUSH_WINDOW = MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
 
   /**
    * Background thread: append the frozen immutable side pages and, for a combined epoch, all KVL
@@ -2203,6 +2238,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     long serializeJoinWaitNanos = 0L;
     long kvlAppendNanos = 0L;
     long finalFlushNanos = 0L;
+    long attemptedKvlPagesInEpoch = 0L;
     markAsyncFlushProgress();
     try {
       // A timeout can publish poison just after this task wins ENQUEUED -> RUNNING. The worker now
@@ -2334,6 +2370,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 // workers' hot path, and promotions cannot disappear from cache-coverage telemetry.
                 hftSnapshotKvlAttemptedPages += attemptedKvlPages;
                 hftSnapshotKvlPromotedPages += promotedKvlPages;
+                attemptedKvlPagesInEpoch += attemptedKvlPages;
               }
             } finally {
               if (HFT_TELEMETRY_ENABLED) {
@@ -2421,6 +2458,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         hftWorkerRuns++;
         hftWorkerNanos += workerNanos;
+        hftMaxSnapshotKvlAttemptedPages = Math.max(
+            hftMaxSnapshotKvlAttemptedPages, attemptedKvlPagesInEpoch);
         if (workerNanos > hftMaxWorkerNanos) {
           hftMaxWorkerNanos = workerNanos;
           hftMaxWorkerEpochId = epochId;
