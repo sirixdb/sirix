@@ -143,6 +143,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   static final int MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT = 128;
 
+  /** Small first epoch that pays serializer/JIT warm-up without violating the latency budget. */
+  static final int MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT = 16;
+
   /**
    * Buffered output for page writes.
    *
@@ -1541,12 +1544,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public boolean isAsyncFlushLogBoundaryReached() {
-    return log.liveEntryCount() >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+    final int threshold = log.getCurrentGeneration() == 0
+        ? MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT
+        : MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+    return log.liveEntryCount() >= threshold;
   }
 
-  static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount) {
+  static boolean isAsyncFlushLogBoundaryReached(final int liveEntryCount, final int currentGeneration) {
     checkArgument(liveEntryCount >= 0, "Negative live TIL entry count is not accepted.");
-    return liveEntryCount >= MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+    checkArgument(currentGeneration >= 0, "Negative TIL generation is not accepted.");
+    final int threshold = currentGeneration == 0
+        ? MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT
+        : MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT;
+    return liveEntryCount >= threshold;
   }
 
   @Override

@@ -211,7 +211,9 @@ region-size value present in the unified heap log must agree or the gate fails c
 async serialization graphs enough nursery lifetime to die young without hiding unbounded retained
 occupancy in the 4 GiB old generation. The 4,194,304-node value remains the logical auto-commit
 threshold, while `KEEP_OPEN_ASYNC_FLUSH` caps every storage-only epoch at 131,072 modifications and
-the transaction-intent log may rotate earlier at 128 live entries. The emitted
+the transaction-intent log may rotate earlier at 128 live entries. Its cold first epoch uses
+16,384 modifications or 16 live entries to pay serializer/JIT and projection-maintenance warm-up
+on a deliberately small unit. The emitted
 `asyncFlushNodeCap=131072` comes from the engine's active mode policy; it is unrelated to the
 same-valued `sirix.asyncFlush.sidePageCount` object bound. The bounded append permit still limits
 overlap. Both prefixes use

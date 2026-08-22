@@ -2108,7 +2108,10 @@ real commit, the pre-flushed bytes are unreachable dead space (equivalent to
 rolled-back bytes in the append-only file).
 
 The transaction rotates at the first safe pre-mutation boundary after either
-of two thresholds is reached: 128 generation-scoped TIL entries (one
+of two thresholds is reached. The cold first epoch is deliberately small at
+16 generation-scoped TIL entries or 16,384 completed node modifications so
+serializer/JIT and projection-maintenance warm-up cannot dominate one large
+latency event. Every subsequent epoch is bounded at 128 TIL entries (one
 background serializer window) or 131,072 completed node modifications. The
 first is an O(1) measure of actual snapshot work; structural entries make it
 conservative because they are pinned before KVL serialization. The second
