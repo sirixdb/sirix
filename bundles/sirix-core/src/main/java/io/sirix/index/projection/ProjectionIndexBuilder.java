@@ -111,6 +111,11 @@ public final class ProjectionIndexBuilder {
   private long leavesEmitted;
   /** Greatest normal routing-backbone key emitted so far; exceptions never advance it. */
   private long lastNormalRecordKey = Long.MIN_VALUE;
+  /** Even ORDPATH separator the build's own label sequence carries through on overflow. */
+  private static final int ORDER_LABEL_CARRY_SEPARATOR = 2;
+  /** Odd division a carried label restarts its sequence at. */
+  private static final int ORDER_LABEL_CARRY_DIVISION = 17;
+
   private @Nullable SirixDeweyID lastOrderLabel;
   private final @Nullable LongFunction<SirixDeweyID> orderLabelResolver;
 
@@ -1166,9 +1171,42 @@ public final class ProjectionIndexBuilder {
   }
 
   private SirixDeweyID nextOrderLabel() {
-    return lastOrderLabel == null
-        ? SirixDeweyID.newRootID().getNewChildID()
-        : SirixDeweyID.newBetween(lastOrderLabel, null);
+    return nextSequentialOrderLabel(lastOrderLabel);
+  }
+
+  /**
+   * The next label of a build's own strictly increasing sequence.
+   *
+   * <p>
+   * {@link SirixDeweyID#newBetween(SirixDeweyID, SirixDeweyID)}'s open-ended branch advances the
+   * final division by an unchecked {@code int} addition, so a long enough append run wraps it
+   * negative and the sequence stops increasing — at which point the monotonicity check in
+   * {@link #appendExtractedRecord} aborts an otherwise valid build. A run that long is reachable: the
+   * sequence starts at division 17 and steps by the sibling distance, so a single-pass build of a
+   * corpus in the hundreds of millions of records crosses it.
+   *
+   * <p>
+   * Detect the wrap from the returned label rather than from the step size — the step is a mutable
+   * global — and carry into an additional division instead. The carried label is strictly greater
+   * because the previous label's divisions are its prefix, which is also how the persisted lane
+   * compares them, and the fresh final division restores the sequence's full range.
+   */
+  static SirixDeweyID nextSequentialOrderLabel(final @Nullable SirixDeweyID previous) {
+    if (previous == null) {
+      return SirixDeweyID.newRootID().getNewChildID();
+    }
+    final int[] divisions = previous.getDivisionValues();
+    final int lastDivision = divisions[divisions.length - 1];
+    final SirixDeweyID candidate = SirixDeweyID.newBetween(previous, null);
+    final int[] candidateDivisions = candidate.getDivisionValues();
+    if (candidateDivisions.length == divisions.length
+        && candidateDivisions[candidateDivisions.length - 1] > lastDivision) {
+      return candidate;
+    }
+    final int[] carried = Arrays.copyOf(divisions, divisions.length + 2);
+    carried[divisions.length] = ORDER_LABEL_CARRY_SEPARATOR;
+    carried[divisions.length + 1] = ORDER_LABEL_CARRY_DIVISION;
+    return new SirixDeweyID(carried);
   }
 
   private SirixDeweyID resolveOrderLabel(final long recordKey) {
