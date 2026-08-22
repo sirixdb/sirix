@@ -56,12 +56,12 @@ final class JsonBenchLoadMainTest {
   }
 
   @Test
-  void secondPassProjectionLoadsPersistDeweyIds() {
+  void bothBenchmarkArmsLoadWithoutDeweyIds() {
     try (final var projectionStore = JsonBenchLoadMain.newLoadStoreBuilder(
-        Path.of("."), 1024, true, false, true, HashType.NONE).build();
+        Path.of("."), 1024, true, false, HashType.NONE).build();
          final var genericStore = JsonBenchLoadMain.newLoadStoreBuilder(
-             Path.of("."), 1024, false, false, false, HashType.NONE).build()) {
-      assertTrue(projectionStore.options().useDeweyIDs());
+             Path.of("."), 1024, false, false, HashType.NONE).build()) {
+      assertFalse(projectionStore.options().useDeweyIDs());
       assertFalse(genericStore.options().useDeweyIDs());
     }
   }

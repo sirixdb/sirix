@@ -121,7 +121,7 @@ public final class JsonBenchLoadMain {
         autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
-    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, projection, hashType)
+    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, hashType)
         .build()) {
       try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
         if (projection && incrementalProjection) {
@@ -276,15 +276,19 @@ public final class JsonBenchLoadMain {
     return objects;
   }
 
+  /**
+   * Both benchmark arms load through the SAME store options: the projection index derives its
+   * document order from labels it owns itself, so it never reads node Dewey IDs. Forcing them on for
+   * the projection arm would put Dewey-ID generation and its extra page bytes inside the measured
+   * load window and into the reported data size with no counterpart in the ClickHouse arm.
+   */
   static BasicJsonDBStore.Builder newLoadStoreBuilder(final Path dbDir, final int autoCommit,
-      final boolean pathSummary, final boolean pathStatistics, final boolean projection,
-      final HashType hashType) {
+      final boolean pathSummary, final boolean pathStatistics, final HashType hashType) {
     return BasicJsonDBStore.newBuilder()
                            .location(dbDir)
                            .numberOfNodesBeforeAutoCommit(autoCommit)
                            .buildPathSummary(pathSummary)
                            .buildPathStatistics(pathStatistics)
-                           .storeDeweyIds(projection)
                            .hashType(hashType);
   }
 

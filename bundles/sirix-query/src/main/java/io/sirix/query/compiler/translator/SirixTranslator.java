@@ -177,7 +177,7 @@ public class SirixTranslator extends TopDownTranslator {
           final Expr generic = super.functionCall(node);
           return new SirixComputedAggregateExpr(executor, sourcePath,
               (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(),
-              fields, code, consts, SirixPipelineStrategy.sourceRef(sourceRef), generic);
+              fields, code, consts, sourceRef, generic);
         }
       }
     }

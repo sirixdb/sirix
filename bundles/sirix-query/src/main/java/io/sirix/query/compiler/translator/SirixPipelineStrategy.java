@@ -62,7 +62,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields, descending, topK == null
                 ? -1L
                 : topK,
-            returnField, sourceRef(sortSourceRef), generic);
+            returnField, sortSourceRef, generic);
       }
     }
     // P5b stage 7d: predicate scan — filtered rows (or one field of them) in document order,
@@ -79,7 +79,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       if (predSourcePath != null && predTree != null && acceptsOrRuntimeCheckable(predExecutor, predSourceRef)) {
         return new SirixSortedScanExpr(predExecutor, predSourcePath, predTree, null, null, predTopK == null
             ? -1L
-            : predTopK, predReturnField, sourceRef(predSourceRef), generic);
+            : predTopK, predReturnField, predSourceRef, generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
@@ -97,7 +97,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
           && rowConsts != null && acceptsOrRuntimeCheckable(rowExecutor, rowSourceRef)) {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields, rowOutNames, rowDirect, rowCodes,
-            rowConsts, sourceRef(rowSourceRef), generic);
+            rowConsts, rowSourceRef, generic);
       }
     }
     // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
@@ -114,7 +114,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
           && constOffsets != null && constOffsets.length == constFuncs.length
           && acceptsOrRuntimeCheckable(constExecutor, constRef)) {
         return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath, servedPredicate(node), constFuncs,
-            constFields, constOffsets, constOutNames, sourceRef(constRef), generic);
+            constFields, constOffsets, constOutNames, constRef, generic);
       }
       return generic;
     }
@@ -225,7 +225,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             : -1L,
         keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
         keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
-        sourceRef(sourceRef), generic);
+        sourceRef, generic);
   }
 
   /**
@@ -251,11 +251,6 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    */
   static boolean acceptsOrRuntimeCheckable(final SirixExecutorProvider executor, final SourceRef ref) {
     return ref == null || ref.kind() == SourceRef.Kind.VARIABLE || executor.acceptsSource(ref);
-  }
-
-  /** Carries the admitted source into the revision-stable evaluation lease and runtime gate. */
-  static SourceRef sourceRef(final SourceRef ref) {
-    return ref;
   }
 
   @SuppressWarnings("unchecked")

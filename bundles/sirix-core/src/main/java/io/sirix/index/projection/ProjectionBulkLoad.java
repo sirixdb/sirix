@@ -299,8 +299,8 @@ public final class ProjectionBulkLoad {
       // begin() is an explicit full build boundary. Clear every prior positive storage slot and
       // sparse negative record locator before publishing the fail-closed tombstone for the load.
       storage.resetTree();
-      ProjectionStructuralOrderDirectory.open(storage).putIfAbsent(
-          Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty());
+      ProjectionStructuralOrderDirectory.open(storage)
+                                        .seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       storage.putBlob(0, ProjectionIndexMetadata.staleTombstone().serialize());
       return load;
     } catch (final Throwable failure) {

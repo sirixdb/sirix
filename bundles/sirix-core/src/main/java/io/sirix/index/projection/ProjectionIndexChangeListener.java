@@ -722,9 +722,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
       return;
     }
-    if (maintenanceTrx != null) {
-      maintainStructuralOrder(type, nodeKey);
-    }
     if (load != null) {
       onChangeDuringBulkLoad(load, nodeKey, kind, parentKey, pathNodeKey);
       return;
@@ -763,6 +760,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     if (recordKey == nodeKey) {
       recordFirstRootEvent(recordKey, type);
+      // Structural ordering is PER PROJECTED RECORD. A field of a record — thirteen of every
+      // fourteen nodes on the ClickBench corpus — never reaches this point, so the ingestion hot
+      // path performs no order-directory read or write for it.
+      maintainStructuralOrder(type, nodeKey);
     }
     final long[] changedColumns = pathNodeKey > 0 ? columnWordsByPcr.get(pathNodeKey) : null;
     markDirty(recordKey, changedColumns == null ? allColumnWords : changedColumns);
@@ -1321,6 +1322,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     return directory;
   }
 
+  /**
+   * Retire or un-retire a record's order slot. Labels themselves are NOT minted here: the directory
+   * mints one lazily the first time a record's row label is needed, which keeps this notification —
+   * the ingestion hot path — free of document reads and HOT-trie writes.
+   */
   private void maintainStructuralOrder(final IndexController.ChangeType type, final long nodeKey) {
     if (type == IndexController.ChangeType.DELETE) {
       stageStructuralDelete(nodeKey);
@@ -1328,15 +1334,6 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     }
     cancelStructuralDelete(nodeKey);
     drainStructuralDeleteCandidates(false);
-    final ImmutableNode node = readNode(nodeKey);
-    if (node == null) {
-      throw new IllegalStateException("Projection index " + indexDef.getID()
-          + " cannot read changed node " + nodeKey + " for structural ordering");
-    }
-    if (!(node instanceof final StructNode structural)) {
-      return;
-    }
-    structuralOrderDirectory().relabel(nodeKey, structural.getLeftSiblingKey(), structural.getRightSiblingKey());
   }
 
   private void stageStructuralDelete(final long nodeKey) {
@@ -1389,11 +1386,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private void relabelStructuralOrder(final long nodeKey) {
     final ImmutableNode node = readNode(nodeKey);
-    if (!(node instanceof final StructNode structural)) {
+    if (!(node instanceof StructNode)) {
       throw new IllegalStateException("Projection index " + indexDef.getID()
           + " cannot relabel moved structural node " + nodeKey);
     }
-    structuralOrderDirectory().relabel(nodeKey, structural.getLeftSiblingKey(), structural.getRightSiblingKey());
+    structuralOrderDirectory().relabelDisplaced(nodeKey, this::readNode, null);
   }
 
   private void markDirty(final long recordKey, final long[] changedColumnWords) {
@@ -1667,7 +1664,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       return;
     }
     try {
-      if (!applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas)) {
+      final LongOpenHashSet relabelled = mintRecordOrderLabels(dirty, dirtyColumnWords, rootProvenance);
+      if (!applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas, relabelled)) {
         throw new IllegalStateException("Projection index " + indexDef.getID()
             + " incremental maintenance found inconsistent persistent units");
       }
@@ -1676,6 +1674,91 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       failMaintenance(failure);
       throw failure;
     }
+  }
+
+  /**
+   * Mint the order labels of the records this pass will insert, BEFORE the apply pass reads any of
+   * them. Doing it here rather than in the middle of the apply is what lets the directory's bounded
+   * rebalance report the sibling records it re-spread: they join the dirty set as moves, so their
+   * persisted row-group order labels are rewritten in the very same pass. Work stays incremental —
+   * a rebalance touches a fixed-size sibling window and the row groups those records live in, never
+   * the whole index, bitmap or trie.
+   *
+   * @return the already-persisted records a rebalance re-labelled; empty when none did
+   */
+  private LongOpenHashSet mintRecordOrderLabels(final LongOpenHashSet dirty,
+      final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
+      final @Nullable Long2ByteOpenHashMap rootProvenance) {
+    final LongOpenHashSet relabelled = new LongOpenHashSet();
+    if (rootProvenance == null || rootProvenance.isEmpty()) {
+      return relabelled;
+    }
+    final ProjectionStructuralOrderDirectory.Accessor directory = structuralOrderDirectory();
+    final ProjectionStructuralOrderDirectory.RelabelSink sink =
+        new ProjectionStructuralOrderDirectory.RelabelSink() {
+          @Override
+          public boolean canRelabel(final long nodeKey) {
+            // Only a record carries its own row: a labelled CONTAINER is a shared prefix of every
+            // record below it and must never be re-spread.
+            return isCurrentRecordRoot(nodeKey);
+          }
+
+          @Override
+          public void relabelled(final long nodeKey, final SirixDeweyID localLabel) {
+            relabelled.add(nodeKey);
+          }
+        };
+    final long[] candidates = dirty.toLongArray();
+    LongArrays.quickSort(candidates);
+    final LongOpenHashSet pending = new LongOpenHashSet(candidates.length);
+    for (final long recordKey : candidates) {
+      if ((rootProvenance.get(recordKey) & FIRST_ROOT_EVENT_MASK) == FIRST_ROOT_INSERT
+          && isCurrentRecordRoot(recordKey)) {
+        pending.add(recordKey);
+      }
+    }
+    // Mint each run of newly inserted siblings LEFT to RIGHT. Minting is order-independent for
+    // correctness, but not for cost: taken in an arbitrary order, every mint would have to skip its
+    // not-yet-labelled neighbours to reach a labelled one, which is quadratic in the size of a
+    // prepend-shaped batch. Walking a run from its head keeps every probe one sibling long.
+    final LongOpenHashSet minted = new LongOpenHashSet(pending.size());
+    for (final long recordKey : candidates) {
+      if (!pending.contains(recordKey) || minted.contains(recordKey)) {
+        continue;
+      }
+      long head = recordKey;
+      for (;;) {
+        final long left = leftSiblingKeyOf(head);
+        if (left < 0 || !pending.contains(left) || minted.contains(left)) {
+          break;
+        }
+        head = left;
+      }
+      for (long cursor = head; cursor >= 0 && pending.contains(cursor) && !minted.contains(cursor);
+          cursor = rightSiblingKeyOf(cursor)) {
+        directory.fullLabel(cursor, this::readNode, sink);
+        minted.add(cursor);
+      }
+    }
+    for (final LongIterator iterator = relabelled.iterator(); iterator.hasNext();) {
+      final long recordKey = iterator.nextLong();
+      if (dirty.add(recordKey)) {
+        dirtyColumnWords.put(recordKey, allColumnWords.clone());
+      }
+    }
+    return relabelled;
+  }
+
+  private long leftSiblingKeyOf(final long nodeKey) {
+    return readNode(nodeKey) instanceof final StructNode structural
+        ? structural.getLeftSiblingKey()
+        : NO_RECORD_KEY;
+  }
+
+  private long rightSiblingKeyOf(final long nodeKey) {
+    return readNode(nodeKey) instanceof final StructNode structural
+        ? structural.getRightSiblingKey()
+        : NO_RECORD_KEY;
   }
 
   private void failMaintenance(final Throwable failure) {
@@ -1694,7 +1777,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private boolean applyIncremental(final LongOpenHashSet dirty,
       final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
       final @Nullable Long2ByteOpenHashMap rootProvenance,
-      final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas) {
+      final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas,
+      final LongOpenHashSet relabelled) {
     final ProjectionIndexHOTStorage storage = new ProjectionIndexHOTStorage(storageEngineWriter, indexDef.getID());
     final ProjectionIndexMetadata meta = readMetadata(storage);
     if (meta == null || meta.isStale()) {
@@ -1728,7 +1812,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         ProjectionSetSummaryChunks.open(storage, meta.setValueRowCounts());
     try {
       return applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas,
-          storage, meta, persistedKinds, globalDictionaries, setValueRowCounts);
+          relabelled, storage, meta, persistedKinds, globalDictionaries, setValueRowCounts);
     } finally {
       releaseMaintenanceGlobalDictionaries(globalDictionaries);
     }
@@ -1738,6 +1822,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
       final @Nullable Long2ByteOpenHashMap rootProvenance,
       final @Nullable ArrayList<StructuralDelta> completedStructuralDeltas,
+      final LongOpenHashSet relabelled,
       final ProjectionIndexHOTStorage storage, final ProjectionIndexMetadata meta,
       final byte[] persistedKinds,
       final MaintenanceGlobalDictionary @Nullable [] globalDictionaries,
@@ -1806,7 +1891,10 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         continue;
       }
 
-      if (structuralEnter || structuralExit) {
+      if (structuralEnter || structuralExit || relabelled.contains(recordKey)) {
+        // A re-spread record keeps its identity and its columns but moves in LABEL space: the only
+        // way its persisted row picks up the new order label is to leave its row group and re-enter
+        // at the position the fresh label names.
         removals.add(recordKey);
         insertions.add(recordKey);
         movedRecords.add(recordKey);

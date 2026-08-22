@@ -28,6 +28,11 @@ public final class SirixRowMaterializeExpr implements Expr {
   private final int[] direct;
   private final int[][] codes;
   private final long[][] consts;
+  /**
+   * Carries the admitted source into the revision-stable evaluation lease and the runtime gate: a
+   * {@link SourceRef.Kind#VARIABLE} ref cannot be judged at compile time, so this expr re-checks the
+   * binding at evaluation time and declines to its generic fallback when it is foreign.
+   */
   private final SourceRef sourceRef;
   private final Expr genericFallback;
 

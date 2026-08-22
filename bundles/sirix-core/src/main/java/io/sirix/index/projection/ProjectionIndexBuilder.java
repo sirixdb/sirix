@@ -22,6 +22,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.ValueDictionaryHeaderNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.settings.Fixed;
 
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -572,9 +573,11 @@ public final class ProjectionIndexBuilder {
     // so stale row groups and sparse negative record locators from an earlier incarnation cannot
     // survive under the new metadata. Ordinary transaction maintenance never takes this path.
     storage.resetTree();
-    ProjectionStructuralOrderDirectory.initialize(rtx, storage);
     final ProjectionStructuralOrderDirectory.Accessor structuralOrderDirectory =
         ProjectionStructuralOrderDirectory.open(storage);
+    // No document-wide pre-pass: the directory mints a record's order label the first time this
+    // build asks for one, so it costs exactly one slot per emitted record and no second walk.
+    structuralOrderDirectory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
     final LongFunction<ImmutableNode> documentNodeLookup =
         nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
     final LongFunction<SirixDeweyID> orderLabelResolver =

@@ -28,6 +28,11 @@ public final class SirixConstGroupAggregateExpr implements Expr {
   private final String[] aggFields;
   private final long[] offsets;
   private final String[] outNames;
+  /**
+   * Carries the admitted source into the revision-stable evaluation lease and the runtime gate: a
+   * {@link SourceRef.Kind#VARIABLE} ref cannot be judged at compile time, so this expr re-checks the
+   * binding at evaluation time and declines to its generic fallback when it is foreign.
+   */
   private final SourceRef sourceRef;
   private final Expr genericFallback;
 
