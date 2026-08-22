@@ -1,5 +1,6 @@
 package io.sirix.access.node.json;
 
+import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -11,6 +12,7 @@ import org.junit.Before;
 import org.junit.Test;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
+import io.sirix.diff.JsonDiffIntegrity;
 import io.sirix.service.json.shredder.JsonShredder;
 
 import java.io.IOException;
@@ -201,7 +203,12 @@ public class JsonNodeTrxUpdateTest {
       // Fusion shifts the inserted-subtree's interior nodeKey by one (primitive-valued fields
       // collapse two records to one), so we need a variant golden file for the fused shredder.
       final String golden = "diffFromRev1toRev2-fused.json";
-      assertEquals(Files.readString(JSON.resolve(golden)), Files.readString(diffPath));
+      final var actual = JsonParser.parseString(Files.readString(diffPath)).getAsJsonObject();
+      JsonDiffIntegrity.validate(actual);
+      actual.remove(JsonDiffIntegrity.FORMAT_VERSION_FIELD);
+      actual.remove(JsonDiffIntegrity.OPERATION_COUNT_FIELD);
+      actual.remove(JsonDiffIntegrity.OPERATIONS_DIGEST_FIELD);
+      assertEquals(Files.readString(JSON.resolve(golden)), actual.toString());
     }
   }
 

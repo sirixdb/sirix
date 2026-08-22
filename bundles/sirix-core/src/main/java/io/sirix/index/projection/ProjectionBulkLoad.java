@@ -20,9 +20,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,13 +52,15 @@ import java.util.concurrent.ConcurrentMap;
  * <h2>What is written when</h2>
  *
  * Full leaves stream into the definition's HOT sub-tree as they fill and ride the auto-commit that
- * follows, so the load's memory is one leaf plus the dictionary sample plus the resource-wide
- * dictionaries — the same footprint as the post-pass build. Nothing else is written until
- * {@link #finish}: slot 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone}
- * for the whole load, so a load that dies half-way leaves a projection every reader SKIPS in favour of
- * the generic pipeline. Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make
- * every query answer from an empty index — zero rows, silently, which is the one outcome worse than
- * being slow.
+ * follows. Retained derived state is explicit and bounded: two fence longs per emitted leaf, one
+ * 256-leaf Bloom-reference window per local-string column, and only those set-summary values that
+ * still fit their one optional summary chunk. Complete Bloom windows stream to storage eagerly;
+ * fence chunks, the Bloom manifests, set summaries and live metadata publish at {@link #finish}.
+ * Slot 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole
+ * load, so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic
+ * pipeline. Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make every
+ * query answer from an empty index — zero rows, silently, which is the one outcome worse than being
+ * slow.
  */
 public final class ProjectionBulkLoad {
 
@@ -103,8 +103,9 @@ public final class ProjectionBulkLoad {
   /** Bounded 256-row-group fingerprint accumulator; full chunks are persisted eagerly. */
   private final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
 
-  /** Index-wide per-value row counts for {@code COLUMN_KIND_STRING_SET} columns. */
-  private final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
+  /** Bounded index-wide per-value row counts for {@code COLUMN_KIND_STRING_SET} columns. */
+  private final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
+      new ProjectionSetSummaryChunks.BuildAccumulator();
 
   private final boolean hasSetColumn;
 
@@ -215,7 +216,7 @@ public final class ProjectionBulkLoad {
       firstKeys.add(leaf.firstRecordKey());
       lastKeys.add(leaf.lastRecordKey());
       if (hasSetColumn) {
-        ProjectionIndexBuilder.accumulateSetValueRowCounts(leaf, setValueRowCounts);
+        setSummaries.append(leaf);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
@@ -338,9 +339,13 @@ public final class ProjectionBulkLoad {
       bloomChunks.release();
     } finally {
       try {
-        builder.releaseTransientState();
+        setSummaries.release();
       } finally {
-        storage = null;
+        try {
+          builder.releaseTransientState();
+        } finally {
+          storage = null;
+        }
       }
     }
   }
@@ -531,17 +536,21 @@ public final class ProjectionBulkLoad {
       // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
       // the new leaf count to tombstone.
       ProjectionIndexBuilder.finishPersist(indexDef, storage, firstKeys, lastKeys, 0, buildRevision,
-          columnKinds, setValueRowCounts, null, valueDictionaryHeaderKeys, bloomChunks);
+          columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
     } finally {
       try {
         bloomChunks.release();
       } finally {
         try {
-          builder.releaseTransientState();
+          setSummaries.release();
         } finally {
-          this.storage = null;
-          finished = true;
-          ACTIVE.remove(key, this);
+          try {
+            builder.releaseTransientState();
+          } finally {
+            this.storage = null;
+            finished = true;
+            ACTIVE.remove(key, this);
+          }
         }
       }
     }

@@ -101,55 +101,29 @@ import java.util.Arrays;
  *
  * <h2>Versioning &amp; storage placement</h2>
  *
- * Each serialised leaf byte[] is stored as one entry in a {@link io.sirix.page.HOTLeafPage} of the
- * projection index's HOT tree, keyed by a synthetic chunk-id. {@code HOTLeafPage} is already a
- * versioned {@code KeyValuePage} — Sirix's
- * {@link io.sirix.settings.VersioningType#combineRecordPages} merge writes only the
- * <strong>modified slots</strong> of a given HOTLeafPage per revision; untouched slots alias the
- * prior revision's bytes via the standard chain walk. No new {@code PageKind}, no
- * {@link io.sirix.index.hot.ChunkDirectory} indirection — the HOT leaf <em>is</em> the directory.
+ * A row group is not stored as one opaque value. Its zone-map descriptor, KEYS segment, and each
+ * column's BODY / DICT / SET_COUNTS / STRING_BLOOM / optional DICT_HASHES segment occupy independent
+ * composite-key slots in the projection's {@link io.sirix.page.HOTLeafPage} tree. A segment above the
+ * inline threshold spills independently to the ordinary {@link io.sirix.page.OverflowPage}
+ * mechanism, so one large dictionary does not force the other columns into its CoW unit.
  *
  * <p>
- * Concrete on-disk cost per commit:
+ * Incremental maintenance observes the same boundaries:
  *
  * <ul>
  * <li>No projection-relevant rows changed → zero bytes.</li>
- * <li>Rows in chunk <em>N</em> changed → only slot <em>N</em> of that HOTLeafPage gets
- * re-serialised; slots of untouched chunks alias the previous revision.</li>
- * <li>Large leaf values (~20 KB) that exceed the inline-slot threshold transparently spill to
- * Sirix's overflow-record mechanism: a separate CoW-versioned page referenced from the slot — same
- * effect as a dedicated chunk page, no new code.</li>
+ * <li>A value-only update rewrites the row-group descriptor and only the selected column segments
+ * whose length/hash changed; all other segment slots are true no-ops.</li>
+ * <li>An insert/delete/move rebuilds only its bounded affected row group(s). Even there, the
+ * descriptor diff carries byte-identical segments forward instead of writing them again.</li>
  * </ul>
  *
  * <p>
- * <b>Known architectural debt — to be addressed before general availability.</b> Storing a 20 KB
- * serialised leaf as a single HOT entry value breaks Sirix's documented
- * {@linkplain io.sirix.settings.VersioningType#SLIDING_SNAPSHOT} contract (see
- * {@code docs/ARCHITECTURE.md} §"Problem 9" and §1097): the framework guarantees <em>O(1) writes
- * per record</em>, but our natural "record" is a single projection row (~32 bytes), not the
- * 1024-row leaf. On update-heavy workloads a one-row change re-emits the full ~20 KB slot — ~1000×
- * the share-ratio the README promises.
- *
- * <p>
- * Unlike CAS/NAME/PATH indexes (whose Roaring-bitmap values are naturally KB-sized per record and
- * thus align with slot granularity), projection leaves pack many records per slot and will need
- * sub-slot sharing before production use:
- *
- * <ul>
- * <li>Per-row slots (1024 slots/leaf, one per row) — exact match for the SLIDING_SNAPSHOT contract
- * but loses columnar layout.</li>
- * <li>Per-column slots (3 slots/leaf, one per column) — row update re-emits the touched column(s)
- * (~8 KB) not the full leaf; columnar scan still works.</li>
- * <li>Reuse the half-built {@code BitmapChunkPage} / {@code ChunkDirectory} machinery in
- * {@code io.sirix.index.hot}; currently unused by the CAS path but wired through
- * {@link io.sirix.page.PageKind} and
- * {@link io.sirix.settings.VersioningType#combineBitmapChunks}.</li>
- * </ul>
- *
- * <p>
- * Tracked in task #57. Today's opaque-byte[]-per-slot layout is explicitly an interim shipping
- * configuration; do not publish a projection-index public API commitment until sub-slot sharing is
- * in.
+ * Each of those slots then follows the normal {@link io.sirix.settings.VersioningType} machinery:
+ * FULL emits a self-contained HOT page, while DIFFERENTIAL, INCREMENTAL and SLIDING_SNAPSHOT retain
+ * their strategy-specific bounded fragment chains and merge entries by key. Projection storage adds
+ * no private version chain and therefore preserves the engine's carry-forward and GC rules for all
+ * four strategies.
  */
 public final class ProjectionIndexRowGroupPage {
 

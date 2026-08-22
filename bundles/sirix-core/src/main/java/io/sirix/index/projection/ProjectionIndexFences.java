@@ -291,6 +291,8 @@ public final class ProjectionIndexFences {
     private final IntOpenHashSet changedChunks = new IntOpenHashSet();
     private final IntOpenHashSet reusedSlots = new IntOpenHashSet();
     private final IntOpenHashSet allocatedSlots = new IntOpenHashSet();
+    /** Owner-confined skip-search scratch, reused by every local numeric mutation/validation. */
+    private final int[] numericPredecessors = new int[SKIP_LEVELS];
     private @Nullable IntOpenHashSet freeSlots;
     private int chunksRead;
     private int chunksWritten;
@@ -606,6 +608,54 @@ public final class ProjectionIndexFences {
       }
     }
 
+    /**
+     * Validate one touched leaf against the persistent normal-key routing structure without walking
+     * through document-order exception-only leaves.
+     *
+     * <p>Exception-only leaves are deliberately absent from numeric routing. Their only local
+     * invariant is therefore the reciprocal document link checked above; scanning across a run of
+     * such leaves adds no routing evidence and makes a one-leaf update proportional to unrelated
+     * document history. A normal base is checked against its immutable owner interval and its first
+     * level-zero successor. A normal split is found through the bounded numeric skip structure and
+     * its immediate predecessor/successor edges are revalidated. The numeric mutation methods
+     * already use the same predecessor search when a split enters, leaves, or moves in that chain.</p>
+     */
+    void validateTouchedNormalBounds(final int slot) {
+      validateDocumentLinks(slot);
+      final long first = first(slot);
+      final long last = last(slot);
+      if (!validateNormalRange(first, last)) {
+        return;
+      }
+
+      final int owner = ownerBase(slot);
+      final long ownerLowerExclusive = owner == 1 ? Long.MIN_VALUE : baseUpper(owner - 1);
+      final long ownerUpperInclusive = baseUpper(owner);
+      if (first <= ownerLowerExclusive || last > ownerUpperInclusive) {
+        throw new IllegalStateException("projection normal fence [" + first + ", " + last
+            + "] escapes base " + owner + " ownership (" + ownerLowerExclusive + ", "
+            + ownerUpperInclusive + "] at physical leaf " + slot);
+      }
+
+      if (slot == owner) {
+        final int successor = checkedNumericSuccessor(owner, 0, owner);
+        if (successor != 0 && last >= first(successor)) {
+          throw new IllegalStateException("projection normal base " + owner
+              + " overlaps its first numeric split " + successor);
+        }
+        return;
+      }
+
+      final int[] predecessors = predecessorsFor(owner, first);
+      final int predecessor = predecessors[0];
+      if (checkedNumericSuccessor(predecessor, 0, owner) != slot) {
+        throw new IllegalStateException("projection normal split " + slot
+            + " is not linked at its numeric position for base " + owner);
+      }
+      // checkedNumericSuccessor proves strict key progression on both adjacent level-zero edges.
+      checkedNumericSuccessor(slot, 0, owner);
+    }
+
     public void flush(final int rowGroupCount) {
       if (rowGroupCount != liveRowGroupCount) {
         throw new IllegalArgumentException("live rowGroupCount mismatch: " + rowGroupCount
@@ -713,7 +763,6 @@ public final class ProjectionIndexFences {
     }
 
     private int[] predecessorsFor(final int base, final long firstRecordKey) {
-      final int[] predecessors = new int[SKIP_LEVELS];
       int slot = base;
       for (int level = SKIP_LEVELS - 1; level >= 0; level--) {
         int candidate;
@@ -721,9 +770,9 @@ public final class ProjectionIndexFences {
             && last(candidate) < firstRecordKey) {
           slot = candidate;
         }
-        predecessors[level] = slot;
+        numericPredecessors[level] = slot;
       }
-      return predecessors;
+      return numericPredecessors;
     }
 
     /**

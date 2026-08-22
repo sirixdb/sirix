@@ -3,7 +3,6 @@ package io.sirix.access.trx.node.json;
 import io.sirix.utils.ToStringHelper;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
@@ -16,6 +15,7 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.diff.JsonDiffSerializer;
+import io.sirix.diff.JsonDiffSidecar;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
@@ -48,7 +48,6 @@ import io.brackit.query.atomic.QNm;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -110,8 +109,11 @@ public final class JsonNodeReadOnlyTrxImpl extends
     final var diffTuples = new ArrayList<JsonObject>();
 
     try {
-      final var jsonElement = JsonParser.parseString(Files.readString(updateOperationsFile));
-      final var jsonObject = jsonElement.getAsJsonObject();
+      final var jsonObject = JsonDiffSidecar.read(updateOperationsFile,
+          resourceSession.getResourceConfig().getName(),
+          revisionNumber - 1,
+          revisionNumber,
+          resourceSession.getResourceConfig().areDeweyIDsStored);
       final var diffs = jsonObject.getAsJsonArray("diffs");
 
       diffs.forEach(serializeJsonFragmentIfNeeded(diffTuples));
@@ -136,20 +138,32 @@ public final class JsonNodeReadOnlyTrxImpl extends
       }
 
       if (diffTupleObject != null && "jsonFragment".equals(diffTupleObject.getAsJsonPrimitive("type").getAsString())) {
-        final var nodeKey = diffTupleObject.get("nodeKey").getAsLong();
+        final JsonObject replace = diffObject.has(REPLACE)
+            ? diffObject.getAsJsonObject(REPLACE)
+            : null;
+        final long nodeKey = replace == null
+            ? diffTupleObject.get("nodeKey").getAsLong()
+            : replace.get("newNodeKey").getAsLong();
         final var currentNodeKey = getNodeKey();
-        moveTo(nodeKey);
-
-        final int revisionNumber;
-
-        if (storageEngineReader instanceof StorageEngineWriter) {
-          revisionNumber = getRevisionNumber() - 1;
-        } else {
-          revisionNumber = getRevisionNumber();
+        if (!moveTo(nodeKey)) {
+          throw new IllegalStateException("Cached JSON diff references missing node " + nodeKey);
         }
 
-        JsonDiffSerializer.serialize(revisionNumber, this.getResourceSession(), this, diffTupleObject);
-        moveTo(currentNodeKey);
+        try {
+          final int revisionNumber;
+
+          if (storageEngineReader instanceof StorageEngineWriter) {
+            revisionNumber = getRevisionNumber() - 1;
+          } else {
+            revisionNumber = getRevisionNumber();
+          }
+
+          JsonDiffSerializer.serialize(revisionNumber, this.getResourceSession(), this, diffTupleObject);
+        } finally {
+          if (!moveTo(currentNodeKey)) {
+            throw new IllegalStateException("Could not restore JSON diff cursor to node " + currentNodeKey);
+          }
+        }
       }
 
       diffTuples.add(diff.getAsJsonObject());

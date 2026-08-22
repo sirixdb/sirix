@@ -427,6 +427,24 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpResponse.statusCode())
                 }
 
+                httpResponse = client.getAbs("$server$serverPath/diff?first-revision=1&second-revision=2").putHeader(
+                    HttpHeaders.AUTHORIZATION
+                        .toString(), "Bearer $accessToken"
+                ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().coAwait()
+
+                testContext.verify {
+                    val compactDiff = requireNotNull(httpResponse.bodyAsJsonObject())
+                    val compactDiffs = requireNotNull(compactDiff.getJsonArray("diffs"))
+                    val compactInsert = requireNotNull(
+                        requireNotNull(compactDiffs.getJsonObject(0)).getJsonObject("insert")
+                    )
+                    assertEquals(200, httpResponse.statusCode())
+                    assertNull(compactDiff.getValue("sirix-diff-format"))
+                    assertNull(compactDiff.getValue("operation-count"))
+                    assertNull(compactDiff.getValue("operations-sha256"))
+                    assertNull(compactInsert.getValue("data"))
+                }
+
                 httpResponse = client.getAbs("$server$serverPath/diff?first-revision=1&second-revision=2&include-data=true").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"

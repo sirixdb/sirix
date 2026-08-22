@@ -151,32 +151,34 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    // Runtime source gate: an external-variable source is verifiable only now, when the
-    // context carries the actual binding — a foreign binding falls back to the generic
-    // pipeline, which evaluates the same binding and stays correct.
-    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
-      return genericFallback.evaluate(ctx, tuple);
-    }
-    if (executor.canExecute(ctx)) {
-      final SirixVectorizedExecutor.ServedGroups served =
-          executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields,
-              outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
-              keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having);
-      if (served != null) {
-        if (orderIndexes == null || served.ordered()) {
-          // Either no order-by, or the kernel already ordered (and under a limit, truncated to
-          // the first `limit` groups of the stable order — the downstream fn:subsequence still
-          // slices its window out of that prefix, which is all it can ever pull).
-          return postProcess(served.groups());
+    executor.enterExecution();
+    try {
+      // Runtime source gate: an external-variable source is verifiable only now, when the context
+      // carries the actual binding. Leave this admission before evaluating the generic fallback.
+      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
+          && executor.canExecute(ctx)) {
+        final SirixVectorizedExecutor.ServedGroups served =
+            executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields,
+                outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
+                keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having);
+        if (served != null) {
+          if (orderIndexes == null || served.ordered()) {
+            // Either no order-by, or the kernel already ordered (and under a limit, truncated to
+            // the first `limit` groups of the stable order — the downstream fn:subsequence still
+            // slices its window out of that prefix, which is all it can ever pull).
+            return postProcess(served.groups());
+          }
+          final Sequence sorted = sort(served.groups());
+          if (sorted != null) {
+            return postProcess(sorted);
+          }
+          // Unsortable here (a key that is not an atomic, incomparable types across groups). The
+          // generic pipeline re-derives the same groups and either orders them or raises the very
+          // error the interpreter would raise — both are answers this wrapper must not invent.
         }
-        final Sequence sorted = sort(served.groups());
-        if (sorted != null) {
-          return postProcess(sorted);
-        }
-        // Unsortable here (a key that is not an atomic, incomparable types across groups). The
-        // generic pipeline re-derives the same groups and either orders them or raises the very
-        // error the interpreter would raise — both are answers this wrapper must not invent.
       }
+    } finally {
+      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

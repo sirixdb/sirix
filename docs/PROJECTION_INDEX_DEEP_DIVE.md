@@ -533,11 +533,12 @@ capable column's counts live in an independent chunk at `1 << 44 | column`,
 including an explicit empty chunk, so empty-to-nonempty maintenance remains
 servable and one touched column never copies every other summary.
 
-The shape alone is a few hundred bytes, so it inlines: opening a projection
+The shape is normally a few hundred bytes, so it inlines: opening a projection
 reads its shape from the one slot value, with **no extra random read** for a
-metadata page. A summarised set column can push the blob past the 512 B
-inline threshold, spilling it to an `OverflowPage` — one extra page read per
-open, the accepted price of scan-free membership counts.
+metadata page. Exact set counts never inflate this blob: slot 0 carries only
+the capability-column ids, while every capable column's bounded counts occupy
+its independent `1 << 44 | column` chunk. Only an unusually large shape itself
+can push slot 0 past the 512 B inline threshold and into an `OverflowPage`.
 
 `PIXM` is **VERSION 0**, and exactly one version is supported. Any other
 version fails closed: serving declines and ordinary maintenance rejects the

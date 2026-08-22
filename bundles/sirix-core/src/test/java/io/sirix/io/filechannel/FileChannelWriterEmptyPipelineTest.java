@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.IOStorage;
+import io.sirix.io.IOTestHelper;
 import io.sirix.io.PageHasher;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionIndexHolder;
@@ -56,6 +57,7 @@ final class FileChannelWriterEmptyPipelineTest {
           Writer writer = storage.createWriter()) {
         writer.write(config, firstReference, new OverflowPage(firstPayload), appendBuffer);
         writer.write(config, secondReference, new OverflowPage(secondPayload), appendBuffer);
+        IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
 
         final UberPage uberPage = new UberPage();
         final PageReference uberReference = new PageReference();

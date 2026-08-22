@@ -300,6 +300,28 @@ explicitly decided; **nothing remains open**:
   V0's future-proofness depends on it. Tracked in `ROADMAP.md`.
 
 
+## JSON revision-diff sidecars
+
+`update-operations/diffFromRev<old>toRev<new>.json` is a rebuildable cache written after the
+authoritative storage commit. Version 1 sidecars add three top-level fields:
+
+```text
+"sirix-diff-format": 1
+"operation-count": <number of entries in "diffs">
+"operations-sha256": <64 lowercase hexadecimal characters>
+```
+
+The digest covers a canonical typed representation of the complete `diffs` array, including
+object-field order, names, values, and numeric lexical forms; it is computed incrementally from the
+Gson tree without creating another whole-file string or byte array. The writer first creates a
+unique sibling temp file and then publishes it by same-directory atomic move where supported.
+
+The core reader performs one strict JSON read and validates resource/revision identity, Unicode
+scalar values, format version, count, digest, and the required schema of every operation before
+hydrating fragment data. `jn:diff` treats any failure as a cache miss and computes the authoritative
+revision diff. Multi-revision resource copy uses the same reader and fails before applying a partial
+revision. Files without these version-1 integrity fields are not accepted by this build.
+
 ## Projection indexes (segment ⇔ slot layout)
 
 Authoritative design + corner-case catalog: `docs/PROJECTION_INDEX_STORAGE_REDESIGN.md`
@@ -347,10 +369,14 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
                byteLen + xxh3, re-checked at assembly, so a second on-disk hash would be pure
                redundancy. (The bytes themselves are still the self-describing PIXS payload
                below; what is absent is the PIXB marker the descriptor slot carries.)
-    slotKey 2^42+c: PIXB blob, payload = one fence chunk (512 row groups × { i64 first; i64 last },
-                  8 KiB; REFERENCED). Per-row-group (first,last) zone map for incremental
-                  maintenance; writer-only, carried forward per chunk so a commit rewrites only
-                  changed chunks.
+    slotKey 2^42+chunkId: PIXB blob, payload = one fence chunk for at most 32 physical leaves.
+                  Each 144-byte entry is { i64 first; i64 last; i32 docNext; i32 docPrev;
+                  i32 ownerBase; i32 numericSkip[25]; i64 baseUpper; i32 freeNext }.
+                  Chunks are writer-side routing/document-order units and carry forward independently,
+                  so a local update rewrites only touched 4.5 KiB full chunks.
+    slotKey 2^42+2^20: PIXB blob, payload = the 32-byte PIFO order header
+                  { magic; u8 ver=0 + padding; i32 baseCount; i32 physicalCount; i32 liveCount;
+                    i32 freeHead; i32 documentHead; i32 documentTail }.
     slotKey 2^43+(column<<16)+chunk: PIXB blob, payload = one 256-row-group Bloom chunk.
     slotKey 2^44+column: PIXB blob, payload = one bounded set-summary column; an empty payload body
                   is an explicit capability and can be revived by incremental maintenance.
@@ -363,8 +389,11 @@ RevisionRootPage → ProjectionIndexPage (PageKind 16) → per-definition HOT su
     (Reused for referenced segments AND referenced blobs; the bespoke ProjectionSegmentPage was retired.)
 
 Segment ids: 0 = KEYS, 4c+1 = BODY(c), 4c+2 = DICT(c), 4c+3 = SET_COUNTS(c),
-  4c+4 = STRING_BLOOM(c); the descriptor's column limit is derived from the 16-bit segment-id
-  space. It was 84 while
+  4c+4 = STRING_BLOOM(c). DICT_HASHES(c), emitted only for STRING_DICT columns, lives in the
+  disjoint trailing region `DICT_HASH_SEGMENT_BASE+c`, where
+  `DICT_HASH_SEGMENT_BASE = 4*MAX_COLUMNS+8`; keeping it outside the four-id stride preserves every
+  existing V0 segment id. The descriptor's column limit is derived from the 16-bit segment-id
+  space across both regions. It was 84 while
   segmentId shared an 8-bit sub-id field with the leaf index; a segment owning its own slot
   freed that space.
 Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
@@ -373,8 +402,14 @@ Segment wire: { int "PIXS"; u8 ver=0; u8 segKind } +
          [rows>0] i64 min; i64 max; presence marker (0 all-present / 1 all-missing / 2 words);
          NUMERIC (long or double-transform): i64 base; u8 width (65..255 reserved escapes); packed
          BOOLEAN: words verbatim   STRING: u8 idWidth; packed dict-ids
-  DICT:  u8 mode (0 raw / 1 FSST: int tableLen; table; int dictSize; per entry int len + stream);
-         raw mode = { int dictSize; int lens[dictSize]; concatenated UTF-8 }
+  DICT:  u8 mode (0 raw / 1 FSST / 2 raw+set-row-counts / 3 FSST+set-row-counts);
+         raw modes 0/2 = { int dictSize; int lens[dictSize]; concatenated UTF-8 };
+         FSST modes 1/3 = { int tableLen; table; int dictSize;
+                            per entry int len + stream };
+         row-count modes 2/3 append { u8 countWidth; packed unsigned rowCount[dictSize] }
+  SET_COUNTS: u16 valueCount; valueCount × { u16 utf8Len; byte value[utf8Len]; u16 rowCount }
+  STRING_BLOOM: int bitCount; u64 words[bitCount/64]
+  DICT_HASHES: int dictSize; u64 fnv1a64[dictSize] in dictionary-id order
 ```
 
 Double columns (kind 3) store the sortable-bits transform (negatives flip low 63 bits) —
