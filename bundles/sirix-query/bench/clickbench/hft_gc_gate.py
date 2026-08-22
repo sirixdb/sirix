@@ -12,9 +12,10 @@ Gradle noise therefore cannot make a run pass or fail.  The gate intentionally h
 dependencies so it can run anywhere the ClickBench Gradle task can run.
 
 Exit status:
-    0  both runs satisfy every per-run and cross-scale invariant
-    1  a log is malformed or at least one invariant is violated
+    0  hard checks and retained-occupancy evidence pass
+    1  a log is malformed or at least one hard/occupancy invariant is violated
     2  command-line usage error (from argparse)
+    3  hard checks pass but retained-occupancy evidence is inconclusive
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import re
 import statistics
 import sys
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -51,9 +53,12 @@ DEFAULT_EXPECTED_MAX_NEW_MIB = 1024.0
 DEFAULT_EXPECTED_SIDE_BATCH_MIB = 64.0
 DEFAULT_MAX_PERMIT_WAIT_MS = 250.0
 CANONICAL_MAX_FOREGROUND_WAIT_MS = 250.0
+EXPECTED_G1_REGION_SIZE_BYTES = 4 * MIB
 DEFAULT_SMALL_ROWS = 1_000_000
 DEFAULT_LARGE_ROWS = 4_000_000
 EXPECTED_AUTO_COMMIT_NODES = 4_194_304
+EXPECTED_ASYNC_FLUSH_NODE_CAP = 131_072
+EXPECTED_MAX_KVL_ATTEMPTED_PAGES_PER_EPOCH = 128
 EXPECTED_MAX_NEW_BYTES = int(DEFAULT_EXPECTED_MAX_NEW_MIB * MIB)
 EXPECTED_GLOBAL_DICTIONARY_MODE = "never"
 EXPECTED_ARENA_STRATEGY = "shared"
@@ -74,6 +79,12 @@ LATE_DECILE_MIN_ALLOWANCE_BYTES = 64 * MIB
 LATE_DECILE_HEAP_ALLOWANCE_FRACTION = 0.03
 CROSS_SCALE_MIN_ALLOWANCE_BYTES = 256 * MIB
 CROSS_SCALE_HEAP_ALLOWANCE_FRACTION = 0.10
+
+
+class Verdict(str, Enum):
+    PASS = "PASS"
+    INCONCLUSIVE = "INCONCLUSIVE"
+    FAIL = "FAIL"
 
 _SIZE_TOKEN = r"\d+(?:\.\d+)?(?:[BKMGTPE])?"
 _OCCUPANCY_RE = re.compile(
@@ -108,6 +119,7 @@ _ASYNC_FLUSH_FIELDS = (
     "kvlPages",
     "kvlAttemptedPages",
     "kvlPromotedPages",
+    "kvlAttemptedPagesMax",
     "sidePages",
     "sideBytes",
     "peakActiveSideBytes",
@@ -130,6 +142,9 @@ _ASYNC_FLUSH_FIELDS = (
     "startFlushCount",
     "startFlushTotalNs",
     "startFlushMaxNs",
+    "foregroundFlushCount",
+    "foregroundFlushTotalNs",
+    "foregroundFlushMaxNs",
     "finalDrainCount",
     "finalDrainTotalNs",
     "finalDrainMaxNs",
@@ -149,6 +164,7 @@ _ASYNC_FLUSH_FIELDS = (
 _HFT_CONFIG_FIELDS = (
     "globalDict",
     "autoCommitNodes",
+    "asyncFlushNodeCap",
     "arenaStrategy",
     "maxNewSizeBytes",
     "initialHeapBytes",
@@ -359,6 +375,7 @@ class RunEvaluation:
     max_young_pause_nanos: int | None = None
     max_safepoint_nanos: int | None = None
     max_rotation_permit_wait_nanos: int | None = None
+    max_foreground_flush_nanos: int | None = None
     max_drain_permit_wait_nanos: int | None = None
     attempted_kvl_pages: int | None = None
     promoted_kvl_pages: int | None = None
@@ -372,10 +389,18 @@ class RunEvaluation:
     pinned_trie_live_max: int | None = None
     pinned_trie_high_water: int | None = None
     zero_young_events: bool = False
+    occupancy_verdict: Verdict = Verdict.INCONCLUSIVE
+    inconclusive_reasons: list[str] = field(default_factory=list)
+
+    @property
+    def verdict(self) -> Verdict:
+        if self.issues:
+            return Verdict.FAIL
+        return self.occupancy_verdict
 
     @property
     def passed(self) -> bool:
-        return not self.issues
+        return self.verdict is Verdict.PASS
 
 
 @dataclass
@@ -383,12 +408,40 @@ class PairEvaluation:
     one_million: RunEvaluation
     four_million: RunEvaluation
     cross_scale_issues: list[str] = field(default_factory=list)
+    cross_scale_inconclusive_reasons: list[str] = field(default_factory=list)
+    cross_scale_verdict: Verdict = Verdict.INCONCLUSIVE
     cross_scale_growth_bytes: float | None = None
     cross_scale_allowance_bytes: float | None = None
 
     @property
+    def occupancy_verdict(self) -> Verdict:
+        verdicts = (
+            self.one_million.occupancy_verdict,
+            self.four_million.occupancy_verdict,
+            self.cross_scale_verdict,
+        )
+        if Verdict.FAIL in verdicts:
+            return Verdict.FAIL
+        if Verdict.INCONCLUSIVE in verdicts:
+            return Verdict.INCONCLUSIVE
+        return Verdict.PASS
+
+    @property
+    def verdict(self) -> Verdict:
+        verdicts = (
+            self.one_million.verdict,
+            self.four_million.verdict,
+            self.cross_scale_verdict,
+        )
+        if Verdict.FAIL in verdicts or self.cross_scale_issues:
+            return Verdict.FAIL
+        if Verdict.INCONCLUSIVE in verdicts:
+            return Verdict.INCONCLUSIVE
+        return Verdict.PASS
+
+    @property
     def passed(self) -> bool:
-        return self.one_million.passed and self.four_million.passed and not self.cross_scale_issues
+        return self.verdict is Verdict.PASS
 
 
 def _is_marker(line: str, marker: str) -> bool:
@@ -886,10 +939,12 @@ def evaluate_run(
         expected_values = {
             "globalDict": EXPECTED_GLOBAL_DICTIONARY_MODE,
             "autoCommitNodes": str(EXPECTED_AUTO_COMMIT_NODES),
+            "asyncFlushNodeCap": str(EXPECTED_ASYNC_FLUSH_NODE_CAP),
             "arenaStrategy": EXPECTED_ARENA_STRATEGY,
             "maxNewSizeBytes": str(expected_max_new_bytes),
             "initialHeapBytes": str(expected_capacity_bytes),
             "maxHeapBytes": str(expected_capacity_bytes),
+            "g1RegionSizeBytes": str(EXPECTED_G1_REGION_SIZE_BYTES),
             "storage": EXPECTED_STORAGE,
             "projectionMode": EXPECTED_PROJECTION_MODE,
             "pinnedTrieScanBudget": str(EXPECTED_PINNED_TRIE_SCAN_BUDGET),
@@ -1060,6 +1115,27 @@ def evaluate_run(
                 f"line {telemetry.line_number}: {values['kvlPromotedPages']} async KVL pages were "
                 "promoted back to the live TIL instead of using the disposable native-frame path"
             )
+        if values["kvlAttemptedPagesMax"] > EXPECTED_MAX_KVL_ATTEMPTED_PAGES_PER_EPOCH:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: maximum attempted KVL pages per epoch "
+                f"{values['kvlAttemptedPagesMax']} exceeds bounded serializer window "
+                f"{EXPECTED_MAX_KVL_ATTEMPTED_PAGES_PER_EPOCH}"
+            )
+        if values["kvlAttemptedPagesMax"] > values["kvlAttemptedPages"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: maximum attempted KVL pages per epoch exceeds "
+                "the total attempted KVL pages"
+            )
+        if values["kvlAttemptedPages"] > 0 and values["kvlAttemptedPagesMax"] == 0:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: maximum attempted KVL pages per epoch is zero "
+                "despite positive attempted-page telemetry"
+            )
+        if values["kvlAttemptedPages"] > values["kvlAttemptedPagesMax"] * values["combinedEpochs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: total attempted KVL pages exceed the reported "
+                "per-epoch maximum times combined epochs"
+            )
         accounted_kvl_pages = values["kvlFrameCachePages"] + values["kvlCacheFallbackPages"]
         if accounted_kvl_pages != values["kvlPages"]:
             evaluation.issues.append(
@@ -1118,6 +1194,14 @@ def evaluate_run(
             evaluation.issues.append(
                 f"line {telemetry.line_number}: fewer whole startAsyncFlush calls than append epochs"
             )
+        if values["foregroundFlushCount"] != values["combinedEpochs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: foreground async-flush calls do not equal combined epochs"
+            )
+        if values["foregroundFlushTotalNs"] < values["foregroundFlushMaxNs"]:
+            evaluation.issues.append(
+                f"line {telemetry.line_number}: foreground async-flush maximum exceeds its total"
+            )
         if values["finalDrainTotalNs"] < values["finalDrainMaxNs"]:
             evaluation.issues.append(
                 f"line {telemetry.line_number}: whole final-drain maximum exceeds its total"
@@ -1137,6 +1221,7 @@ def evaluate_run(
                 f"line {telemetry.line_number}: whole final-drain maximum is smaller than its component wait"
             )
         evaluation.max_rotation_permit_wait_nanos = values["startFlushMaxNs"]
+        evaluation.max_foreground_flush_nanos = values["foregroundFlushMaxNs"]
         evaluation.max_drain_permit_wait_nanos = values["finalDrainMaxNs"]
         if evaluation.max_rotation_permit_wait_nanos > max_rotation_permit_wait_nanos:
             evaluation.issues.append(
@@ -1158,6 +1243,7 @@ def evaluate_run(
             "workerMaxNs",
             "submitWaitMaxNs",
             "startFlushMaxNs",
+            "foregroundFlushMaxNs",
             "finalDrainMaxNs",
         ):
             if values[field_name] > max_rotation_permit_wait_nanos:
@@ -1201,6 +1287,9 @@ def evaluate_run(
             )
     else:
         evaluation.zero_young_events = True
+        evaluation.inconclusive_reasons.append(
+            "no young-GC samples; retained-occupancy behavior cannot be estimated"
+        )
         if configuration_values is None or configuration_values.get("gcLogging") != "true":
             evaluation.issues.append("no young-GC samples and no valid effective GC logging evidence")
 
@@ -1222,6 +1311,10 @@ def evaluate_run(
         or evaluation.capacity_bytes is None
         or evaluation.g1_region_size_bytes is None
     ):
+        if parsed.young_samples and not evaluation.inconclusive_reasons:
+            evaluation.inconclusive_reasons.append(
+                "retained-occupancy analysis lacks valid heap-capacity or G1-region evidence"
+            )
         return evaluation
 
     after_values = [sample.after_bytes for sample in parsed.young_samples]
@@ -1232,7 +1325,7 @@ def evaluate_run(
     analysis = after_values[evaluation.warmup_samples :]
     evaluation.analysis_samples = len(analysis)
     if len(analysis) < min_samples:
-        evaluation.issues.append(
+        evaluation.inconclusive_reasons.append(
             f"only {len(analysis)} post-warmup young-GC samples; need at least {min_samples}"
         )
         return evaluation
@@ -1260,6 +1353,7 @@ def evaluate_run(
             f"{_format_bytes(region_allowance)}) and positive local OLS growth within "
             f"{PLATEAU_SPREAD_FRACTION * 100:.1f}% of its median"
         )
+        evaluation.occupancy_verdict = Verdict.FAIL
         return evaluation
 
     evaluation.plateau_sample = evaluation.warmup_samples + plateau.start
@@ -1270,10 +1364,12 @@ def evaluate_run(
     post_plateau = analysis[plateau.start:]
     evaluation.post_plateau_samples = len(post_plateau)
     if len(post_plateau) < min_samples:
-        evaluation.issues.append(
+        evaluation.inconclusive_reasons.append(
             f"only {len(post_plateau)} post-plateau samples; need at least {min_samples}"
         )
         return evaluation
+
+    occupancy_issue_count = len(evaluation.issues)
 
     quarter = max(1, len(post_plateau) // 4)
     evaluation.early_median_bytes = _median(post_plateau[:quarter])
@@ -1310,6 +1406,10 @@ def evaluate_run(
             f"final-half OLS growth {evaluation.normalized_final_half_growth * 100:.3f}% of heap exceeds "
             f"{FINAL_HALF_GROWTH_FRACTION_LIMIT * 100:.3f}%"
         )
+
+    evaluation.occupancy_verdict = (
+        Verdict.FAIL if len(evaluation.issues) > occupancy_issue_count else Verdict.PASS
+    )
 
     return evaluation
 
@@ -1368,7 +1468,13 @@ def evaluate_pair(
                 f"{large_label}={_format_bytes(four.capacity_bytes)}"
             )
 
-    if one.steady_bytes is not None and four.steady_bytes is not None and four.capacity_bytes is not None:
+    if (
+        one.occupancy_verdict is Verdict.PASS
+        and four.occupancy_verdict is Verdict.PASS
+        and one.steady_bytes is not None
+        and four.steady_bytes is not None
+        and four.capacity_bytes is not None
+    ):
         pair.cross_scale_growth_bytes = four.steady_bytes - one.steady_bytes
         pair.cross_scale_allowance_bytes = max(
             CROSS_SCALE_MIN_ALLOWANCE_BYTES,
@@ -1380,10 +1486,14 @@ def evaluate_pair(
                 f"{_format_bytes(pair.cross_scale_growth_bytes)} over {small_label}; "
                 f"allowance is {_format_bytes(pair.cross_scale_allowance_bytes)}"
             )
-    elif not (one.zero_young_events or four.zero_young_events):
-        pair.cross_scale_issues.append(
-            "cross-scale comparison unavailable because a run has no valid steady post-young occupancy"
+        pair.cross_scale_verdict = Verdict.FAIL if pair.cross_scale_issues else Verdict.PASS
+    else:
+        pair.cross_scale_inconclusive_reasons.append(
+            "cross-scale retained-occupancy comparison requires conclusive occupancy in both runs"
         )
+
+    if pair.cross_scale_issues:
+        pair.cross_scale_verdict = Verdict.FAIL
 
     return pair
 
@@ -1444,6 +1554,10 @@ def _print_run(evaluation: RunEvaluation) -> None:
         "  max whole startAsyncFlush elapsed: "
         f"{_format_duration(evaluation.max_rotation_permit_wait_nanos)}"
     )
+    print(
+        "  max complete foreground async-flush elapsed: "
+        f"{_format_duration(evaluation.max_foreground_flush_nanos)}"
+    )
     print(f"  max whole final-drain elapsed: {_format_duration(evaluation.max_drain_permit_wait_nanos)}")
     if evaluation.attempted_kvl_pages is not None and evaluation.promoted_kvl_pages is not None:
         print(
@@ -1473,10 +1587,15 @@ def _print_run(evaluation: RunEvaluation) -> None:
         print(f"  post-plateau late/early median: {evaluation.median_ratio:.4f}x")
     if evaluation.normalized_final_half_growth is not None:
         print(f"  final-half OLS growth: {evaluation.normalized_final_half_growth * 100:.3f}% of heap")
+    print(f"  occupancy evidence: {evaluation.occupancy_verdict.value}")
+    for reason in evaluation.inconclusive_reasons:
+        print(f"    - {reason}")
     if evaluation.issues:
         print("  FAIL:")
         for issue in evaluation.issues:
             print(f"    - {issue}")
+    elif evaluation.verdict is Verdict.INCONCLUSIVE:
+        print("  INCONCLUSIVE")
     else:
         print("  PASS")
 
@@ -1496,9 +1615,13 @@ def print_report(pair: PairEvaluation) -> None:
         print("  FAIL:")
         for issue in pair.cross_scale_issues:
             print(f"    - {issue}")
+    elif pair.cross_scale_verdict is Verdict.INCONCLUSIVE:
+        print("  INCONCLUSIVE:")
+        for reason in pair.cross_scale_inconclusive_reasons:
+            print(f"    - {reason}")
     else:
         print("  PASS")
-    print("HFT GC GATE: " + ("PASS" if pair.passed else "FAIL"))
+    print("HFT GC GATE: " + pair.verdict.value)
 
 
 def _argument_parser() -> argparse.ArgumentParser:
@@ -1595,21 +1718,21 @@ def _argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--manifest", type=Path)
     parser.add_argument(
         "--min-small-samples",
-        type=_sample_floor,
+        type=_small_sample_floor,
         default=DEFAULT_MIN_SMALL_SAMPLES,
         metavar="N",
         help=(
-            "required post-warmup and post-plateau smaller-run samples "
+            "required post-warmup and post-plateau smaller-run samples; may only raise the canonical floor "
             f"(default: {DEFAULT_MIN_SMALL_SAMPLES})"
         ),
     )
     parser.add_argument(
         "--min-large-samples",
-        type=_sample_floor,
+        type=_large_sample_floor,
         default=DEFAULT_MIN_LARGE_SAMPLES,
         metavar="N",
         help=(
-            "required post-warmup and post-plateau larger-run samples "
+            "required post-warmup and post-plateau larger-run samples; may only raise the canonical floor "
             f"(default: {DEFAULT_MIN_LARGE_SAMPLES})"
         ),
     )
@@ -1632,14 +1755,22 @@ def _parse_arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _sample_floor(raw: str) -> int:
+def _sample_floor(raw: str, minimum: int) -> int:
     try:
         value = int(raw)
     except ValueError as error:
         raise argparse.ArgumentTypeError("sample floor must be an integer") from error
-    if value < 2:
-        raise argparse.ArgumentTypeError("sample floor must be at least 2")
+    if value < minimum:
+        raise argparse.ArgumentTypeError(f"sample floor must be at least {minimum}")
     return value
+
+
+def _small_sample_floor(raw: str) -> int:
+    return _sample_floor(raw, DEFAULT_MIN_SMALL_SAMPLES)
+
+
+def _large_sample_floor(raw: str) -> int:
+    return _sample_floor(raw, DEFAULT_MIN_LARGE_SAMPLES)
 
 
 def _positive_integer(raw: str) -> int:
@@ -1680,15 +1811,18 @@ def _foreground_wait_bound(raw: str) -> float:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parse_arguments(argv)
+    expected_heap_bytes = int(args.expected_heap_gib * GIB)
+    expected_side_batch_bytes = int(args.expected_side_batch_mib * MIB)
+    expected_max_new_bytes = int(args.expected_max_new_mib * MIB)
     pair = evaluate_pair(
         parse_log(args.one_million),
         parse_log(args.four_million),
         min_small_samples=args.min_small_samples,
         min_large_samples=args.min_large_samples,
-        expected_capacity_bytes=int(args.expected_heap_gib * GIB),
-        expected_side_batch_bytes=int(args.expected_side_batch_mib * MIB),
+        expected_capacity_bytes=expected_heap_bytes,
+        expected_side_batch_bytes=expected_side_batch_bytes,
         max_rotation_permit_wait_nanos=int(args.max_permit_wait_ms * 1_000_000),
-        expected_max_new_bytes=int(args.expected_max_new_mib * MIB),
+        expected_max_new_bytes=expected_max_new_bytes,
         small_rows=args.small_rows,
         large_rows=args.large_rows,
         expected_git_sha=args.expected_git_sha,
@@ -1704,13 +1838,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             "versioningType": args.versioning_type,
             "smallRows": args.small_rows,
             "largeRows": args.large_rows,
+            "expectedHeapBytes": expected_heap_bytes,
+            "expectedMaxNewBytes": expected_max_new_bytes,
+            "expectedSideBatchBytes": expected_side_batch_bytes,
             "smallLogSha256": _sha256(args.one_million),
             "largeLogSha256": _sha256(args.four_million),
             "gateScriptSha256": _sha256(Path(__file__)),
             "passed": pair.passed,
+            "verdict": pair.verdict.value,
+            "occupancyVerdict": pair.occupancy_verdict.value,
         }
         args.manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return 0 if pair.passed else 1
+    return _exit_code(pair.verdict)
+
+
+def _exit_code(verdict: Verdict) -> int:
+    if verdict is Verdict.PASS:
+        return 0
+    if verdict is Verdict.INCONCLUSIVE:
+        return 3
+    return 1
 
 
 def _sha256(path: Path) -> str:

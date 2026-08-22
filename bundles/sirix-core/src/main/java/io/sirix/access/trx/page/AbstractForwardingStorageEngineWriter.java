@@ -110,6 +110,16 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
+  public boolean isAsyncFlushLogBoundaryReached() {
+    return delegate().isAsyncFlushLogBoundaryReached();
+  }
+
+  @Override
+  public void recordAsyncFlushForegroundNanos(final long elapsedNanos) {
+    delegate().recordAsyncFlushForegroundNanos(elapsedNanos);
+  }
+
+  @Override
   public void awaitPendingAsyncFlush() {
     delegate().awaitPendingAsyncFlush();
   }

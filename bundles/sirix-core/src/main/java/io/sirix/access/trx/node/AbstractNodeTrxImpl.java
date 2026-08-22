@@ -64,27 +64,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   private static final Logger LOGGER = LoggerFactory.getLogger(AbstractNodeTrxImpl.class);
 
-  /**
-   * Maximum size of the first {@link AfterCommitState#KEEP_OPEN_ASYNC_FLUSH} epoch.
-   *
-   * <p>The first snapshot append pays one-time serializer, codec, and worker warm-up. Starting that
-   * work when the 1,048,576-modification threshold is crossed gives it a full configured epoch to
-   * finish before the foreground needs the sole append permit again. Smaller configured epochs are
-   * left exactly as requested.</p>
-   */
-  static final int MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT = 1 << 20;
+  /** Static-final branch: disabled production runs pay neither clocks nor counter updates. */
+  private static final boolean HFT_TELEMETRY_ENABLED = Boolean.getBoolean("sirix.hft.telemetry");
 
-  /**
-   * Maximum number of completed node modifications in one count-based auto-commit epoch.  The
-   * following mutation rotates the exact-size predecessor before it runs.
-   */
+  /** Maximum configured node count; the following mutation rotates an exact-size predecessor. */
   private final int maxNodeCount;
 
   /**
-   * Active count threshold. Only the first async-flush epoch can differ from
-   * {@link #maxNodeCount}; a successful first rotation restores the configured value permanently.
+   * Active count threshold. Async storage-only epochs are capped independently of the configured
+   * logical auto-commit threshold; other commit modes use {@link #maxNodeCount} unchanged.
    */
-  private int autoCommitNodeCountThreshold;
+  private final int autoCommitNodeCountThreshold;
 
   /**
    * {@code true} if transaction is auto-committing (by count or by delay), {@code false} otherwise.
@@ -259,7 +249,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
-    this.autoCommitNodeCountThreshold = initialAutoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
+    this.autoCommitNodeCountThreshold = autoCommitNodeCountThreshold(maxNodeCount, afterCommitState);
     this.isAutoCommitting = maxNodeCount > 0 || !afterCommitDelay.isZero();
     this.modificationCount = 0L;
 
@@ -271,13 +261,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
-  /** Resolve the one-time async-flush priming threshold without changing any other commit mode. */
-  static int initialAutoCommitNodeCountThreshold(final int maxNodeCount,
+  /** Resolve the bounded storage-epoch threshold without changing any other commit mode. */
+  static int autoCommitNodeCountThreshold(final int maxNodeCount,
       final AfterCommitState afterCommitState) {
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     requireNonNull(afterCommitState);
     return afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
-        ? Math.min(maxNodeCount, MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT)
+        ? Math.min(maxNodeCount, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT)
         : maxNodeCount;
   }
 
@@ -707,8 +697,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   protected final void checkAccessAndCommitBulk() {
     assertNotRollbackOnly();
-    if (maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold
-        && compoundOperationDepth == 0) {
+    if (shouldRotateIntermediateEpoch()) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
@@ -808,8 +797,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    */
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
-    if (maxNodeCount > 0 && modificationCount >= autoCommitNodeCountThreshold
-        && compoundOperationDepth == 0) {
+    if (shouldRotateIntermediateEpoch()) {
       if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_COMMIT) {
         asyncCommitInternal("autoCommit");
       } else if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH) {
@@ -822,27 +810,41 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
   }
 
+  /** Test the two async work bounds only at a compound-operation-safe mutation boundary. */
+  private boolean shouldRotateIntermediateEpoch() {
+    return maxNodeCount > 0 && compoundOperationDepth == 0
+        && (modificationCount >= autoCommitNodeCountThreshold
+            || (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC_FLUSH
+                && storageEngineWriter.isAsyncFlushLogBoundaryReached()));
+  }
+
   /**
-   * Rotate one intermediate async-flush epoch and permanently retire the first-epoch threshold only
-   * after the rotation succeeds.
+   * Rotate one bounded intermediate async-flush epoch.
    */
   private void flushIntermediateAsyncEpoch() {
-    // Index maintenance that has to READ the records it is maintaining must run while those records
-    // are still reachable through this transaction. The flush writes their pages out and lets go of
-    // them, and the revision they belong to is not committed yet, so nothing can read them back
-    // afterwards.
-    indexController.notifyBeforePageFlush();
-    storageEngineWriter.asyncFlush();
+    final long started = HFT_TELEMETRY_ENABLED ? System.nanoTime() : 0L;
+    try {
+      // Index maintenance that has to READ the records it is maintaining must run while those records
+      // are still reachable through this transaction. The flush writes their pages out and lets go of
+      // them, and the revision they belong to is not committed yet, so nothing can read them back
+      // afterwards.
+      indexController.notifyBeforePageFlush();
+      storageEngineWriter.asyncFlush();
 
-    // Keep failure semantics unchanged: neither the dirty counter nor the priming threshold is reset
-    // if index maintenance or the async rotation throws.
-    modificationCount = 0;
-    autoCommitNodeCountThreshold = maxNodeCount;
+      // Keep failure semantics unchanged: the dirty counter is not reset if index maintenance or the
+      // async rotation throws.
+      modificationCount = 0;
 
-    // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false. Without this,
-    // rollingAdd() walks the full ancestor chain on every insert; bulk insertion skips hashing during
-    // intermediate epochs in the same way as the synchronous path.
-    nodeHashing.setAutoCommit(false);
+      // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false. Without this,
+      // rollingAdd() walks the full ancestor chain on every insert; bulk insertion skips hashing during
+      // intermediate epochs in the same way as the synchronous path.
+      nodeHashing.setAutoCommit(false);
+    } finally {
+      if (HFT_TELEMETRY_ENABLED) {
+        storageEngineWriter.recordAsyncFlushForegroundNanos(
+            Math.max(0L, System.nanoTime() - started));
+      }
+    }
   }
 
   protected abstract void serializeUpdateDiffs(int revisionNumber);

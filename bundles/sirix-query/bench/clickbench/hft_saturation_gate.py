@@ -16,9 +16,25 @@ from hft_artifact import runtime_classpath_sha256
 
 
 BUILD_PREFIX = "# HFT_BUILD "
+CONFIG_PREFIX = "# HFT_SATURATION_CONFIG "
 SATURATION_PREFIX = "# HFT_APPEND_SATURATION "
 MEASURE_START = "# HFT_MEASURE_START"
 MEASURE_END = "# HFT_MEASURE_END"
+MIB = 1024 * 1024
+GIB = 1024 * MIB
+EXPECTED_HEAP_BYTES = 4 * GIB
+EXPECTED_MAX_NEW_BYTES = GIB
+EXPECTED_G1_REGION_SIZE_BYTES = 4 * MIB
+CONFIG_FIELDS = frozenset(
+    {
+        "initialHeapBytes",
+        "maxHeapBytes",
+        "maxNewSizeBytes",
+        "g1RegionSizeBytes",
+        "gcLogging",
+        "safepointLogging",
+    }
+)
 FIELDS = frozenset(
     {
         "resources",
@@ -91,6 +107,7 @@ _FORBIDDEN_GC_EVENTS: tuple[tuple[str, re.Pattern[str]], ...] = (
 @dataclass
 class ParsedSaturation:
     builds: list[tuple[str, str]] = field(default_factory=list)
+    configurations: list[dict[str, int | str]] = field(default_factory=list)
     records: list[dict[str, int | str]] = field(default_factory=list)
     gc_pause_nanos: list[int] = field(default_factory=list)
     safepoint_nanos: list[int] = field(default_factory=list)
@@ -147,6 +164,39 @@ def parse(log: Path) -> ParsedSaturation:
                 parsed.issues.append(f"line {line_number}: malformed HFT build record")
             else:
                 parsed.builds.append((match.group(1), match.group(2)))
+            continue
+        if stripped.startswith(CONFIG_PREFIX):
+            if not in_measurement:
+                parsed.issues.append(
+                    f"line {line_number}: saturation configuration is outside the measurement region"
+                )
+                continue
+            values: dict[str, int | str] = {}
+            malformed = False
+            for token in stripped[len(CONFIG_PREFIX) :].split():
+                name, separator, raw_value = token.partition("=")
+                if separator != "=" or not name or not raw_value or name in values:
+                    malformed = True
+                    continue
+                if name in {"gcLogging", "safepointLogging"}:
+                    if raw_value not in {"true", "false"}:
+                        malformed = True
+                    else:
+                        values[name] = raw_value
+                    continue
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    malformed = True
+                    continue
+                if value <= 0:
+                    malformed = True
+                    continue
+                values[name] = value
+            if malformed or set(values) != CONFIG_FIELDS:
+                parsed.issues.append(f"line {line_number}: malformed saturation configuration")
+            else:
+                parsed.configurations.append(values)
             continue
         if stripped.startswith(SATURATION_PREFIX):
             if not in_measurement:
@@ -245,6 +295,25 @@ def _evaluate(
         issues.append(f"expected exactly one HFT build record, found {len(parsed.builds)}")
     elif parsed.builds[0] != (git_sha, artifact_sha256):
         issues.append("saturation build identity does not match the required commit and artifact")
+    if len(parsed.configurations) != 1:
+        issues.append(
+            f"expected exactly one saturation configuration, found {len(parsed.configurations)}"
+        )
+    else:
+        configuration = parsed.configurations[0]
+        expected_configuration: dict[str, int | str] = {
+            "initialHeapBytes": EXPECTED_HEAP_BYTES,
+            "maxHeapBytes": EXPECTED_HEAP_BYTES,
+            "maxNewSizeBytes": EXPECTED_MAX_NEW_BYTES,
+            "g1RegionSizeBytes": EXPECTED_G1_REGION_SIZE_BYTES,
+            "gcLogging": "true",
+            "safepointLogging": "true",
+        }
+        for name, expected in expected_configuration.items():
+            if configuration[name] != expected:
+                issues.append(
+                    f"saturation configuration {name}={configuration[name]!r}, expected {expected!r}"
+                )
     if len(parsed.records) != 1:
         issues.append(f"expected exactly one append-saturation record, found {len(parsed.records)}")
         return issues
@@ -317,10 +386,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     parsed = parse(args.log)
     issues = _evaluate(parsed, args.expected_git_sha, artifact_sha256, args.versioning_type)
     evidence = parsed.records[0] if len(parsed.records) == 1 else {}
+    configuration = parsed.configurations[0] if len(parsed.configurations) == 1 else {}
     manifest = {
         "kind": "append-saturation",
         "gitSha": args.expected_git_sha,
         "artifactSha256": artifact_sha256,
+        "initialHeapBytes": configuration.get("initialHeapBytes"),
+        "maxHeapBytes": configuration.get("maxHeapBytes"),
+        "maxNewSizeBytes": configuration.get("maxNewSizeBytes"),
+        "g1RegionSizeBytes": configuration.get("g1RegionSizeBytes"),
         **{name: evidence.get(name) for name in sorted(FIELDS)},
         "gcPauseCount": len(parsed.gc_pause_nanos),
         "gcPauseMaxNs": max(parsed.gc_pause_nanos, default=0),

@@ -327,7 +327,7 @@ public final class ClickBenchMaintenanceMain {
   private static String hftConfiguration(final DictionaryFixture fixture, final long baseRows,
       final int autoCommitNodes, final HftRuntimeEvidence.Build hftBuild) {
     return String.format(Locale.ROOT,
-        "# HFT_CONFIG globalDict=auto autoCommitNodes=%d arenaStrategy=%s maxNewSizeBytes=%d "
+        "# HFT_CONFIG globalDict=auto autoCommitNodes=%d asyncFlushNodeCap=0 arenaStrategy=%s maxNewSizeBytes=%d "
             + "initialHeapBytes=%d maxHeapBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s "
             + "storage=FILE_CHANNEL projectionMode=incremental expectedRows=%d pinnedTrieScanBudget=%d "
             + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",

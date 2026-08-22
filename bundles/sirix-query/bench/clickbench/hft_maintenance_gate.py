@@ -28,6 +28,8 @@ _ASYNC_MAX_FIELDS = frozenset(
         "workerMaxNs",
         "submitWaitMaxNs",
         "startFlushMaxNs",
+        "kvlAttemptedPagesMax",
+        "foregroundFlushMaxNs",
         "finalDrainMaxNs",
         "pinnedTrieSpillBatchMax",
         "pinnedTrieLiveMax",
@@ -88,10 +90,12 @@ def evaluate_run(
         expected = {
             "globalDict": "auto",
             "autoCommitNodes": str(EXPECTED_AUTO_COMMIT_NODES),
+            "asyncFlushNodeCap": "0",
             "arenaStrategy": "shared",
             "maxNewSizeBytes": str(ingestion_gate.GIB),
             "initialHeapBytes": str(expected_heap_bytes),
             "maxHeapBytes": str(expected_heap_bytes),
+            "g1RegionSizeBytes": str(ingestion_gate.EXPECTED_G1_REGION_SIZE_BYTES),
             "gcLogging": "true",
             "safepointLogging": "true",
             "projectionMode": "incremental",
@@ -238,6 +242,31 @@ def evaluate_run(
             for name, value in telemetry.values.items():
                 values[name] = max(values[name], value) if name in _ASYNC_MAX_FIELDS else values[name] + value
         epochs = values["combinedEpochs"] + values["sideOnlyEpochs"]
+        full_epoch_fields = (
+            "combinedEpochs",
+            "kvlPages",
+            "kvlAttemptedPages",
+            "kvlPromotedPages",
+            "kvlAttemptedPagesMax",
+            "foregroundFlushCount",
+            "foregroundFlushTotalNs",
+            "foregroundFlushMaxNs",
+            "kvlFrameCachePages",
+            "kvlFrameCacheBytes",
+            "kvlCacheFallbackPages",
+            "kvlCacheFallbackBytes",
+            "pinnedTrieSpillEpochs",
+            "pinnedTrieSpillPages",
+            "pinnedTrieSpillBatchMax",
+            "pinnedTrieLiveMax",
+            "pinnedTrieHighWater",
+        )
+        nonzero_full_epoch_fields = [name for name in full_epoch_fields if values[name] != 0]
+        if nonzero_full_epoch_fields:
+            evaluation.issues.append(
+                "async-commit maintenance reported full TIL epoch work: "
+                + ", ".join(nonzero_full_epoch_fields)
+            )
         if values["workerRuns"] != epochs:
             evaluation.issues.append("append worker count does not match append epochs")
         if values["submitWaitCount"] != epochs:
@@ -248,6 +277,12 @@ def evaluate_run(
             evaluation.issues.append("whole startAsyncFlush maximum exceeds its total")
         if values["startFlushCount"] < epochs:
             evaluation.issues.append("whole startAsyncFlush count is smaller than append epochs")
+        if values["foregroundFlushCount"] != values["combinedEpochs"]:
+            evaluation.issues.append(
+                "whole foreground async-flush count does not match combined epochs"
+            )
+        if values["foregroundFlushTotalNs"] < values["foregroundFlushMaxNs"]:
+            evaluation.issues.append("whole foreground async-flush maximum exceeds its total")
         if values["finalDrainTotalNs"] < values["finalDrainMaxNs"]:
             evaluation.issues.append("whole final-drain maximum exceeds its total")
         if values["startFlushMaxNs"] < max(
@@ -265,6 +300,7 @@ def evaluate_run(
             "workerMaxNs",
             "submitWaitMaxNs",
             "startFlushMaxNs",
+            "foregroundFlushMaxNs",
             "finalDrainMaxNs",
         ):
             if values[field_name] > MAX_FOREGROUND_WAIT_NANOS:
@@ -414,6 +450,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "dirtyRecords": args.dirty_records,
         "smallRows": args.small_rows,
         "largeRows": args.large_rows,
+        "expectedHeapBytes": heap_bytes,
         "smallLogSha256": _sha256(args.small_log),
         "largeLogSha256": _sha256(args.large_log),
         "gateScriptSha256": _sha256(Path(__file__)),

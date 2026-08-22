@@ -8,6 +8,7 @@ import com.sun.management.HotSpotDiagnosticMXBean;
 import io.brackit.query.Query;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.cache.Allocators;
 import io.sirix.io.SharedArenas;
@@ -47,9 +48,9 @@ import java.util.stream.Stream;
  * benchmarks in this package use:
  * <ul>
  * <li>{@code -Dsirix.offheap.bytes} (default 24 GiB) — page buffer pool;</li>
- * <li>{@code -Dsirix.autoCommit.nodes} (default 1048576) — async-flush window in nodes. This keeps
- * roughly 1,024 record pages live per epoch and amortizes epoch rotation without introducing
- * background-flush backpressure;</li>
+ * <li>{@code -Dsirix.autoCommit.nodes} (default 1048576) — logical auto-commit threshold in nodes.
+ * The async-flush import mode retains that logical threshold while bounding each storage-only
+ * flush epoch to {@link AfterCommitState#MAX_ASYNC_FLUSH_NODE_COUNT} modifications;</li>
  * <li>{@code -DstorageType} (default FILE_CHANNEL for this benchmark) — selects the preallocated,
  * single-append-owner path that can release immutable projection payloads before the root commit.
  * MEMORY_MAPPED remains available explicitly, but its legacy physical-tail semantics cannot safely
@@ -198,12 +199,14 @@ public final class ClickBenchLoadMain {
     // inside the marked region would contaminate the very GC evidence the marker is meant to bind.
     final String hftConfiguration = hftTelemetry
         ? String.format(Locale.ROOT,
-            "# HFT_CONFIG globalDict=%s autoCommitNodes=%d arenaStrategy=%s maxNewSizeBytes=%d "
+            "# HFT_CONFIG globalDict=%s autoCommitNodes=%d asyncFlushNodeCap=%d "
+                + "arenaStrategy=%s maxNewSizeBytes=%d "
                 + "initialHeapBytes=%d maxHeapBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s "
                 + "storage=%s projectionMode=%s expectedRows=%d pinnedTrieScanBudget=%d "
                 + "pinnedTrieBatchCapacity=%d versioningType=%s appendWorkers=%d appendQueueCapacity=%d",
             System.getProperty("sirix.projection.globalDict", "auto").toLowerCase(Locale.ROOT),
-            autoCommit, SharedArenas.strategy().name().toLowerCase(Locale.ROOT),
+            autoCommit, AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT,
+            SharedArenas.strategy().name().toLowerCase(Locale.ROOT),
             effectiveVmOption("MaxNewSize"), effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"),
             effectiveVmOption("G1HeapRegionSize"),
             hftBuild.gcLogging(), hftBuild.safepointLogging(), storageType,

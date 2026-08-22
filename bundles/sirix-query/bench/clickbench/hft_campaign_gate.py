@@ -20,13 +20,15 @@ MAINTENANCE_SCHEMA = frozenset(
     {
         "kind", "gitSha", "artifactSha256", "versioningType", "dirtyRecords",
         "smallRows", "largeRows", "smallLogSha256", "largeLogSha256",
-        "gateScriptSha256", "passed",
+        "expectedHeapBytes", "gateScriptSha256", "passed",
     }
 )
 INGESTION_SCHEMA = frozenset(
     {
         "kind", "gitSha", "artifactSha256", "versioningType", "smallRows", "largeRows",
-        "smallLogSha256", "largeLogSha256", "gateScriptSha256", "passed",
+        "smallLogSha256", "largeLogSha256", "gateScriptSha256", "passed", "verdict",
+        "occupancyVerdict", "expectedHeapBytes", "expectedMaxNewBytes",
+        "expectedSideBatchBytes",
     }
 )
 SATURATION_SCHEMA = frozenset(
@@ -37,13 +39,19 @@ SATURATION_SCHEMA = frozenset(
         "saturatedAdmissionWaiters", "saturatedAvailableAdmissions", "drainedActiveWorkers",
         "drainedQueuedTasks", "drainedAdmissionWaiters", "drainedAvailableAdmissions", "coldReopens",
         "gcPauseCount", "gcPauseMaxNs", "safepointCount", "safepointMaxNs",
-        "humongousRegionSamples", "logSha256", "gateScriptSha256", "passed",
+        "humongousRegionSamples", "initialHeapBytes", "maxHeapBytes", "maxNewSizeBytes",
+        "g1RegionSizeBytes", "logSha256", "gateScriptSha256", "passed",
     }
 )
 CANONICAL_SMALL_ROWS = 1_000_000
 CANONICAL_LARGE_ROWS = 4_000_000
 CANONICAL_DIRTY_RECORDS = 100_001
 CANONICAL_SATURATION_RECORDS = 4_096
+MIB = 1024 * 1024
+GIB = 1024 * MIB
+CANONICAL_HEAP_BYTES = 4 * GIB
+CANONICAL_MAX_NEW_BYTES = GIB
+CANONICAL_SIDE_BATCH_BYTES = 64 * MIB
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
 MAINTENANCE_GATE_PATH = "bundles/sirix-query/bench/clickbench/hft_maintenance_gate.py"
 INGESTION_GATE_PATH = "bundles/sirix-query/bench/clickbench/hft_gc_gate.py"
@@ -132,6 +140,7 @@ def evaluate(
             "dirtyRecords": CANONICAL_DIRTY_RECORDS,
             "smallRows": CANONICAL_SMALL_ROWS,
             "largeRows": CANONICAL_LARGE_ROWS,
+            "expectedHeapBytes": CANONICAL_HEAP_BYTES,
         }
         for name, expected in expected_numbers.items():
             if type(manifest.get(name)) is not int or manifest.get(name) != expected:
@@ -157,7 +166,12 @@ def evaluate(
             continue
         if set(manifest) != INGESTION_SCHEMA:
             issues.append(f"{path}: ingestion manifest schema is not canonical")
-        if manifest.get("kind") != "projection-ingestion" or manifest.get("passed") is not True:
+        if (
+            manifest.get("kind") != "projection-ingestion"
+            or manifest.get("passed") is not True
+            or manifest.get("verdict") != "PASS"
+            or manifest.get("occupancyVerdict") != "PASS"
+        ):
             issues.append(f"{path}: ingestion manifest is not a passing canonical artifact")
         version = manifest.get("versioningType")
         if not isinstance(version, str) or version not in VERSIONS or version in ingestion_versions:
@@ -166,7 +180,14 @@ def evaluate(
             ingestion_versions.add(version)
         if manifest.get("gitSha") != git_sha or manifest.get("artifactSha256") != ingestion_artifact_sha256:
             issues.append(f"{path}: ingestion build identity differs from the campaign identity")
-        for name, expected in (("smallRows", CANONICAL_SMALL_ROWS), ("largeRows", CANONICAL_LARGE_ROWS)):
+        expected_ingestion_numbers = {
+            "smallRows": CANONICAL_SMALL_ROWS,
+            "largeRows": CANONICAL_LARGE_ROWS,
+            "expectedHeapBytes": CANONICAL_HEAP_BYTES,
+            "expectedMaxNewBytes": CANONICAL_MAX_NEW_BYTES,
+            "expectedSideBatchBytes": CANONICAL_SIDE_BATCH_BYTES,
+        }
+        for name, expected in expected_ingestion_numbers.items():
             if type(manifest.get(name)) is not int or manifest.get(name) != expected:
                 issues.append(f"{path}: {name} must equal canonical value {expected}")
         if index < len(ingestion_small_logs) and index < len(ingestion_large_logs):
@@ -202,6 +223,10 @@ def evaluate(
             "appendWorkers": 1,
             "queueCapacity": 1,
             "callerThreadAppendRuns": 0,
+            "initialHeapBytes": CANONICAL_HEAP_BYTES,
+            "maxHeapBytes": CANONICAL_HEAP_BYTES,
+            "maxNewSizeBytes": CANONICAL_MAX_NEW_BYTES,
+            "g1RegionSizeBytes": 4 * MIB,
         }
         for name, expected in expected_saturation.items():
             if type(saturation.get(name)) is not int or saturation.get(name) != expected:

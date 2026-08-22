@@ -82,11 +82,16 @@ def maintenance_log(
     return [
         ingestion_gate.MEASURE_START,
         hft_build_line(),
-        hft_config_line(global_dict="auto", auto_commit_nodes=16_384, expected_rows=rows),
+        hft_config_line(
+            global_dict="auto",
+            auto_commit_nodes=16_384,
+            async_flush_node_cap=0,
+            expected_rows=rows,
+        ),
         g1_region_line(),
         young_line(0, 100),
         safepoint_line(0),
-        async_flush_line(
+        maintenance_async_flush_line(
             submit_wait_max_ns=submit_wait_max_ns,
             start_flush_max_ns=start_flush_max_ns,
         ),
@@ -100,6 +105,28 @@ def maintenance_log(
         evidence_line(rows),
         ingestion_gate.MEASURE_END,
     ]
+
+
+def maintenance_async_flush_line(**overrides: int) -> str:
+    values = {
+        "combined_epochs": 0,
+        "side_only_epochs": 101,
+        "kvl_pages": 0,
+        "kvl_attempted_pages": 0,
+        "kvl_attempted_pages_max": 0,
+        "foreground_flush_count": 0,
+        "foreground_flush_total_ns": 0,
+        "foreground_flush_max_ns": 0,
+        "kvl_frame_cache_pages": 0,
+        "kvl_frame_cache_bytes": 0,
+        "pinned_trie_spill_epochs": 0,
+        "pinned_trie_spill_pages": 0,
+        "pinned_trie_spill_batch_max": 0,
+        "pinned_trie_live_max": 0,
+        "pinned_trie_high_water": 0,
+    }
+    values.update(overrides)
+    return async_flush_line(**values)
 
 
 class MaintenanceGateTest(unittest.TestCase):
@@ -133,9 +160,36 @@ class MaintenanceGateTest(unittest.TestCase):
         self.assertTrue(any("fullRebuilds" in issue for issue in evaluation.issues))
         self.assertTrue(any("250 ms" in issue for issue in evaluation.issues))
 
+    def test_whole_foreground_flush_contract_fails_closed(self) -> None:
+        cases = (
+            ({"foreground_flush_max_ns": 250_000_001}, "250 ms"),
+            (
+                {
+                    "foreground_flush_total_ns": 19_999_999,
+                    "foreground_flush_max_ns": 20_000_000,
+                },
+                "maximum exceeds its total",
+            ),
+            ({"foreground_flush_count": 99}, "does not match combined epochs"),
+        )
+        for overrides, expected_issue in cases:
+            with self.subTest(expected_issue=expected_issue):
+                lines = maintenance_log(rows=1_000_000)
+                telemetry_index = next(
+                    index
+                    for index, line in enumerate(lines)
+                    if line.startswith(ingestion_gate.ASYNC_FLUSH_PREFIX)
+                )
+                lines[telemetry_index] = maintenance_async_flush_line(**overrides)
+
+                evaluation = self.evaluate(lines)
+
+                self.assertFalse(evaluation.passed)
+                self.assertTrue(any(expected_issue in issue for issue in evaluation.issues))
+
     def test_multi_writer_telemetry_is_aggregated(self) -> None:
         lines = maintenance_log(rows=1_000_000)
-        telemetry = async_flush_line(
+        telemetry = maintenance_async_flush_line(
             side_pages=500,
             side_bytes=16 * MIB,
             peak_active_side_bytes=16 * MIB,
@@ -146,6 +200,20 @@ class MaintenanceGateTest(unittest.TestCase):
 
         self.assertTrue(evaluation.passed, evaluation.issues)
 
+    def test_async_commit_mode_rejects_full_til_epochs(self) -> None:
+        lines = maintenance_log(rows=1_000_000)
+        telemetry_index = next(
+            index
+            for index, line in enumerate(lines)
+            if line.startswith(ingestion_gate.ASYNC_FLUSH_PREFIX)
+        )
+        lines[telemetry_index] = async_flush_line()
+
+        evaluation = self.evaluate(lines)
+
+        self.assertFalse(evaluation.passed)
+        self.assertTrue(any("full TIL epoch work" in issue for issue in evaluation.issues))
+
     def test_zero_gc_and_zero_safepoints_is_valid(self) -> None:
         lines = maintenance_log(rows=1_000_000)
         lines.remove(young_line(0, 100))
@@ -155,13 +223,39 @@ class MaintenanceGateTest(unittest.TestCase):
 
         self.assertTrue(evaluation.passed, evaluation.issues)
 
+    def test_mode_specific_cap_and_canonical_region_are_required(self) -> None:
+        cases = (
+            ("asyncFlushNodeCap=0", "asyncFlushNodeCap=131072", "asyncFlushNodeCap"),
+            (
+                f"g1RegionSizeBytes={4 * MIB}",
+                f"g1RegionSizeBytes={2 * MIB}",
+                "g1RegionSizeBytes",
+            ),
+        )
+        for original, replacement, expected_issue in cases:
+            with self.subTest(field=expected_issue):
+                lines = maintenance_log(rows=1_000_000)
+                config_index = next(
+                    index
+                    for index, line in enumerate(lines)
+                    if line.startswith(ingestion_gate.HFT_CONFIG_PREFIX)
+                )
+                lines[config_index] = lines[config_index].replace(original, replacement)
+                if expected_issue == "g1RegionSizeBytes":
+                    lines[lines.index(g1_region_line())] = g1_region_line(2)
+
+                evaluation = self.evaluate(lines)
+
+                self.assertFalse(evaluation.passed)
+                self.assertTrue(any(expected_issue in issue for issue in evaluation.issues))
+
     def test_artifact_identity_and_drain_component_fail_closed(self) -> None:
         lines = maintenance_log(rows=1_000_000)
         lines[lines.index(hft_build_line())] = hft_build_line("0" * 64)
         telemetry_index = next(
             index for index, line in enumerate(lines) if line.startswith(ingestion_gate.ASYNC_FLUSH_PREFIX)
         )
-        lines[telemetry_index] = async_flush_line(
+        lines[telemetry_index] = maintenance_async_flush_line(
             drain_permit_wait_max_ns=250_000_001,
             final_drain_max_ns=250_000_001,
         )

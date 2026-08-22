@@ -37,5 +37,14 @@ public enum AfterCommitState {
    */
   KEEP_OPEN_ASYNC_COMMIT,
 
-  CLOSE
+  CLOSE;
+
+  /**
+   * Maximum number of completed node modifications in one async-flush storage epoch.
+   *
+   * <p>The storage writer can rotate earlier when its transaction-intent log reaches its direct
+   * page-work bound. This second bound limits foreground index/projection maintenance even when a
+   * workload modifies relatively few storage pages.</p>
+   */
+  public static final int MAX_ASYNC_FLUSH_NODE_COUNT = 1 << 17;
 }

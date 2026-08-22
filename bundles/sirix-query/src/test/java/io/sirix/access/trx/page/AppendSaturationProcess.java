@@ -3,6 +3,7 @@
  */
 package io.sirix.access.trx.page;
 
+import com.sun.management.HotSpotDiagnosticMXBean;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.Sequence;
 import io.sirix.HftBoundaryTelemetry;
@@ -18,9 +19,11 @@ import io.sirix.query.bench.clickbench.HftRuntimeEvidence;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import io.sirix.settings.VersioningType;
 
+import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,6 +53,14 @@ public final class AppendSaturationProcess {
     final HftRuntimeEvidence.Build build = System.getProperty("sirix.hft.gitSha") == null
         ? null
         : HftRuntimeEvidence.capture(AppendSaturationProcess.class);
+    final String hftConfiguration = build == null
+        ? null
+        : String.format(Locale.ROOT,
+            "# HFT_SATURATION_CONFIG initialHeapBytes=%d maxHeapBytes=%d "
+                + "maxNewSizeBytes=%d g1RegionSizeBytes=%d gcLogging=%s safepointLogging=%s",
+            effectiveVmOption("InitialHeapSize"), effectiveVmOption("MaxHeapSize"),
+            effectiveVmOption("MaxNewSize"), effectiveVmOption("G1HeapRegionSize"),
+            build.gcLogging(), build.safepointLogging());
     if (build != null) {
       System.out.println("# HFT_BUILD gitSha=" + build.gitSha()
           + " artifactSha256=" + build.artifactSha256());
@@ -114,6 +125,9 @@ public final class AppendSaturationProcess {
       GlobalValueDictionary.resetProbeTelemetry();
       NodeStorageEngineWriter.resetGlobalAppendTelemetry();
       System.out.println("# HFT_MEASURE_START");
+      if (hftConfiguration != null) {
+        System.out.println(hftConfiguration);
+      }
       start.countDown();
       if (!workerBlocked.await(30, TimeUnit.SECONDS)) throw new AssertionError("append worker was not occupied");
       if (!admissionAttempts.await(30, TimeUnit.SECONDS)) {
@@ -177,6 +191,14 @@ public final class AppendSaturationProcess {
         saturatedState.admissionWaiters(), saturatedState.availableAdmissions(), drainedState.activeWorkers(),
         drainedState.queuedTasks(), drainedState.admissionWaiters(), drainedState.availableAdmissions(), coldReopens);
     System.out.println("# HFT_MEASURE_END");
+  }
+
+  private static long effectiveVmOption(final String name) {
+    final HotSpotDiagnosticMXBean bean = ManagementFactory.getPlatformMXBean(HotSpotDiagnosticMXBean.class);
+    if (bean == null) {
+      throw new IllegalStateException("HotSpotDiagnosticMXBean is unavailable");
+    }
+    return Long.parseLong(bean.getVMOption(name).getValue());
   }
 
   private static void awaitSaturatedExecutor(final int resources, final int appendWorkers,
