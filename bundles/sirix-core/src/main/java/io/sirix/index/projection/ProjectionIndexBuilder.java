@@ -107,11 +107,17 @@ public final class ProjectionIndexBuilder {
   private long lastNormalRecordKey = Long.MIN_VALUE;
 
   /**
-   * How many leading leaves are held back to measure string-column cardinality on. 64 leaves is
-   * 65,536 rows — enough that a column's repetition pattern is visible, small enough that holding
-   * them costs a few megabytes and delays nothing measurable.
+   * How many leading leaves are held back to measure string-column cardinality on. Sixteen leaves
+   * are a bounded 16,384-row decision drain and match the resource-wide interner's structural entry
+   * ceiling. AUTO explicitly declines when exact seeding leaves less than one fully distinct row
+   * group's headroom, before any page is converted, so the next small burst of novel values cannot
+   * immediately abandon the projection. NEVER mode skips the sample entirely because its result is
+   * known before the first row.
    */
-  private static final int SAMPLE_LEAVES = 64;
+  private static final int SAMPLE_LEAVES = 16;
+
+  /** Keep one fully distinct post-election row group below the interner's hard append ceiling. */
+  private static final int MIN_GLOBAL_DICTIONARY_HEADROOM = ProjectionIndexRowGroupPage.MAX_ROWS;
 
   /**
    * Below this many dictionary entries in the sample, keep the per-leaf dictionaries whatever the
@@ -194,25 +200,35 @@ public final class ProjectionIndexBuilder {
   }
 
   /**
-   * Columns the most recent build encoded with a resource-wide dictionary.
+   * Columns reported by the latest successfully published build to complete its diagnostic handoff.
    *
    * <p>Test observability, and load-bearing for one thing in particular: a differential that
    * compares the two encodings proves nothing unless the "global" arm actually produced a global
-   * column, and nothing else about the outcome reveals whether it did.
+   * column, and nothing else about the outcome reveals whether it did. Concurrent builds report in
+   * atomic handoff order; callers needing a resource-specific answer must inspect its metadata.
    */
   private static final java.util.concurrent.atomic.AtomicInteger GLOBAL_DICTIONARY_COLUMNS =
       new java.util.concurrent.atomic.AtomicInteger();
 
-  /** How many columns the most recent build encoded with a resource-wide dictionary. */
+  /** How many global columns the latest successful build to report its diagnostic produced. */
   public static int globalDictionaryColumnsBuilt() {
     return GLOBAL_DICTIONARY_COLUMNS.get();
   }
 
-  /** Leading leaves held back until the per-column dictionary choice is made; null afterwards. */
-  private List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
+  /** Dictionary policy resolved once for this build; system-property changes affect the next build. */
+  private final GlobalDictionaryMode globalDictionaryMode;
+
+  /**
+   * Leading leaves held back until the per-column dictionary choice is made; null when bypassed or
+   * drained.
+   */
+  private List<ProjectionIndexRowGroupPage> sample;
 
   /** Per-column resource-wide dictionaries; null slots are columns that stayed per-leaf. */
   private GlobalValueDictionaryWriter[] globalDictionaries;
+
+  /** Build-local diagnostic, published only after the outer pipeline makes its metadata visible. */
+  private int globalDictionaryColumns;
 
   /** {@code -Dsirix.projDiag}: explain election declines, which are otherwise silent by design. */
   private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
@@ -340,12 +356,14 @@ public final class ProjectionIndexBuilder {
           "ProjectionIndexBuilder requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
     }
     this.leafSink = Objects.requireNonNull(leafSink, "leafSink must not be null");
+    this.globalDictionaryMode = globalDictionaryMode();
     this.streaming = streaming;
     if (streaming) {
       this.rootPathNodeKeys = LongSets.EMPTY_SET;
       this.rootAncestorPathNodeKeys = LongSets.EMPTY_SET;
       this.xmlRootsAreElements = true;
       this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+      this.sample = initialDictionarySample();
       this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
       return;
     }
@@ -386,7 +404,20 @@ public final class ProjectionIndexBuilder {
     this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKeys);
 
     this.extractor = new ProjectionIndexRowExtractor(indexDef, pathSummary);
+    this.sample = initialDictionarySample();
     this.currentLeaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
+  }
+
+  private List<ProjectionIndexRowGroupPage> initialDictionarySample() {
+    if (globalDictionaryMode == GlobalDictionaryMode.NEVER) {
+      return null;
+    }
+    for (final byte kind : extractor.columnKindsRef()) {
+      if (kind == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT) {
+        return new ArrayList<>(SAMPLE_LEAVES);
+      }
+    }
+    return null;
   }
 
   /** Preserve the public raw-payload API at the borrowed-page ownership boundary. */
@@ -541,6 +572,7 @@ public final class ProjectionIndexBuilder {
       try {
         finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
             rtx.getRevisionNumber(), columnKinds, setSummaries, null, null);
+        publishGlobalDictionaryColumnsBuilt(0);
       } finally {
         setSummaries.release();
       }
@@ -593,6 +625,7 @@ public final class ProjectionIndexBuilder {
           flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
       finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
           columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+      builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       try {
         bloomChunks.release();
@@ -1020,6 +1053,14 @@ public final class ProjectionIndexBuilder {
     }
   }
 
+  void publishGlobalDictionaryColumnsBuilt() {
+    publishGlobalDictionaryColumnsBuilt(globalDictionaryColumns);
+  }
+
+  private static void publishGlobalDictionaryColumnsBuilt(final int columns) {
+    GLOBAL_DICTIONARY_COLUMNS.set(columns);
+  }
+
   /** @return total rows appended across all emitted leaves. */
   public long rowsEmitted() {
     return rowsEmitted;
@@ -1223,7 +1264,7 @@ public final class ProjectionIndexBuilder {
   private void decideDictionaryKindsAndDrainSample() {
     final byte[] kinds = extractor.columnKindsRef();
     final GlobalValueDictionaryWriter[] dictionaries = new GlobalValueDictionaryWriter[kinds.length];
-    final GlobalDictionaryMode mode = globalDictionaryMode();
+    final GlobalDictionaryMode mode = globalDictionaryMode;
     final long totalBudgetBytes = globalDictionaryBudgetBytes();
     int possibleGlobalColumns = 0;
     for (final byte kind : kinds) {
@@ -1313,12 +1354,23 @@ public final class ProjectionIndexBuilder {
                 : GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
         try {
           // perLeafDictTotal is deliberately NOT an admission bound: the same value is counted once
-          // per leaf, so a low-cardinality column repeated across 64 leaves can exceed the 16K
-          // structural ceiling even though its resource-wide dictionary has only a few hundred
-          // entries. Seed the real bounded writer from dictionary ranges instead. It discovers the
-          // exact sample distinct set without a second hash table or any per-row allocation, and its
-          // structural/budget preflight refuses before a sampled leaf has been converted.
+          // per leaf, so it is not the resource-wide distinct count. Seed the real bounded writer
+          // from dictionary ranges instead. It discovers the exact sample distinct set without a
+          // second hash table or any per-row allocation, and its structural/budget preflight refuses
+          // before a sampled leaf has been converted.
           seedGlobalDictionaryFromSample(sample, c, dictionary);
+          if (mode == GlobalDictionaryMode.AUTO
+              && !globalDictionarySampleHasHeadroom(dictionary.entryCount())) {
+            if (PROJ_DIAG) {
+              System.err.println("[proj] global dictionary DECLINED for column " + c + ": exact sample seeding "
+                  + "used " + dictionary.entryCount() + " of "
+                  + GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND + " safe entries, leaving fewer "
+                  + "than one full row group's " + MIN_GLOBAL_DICTIONARY_HEADROOM
+                  + "-entry headroom — column stays per-leaf DICT");
+            }
+            dictionary.release();
+            continue;
+          }
           dictionaries[c] = dictionary;
         } catch (final GlobalDictionaryBudgetExceededException declined) {
           dictionary.release();
@@ -1352,10 +1404,10 @@ public final class ProjectionIndexBuilder {
         globalColumns++;
       }
     }
-    GLOBAL_DICTIONARY_COLUMNS.set(globalColumns);
     globalDictionaries = dictionaries;
     reusableLeaf = emitBorrowedSampleForReuse(sample, dictionaries, leafSink);
     leavesEmitted += sample.size();
+    globalDictionaryColumns = globalColumns;
     // currentLeaf is the last buffered leaf (flushCurrentRowGroup buffered it before calling
     // here), so it has already been converted and drained; extractRow replaces it with one built
     // under the new kinds.
@@ -1395,9 +1447,18 @@ public final class ProjectionIndexBuilder {
     }
   }
 
+  static boolean globalDictionarySampleHasHeadroom(final int entryCount) {
+    if (entryCount < 0) {
+      throw new IllegalArgumentException("entryCount must not be negative");
+    }
+    return entryCount <= GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
+        - MIN_GLOBAL_DICTIONARY_HEADROOM;
+  }
+
   /**
    * Publish the dictionary-decided leading sample in order through the borrowed-page boundary.
-   * Package visibility exists solely for focused ownership/parity coverage of the 64-page drain.
+   * Package visibility exists solely for focused ownership/parity coverage of the bounded sample
+   * drain.
    */
   static void emitBorrowedSample(final List<ProjectionIndexRowGroupPage> sample,
       final GlobalValueDictionaryWriter[] dictionaries, final BorrowedLeafSink leafSink) {
@@ -1409,7 +1470,7 @@ public final class ProjectionIndexBuilder {
 
   /**
    * Drain the dictionary-election sample without reusing a page while any sample data is still
-   * needed. All 64 leading leaves survive measurement, optional local-to-global conversion and
+   * needed. All leading leaves survive measurement, optional local-to-global conversion and
    * their borrowed callbacks intact; only the final leaf is reset, and only after its callback
    * returns successfully, to seed steady-state reuse.
    *

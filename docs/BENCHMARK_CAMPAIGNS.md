@@ -462,8 +462,9 @@ Design points that mattered (each learned the hard way):
   page-key boundaries; a strided "namespace" of keys silently collapses every record
   onto the root page. Each column reserves one contiguous key run; its base rides in
   the projection metadata.
-- **Which columns go global is measured, not guessed.** The build holds back its first
-  64 leaves; their per-leaf dictionaries *are* the sample. A column goes global when
+- **Which columns go global is measured, not guessed.** AUTO/ALWAYS builds with eligible string
+  columns hold back their first 16 leaves; their per-leaf dictionaries *are* the sample. NEVER and
+  builds without an eligible column stream immediately. A column goes global when
   the per-leaf dedup factor shows the local dictionaries have stopped deduplicating
   (`did` ≈ 1.0 → global; `collection`/`kind`/`operation` ≈ 100+ → stay per-leaf, where
   2-bit packing is unbeatable).

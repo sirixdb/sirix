@@ -326,9 +326,9 @@ run, not a throughput number: `interval=1` disables additional async-profiler do
 HotSpot allocation hooks still report TLAB refills and allocations outside TLABs rather than every
 `new` executed inside an existing TLAB. A non-zero matching stack therefore proves a real allocation;
 zero matching samples are regression evidence, not a standalone proof of zero allocation. Pair them
-with the focused ownership/wire tests and source-level bounded-scratch audit below. The 100k stream is
-large enough to drain the projection builder's 64-row-group sample and exercise later foreground
-trie-spill epochs:
+with the focused ownership/wire tests and source-level bounded-scratch audit below. Under the canonical
+`globalDict=never` profile, the 100k stream exercises immediate row-group streaming and enough later
+foreground epochs to spill projection-trie pages:
 
 ```bash
 test -n "$ASYNC_PROFILER"

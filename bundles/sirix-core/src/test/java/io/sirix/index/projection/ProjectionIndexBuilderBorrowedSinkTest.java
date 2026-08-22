@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Ownership and compatibility coverage for the builder's synchronous borrowed-page boundary. */
 final class ProjectionIndexBuilderBorrowedSinkTest {
 
-  private static final int SAMPLE_LEAVES = 64;
+  private static final int SAMPLE_LEAVES = 16;
   private static final byte[] KINDS = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG,
       ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
 
@@ -30,7 +30,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
   };
 
   @Test
-  void sixtyFourPageSampleDrainsSynchronouslyAndMatchesTheRawAdapterByteForByte() {
+  void sixteenPageSampleDrainsSynchronouslyAndMatchesTheRawAdapterByteForByte() {
     final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
     for (int i = 0; i < SAMPLE_LEAVES; i++) {
       final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
@@ -70,7 +70,7 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
   }
 
   @Test
-  void sixtyFourPageSampleSurvivesElectionAndBorrowBeforeOnlyItsFinalPageBecomesReusable() {
+  void sixteenPageSampleSurvivesElectionAndBorrowBeforeOnlyItsFinalPageBecomesReusable() {
     final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
     final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter();
     final GlobalValueDictionaryWriter[] dictionaries = {null, dictionary};
@@ -111,8 +111,8 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
   }
 
   @Test
-  void exactSampleSeedingAdmitsRepeatedValuesEvenWhenPerLeafTotalsExceedTheDistinctCap() {
-    final int distinctValues = 300;
+  void exactSampleSeedingDeduplicatesRepeatedValuesAtTheLocalEntryCap() {
+    final int distinctValues = ProjectionIndexRowGroupPage.MAX_ROWS;
     final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
     long repeatedPerLeafDictionaryEntries = 0L;
     for (int leafIndex = 0; leafIndex < SAMPLE_LEAVES; leafIndex++) {
@@ -124,9 +124,9 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
       repeatedPerLeafDictionaryEntries += page.stringDictionarySize(1);
       sample.add(page);
     }
-    assertTrue(repeatedPerLeafDictionaryEntries
-            > GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND,
-        "fixture must exceed the old repeated-per-leaf admission bound");
+    assertEquals(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND,
+        repeatedPerLeafDictionaryEntries,
+        "the bounded sample must reach the interner's exact structural admission cap");
 
     final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter(1, Long.MAX_VALUE,
         GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
@@ -137,6 +137,45 @@ final class ProjectionIndexBuilderBorrowedSinkTest {
     } finally {
       dictionary.release();
     }
+  }
+
+  @Test
+  void globallyUniqueSampleExhaustsHeadroomBeforeAnyPageIsConverted() {
+    final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(SAMPLE_LEAVES);
+    for (int leafIndex = 0; leafIndex < SAMPLE_LEAVES; leafIndex++) {
+      final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(KINDS);
+      for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS; row++) {
+        final long ordinal = (long) leafIndex * ProjectionIndexRowGroupPage.MAX_ROWS + row;
+        assertTrue(page.appendRow(200_000L + ordinal, new long[] {ordinal, 0L}, new boolean[2],
+            new String[] {"", "unique-" + ordinal}));
+      }
+      sample.add(page);
+    }
+
+    final GlobalValueDictionaryWriter dictionary = new GlobalValueDictionaryWriter(1, Long.MAX_VALUE,
+        GlobalValueDictionaryWriter.AdmissionPolicy.DECLINE);
+    try {
+      ProjectionIndexBuilder.seedGlobalDictionaryFromSample(sample, 1, dictionary);
+      assertEquals(GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND, dictionary.entryCount(),
+          "AUTO must see that exact seeding left no structural slot for a later novel value");
+      for (final ProjectionIndexRowGroupPage page : sample) {
+        assertEquals(ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT, page.columnKind(1));
+        assertTrue(page.stringDictionaryIsSlabBacked(1),
+            "election refusal must precede every local-to-global page mutation");
+      }
+    } finally {
+      dictionary.release();
+    }
+  }
+
+  @Test
+  void autoHeadroomBoundaryReservesExactlyOneFullyDistinctLeaf() {
+    final int admissionCeiling = GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
+        - ProjectionIndexRowGroupPage.MAX_ROWS;
+    assertTrue(ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(admissionCeiling));
+    assertFalse(ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(admissionCeiling + 1));
+    assertThrows(IllegalArgumentException.class,
+        () -> ProjectionIndexBuilder.globalDictionarySampleHasHeadroom(-1));
   }
 
   @Test
