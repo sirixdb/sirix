@@ -1927,55 +1927,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
   private static void validateTouchedNormalBounds(final ProjectionIndexFences.Accessor fences,
       final LongOpenHashSet changedLeafSlots) {
-    final int physicalLimit = fences.physicalRowGroupCount();
     for (final LongIterator iterator = changedLeafSlots.iterator(); iterator.hasNext();) {
       final int slot = Math.toIntExact(iterator.nextLong());
       if (!fences.isLivePhysicalSlot(slot)) {
         continue;
       }
-      fences.validateDocumentLinks(slot);
-      final long first = fences.first(slot);
-      final long last = fences.last(slot);
-      final boolean hasNormal = first != Long.MAX_VALUE || last != Long.MIN_VALUE;
-      if (hasNormal && (first < 0 || last < first)) {
-        throw new IllegalStateException("invalid touched projection normal fence at leaf " + slot);
-      }
-      int previous = fences.previous(slot);
-      int steps = 0;
-      while (previous != 0 && fences.first(previous) == Long.MAX_VALUE
-          && fences.last(previous) == Long.MIN_VALUE) {
-        fences.validateDocumentLinks(previous);
-        if (++steps > physicalLimit) {
-          throw new IllegalStateException("cycle in projection document-order predecessor links");
-        }
-        previous = fences.previous(previous);
-      }
-      int next = fences.next(slot);
-      steps = 0;
-      while (next != 0 && fences.first(next) == Long.MAX_VALUE
-          && fences.last(next) == Long.MIN_VALUE) {
-        fences.validateDocumentLinks(next);
-        if (++steps > physicalLimit) {
-          throw new IllegalStateException("cycle in projection document-order successor links");
-        }
-        next = fences.next(next);
-      }
-      if (previous != 0) {
-        fences.validateDocumentLinks(previous);
-      }
-      if (next != 0) {
-        fences.validateDocumentLinks(next);
-      }
-      if (previous != 0 && hasNormal && fences.last(previous) >= first) {
-        throw new IllegalStateException("projection normal backbone overlaps before physical leaf " + slot);
-      }
-      if (next != 0 && hasNormal && last >= fences.first(next)) {
-        throw new IllegalStateException("projection normal backbone overlaps after physical leaf " + slot);
-      }
-      if (!hasNormal && previous != 0 && next != 0
-          && fences.last(previous) >= fences.first(next)) {
-        throw new IllegalStateException("projection normal backbone overlaps across exception-only leaf " + slot);
-      }
+      fences.validateTouchedNormalBounds(slot);
     }
   }
 

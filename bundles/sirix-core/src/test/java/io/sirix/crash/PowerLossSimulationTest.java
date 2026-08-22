@@ -17,12 +17,15 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Deque;
@@ -217,26 +220,48 @@ public final class PowerLossSimulationTest {
         assertTrue(!verdict.failure(), "self-test: pristine durable state must pass, got " + verdict);
       }
 
-      // (b) zeroed revisions-file record of the last acked revision => acked state unopenable.
+      // (b) Zero every durable locator for the last acked revision: its revisions-file record and
+      // the matching ring entry in BOTH beacon slots. Corrupting only the revisions file is not a
+      // valid oracle self-test because the tail-log is deliberately able to salvage and heal it.
       {
-        final byte[] corrupt = fullRevisions.clone();
-        final int offset = (int) IOStorage.revisionsFileOffset(finalRev);
-        java.util.Arrays.fill(corrupt, offset, offset + IOStorage.REVISIONS_FILE_RECORD_SIZE, (byte) 0);
-        final Path stateDir = scratch.resolve("zeroed-revisions-record");
-        writeStateDir(scenario.templateDb(), stateDir, fullData, corrupt, false);
+        final byte[] corruptData = fullData.clone();
+        final byte[] corruptRevisions = fullRevisions.clone();
+        final int revisionsOffset = Math.toIntExact(IOStorage.revisionsFileOffset(finalRev));
+        Arrays.fill(corruptRevisions, revisionsOffset,
+            revisionsOffset + IOStorage.REVISIONS_FILE_RECORD_SIZE, (byte) 0);
+
+        final int entryOffsetInSlot = IOStorage.tailLogEntryOffsetInSlot(finalRev);
+        for (final long beaconOffset : new long[] {
+            IOStorage.PRIMARY_BEACON_OFFSET, IOStorage.SECONDARY_BEACON_OFFSET}) {
+          final int entryOffset = Math.toIntExact(beaconOffset + entryOffsetInSlot);
+          Arrays.fill(corruptData, entryOffset,
+              entryOffset + IOStorage.REVISION_RECORD_TAIL_LOG_ENTRY_BYTES, (byte) 0);
+        }
+
+        final Path stateDir = scratch.resolve("zeroed-revision-locators");
+        writeStateDir(scenario.templateDb(), stateDir, corruptData, corruptRevisions, false);
         final Verdict verdict = verifyState(stateDir, finalRev, finalRev, scenario.golden());
         assertTrue(verdict.failure(),
-                   "self-test: zeroed revisions record for acked revision must be flagged, got " + verdict);
+                   "self-test: zeroed durable locators for acked revision must be flagged, got " + verdict);
         System.out.println("self-test (b) flagged as expected: " + verdict.code());
       }
 
-      // (c) bit-rot across the last commit's tail pages => acked revision unreadable.
+      // (c) Bit-rot the last commit's revision-root payload, located through its durable tail-log
+      // entry. The physical end of a preallocated data file is zero padding, not committed data.
       {
         final byte[] corrupt = fullData.clone();
-        for (int i = corrupt.length - 1024; i < corrupt.length; i += 64) {
-          corrupt[i] ^= 0x5A;
-        }
-        final Path stateDir = scratch.resolve("bitrot-last-commit-tail");
+        final int primaryEntryOffset = Math.toIntExact(IOStorage.PRIMARY_BEACON_OFFSET)
+            + IOStorage.tailLogEntryOffsetInSlot(finalRev);
+        final ByteBuffer dataView = ByteBuffer.wrap(fullData).order(ByteOrder.LITTLE_ENDIAN);
+        assertTrue(dataView.getInt(primaryEntryOffset) == finalRev,
+            "self-test fixture must carry the final revision in the primary tail-log");
+        final long revisionRootOffset = dataView.getLong(primaryEntryOffset + 2 * Integer.BYTES);
+        final int payloadOffset = Math.toIntExact(revisionRootOffset + IOStorage.OTHER_BEACON);
+        assertTrue(payloadOffset >= IOStorage.DATA_REGION_START && payloadOffset < corrupt.length,
+            "self-test fixture produced an invalid final revision-root payload offset " + payloadOffset);
+        corrupt[payloadOffset] ^= 0x5A;
+
+        final Path stateDir = scratch.resolve("bitrot-final-revision-root");
         writeStateDir(scenario.templateDb(), stateDir, corrupt, fullRevisions, false);
         final Verdict verdict = verifyState(stateDir, finalRev, finalRev, scenario.golden());
         assertTrue(verdict.failure(), "self-test: bit-rotted acked pages must be flagged, got " + verdict);

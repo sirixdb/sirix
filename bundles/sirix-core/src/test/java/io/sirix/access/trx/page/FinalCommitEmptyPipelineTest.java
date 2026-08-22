@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
 import io.sirix.index.IndexType;
+import io.sirix.io.IOTestHelper;
 import io.sirix.io.Reader;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
@@ -89,6 +90,7 @@ final class FinalCommitEmptyPipelineTest {
            Writer writer = storage.createWriter()) {
         writer.write(config, writtenReference, page, appendBuffer);
         writer.flushBufferedWrites(appendBuffer);
+        IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
         writer.writeUberPageReference(config, new PageReference(), new UberPage(), appendBuffer);
       }
 

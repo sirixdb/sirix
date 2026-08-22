@@ -41,6 +41,7 @@ target
 
 # Gradle
 .gradle
+.kotlin/
 build/
 bin/
 

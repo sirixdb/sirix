@@ -11,6 +11,7 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
+import io.sirix.io.IOTestHelper;
 import io.sirix.io.Reader;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.io.Writer;
@@ -115,8 +116,9 @@ final class AsyncSnapshotEncodedCacheTest {
         writer.write(config, writtenReference, serializationCopy, appendBuffer);
         writer.flushBufferedWrites(appendBuffer);
         // A direct page append intentionally bypasses the normal commit root. Install a valid first
-        // beacon so opening a genuinely fresh FileChannelReader performs (and passes) superblock
-        // validation instead of treating the file as an interrupted first commit.
+        // revision root and beacon so opening a genuinely fresh FileChannelReader performs (and
+        // passes) superblock validation instead of treating the file as an interrupted first commit.
+        IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
         writer.writeUberPageReference(config, new PageReference(), new UberPage(), appendBuffer);
       }
 

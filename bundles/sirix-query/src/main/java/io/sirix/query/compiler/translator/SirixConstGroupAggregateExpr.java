@@ -47,15 +47,18 @@ public final class SirixConstGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
-      return genericFallback.evaluate(ctx, tuple);
-    }
-    if (executor.canExecute(ctx)) {
-      final Sequence served =
-          executor.executeConstGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames);
-      if (served != null) {
-        return served;
+    executor.enterExecution();
+    try {
+      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
+          && executor.canExecute(ctx)) {
+        final Sequence served =
+            executor.executeConstGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames);
+        if (served != null) {
+          return served;
+        }
       }
+    } finally {
+      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

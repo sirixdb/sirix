@@ -181,6 +181,33 @@ final class ProjectionBloomChunksTest {
   }
 
   @Test
+  void writerRetainsOnlyTheCurrentChunkWindowAcrossManyLeaves() {
+    final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
+    final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();
+    final int rowGroupCount = ProjectionBloomChunks.CHUNK_LEAVES * 8 + 17;
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      for (int rowGroupId = 1; rowGroupId <= rowGroupCount; rowGroupId++) {
+        writer.append(encoded, rowGroupId, storage);
+        final int expectedPending = rowGroupId % ProjectionBloomChunks.CHUNK_LEAVES;
+        assertEquals(expectedPending, writer.pendingLeavesForTesting());
+        assertEquals(expectedPending, writer.retainedSegmentReferencesForTesting(),
+            "one string column may retain only its current 256-leaf window");
+      }
+      assertNotNull(storage.getBlob(ProjectionBloomChunks.chunkSlotKey(0, 7)),
+          "completed windows must already be persistent while only the tail stays retained");
+      writer.finishChunks(storage, rowGroupCount, COLUMN_KINDS);
+      assertEquals(0, writer.pendingLeavesForTesting());
+      assertEquals(0, writer.retainedSegmentReferencesForTesting());
+    } finally {
+      writer.release();
+    }
+  }
+
+  @Test
   void malformedTailChunkKeepsOnlyItsSpan() {
     final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded = encodedRowGroup("present");
     final ProjectionBloomChunks.Writer writer = new ProjectionBloomChunks.Writer();

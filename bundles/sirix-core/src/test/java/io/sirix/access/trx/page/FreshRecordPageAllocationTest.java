@@ -10,6 +10,7 @@ import io.sirix.cache.FrameSlotAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.index.IndexType;
+import io.sirix.io.IOTestHelper;
 import io.sirix.io.Reader;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -153,6 +154,7 @@ final class FreshRecordPageAllocationTest {
              Writer writer = storage.createWriter()) {
           writer.write(config, writtenReference, modified, appendBuffer);
           writer.flushBufferedWrites(appendBuffer);
+          IOTestHelper.writeRevisionZeroRoot(writer, config, appendBuffer);
           writer.writeUberPageReference(config, new PageReference(), new UberPage(), appendBuffer);
         }
 

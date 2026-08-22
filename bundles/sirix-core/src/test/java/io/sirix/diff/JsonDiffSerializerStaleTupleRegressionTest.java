@@ -11,6 +11,7 @@ import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.service.json.BasicJsonDiff;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -129,6 +130,79 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
     }
   }
 
+  @Test
+  void sameValueSetterProducesAReplayableEmptySidecar() throws Exception {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertObjectAsFirstChild();
+      wtx.insertObjectRecordAsFirstChild("value", new StringValue("same"));
+      final long valueKey = wtx.getNodeKey();
+      wtx.commit();
+
+      wtx.moveTo(valueKey);
+      wtx.setStringValue("same");
+      wtx.commit();
+
+      assertEquals(0, readDiffs(session, 1, 2).size());
+      try (final var rtx = session.beginNodeReadOnlyTrx(2)) {
+        assertEquals(0, rtx.getUpdateOperations().size(),
+            "a valid no-op revision must pass integrity/schema validation as an empty operation list");
+      }
+    }
+  }
+
+  @Test
+  void fusedRenameAndValueChangeShareOneCompleteUpdate() throws Exception {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertObjectAsFirstChild();
+      wtx.insertObjectRecordAsFirstChild("before", new StringValue("old"));
+      final long valueKey = wtx.getNodeKey();
+      wtx.commit();
+
+      wtx.moveTo(valueKey);
+      wtx.setObjectKeyName("after");
+      wtx.setStringValue("new");
+      wtx.commit();
+
+      final JsonArray diffs = readDiffs(session, 1, 2);
+      assertEquals(1, diffs.size());
+      final JsonObject update = diffs.get(0).getAsJsonObject().getAsJsonObject("update");
+      assertEquals("after", update.get("name").getAsString());
+      assertEquals("string", update.get("type").getAsString());
+      assertEquals("new", update.get("value").getAsString());
+      try (final var rtx = session.beginNodeReadOnlyTrx(2)) {
+        assertEquals(1, rtx.getUpdateOperations().size());
+      }
+    }
+  }
+
+  @Test
+  void compactBasicDiffDoesNotExposeInternalSidecarMetadata() {
+    try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
+        final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertObjectAsFirstChild();
+      wtx.insertObjectRecordAsFirstChild("value", new StringValue("old"));
+      final long valueKey = wtx.getNodeKey();
+      wtx.commit();
+
+      wtx.moveTo(valueKey);
+      wtx.setStringValue("new");
+      wtx.commit();
+
+      final String compactDiff = new BasicJsonDiff(database.getName()).generateDiff(
+          session, 1, 2, 0, Long.MAX_VALUE, false);
+      final JsonObject document = JsonParser.parseString(compactDiff).getAsJsonObject();
+      assertFalse(document.has(JsonDiffIntegrity.FORMAT_VERSION_FIELD));
+      assertFalse(document.has(JsonDiffIntegrity.OPERATION_COUNT_FIELD));
+      assertFalse(document.has(JsonDiffIntegrity.OPERATIONS_DIGEST_FIELD));
+      assertEquals(1, document.getAsJsonArray("diffs").size());
+    }
+  }
+
   private static JsonArray readDiffs(final JsonResourceSession session, final int oldRevision,
       final int newRevision) throws Exception {
     final Path diffFile = session.getResourceConfig()
@@ -137,6 +211,10 @@ final class JsonDiffSerializerStaleTupleRegressionTest {
                                  .resolve("diffFromRev" + oldRevision + "toRev" + newRevision + ".json");
     assertTrue(Files.exists(diffFile), "diff file must exist: " + diffFile);
     final JsonObject diff = JsonParser.parseString(Files.readString(diffFile)).getAsJsonObject();
+    JsonDiffIntegrity.validate(diff);
+    assertEquals(diff.getAsJsonArray("diffs").size(),
+        diff.get(JsonDiffIntegrity.OPERATION_COUNT_FIELD).getAsInt(),
+        "integrity operation count must cover legitimate empty and non-empty sidecars");
     return diff.getAsJsonArray("diffs");
   }
 }

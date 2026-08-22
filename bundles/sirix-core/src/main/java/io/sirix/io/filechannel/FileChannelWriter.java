@@ -1098,6 +1098,22 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         flushBuffer(bufferedBytes);
       }
 
+      // Resolve the durable revision-root identity BEFORE either uber beacon can be published.
+      // The preallocated writer hands this exact identity to its successor after the beacon
+      // acknowledgement below; discovering a missing/torn revisions record only afterwards would
+      // throw while leaving both durable beacons advertising a revision that cannot be opened.
+      // A bare low-level UberPage write has no data frontier to hand off and retains its historical
+      // test/storage-bootstrap behaviour.
+      final RevisionFileData durableRevisionFileData;
+      if (frontiersInitialised) {
+        if (!(page instanceof UberPage uberPage) || uberPage.getRevisionNumber() < 0) {
+          throw new SirixIOException("cannot publish a data frontier without an uber-page revision identity");
+        }
+        durableRevisionFileData = reader.getRevisionFileData(uberPage.getRevisionNumber());
+      } else {
+        durableRevisionFileData = null;
+      }
+
       // First commit on fresh files: write the superblocks (file identity: magic, layout
       // version, endianness, geometry). The header region is a sparse hole until now (so that
       // IOStorage.exists(), which checks size > 0, still distinguishes fresh resources) — and
@@ -1228,13 +1244,10 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       // that never became durable: harmless for correctness (the store is append-only) but it
       // would strand the skipped range forever.
       if (frontiersInitialised) {
-        if (!(page instanceof UberPage uberPage) || uberPage.getRevisionNumber() < 0) {
-          throw new SirixIOException("cannot publish a data frontier without an uber-page revision identity");
-        }
+        final UberPage uberPage = (UberPage) page;
         final int durableRevision = uberPage.getRevisionNumber();
-        final RevisionFileData revisionFileData = reader.getRevisionFileData(durableRevision);
         durability.storeFrontiers(dataLogicalEnd, dataPreallocEnd, revisionsPreallocEnd, durableRevision,
-            revisionFileData.offset(), revisionFileData.pageHash());
+            durableRevisionFileData.offset(), durableRevisionFileData.pageHash());
       }
     } catch (final IOException e) {
       throw new SirixIOException(e);

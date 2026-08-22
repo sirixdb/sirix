@@ -4171,7 +4171,7 @@ final class JsonNodeTrxImpl extends
           oldRevisionNumber, revisionNumber, storeDeweyIDs()
               ? updateOperationsOrdered.values()
               : updateOperationsUnordered.values());
-      final var jsonDiff = diffSerializer.serialize(false);
+      final var jsonDiff = diffSerializer.serializeSidecar();
 
       // Use the same old revision number for the file name as for the diff content
       final Path diff = resourceSession.getResourceConfig()

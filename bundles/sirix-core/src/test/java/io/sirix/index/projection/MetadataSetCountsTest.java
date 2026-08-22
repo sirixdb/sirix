@@ -22,6 +22,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -128,6 +129,55 @@ final class MetadataSetCountsTest {
   }
 
   @Test
+  void streamingBuildDropsHighCardinalityStateButKeepsExactLowCardinalitySummaryAfterColdReopen() {
+    final ProjectionSetSummaryChunks.BuildAccumulator summaries =
+        new ProjectionSetSummaryChunks.BuildAccumulator();
+    final int pages = 8;
+    final Map<Integer, Map<String, Long>> capabilities;
+    try {
+      try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+           JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+        try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final ProjectionIndexHOTStorage storage =
+              new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+          for (int page = 0; page < pages; page++) {
+            summaries.append(highAndLowCardinalityPage(page));
+            assertTrue(summaries.peakRetainedValueCount(1)
+                    <= ProjectionSetSummaryChunks.maxValuesForTesting(),
+                "a build may never retain more distinct values than one summary chunk can publish");
+            if (page == 0) {
+              assertTrue(summaries.disabled(1),
+                  "the first high-cardinality leaf must fail the optional summary closed");
+            }
+            assertEquals(0, summaries.retainedValueCount(1),
+                "disabled columns must release their retained strings immediately");
+          }
+          assertFalse(summaries.disabled(2));
+          assertEquals(2, summaries.retainedValueCount(2));
+          capabilities = summaries.writeAll(storage, MULTI_SET_KINDS);
+          assertFalse(capabilities.containsKey(1));
+          assertTrue(capabilities.containsKey(2));
+          assertNull(storage.getBlob(ProjectionSetSummaryChunks.slotKey(1)));
+          wtx.commit();
+        }
+
+        Databases.getGlobalBufferManager().clearAllCaches();
+        try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final Map<Integer, Map<String, Long>> reopened = ProjectionSetSummaryChunks.readAll(
+              rtx.getStorageEngineReader(), INDEX_NUMBER, capabilities);
+          assertEquals(pages * ProjectionIndexRowGroupPage.MAX_ROWS / 2L,
+              reopened.get(2).get("Drama"));
+          assertEquals(pages * ProjectionIndexRowGroupPage.MAX_ROWS / 2L,
+              reopened.get(2).get("Comedy"));
+          assertFalse(reopened.containsKey(1));
+        }
+      }
+    } finally {
+      summaries.release();
+    }
+  }
+
+  @Test
   void maintenanceReadsAndWritesOnlyTheChangedSummaryChunk() {
     final Map<Integer, Map<String, Long>> capabilities = new LinkedHashMap<>();
     capabilities.put(1, new LinkedHashMap<>());
@@ -197,6 +247,21 @@ final class MetadataSetCountsTest {
     genres.put("Comedy", 1_007_808L);
     genres.put("Silent", 684_576L);
     return genres;
+  }
+
+  private static ProjectionIndexRowGroupPage highAndLowCardinalityPage(final int pageNumber) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(MULTI_SET_KINDS);
+    final long[] longs = new long[MULTI_SET_KINDS.length];
+    final boolean[] booleans = new boolean[MULTI_SET_KINDS.length];
+    final String[] strings = new String[MULTI_SET_KINDS.length];
+    final String[][] sets = new String[MULTI_SET_KINDS.length][];
+    for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS; row++) {
+      sets[1] = new String[] {"unique-" + pageNumber + '-' + row};
+      sets[2] = new String[] {(row & 1) == 0 ? "Drama" : "Comedy"};
+      final long recordKey = (long) pageNumber * ProjectionIndexRowGroupPage.MAX_ROWS + row + 1;
+      assertTrue(page.appendRow(recordKey, longs, booleans, strings, sets, null, null, null, null));
+    }
+    return page;
   }
 
   private static Map<Integer, Map<String, Long>> readSummaries(final JsonNodeReadOnlyTrx rtx) {

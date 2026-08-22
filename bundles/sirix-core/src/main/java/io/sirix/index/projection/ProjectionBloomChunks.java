@@ -967,6 +967,30 @@ public final class ProjectionBloomChunks {
       priorChunkCounts = null;
       pendingLeaves = 0;
     }
+
+    /** Pending leaf window size; package-visible bounded-retention test/diagnostic telemetry. */
+    int pendingLeavesForTesting() {
+      return pendingLeaves;
+    }
+
+    /** Number of encoded segment references currently retained by the pending leaf window. */
+    int retainedSegmentReferencesForTesting() {
+      int retained = 0;
+      final ColumnBuffer[] buffers = columns;
+      final int[] compactColumns = stringColumns;
+      if (buffers == null || compactColumns == null) {
+        return 0;
+      }
+      for (final int column : compactColumns) {
+        final byte[][] segments = buffers[column].segments;
+        for (int leaf = 0; leaf < pendingLeaves; leaf++) {
+          if (segments[leaf] != null) {
+            retained++;
+          }
+        }
+      }
+      return retained;
+    }
   }
 
   private static final class ColumnBuffer {

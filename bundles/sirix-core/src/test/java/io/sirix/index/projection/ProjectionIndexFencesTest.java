@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -522,6 +523,73 @@ final class ProjectionIndexFencesTest {
       assertEquals(-1, fences.findSlot(6L), "no normal fence covers the gap occupied by exception rows");
       assertEquals(3, fences.findSlot(9L));
       assertEquals(-1, fences.findSlot(100L));
+    }
+  }
+
+  @Test
+  void touchedExceptionOnlyLeafValidationReadsOnlyAdjacentFenceChunks() {
+    final int rowGroupCount = ProjectionIndexFences.CHUNK_LEAVES * 64 + 2;
+    final long[] first = new long[rowGroupCount];
+    final long[] last = new long[rowGroupCount];
+    Arrays.fill(first, Long.MAX_VALUE);
+    Arrays.fill(last, Long.MIN_VALUE);
+    first[0] = 2L;
+    last[0] = 2L;
+    first[rowGroupCount - 1] = 8L;
+    last[rowGroupCount - 1] = 8L;
+
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        ProjectionIndexFences.write(
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER),
+            rowGroupCount, first, last, 0);
+        wtx.commit();
+      }
+
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER), rowGroupCount);
+        // Put the touched leaf first in chunk 32: its predecessor is in chunk 31 and its successor
+        // in chunk 32. The nearest normal leaves are 1,024 exception-only entries away in each
+        // direction; the old validation walked all 65 chunks to reach them.
+        final int touchedSlot = ProjectionIndexFences.CHUNK_LEAVES * 32 + 1;
+        fences.validateTouchedNormalBounds(touchedSlot);
+
+        assertEquals(2, fences.chunksRead(),
+            "exception-only validation must read only the touched/adjacent document-link chunks");
+      }
+    }
+  }
+
+  @Test
+  void touchedNormalValidationUsesBaseOwnershipAndNumericNeighbors() {
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      ProjectionIndexFences.write(storage, 2, new long[] {10L, 50L}, new long[] {39L, 59L}, 0);
+      final ProjectionIndexFences.Accessor fences = ProjectionIndexFences.open(storage, 2);
+      fences.set(1, 10L, 19L);
+      final int splitSlot = fences.allocateSlot();
+      fences.set(splitSlot, 20L, 30L);
+      fences.linkAfter(1, splitSlot);
+
+      fences.validateTouchedNormalBounds(1);
+      fences.validateTouchedNormalBounds(splitSlot);
+
+      fences.set(1, 10L, 25L);
+      final IllegalStateException overlap =
+          assertThrows(IllegalStateException.class, () -> fences.validateTouchedNormalBounds(1));
+      assertTrue(overlap.getMessage().contains("base 1"));
+
+      fences.set(1, 10L, 19L);
+      fences.set(2, 35L, 45L);
+      final IllegalStateException escapedOwner =
+          assertThrows(IllegalStateException.class, () -> fences.validateTouchedNormalBounds(2));
+      assertTrue(escapedOwner.getMessage().contains("escapes base 2 ownership"));
     }
   }
 

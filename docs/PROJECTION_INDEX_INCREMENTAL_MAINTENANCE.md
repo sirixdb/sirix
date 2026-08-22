@@ -712,6 +712,17 @@ Small metadata is chunked so changing one link or fence does not rewrite a
 global fence array. Distant row groups and unrelated projection definitions
 remain untouched.
 
+Validation is local too. For every touched physical leaf, the maintainer checks
+its immediate document-order predecessor/successor reciprocity in constant
+time. A normal leaf's numeric interval is checked against the preceding normal
+base boundary and its level-0 normal successor; an inserted split is found
+through the existing bounded-height numeric skip path. Exception-only leaves
+do not participate in numeric routing, so validation never walks across a long
+run of exceptions looking for a distant normal sibling. For example, the
+regression with 2,048 exception-only leaves between normal leaves validates a
+touched middle slot by reading exactly its two local metadata chunks, rather
+than scanning the intervening leaves.
+
 The only operations allowed to reset a complete projection subtree are
 explicit lifecycle operations:
 
@@ -771,6 +782,13 @@ The common ingestion and update paths obey these rules:
 - Do not build a locator entry for every record; locators are sparse.
 - Do not retain all encoded row groups during an initial build; stream bounded
   row groups into persistent storage.
+- Collect an exact `STRING_SET` summary for a column only while its complete
+  encoded value/count set fits both the configured value-count and byte limits.
+  The first unseen value that would exceed either limit permanently disables
+  that column for the build and immediately clears its primitive count map.
+- Stream Bloom references in 256-leaf chunks. Persist every full chunk eagerly
+  and retain only the current incomplete chunk before the metadata manifest is
+  published.
 - Do not sort dirty/new record keys to recover document order.
 - Do not retain deleted source subtrees.
 - Bound pre-existing-row split work by the 1024-row source group; same-commit

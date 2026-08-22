@@ -72,79 +72,90 @@ public final class SirixSortedScanExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    // Runtime source gate — see SirixGroupAggregateExpr#evaluate.
-    if (runtimeSourceRef != null && !executor.acceptsSource(runtimeSourceRef, ctx)) {
-      return genericFallback.evaluate(ctx, tuple);
-    }
-    if (executor.canExecute(ctx) && ctx instanceof SirixQueryContext sirixCtx) {
-      // VALUE EMISSION (stage 7e): an unordered scan returning ONE field of the row needs no
-      // record at all when that field is a projected column — the values come off the same
-      // predicate mask's surviving rows, in the same document order, and not a single record
-      // page is touched. Declines fall through to the record-materializing route below.
-      if (orderFields == null && returnFieldOrNull != null) {
-        final Sequence emitted =
-            executor.predicateScanFieldValues(sourcePath, predicateOrNull, returnFieldNameOrNull, limit);
-        if (emitted != null) {
-          SirixVectorizedExecutor.markPredicateValueEmissionServed();
-          return emitted;
+    executor.enterExecution();
+    try {
+      // Runtime source gate — see SirixGroupAggregateExpr#evaluate. Leave the executor admission
+      // before evaluating the generic fallback below.
+      final boolean sourceAccepted = runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx);
+      if (sourceAccepted && executor.canExecute(ctx) && ctx instanceof SirixQueryContext sirixCtx) {
+        // VALUE EMISSION (stage 7e): an unordered scan returning ONE field of the row needs no
+        // record at all when that field is a projected column — the values come off the same
+        // predicate mask's surviving rows, in the same document order, and not a single record
+        // page is touched. Declines fall through to the record-materializing route below.
+        if (orderFields == null && returnFieldOrNull != null) {
+          final Sequence emitted =
+              executor.predicateScanFieldValues(sourcePath, predicateOrNull, returnFieldNameOrNull, limit);
+          if (emitted != null) {
+            SirixVectorizedExecutor.markPredicateValueEmissionServed();
+            return emitted;
+          }
         }
-      }
-      // A null orderFields is the PREDICATE SCAN (stage 7d): same materialization, keys in
-      // document order straight from the predicate mask — no sort columns at all.
-      final long[] keys = orderFields == null
-          ? executor.predicateScanRecordKeys(sourcePath, predicateOrNull, limit)
-          : executor.sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit);
-      if (keys != null) {
-        final JsonDBCollection collection = (JsonDBCollection) sirixCtx.getJsonItemStore().lookup(databaseName);
-        if (collection != null) {
-          try {
-            // One coordinator-side readahead pass covers both arms: madvise is a property of
-            // the SHARED mapping, not of the issuing reader, so the lanes benefit too.
-            executor.prefetchWinnerRecordPages(keys);
-            final Item[] slots = new Item[keys.length];
-            if (keys.length >= PARALLEL_MATERIALIZE_MIN) {
-              // Each record materialization decodes the record's WHOLE slotted page on first
-              // touch (~ms each, and point-lookup winners scatter across pages), so a large
-              // result serially was the cold-path whale. Lanes get their own session-owned,
-              // thread-safe cursors — same lazy-result lifetime contract as the single cursor below.
-              final int lanes = Math.min(executor.recordTrxLaneCount(), keys.length);
-              final int chunk = (keys.length + lanes - 1) / lanes;
-              executor.parallelRecordMaterialization(lanes, lane -> {
-                final JsonNodeReadOnlyTrx laneRtx = executor.recordTrxAt(lane);
-                final JsonItemFactory laneFactory = new JsonItemFactory();
-                final int from = lane * chunk;
-                final int to = Math.min(from + chunk, keys.length);
-                for (int i = from; i < to; i++) {
-                  slots[i] = materializeOne(laneRtx, laneFactory, keys[i], collection);
+        // A null orderFields is the PREDICATE SCAN (stage 7d): same materialization, keys in
+        // document order straight from the predicate mask — no sort columns at all.
+        final long[] keys = orderFields == null
+            ? executor.predicateScanRecordKeys(sourcePath, predicateOrNull, limit)
+            : executor.sortedScanRecordKeys(sourcePath, predicateOrNull, orderFields, descending, limit);
+        if (keys != null) {
+          final JsonDBCollection collection = (JsonDBCollection) sirixCtx.getJsonItemStore().lookup(databaseName);
+          if (collection != null) {
+            try {
+              // One coordinator-side readahead pass covers both arms: madvise is a property of
+              // the SHARED mapping, not of the issuing reader, so the lanes benefit too.
+              executor.prefetchWinnerRecordPages(keys);
+              final Item[] slots = new Item[keys.length];
+              if (keys.length >= PARALLEL_MATERIALIZE_MIN) {
+                // Each record materialization decodes the record's WHOLE slotted page on first
+                // touch (~ms each, and point-lookup winners scatter across pages), so a large
+                // result serially was the cold-path whale. Each lane gets a short-lived construction
+                // cursor; the returned items detach onto the bounded consumer pool before publication.
+                final int lanes = Math.min(executor.recordTrxLaneCount(), keys.length);
+                final int chunk = (keys.length + lanes - 1) / lanes;
+                executor.parallelRecordMaterialization(lanes, lane -> {
+                  final JsonNodeReadOnlyTrx laneRtx = executor.recordTrxAt(lane);
+                  try {
+                    final JsonItemFactory laneFactory = JsonItemFactory.INSTANCE;
+                    final int from = lane * chunk;
+                    final int to = Math.min(from + chunk, keys.length);
+                    for (int i = from; i < to; i++) {
+                      slots[i] = materializeOne(laneRtx, laneFactory, keys[i], collection);
+                    }
+                  } finally {
+                    // Items retain the proxy, not the construction transaction. Detach before this
+                    // lane publishes completion so retirement retains no cursor per lane/revision.
+                    executor.releaseRecordTrx(laneRtx);
+                  }
+                });
+              } else {
+                final JsonNodeReadOnlyTrx rtx = executor.recordTrx();
+                try {
+                  final JsonItemFactory factory = JsonItemFactory.INSTANCE;
+                  for (int i = 0; i < keys.length; i++) {
+                    slots[i] = materializeOne(rtx, factory, keys[i], collection);
+                  }
+                } finally {
+                  executor.releaseRecordTrx(rtx);
                 }
-              });
-            } else {
-              // One cached session-owned cursor per executor (not per query): materialized items keep
-              // reading fields through it lazily during serialization, so it cannot close
-              // per-evaluate or on executor eviction. The resource session owns the cursor.
-              final JsonNodeReadOnlyTrx rtx = executor.recordTrx();
-              final JsonItemFactory factory = new JsonItemFactory();
-              for (int i = 0; i < keys.length; i++) {
-                slots[i] = materializeOne(rtx, factory, keys[i], collection);
               }
-            }
-            final ArrayList<Item> items = new ArrayList<>(keys.length);
-            for (final Item slot : slots) {
-              if (slot != null) {
-                items.add(slot); // null = an unbounded return-field's empty deref — skipped
+              final ArrayList<Item> items = new ArrayList<>(keys.length);
+              for (final Item slot : slots) {
+                if (slot != null) {
+                  items.add(slot); // null = an unbounded return-field's empty deref — skipped
+                }
               }
+              if (orderFields == null) {
+                SirixVectorizedExecutor.markPredicateScanServed();
+              } else {
+                SirixVectorizedExecutor.markSortedScanServed();
+              }
+              return new ItemSequence(items.toArray(new Item[0]));
+            } catch (final RuntimeException e) {
+              SirixVectorizedExecutor.markSortedScanFailed(e);
             }
-            if (orderFields == null) {
-              SirixVectorizedExecutor.markPredicateScanServed();
-            } else {
-              SirixVectorizedExecutor.markSortedScanServed();
-            }
-            return new ItemSequence(items.toArray(new Item[0]));
-          } catch (final RuntimeException e) {
-            SirixVectorizedExecutor.markSortedScanFailed(e);
           }
         }
       }
+    } finally {
+      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

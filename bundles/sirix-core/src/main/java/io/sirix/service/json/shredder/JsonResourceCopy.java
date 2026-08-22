@@ -21,9 +21,7 @@
 
 package io.sirix.service.json.shredder;
 
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.json.InsertOperations;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
@@ -38,6 +36,7 @@ import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
+import io.sirix.diff.JsonDiffSidecar;
 import io.sirix.node.NodeKind;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
@@ -47,7 +46,6 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.util.concurrent.Callable;
 
 import static java.util.Objects.requireNonNull;
@@ -199,25 +197,26 @@ public final class JsonResourceCopy implements Callable<Void> {
       for (var revision = rtx.getRevisionNumber() + 1; revision <= rtx.getResourceSession()
                                                                       .getMostRecentRevisionNumber(); revision++) {
         try (final var rtxOnRevision = readResourceSession.beginNodeReadOnlyTrx(revision)) {
-          final var updateOperationsFile =
-              readResourceSession.getResourceConfig()
-                                 .getResource()
-                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                 .resolve("diffFromRev" + (revision - 1) + "toRev" + revision + ".json");
-
-          final JsonElement jsonElement;
-
+          // Validate the raw sidecar once, but do not hydrate jsonFragment operations into full
+          // strings: replay copies those subtrees directly from rtxOnRevision and must stay bounded.
+          final var updateOperationsFile = readResourceSession.getResourceConfig()
+                                                              .getResource()
+                                                              .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                                                              .resolve("diffFromRev" + (revision - 1) + "toRev"
+                                                                  + revision + ".json");
+          final JsonObject sidecar;
           try {
-            jsonElement = JsonParser.parseString(Files.readString(updateOperationsFile));
-          } catch (IOException e) {
+            sidecar = JsonDiffSidecar.read(updateOperationsFile,
+                readResourceSession.getResourceConfig().getName(),
+                revision - 1,
+                revision,
+                readResourceSession.getResourceConfig().areDeweyIDsStored);
+          } catch (final IOException e) {
             throw new UncheckedIOException(e);
           }
 
-          final var jsonObject = jsonElement.getAsJsonObject();
-          final var diffsArray = jsonObject.getAsJsonArray("diffs");
-
-          for (final var diffsElement : diffsArray) {
-            final var diffsObject = diffsElement.getAsJsonObject();
+          for (final var diffsElement : sidecar.getAsJsonArray("diffs")) {
+            final JsonObject diffsObject = diffsElement.getAsJsonObject();
             if (diffsObject.has(INSERT)) {
               final JsonObject insertObject = diffsObject.getAsJsonObject(INSERT);
               executeInsert(insertObject, rtxOnRevision);
@@ -245,21 +244,27 @@ public final class JsonResourceCopy implements Callable<Void> {
   }
 
   private void executeDelete(final long nodeKey) {
-    wtx.moveTo(nodeKey);
+    requireMove(wtx.moveTo(nodeKey), "delete destination", nodeKey);
     wtx.remove();
   }
 
   private void executeUpdate(JsonObject updateObject, JsonNodeReadOnlyTrx rtxOnRevision) {
     final var key = updateObject.get("nodeKey").getAsLong();
-    final var type = updateObject.get("type").getAsString();
+    requireMove(wtx.moveTo(key), "update destination", key);
 
-    rtxOnRevision.moveTo(key);
-    wtx.moveTo(key);
+    if (updateObject.has("name")) {
+      wtx.setObjectKeyName(updateObject.get("name").getAsString());
+    }
+    if (!updateObject.has("type")) {
+      return;
+    }
 
-    switch (type) {
+    requireMove(rtxOnRevision.moveTo(key), "update source", key);
+    switch (updateObject.get("type").getAsString()) {
       case "boolean" -> wtx.setBooleanValue(rtxOnRevision.getBooleanValue());
       case "string" -> wtx.setStringValue(rtxOnRevision.getValue());
       case "number" -> wtx.setNumberValue(rtxOnRevision.getNumberValue());
+      default -> throw new IllegalStateException("Unsupported replay update type: " + updateObject.get("type"));
     }
   }
 
@@ -267,8 +272,8 @@ public final class JsonResourceCopy implements Callable<Void> {
     final var oldNodeKey = replaceObject.get("oldNodeKey").getAsLong();
     final var newNodeKey = replaceObject.get("newNodeKey").getAsLong();
     final var type = replaceObject.get("type").getAsString();
-    wtx.moveTo(oldNodeKey);
-    rtxOnRevision.moveTo(newNodeKey);
+    requireMove(wtx.moveTo(oldNodeKey), "replace destination", oldNodeKey);
+    requireMove(rtxOnRevision.moveTo(newNodeKey), "replace source", newNodeKey);
 
     // InsertPosition.ofString accepts the canonical "asFirstChild"/"asLeftSibling"/"asRightSibling"
     // tokens; passing the legacy "insert*" prefix throws IllegalArgumentException downstream.
@@ -316,9 +321,8 @@ public final class JsonResourceCopy implements Callable<Void> {
         wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
       case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
         wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
-      default -> {
-        // Other kinds (DOC, DELETE, etc.) cannot be inlined as object-record values.
-      }
+      default -> throw new IllegalStateException(
+          "Unsupported object-record replacement kind: " + rtxOnRevision.getKind());
     }
   }
 
@@ -327,42 +331,64 @@ public final class JsonResourceCopy implements Callable<Void> {
     final var insertPosition = insertObject.get("insertPosition").getAsString();
     final var insertPositionNodeKey = insertObject.get("insertPositionNodeKey").getAsLong();
     final var type = insertObject.get("type").getAsString();
-    wtx.moveTo(insertPositionNodeKey);
-    rtxOnRevision.moveTo(key);
+    requireMove(wtx.moveTo(insertPositionNodeKey), "insert destination", insertPositionNodeKey);
+    requireMove(rtxOnRevision.moveTo(key), "insert source", key);
 
     insert(type, rtxOnRevision, insertPosition);
   }
 
   private void insert(String type, JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition) {
+    final InsertPosition position = InsertPosition.ofString(insertPosition);
     switch (type) {
-      case "jsonFragment" -> insertFragment(rtxOnRevision, insertPosition);
+      case "jsonFragment" -> insertFragment(rtxOnRevision, position);
       case "boolean" -> {
-        if (insertPosition.equals("asFirstChild")) {
-          wtx.insertBooleanValueAsFirstChild(rtxOnRevision.getBooleanValue());
-        } else {
-          wtx.insertBooleanValueAsRightSibling(rtxOnRevision.getBooleanValue());
+        final boolean value = rtxOnRevision.getBooleanValue();
+        switch (position) {
+          case AS_FIRST_CHILD -> wtx.insertBooleanValueAsFirstChild(value);
+          case AS_LAST_CHILD -> wtx.insertBooleanValueAsLastChild(value);
+          case AS_LEFT_SIBLING -> wtx.insertBooleanValueAsLeftSibling(value);
+          case AS_RIGHT_SIBLING -> wtx.insertBooleanValueAsRightSibling(value);
         }
       }
       case "null" -> {
-        if (insertPosition.equals("asFirstChild")) {
-          wtx.insertNullValueAsFirstChild();
-        } else {
-          wtx.insertNullValueAsRightSibling();
+        switch (position) {
+          case AS_FIRST_CHILD -> wtx.insertNullValueAsFirstChild();
+          case AS_LAST_CHILD -> wtx.insertNullValueAsLastChild();
+          case AS_LEFT_SIBLING -> wtx.insertNullValueAsLeftSibling();
+          case AS_RIGHT_SIBLING -> wtx.insertNullValueAsRightSibling();
         }
       }
       case "string" -> {
-        if (insertPosition.equals("asFirstChild")) {
-          wtx.insertStringValueAsFirstChild(rtxOnRevision.getValue());
-        } else {
-          wtx.insertStringValueAsRightSibling(rtxOnRevision.getValue());
+        final String value = rtxOnRevision.getValue();
+        switch (position) {
+          case AS_FIRST_CHILD -> wtx.insertStringValueAsFirstChild(value);
+          case AS_LAST_CHILD -> wtx.insertStringValueAsLastChild(value);
+          case AS_LEFT_SIBLING -> wtx.insertStringValueAsLeftSibling(value);
+          case AS_RIGHT_SIBLING -> wtx.insertStringValueAsRightSibling(value);
         }
       }
+      case "number" -> {
+        final Number value = rtxOnRevision.getNumberValue();
+        switch (position) {
+          case AS_FIRST_CHILD -> wtx.insertNumberValueAsFirstChild(value);
+          case AS_LAST_CHILD -> wtx.insertNumberValueAsLastChild(value);
+          case AS_LEFT_SIBLING -> wtx.insertNumberValueAsLeftSibling(value);
+          case AS_RIGHT_SIBLING -> wtx.insertNumberValueAsRightSibling(value);
+        }
+      }
+      default -> throw new IllegalStateException("Unsupported replay insert type: " + type);
     }
   }
 
-  private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, String insertPosition) {
-    final var copyResource = new Builder(wtx, rtxOnRevision, InsertPosition.ofString(insertPosition)).build();
+  private void insertFragment(JsonNodeReadOnlyTrx rtxOnRevision, InsertPosition insertPosition) {
+    final var copyResource = new Builder(wtx, rtxOnRevision, insertPosition).build();
     copyResource.call();
+  }
+
+  private static void requireMove(final boolean moved, final String role, final long nodeKey) {
+    if (!moved) {
+      throw new IllegalStateException("JSON revision copy cannot resolve " + role + " node " + nodeKey);
+    }
   }
 
   private void insert(boolean moveToParent, boolean isFirst, long previousKey) {

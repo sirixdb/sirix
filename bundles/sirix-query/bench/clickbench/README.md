@@ -352,7 +352,7 @@ Run the parser tests with no third-party test runner:
 ```bash
 python3 -m unittest discover \
   -s bundles/sirix-query/bench/clickbench \
-  -p 'test_hft*_gate.py'
+  -p 'test_hft*.py'
 ```
 
 ### AUTO-global ordinary-maintenance arm

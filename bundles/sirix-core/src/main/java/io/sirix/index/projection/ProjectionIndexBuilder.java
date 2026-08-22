@@ -25,7 +25,6 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 
 import org.jspecify.annotations.Nullable;
-import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -531,24 +530,30 @@ public final class ProjectionIndexBuilder {
     // survive under the new metadata. Ordinary transaction maintenance never takes this path.
     storage.resetTree();
     final int priorRowGroupCount = 0;
+    final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
+        new ProjectionSetSummaryChunks.BuildAccumulator();
     if (emptyRecordSetAllowed && pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath())).isEmpty()) {
       final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
       final byte[] columnKinds = new byte[fieldTypes.size()];
       for (int i = 0; i < columnKinds.length; i++) {
         columnKinds[i] = mapTypeToColumnKind(fieldTypes.get(i), indexDef.getProjectionFields().get(i));
       }
-      finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
-          rtx.getRevisionNumber(), columnKinds, null, null, null, null);
+      try {
+        finishPersist(indexDef, storage, LongArrayList.of(), LongArrayList.of(), priorRowGroupCount,
+            rtx.getRevisionNumber(), columnKinds, setSummaries, null, null);
+      } finally {
+        setSummaries.release();
+      }
       return;
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
     // it — one leaf in memory at a time, matching this class's streaming contract instead of
-    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Only the two
-    // fence longs per leaf are accumulated for the metadata blob written last.
+    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Besides the two
+    // fence longs per leaf, retained derived state is bounded: at most one 256-leaf Bloom window per
+    // string column and only set-summary values that still fit their one persisted summary chunk.
     final LongArrayList firstKeys = new LongArrayList();
     final LongArrayList lastKeys = new LongArrayList();
-    final Map<Integer, List<byte[]>> bloomPerColumn = new HashMap<>();
-    final Map<Integer, Map<String, Long>> setValueRowCounts = new LinkedHashMap<>();
+    final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
     final boolean hasSetColumn = hasStringSetColumn(indexDef);
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
         new ProjectionIndexColumnSegmentCodec.EncodeWorkspace();
@@ -564,27 +569,41 @@ public final class ProjectionIndexBuilder {
       // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
       // already count rows rather than occurrences.
       if (hasSetColumn) {
-        accumulateSetValueRowCounts(leaf, setValueRowCounts);
+        setSummaries.append(leaf);
       }
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
-      accumulateBloomSegments(encoded, physicalSlot, bloomPerColumn);
       storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
       persistOrderExceptionLocators(leaf, physicalSlot, recordLocator);
+      bloomChunks.append(encoded, physicalSlot, storage);
     }, false);
-    if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
-      builder.build(jsonRtx);
-    } else if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
-      builder.build(xmlRtx);
-    } else {
-      throw new IllegalArgumentException("projection build requires a JSON or XML node transaction");
+    try {
+      if (rtx instanceof final JsonNodeReadOnlyTrx jsonRtx) {
+        builder.build(jsonRtx);
+      } else if (rtx instanceof final XmlNodeReadOnlyTrx xmlRtx) {
+        builder.build(xmlRtx);
+      } else {
+        throw new IllegalArgumentException("projection build requires a JSON or XML node transaction");
+      }
+      final byte[] columnKinds = builder.columnKinds();
+      bloomChunks.finishChunks(storage, firstKeys.size(), columnKinds);
+      // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
+      // so nothing can be persisted about a dictionary until every id it will ever mint is known.
+      final long[] valueDictionaryHeaderKeys =
+          flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
+      finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
+          columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+    } finally {
+      try {
+        bloomChunks.release();
+      } finally {
+        try {
+          setSummaries.release();
+        } finally {
+          builder.releaseTransientState();
+        }
+      }
     }
-    // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
-    // so nothing can be persisted about a dictionary until every id it will ever mint is known.
-    final long[] valueDictionaryHeaderKeys =
-        flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
-    finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
-        builder.columnKinds(), setValueRowCounts, bloomPerColumn, valueDictionaryHeaderKeys, null);
   }
 
   /**
@@ -618,30 +637,6 @@ public final class ProjectionIndexBuilder {
       dictionary.release();
     }
     return headerKeys;
-  }
-
-  /**
-   * Collect the leaf's fingerprint segments per column, index-aligned to {@code rowGroupId - 1}.
-   * Leaves without one (rowless, non-string columns) stay {@code null} in the list — the block
-   * encoder writes them as empty slices, which probe as "no evidence, keep".
-   */
-  static void accumulateBloomSegments(final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded,
-      final int rowGroupId, final Map<Integer, List<byte[]>> bloomPerColumn) {
-    final int[] ids = encoded.columnSegmentIds();
-    for (int i = 0; i < ids.length; i++) {
-      final int id = ids[i];
-      // Stride ids only: the DICT_HASH region sits above them, and its residues would otherwise
-      // read as another column's fingerprint — a WRONG bloom block, which prunes real leaves away.
-      if (id > 0 && id < ProjectionIndexColumnSegmentCodec.DICT_HASH_SEGMENT_BASE
-          && id % ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN == 0) {
-        final int column = id / ProjectionIndexColumnSegmentCodec.SEGMENTS_PER_COLUMN - 1;
-        final List<byte[]> list = bloomPerColumn.computeIfAbsent(column, unused -> new ArrayList<>());
-        while (list.size() < rowGroupId - 1) {
-          list.add(null);
-        }
-        list.add(encoded.segments()[i]);
-      }
-    }
   }
 
   /**
@@ -767,8 +762,9 @@ public final class ProjectionIndexBuilder {
    */
   static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
       final LongArrayList firstKeys, final LongArrayList lastKeys, final int priorRowGroupCount,
-      final int buildRevision, final byte[] columnKinds, final Map<Integer, Map<String, Long>> setValueRowCounts,
-      final @Nullable Map<Integer, List<byte[]>> bloomPerColumn, final long @Nullable [] valueDictionaryHeaderKeys,
+      final int buildRevision, final byte[] columnKinds,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
+      final long @Nullable [] valueDictionaryHeaderKeys,
       final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
     final int rowGroupCount = firstKeys.size();
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
@@ -781,43 +777,13 @@ public final class ProjectionIndexBuilder {
     }
     final String rootPath = indexDef.getProjectionRootPath().toString();
     final String[] names = ProjectionIndexChangeListener.trailingFieldNames(indexDef);
-    final Map<Integer, Map<String, Long>> requestedSetSummaries = setValueRowCounts == null
-        ? new LinkedHashMap<>()
-        : new LinkedHashMap<>(setValueRowCounts);
-    for (int column = 0; column < columnKinds.length; column++) {
-      if (columnKinds[column] == ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_SET) {
-        requestedSetSummaries.computeIfAbsent(column, unused -> new LinkedHashMap<>());
-      }
-    }
     final Map<Integer, Map<String, Long>> persistedSetSummaries =
-        ProjectionSetSummaryChunks.writeAll(storage, columnKinds, requestedSetSummaries);
+        setSummaries.writeAll(storage, columnKinds);
     final ProjectionIndexMetadata metadata = new ProjectionIndexMetadata(rootPath, paths, names, columnKinds,
         rowGroupCount, buildRevision, persistedSetSummaries, valueDictionaryHeaderKeys);
     // Fingerprint BLOCKS — the contiguous acceleration over the per-leaf segments just written.
     // Tombstone-first covers columns whose block existed but is empty now.
     storage.removeBloomBlocks(columnKinds.length);
-    if (bloomPerColumn != null) {
-      for (final Map.Entry<Integer, List<byte[]>> e : bloomPerColumn.entrySet()) {
-        final List<byte[]> list = e.getValue();
-        final int chunks = ProjectionBloomChunks.chunkCount(rowGroupCount);
-        for (int chunkId = 0; chunkId < chunks; chunkId++) {
-          final int start = chunkId * ProjectionBloomChunks.CHUNK_LEAVES;
-          final int leaves = Math.min(ProjectionBloomChunks.CHUNK_LEAVES, rowGroupCount - start);
-          final byte[][] perLeaf = new byte[leaves][];
-          final int upTo = Math.max(0, Math.min(list.size() - start, leaves));
-          for (int i = 0; i < upTo; i++) {
-            perLeaf[i] = list.get(start + i);
-          }
-          final byte[] block = ProjectionIndexColumnSegmentCodec.encodeBloomBlock(perLeaf, leaves);
-          if (block == null) {
-            storage.tombstoneRowGroup(ProjectionBloomChunks.chunkSlotKey(e.getKey(), chunkId));
-          } else {
-            storage.putBlob(ProjectionBloomChunks.chunkSlotKey(e.getKey(), chunkId), block);
-          }
-        }
-        ProjectionBloomChunks.publishManifest(storage, e.getKey(), rowGroupCount);
-      }
-    }
     ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
         priorRowGroupCount);
     if (streamingBloomChunks != null) {

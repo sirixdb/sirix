@@ -114,6 +114,8 @@ import io.brackit.query.util.Regex;
 import java.math.BigDecimal;
 import io.brackit.query.atomic.Int;
 import io.brackit.query.atomic.Numeric;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.util.regex.Pattern;
@@ -126,6 +128,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.function.IntConsumer;
@@ -163,6 +166,342 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
+  /**
+   * Chain-wide lifetime shared by every revision-specific executor a compile chain creates.
+   *
+   * <p>The admission word's sign bit is the terminal-close flag and its remaining bits count
+   * accepted top-level executor calls. Retirement never closes this lifetime: an expression compiled
+   * against a retired executor is still allowed to run inline. Terminal chain close flips the bit,
+   * rejects later calls, and waits until every call accepted before the flip has left.
+   *
+   * <p>The same lifetime owns detached lazy-result cursors. There is at most one registered cursor
+   * per consuming thread, irrespective of how many revisions that thread visits. A revision switch
+   * closes the previous cursor before opening the requested one, so old lazy objects remain valid
+   * without growing the session's transaction maps by {@code revisions * materialization lanes}.
+   * Escaped lazy items remain readable across executor retirement and revision eviction while this
+   * lifecycle and its resource sessions are open. They are not themselves execution leases: callers
+   * must quiesce external lazy-item consumers before terminally closing the chain/store. Supporting a
+   * cursor operation concurrent with terminal close would require a lease on every forwarded node
+   * operation, adding synchronization to the record/navigation hot path. A lookup that observes
+   * terminal publication is rejected, and cold cursor registration is serialized with cursor close.
+   */
+  public static final class ExecutionLifecycle implements ThreadSafeJsonReadOnlyTrx.DetachedCursorProvider {
+    private static final long TERMINAL_BIT = Long.MIN_VALUE;
+    private static final long ACTIVE_MASK = Long.MAX_VALUE;
+
+    private final AtomicLong admissions = new AtomicLong();
+    private final Object terminalMonitor = new Object();
+    /** Executors whose pools/warm-up lanes have not completed retirement yet. */
+    private final ConcurrentHashMap<SirixVectorizedExecutor, Boolean> liveExecutors = new ConcurrentHashMap<>();
+    /** Cold registry used for retirement/terminal enumeration; hot lookup is exclusively ThreadLocal. */
+    private final ConcurrentHashMap<Long, RecordCursorSlot> recordCursors = new ConcurrentHashMap<>();
+    private final ReferenceQueue<Thread> retiredConsumerThreads = new ReferenceQueue<>();
+    private final ThreadLocal<ThreadState> threadState = ThreadLocal.withInitial(ThreadState::new);
+    private volatile boolean recordCursorsClosed;
+
+    public ExecutionLifecycle() {
+    }
+
+    /** Lock-free admission on the scan hot path. */
+    private boolean tryEnter() {
+      final ThreadState local = threadState.get();
+      if (local.admissionDepth != 0) {
+        local.admissionDepth++;
+        return true;
+      }
+      if (local.acceptedWorkDepth != 0) {
+        local.admissionDepth = 1;
+        local.admissionOwnsGlobalCount = false;
+        return true;
+      }
+      for (;;) {
+        final long state = admissions.get();
+        if ((state & TERMINAL_BIT) != 0) {
+          return false;
+        }
+        if (state == ACTIVE_MASK) {
+          throw new IllegalStateException("Too many concurrent vectorized executor calls");
+        }
+        if (admissions.compareAndSet(state, state + 1)) {
+          local.admissionDepth = 1;
+          local.admissionOwnsGlobalCount = true;
+          return true;
+        }
+      }
+    }
+
+    /**
+     * Admit work before it can touch a chain-owned executor resolver, resource session, or cursor.
+     * Reentrant admission on the same thread is a depth increment only; the outermost admission is
+     * the sole global counter update.
+     */
+    public void enter() {
+      if (!tryEnter()) {
+        throw new IllegalStateException("Vectorized executor lifecycle is closed");
+      }
+    }
+
+    /** Leave work admitted by {@link #enter()}. */
+    public void leave() {
+      final ThreadState local = threadState.get();
+      if (local.admissionDepth <= 0) {
+        throw new IllegalStateException("Unbalanced vectorized executor lifecycle admission");
+      }
+      if (--local.admissionDepth != 0) {
+        return;
+      }
+      if (!local.admissionOwnsGlobalCount) {
+        return;
+      }
+      local.admissionOwnsGlobalCount = false;
+      final long state = admissions.decrementAndGet();
+      if (state == TERMINAL_BIT) {
+        synchronized (terminalMonitor) {
+          terminalMonitor.notifyAll();
+        }
+      }
+    }
+
+    /** Whether this thread already owns or is executing work under an accepted admission. */
+    public boolean isEnteredByCurrentThread() {
+      final ThreadState local = threadState.get();
+      return local.admissionDepth != 0 || local.acceptedWorkDepth != 0;
+    }
+
+    private void enterAcceptedWork() {
+      threadState.get().acceptedWorkDepth++;
+    }
+
+    private void leaveAcceptedWork() {
+      final ThreadState local = threadState.get();
+      if (local.acceptedWorkDepth <= 0) {
+        throw new IllegalStateException("Unbalanced accepted vectorized executor work");
+      }
+      local.acceptedWorkDepth--;
+    }
+
+    private void releaseCursor(final long threadId) {
+      final RecordCursorSlot slot = recordCursors.remove(threadId);
+      if (slot != null) {
+        slot.closeQuietly();
+      }
+    }
+
+    /**
+     * Permanently reject new work, drain work admitted before the fence, and release detached
+     * consumer cursors after external lazy-item consumers have been quiesced. Idempotent and
+     * uninterruptible; an observed interrupt is restored.
+     */
+    public void closeAndAwait() {
+      if (isEnteredByCurrentThread()) {
+        throw new IllegalStateException("Cannot terminally close a vectorized lifecycle from its admitted work");
+      }
+      for (;;) {
+        final long state = admissions.get();
+        if ((state & TERMINAL_BIT) != 0 || admissions.compareAndSet(state, state | TERMINAL_BIT)) {
+          break;
+        }
+      }
+
+      boolean interrupted = false;
+      synchronized (terminalMonitor) {
+        while ((admissions.get() & ACTIVE_MASK) != 0) {
+          try {
+            terminalMonitor.wait();
+          } catch (final InterruptedException ignored) {
+            interrupted = true;
+          }
+        }
+      }
+      retireRegisteredExecutors();
+      closeRecordCursors();
+      if (interrupted) {
+        Thread.currentThread().interrupt();
+      }
+    }
+
+    @Override
+    public JsonNodeReadOnlyTrx cursor(final JsonResourceSession session, final int revision) {
+      Objects.requireNonNull(session, "session must not be null");
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        throw new IllegalStateException("Vectorized executor lifecycle is closed");
+      }
+      final ThreadState local = threadState.get();
+      final RecordCursorSlot cached = local.recordCursorSlot;
+      if (cached != null) {
+        // A single terminal read at operation entry is the escaped-item contract. Rechecking after
+        // this return cannot make a raw forwarded operation atomic with close, and would add another
+        // volatile read to every field/navigation call.
+        return cached.cursor(session, revision);
+      }
+      drainRetiredConsumerThreads();
+      final Thread thread = Thread.currentThread();
+      final long threadId = thread.threadId();
+      final RecordCursorSlot slot = new RecordCursorSlot(thread, threadId);
+      // Cold path only. Coordinate publication with closeRecordCursors so terminal close either
+      // sees this slot or rejects it before it can open a transaction. The ThreadLocal serves all
+      // later calls without boxing, a map lookup, queue polling, or a monitor.
+      synchronized (recordCursors) {
+        if (recordCursorsClosed || isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        recordCursors.put(threadId, slot);
+        local.recordCursorSlot = slot;
+      }
+      try {
+        final JsonNodeReadOnlyTrx cursor = slot.cursor(session, revision);
+        if (isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        return cursor;
+      } catch (final RuntimeException | Error failure) {
+        // A caller can pass the first terminal check immediately before close publishes the bit and
+        // clears the map. The slot's second check rejects; remove that late empty publication so a
+        // terminal lifecycle cannot retain a post-close map entry.
+        if (isClosed() && recordCursors.remove(threadId, slot)) {
+          slot.closeQuietly();
+        }
+        throw failure;
+      }
+    }
+
+    @Override
+    public boolean isClosed() {
+      return (admissions.get() & TERMINAL_BIT) != 0;
+    }
+
+    private boolean register(final SirixVectorizedExecutor executor) {
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        return false;
+      }
+      liveExecutors.put(executor, Boolean.TRUE);
+      // Close may have taken its snapshot between the first check and publication. Remove the late
+      // registration so a constructor cannot escape a terminal lifecycle with live pools. Work
+      // admitted before terminal publication may still construct its resolved executor: close is
+      // waiting for that admission and will retire the newly registered executor afterwards.
+      if (isClosed() && !isEnteredByCurrentThread()) {
+        liveExecutors.remove(executor);
+        return false;
+      }
+      return true;
+    }
+
+    private void unregister(final SirixVectorizedExecutor executor) {
+      liveExecutors.remove(executor);
+    }
+
+    private void retireRegisteredExecutors() {
+      // Retirement unregisters only after both executor services terminate. Iterating the weakly
+      // consistent map is sufficient: terminal publication prevents a constructor from registering
+      // after this point, and a constructor racing publication removes itself on its second check.
+      while (!liveExecutors.isEmpty()) {
+        final SirixVectorizedExecutor[] snapshot =
+            liveExecutors.keySet().toArray(SirixVectorizedExecutor[]::new);
+        for (final SirixVectorizedExecutor executor : snapshot) {
+          executor.retire();
+        }
+      }
+    }
+
+    private void drainRetiredConsumerThreads() {
+      ConsumerThreadReference retired;
+      while ((retired = (ConsumerThreadReference) retiredConsumerThreads.poll()) != null) {
+        final RecordCursorSlot slot = retired.slot;
+        if (recordCursors.remove(retired.threadId, slot)) {
+          slot.closeQuietly();
+        }
+      }
+    }
+
+    private void closeRecordCursors() {
+      if (recordCursorsClosed) {
+        return;
+      }
+      synchronized (recordCursors) {
+        if (recordCursorsClosed) {
+          return;
+        }
+        recordCursorsClosed = true;
+        for (final RecordCursorSlot slot : recordCursors.values()) {
+          slot.closeQuietly();
+        }
+        recordCursors.clear();
+        while (retiredConsumerThreads.poll() != null) {
+          // Drop queued weak references while the lifecycle is terminal.
+        }
+      }
+    }
+
+    private final class RecordCursorSlot {
+      private final ConsumerThreadReference owner;
+      private volatile JsonResourceSession cursorSession;
+      private volatile int cursorRevision = Integer.MIN_VALUE;
+      private volatile JsonNodeReadOnlyTrx cursor;
+
+      private RecordCursorSlot(final Thread thread, final long threadId) {
+        owner = new ConsumerThreadReference(thread, threadId, this, retiredConsumerThreads);
+      }
+
+      private JsonNodeReadOnlyTrx cursor(final JsonResourceSession session, final int revision) {
+        final JsonNodeReadOnlyTrx current = cursor;
+        if (current != null && cursorSession == session && cursorRevision == revision) {
+          return current;
+        }
+        return rebindCursor(session, revision);
+      }
+
+      private synchronized JsonNodeReadOnlyTrx rebindCursor(final JsonResourceSession session, final int revision) {
+        if (isClosed() && !isEnteredByCurrentThread()) {
+          throw new IllegalStateException("Vectorized executor lifecycle is closed");
+        }
+        if (cursor == null || cursor.isClosed() || cursorSession != session || cursorRevision != revision) {
+          closeCursor();
+          cursor = session.beginNodeReadOnlyTrx(revision);
+          cursorSession = session;
+          cursorRevision = revision;
+        }
+        return cursor;
+      }
+
+      private synchronized void closeQuietly() {
+        try {
+          closeCursor();
+        } catch (final RuntimeException ignored) {
+          // Session teardown still owns the cursor as a final safety net.
+        }
+      }
+
+      private void closeCursor() {
+        final JsonNodeReadOnlyTrx toClose = cursor;
+        cursor = null;
+        cursorSession = null;
+        cursorRevision = Integer.MIN_VALUE;
+        if (toClose != null && !toClose.isClosed()) {
+          toClose.close();
+        }
+      }
+    }
+
+    private static final class ConsumerThreadReference extends WeakReference<Thread> {
+      private final long threadId;
+      private final RecordCursorSlot slot;
+
+      private ConsumerThreadReference(final Thread thread, final long threadId, final RecordCursorSlot slot,
+          final ReferenceQueue<Thread> queue) {
+        super(thread, queue);
+        this.threadId = threadId;
+        this.slot = slot;
+      }
+    }
+
+    private static final class ThreadState {
+      private int admissionDepth;
+      private boolean admissionOwnsGlobalCount;
+      private int acceptedWorkDepth;
+      private RecordCursorSlot recordCursorSlot;
+    }
+  }
+
   /** Node kind id for an OBJECT_KEY entry — the named child of an object. */
   private static final int OBJECT_KEY_KIND = 26;
 
@@ -184,6 +523,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   private final JsonResourceSession session;
   private final int revision;
+  private final ExecutionLifecycle executionLifecycle;
+  private final boolean ownsExecutionLifecycle;
 
   /** The revision this executor is pinned to; its caches are only valid for that revision. */
   public int getRevision() {
@@ -376,8 +717,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
+  /**
+   * Every worker id ever created for this pool, including a rare replacement worker. Populated only
+   * by the cold thread factory and drained after pool termination; no query/record hot path touches
+   * it.
+   */
+  private final LongArrayList workerPoolThreadIds;
   /** Serializes pool submission/degraded-inline execution against the close fence. */
   private final Object workerPoolLifecycleLock = new Object();
+  /** Guarded by {@link #workerPoolLifecycleLock}; terminal close rejects all later calls. */
+  private boolean terminallyClosed;
+  /** Calls admitted locally and not yet returned, including degraded inline calls. */
+  private int activeCalls;
   /**
    * Executor-owned projection warm-up lane. Keeping advisory I/O off {@link #workerPool} preserves
    * the configured scan parallelism (especially the one-thread case), while ownership gives
@@ -561,7 +912,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final Set<String> skipCompileSet = ConcurrentHashMap.newKeySet();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
-    this(session, revision, defaultThreadCount());
+    this(session, revision, defaultThreadCount(), null, new ExecutionLifecycle(), true);
   }
 
   /**
@@ -584,7 +935,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads) {
-    this(session, revision, threads, null);
+    this(session, revision, threads, null, new ExecutionLifecycle(), true);
+  }
+
+  /**
+   * Executor sharing the compile chain's terminal fence and detached-result cursor pool.
+   */
+  public SirixVectorizedExecutor(final JsonResourceSession session, final int revision,
+      final ExecutionLifecycle executionLifecycle) {
+    this(session, revision, defaultThreadCount(), null,
+        Objects.requireNonNull(executionLifecycle, "executionLifecycle must not be null"), false);
+  }
+
+  /**
+   * Executor sharing the compile chain's terminal fence and detached-result cursor pool.
+   */
+  public SirixVectorizedExecutor(final JsonResourceSession session, final int revision, final int threads,
+      final ExecutionLifecycle executionLifecycle) {
+    this(session, revision, threads, null,
+        Objects.requireNonNull(executionLifecycle, "executionLifecycle must not be null"), false);
   }
 
   /**
@@ -596,19 +965,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * reverts for as long as the transaction stays open, no re-construction needed.
    */
   public SirixVectorizedExecutor(final JsonNodeTrx wtx, final int threads) {
-    this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx);
+    this(wtx.getResourceSession(), wtx.getRevisionNumber(), threads, wtx, new ExecutionLifecycle(), true);
   }
 
   private SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads,
-      final @Nullable JsonNodeTrx wtx) {
-    this.session = session;
+      final @Nullable JsonNodeTrx wtx, final ExecutionLifecycle executionLifecycle,
+      final boolean ownsExecutionLifecycle) {
+    this.session = Objects.requireNonNull(session, "session must not be null");
+    if (threads <= 0) {
+      throw new IllegalArgumentException("threads must be positive: " + threads);
+    }
     this.revision = revision;
     this.threads = threads;
     this.wtx = wtx;
+    this.executionLifecycle = executionLifecycle;
+    this.ownsExecutionLifecycle = ownsExecutionLifecycle;
     this.projectionRegistryKey = computeProjectionRegistryKey(session);
+    workerPoolThreadIds = new LongArrayList(threads);
     final ThreadFactory tf = r -> {
       Thread t = new Thread(r, "sirix-vec-exec");
       t.setDaemon(true);
+      synchronized (workerPoolThreadIds) {
+        workerPoolThreadIds.add(t.threadId());
+      }
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
@@ -617,6 +996,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       thread.setDaemon(true);
       return thread;
     });
+    if (!executionLifecycle.register(this)) {
+      terminallyClosed = true;
+      projectionWarmupPool.shutdownNow();
+      workerPool.shutdownNow();
+      throw new IllegalStateException("Vectorized executor lifecycle is closed");
+    }
   }
 
   private static String computeProjectionRegistryKey(final JsonResourceSession session) {
@@ -628,43 +1013,63 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Release what this executor owns: its worker pools.
+   * Retire this revision-specific executor without invalidating expressions compiled against it.
    *
-   * <p>
-   * It deliberately does not touch any session-owned read-only transaction. Shared cursors are session
-   * state — {@code getOrCreateSharedReadOnlyTrx} keys them by {@code (threadId, revision)} for the
-   * whole session — and {@code closeSharedReadOnlyTrxs(revision)} closes EVERY entry at that
-   * revision, not this executor's. Calling it here closed transactions that a concurrently running
-   * scan already held a reference to, which surfaces as an {@code IllegalStateException} deep inside
-   * that scan; and closing became routine once executors are retired on a revision advance and
-   * evicted from a bounded cache. The session releases them when it closes, and they are bounded by
-   * {@code workerThreads + 1} per revision in the meantime. Record-materialization cursors are also
-   * session-owned: projection-served {@code JsonDBObject}s retain them and read fields lazily after
-   * this method returns, so closing one on cache eviction would invalidate an already-returned
-   * result. The resource session already tracks and closes every such cursor in its transaction map.
-   *
-   * <p>
-   * What remains after this is a DEGRADED executor, not a broken one: the scan pool is gone so scans
-   * run on the calling thread. A query compiled against an executor that has since been retired
-   * therefore keeps answering while its resource session remains open.
+   * <p>Accepted pool work and warm-ups are drained, then later scans degrade to inline execution.
+   * The chain-wide execution lifetime and lazy-result cursor pool remain open.
+   */
+  public void retire() {
+    try {
+      shutdownPoolsAndAwait(false);
+    } finally {
+      executionLifecycle.unregister(this);
+    }
+  }
+
+  /**
+   * Terminally close this executor. Later parallel work is rejected and every locally accepted call
+   * is drained. A standalone executor also closes its private execution lifetime; chain-owned
+   * executors share a lifetime which {@link io.sirix.query.SirixCompileChain} closes once for all
+   * current and retired revisions.
    */
   public void close() {
-    // First fence every task that can hold a session-bound transaction or touch its mmap. This
-    // includes projection prefetch/promotion jobs as well as scan lanes submitted before a sibling
-    // lane reported a fallback signal. Closing a transaction or arena before this fence races the
-    // Foreign Memory API's scoped accesses and fails with "Session is acquired by ... clients".
+    if (executionLifecycle.isEnteredByCurrentThread()) {
+      throw new IllegalStateException("Cannot close a vectorized executor from its admitted work");
+    }
+    try {
+      shutdownPoolsAndAwait(true);
+    } finally {
+      executionLifecycle.unregister(this);
+    }
+  }
+
+  private void shutdownPoolsAndAwait(final boolean terminal) {
     boolean interrupted = false;
     synchronized (workerPoolLifecycleLock) {
+      if (terminal) {
+        terminallyClosed = true;
+      }
       final List<Runnable> cancelledWarmups = projectionWarmupPool.shutdownNow();
       for (final Runnable cancelled : cancelledWarmups) {
         if (cancelled instanceof ProjectionIndexRegistry.CancellableBackgroundTask task) {
-          task.cancelBeforeExecution();
+          try {
+            task.cancelBeforeExecution();
+          } catch (final RuntimeException ignored) {
+            // Keep draining every owned service. A cancellation hook cannot strand terminal close.
+          }
         }
       }
       workerPool.shutdown();
     }
+
+    // A private lifetime has no sibling executors, so terminal close owns its admission fence and
+    // detached cursors. A chain closes its shared lifetime before closing the cached executors.
+    if (terminal && ownsExecutionLifecycle) {
+      executionLifecycle.closeAndAwait();
+    }
+
     // Never wait while holding workerPoolLifecycleLock. A currently running worker may itself use
-    // a nested parallel helper; after shutdown that helper degrades inline and must be allowed to
+    // a nested parallel helper; after retirement that helper degrades inline and must be able to
     // acquire the lock so the outer worker can terminate.
     while (!projectionWarmupPool.isTerminated() || !workerPool.isTerminated()) {
       try {
@@ -675,8 +1080,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           workerPool.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
         }
       } catch (final InterruptedException ignored) {
-        // Resource safety wins over an early return: finish the close, then restore the signal.
         interrupted = true;
+      }
+    }
+    releaseWorkerPoolCursors();
+
+    if (terminal) {
+      synchronized (workerPoolLifecycleLock) {
+        while (activeCalls != 0) {
+          try {
+            workerPoolLifecycleLock.wait();
+          } catch (final InterruptedException ignored) {
+            interrupted = true;
+          }
+        }
       }
     }
     if (interrupted) {
@@ -684,18 +1101,51 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /**
-   * Whether {@link #close()} has run. A closed executor keeps answering — the scan runs on the
-   * calling thread and session-owned record transactions remain valid — so this reports pool state, not
-   * usability.
-   */
+  /** Whether this executor's worker pool has been retired or terminally closed. */
   public boolean isClosed() {
     return workerPool.isShutdown();
   }
 
-  /** Borrow this thread's shared read-only trx — reused across calls, no per-call alloc. */
-  private JsonNodeReadOnlyTrx workerTrx() {
-    return session.getOrCreateSharedReadOnlyTrx(revision);
+  /**
+   * Admit one top-level forwarded query call. The matching {@link #leaveExecution()} is mandatory.
+   * Used by {@link RevisionTrackingExecutor} and direct translated expressions without allocating a
+   * per-call lease object.
+   */
+  public void enterExecution() {
+    final boolean reentrant = executionLifecycle.isEnteredByCurrentThread();
+    executionLifecycle.enter();
+    boolean admitted = false;
+    try {
+      synchronized (workerPoolLifecycleLock) {
+        if (terminallyClosed && !reentrant) {
+          throw new IllegalStateException("Vectorized executor is closed");
+        }
+        activeCalls++;
+        admitted = true;
+      }
+    } finally {
+      if (!admitted) {
+        executionLifecycle.leave();
+      }
+    }
+  }
+
+  /** Leave a call admitted by {@link #enterExecution()}. */
+  public void leaveExecution() {
+    synchronized (workerPoolLifecycleLock) {
+      if (activeCalls <= 0) {
+        throw new IllegalStateException("Unbalanced vectorized executor call admission");
+      }
+      if (--activeCalls == 0) {
+        workerPoolLifecycleLock.notifyAll();
+      }
+    }
+    executionLifecycle.leave();
+  }
+
+  /** Borrow this lifecycle's revision-rebindable cursor for the calling thread. */
+  JsonNodeReadOnlyTrx workerTrx() {
+    return executionLifecycle.cursor(session, revision);
   }
 
   @Override
@@ -7086,7 +7536,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (literalUtf8 == null) {
       return null;
     }
-    final int id = handle.globalDictionaryId(column, literalUtf8, recordTrx().getStorageEngineReader());
+    final int id = handle.globalDictionaryId(column, literalUtf8, workerTrx().getStorageEngineReader());
     if (id == GlobalValueDictionary.ID_UNKNOWN) {
       if (PROJ_DIAG) {
         System.err.println("[proj] global dictionary could not resolve a literal for column " + column);
@@ -13097,7 +13547,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private @Nullable DenseGlobalGroupAggTable denseGlobalGroupTable(final long headerKey, final int aggColumns,
       final long sumExactMask, final boolean foldCountLane) {
     final ValueDictionaryHeaderNode header =
-        GlobalValueDictionary.header(headerKey, recordTrx().getStorageEngineReader());
+        GlobalValueDictionary.header(headerKey, workerTrx().getStorageEngineReader());
     if (header == null) {
       return declineDense("the column's value dictionary is unreadable in this revision");
     }
@@ -13462,7 +13912,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private @Nullable String[] resolveGlobalGroupKeys(final long headerKey, final int[] ids, final KeyPresence hasKey) {
     final String[] resolved =
-        GlobalValueDictionary.values(headerKey, ids, recordTrx().getStorageEngineReader());
+        GlobalValueDictionary.values(headerKey, ids, workerTrx().getStorageEngineReader());
     for (int i = 0; i < ids.length; i++) {
       if (hasKey.at(i) && resolved[i] == null) {
         if (PROJ_DIAG) {
@@ -13715,7 +14165,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (globalValues) {
         final String[] values =
             GlobalValueDictionary.values(handle.valueDictionaryHeaderKey(col), globalIds.toIntArray(),
-                recordTrx().getStorageEngineReader());
+                workerTrx().getStorageEngineReader());
         for (final String value : values) {
           if (value == null) {
             return null; // an id this revision cannot resolve — the record path knows the value
@@ -13994,18 +14444,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Fresh thread-safe read cursor at the executor's bound revision — backs sorted-scan record
-   * materialization (P5b stage 7b). Its owner transaction is session-owned and closes with the
-   * session because returned database objects retain this cursor and read through it lazily.
+   * materialization (P5b stage 7b). The construction transaction is scoped to materialization;
+   * {@link #releaseRecordTrx(JsonNodeReadOnlyTrx)} detaches lazy items onto the chain's bounded
+   * consumer-cursor pool and immediately unregisters the construction transaction.
    */
   public JsonNodeReadOnlyTrx openRecordTrx() {
-    return new ThreadSafeJsonReadOnlyTrx(session.beginNodeReadOnlyTrx(revision));
+    return new ThreadSafeJsonReadOnlyTrx(session.beginNodeReadOnlyTrx(revision), executionLifecycle);
   }
-
-  /** Cached record-materialization cursor (see {@link #recordTrx()}); session-owned. */
-  private volatile JsonNodeReadOnlyTrx recordTrx;
-
-  /** Lane pool for parallel record materialization (see {@link #recordTrxAt}); session-owned. */
-  private volatile JsonNodeReadOnlyTrx[] recordTrxLanes;
 
   /** How many materialization lanes {@link #recordTrxAt} serves. */
   public int recordTrxLaneCount() {
@@ -14013,39 +14458,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Lane {@code lane}'s record-materialization transaction — the parallel counterpart of
-   * {@link #recordTrx()}, with the same lifetime contract: materialized items keep reading fields
-   * through their lane's cursor during serialization. The cursors therefore live until the
-   * resource session closes; executor retirement cannot safely infer that every returned item has
-   * been consumed. {@link ThreadSafeJsonReadOnlyTrx} routes later or concurrent consumers through
-   * the session's per-thread cursor, so sharing a compiled query does not share mutable cursor
-   * position between threads. The lane count is bounded by {@link #recordTrxLaneCount()}.
+   * Fresh cursor for materialization lane {@code lane}. A lane must release it after publishing no
+   * further items; retaining a cursor array here kept {@code lanes * revisions} registered
+   * transactions alive after executor retirement.
    */
   public JsonNodeReadOnlyTrx recordTrxAt(final int lane) {
     final int laneCount = recordTrxLaneCount();
     if (lane < 0 || lane >= laneCount) {
       throw new IllegalArgumentException("lane must be in [0, " + laneCount + "): " + lane);
     }
-    JsonNodeReadOnlyTrx[] lanes = recordTrxLanes;
-    if (lanes == null) {
-      synchronized (this) {
-        lanes = recordTrxLanes;
-        if (lanes == null) {
-          lanes = recordTrxLanes = new JsonNodeReadOnlyTrx[laneCount];
-        }
-      }
-    }
-    JsonNodeReadOnlyTrx trx = lanes[lane];
-    if (trx == null || trx.isClosed()) {
-      synchronized (this) {
-        trx = lanes[lane];
-        if (trx == null || trx.isClosed()) {
-          trx = openRecordTrx();
-          lanes[lane] = trx;
-        }
-      }
-    }
-    return trx;
+    return openRecordTrx();
   }
 
   /**
@@ -14073,7 +14495,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (recordKeys.length == 0) {
       return;
     }
-    final StorageEngineReader reader = recordTrx().getStorageEngineReader();
+    final StorageEngineReader reader = workerTrx().getStorageEngineReader();
     final int batch = reader.recordPagePrefetchBatch();
     if (batch <= 0) {
       return;
@@ -14097,25 +14519,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  /**
-   * The executor's one cached record-materialization cursor. Materialized items read fields through
-   * it lazily during serialization, so its owner transaction lives until the resource session
-   * closes (a per-query transaction would leak one open transaction per served query).
-   */
+  /** Fresh serial record-materialization cursor; the caller must release it after construction. */
   public JsonNodeReadOnlyTrx recordTrx() {
-    JsonNodeReadOnlyTrx trx = recordTrx;
-    // Reopen if the session or an external owner closed the cursor. Executor retirement itself does
-    // not close it because already-returned database objects still retain it.
-    if (trx == null || trx.isClosed()) {
-      synchronized (this) {
-        trx = recordTrx;
-        if (trx == null || trx.isClosed()) {
-          trx = openRecordTrx();
-          recordTrx = trx;
-        }
-      }
+    return openRecordTrx();
+  }
+
+  /**
+   * Release a materialization cursor without invalidating items that retain its proxy.
+   */
+  public void releaseRecordTrx(final JsonNodeReadOnlyTrx trx) {
+    Objects.requireNonNull(trx, "trx must not be null");
+    if (trx instanceof ThreadSafeJsonReadOnlyTrx threadSafeTrx) {
+      threadSafeTrx.detachOwner();
+    } else {
+      trx.close();
     }
-    return trx;
   }
 
   /** Failure hook for the sorted-scan expr (counts + optional diagnostics). */
@@ -22766,99 +23184,113 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   void parallel(int n, ChunkTask task) {
+    enterExecution();
     try {
-      // A closed executor is still reachable from an already-compiled query — the compile chain
-      // evicts one when the revision it is pinned to falls out of its cache, and the expression
-      // built against it keeps its reference. Submitting to the shut-down pool would reject and
-      // fail that query; running the chunks inline degrades it to single-threaded instead, which
-      // is the same answer more slowly. One volatile read per scan, not per record.
-      final Future<?>[] futures = new Future[n];
-      int submitted = 0;
-      Exception submissionFailure = null;
-      synchronized (workerPoolLifecycleLock) {
-        if (workerPool.isShutdown()) {
+      try {
+        // A retired executor is still reachable from an already-compiled query. It remains admitted
+        // by the shared chain lifetime and runs inline; terminal close, in contrast, rejects it in
+        // enterExecution() before any session-bound work is accepted.
+        final Future<?>[] futures = new Future[n];
+        int submitted = 0;
+        Exception submissionFailure = null;
+        final boolean runInline;
+        synchronized (workerPoolLifecycleLock) {
+          runInline = workerPool.isShutdown();
+          if (!runInline) {
+            try {
+              for (int i = 0; i < n; i++) {
+                final int idx = i;
+                final Future<?> future = workerPool.submit(() -> {
+                  runChunk(task, idx);
+                  return null;
+                });
+                // Increment only AFTER submit succeeds: a rejection must not leave a null entry
+                // inside the accepted prefix that the lifecycle drain below joins.
+                futures[submitted++] = future;
+              }
+            } catch (final RuntimeException failure) {
+              // An executor-level failure can happen after earlier lanes were accepted. Preserve it,
+              // but first join those lanes below so none escape the method's lifecycle boundary.
+              submissionFailure = failure;
+            }
+          }
+        }
+        if (runInline) {
           for (int i = 0; i < n; i++) {
-            task.run(i);
+            runChunk(task, i);
           }
           return;
         }
-        try {
-          for (int i = 0; i < n; i++) {
-            final int idx = i;
-            final Future<?> future = workerPool.submit(() -> {
-              task.run(idx);
-              return null;
-            });
-            // Increment only AFTER submit succeeds: a rejection must not leave a null entry inside
-            // the accepted prefix that the lifecycle drain below joins.
-            futures[submitted++] = future;
-          }
-        } catch (final RuntimeException failure) {
-          // An executor-level failure can happen after earlier lanes were accepted. Preserve it,
-          // but first join those lanes below so none escape the method's lifecycle boundary.
-          submissionFailure = failure;
-        }
-      }
 
-      Exception firstFailure = submissionFailure;
-      boolean interrupted = false;
-      for (int i = 0; i < submitted; i++) {
-        final Future<?> future = futures[i];
-        boolean completed = false;
-        while (!completed) {
-          try {
-            future.get();
-            completed = true;
-          } catch (final InterruptedException failure) {
-            // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
-            // before restoring it so no worker can escape the method's lifecycle boundary.
-            interrupted = true;
-            if (firstFailure == null) {
-              firstFailure = failure;
-            }
-          } catch (final Exception failure) {
-            completed = true;
-            if (firstFailure == null) {
-              firstFailure = failure;
+        Exception firstFailure = submissionFailure;
+        boolean interrupted = false;
+        for (int i = 0; i < submitted; i++) {
+          final Future<?> future = futures[i];
+          boolean completed = false;
+          while (!completed) {
+            try {
+              future.get();
+              completed = true;
+            } catch (final InterruptedException failure) {
+              // Future.get clears the interrupt status. Re-wait THIS future, then every later one,
+              // before restoring it so no worker can escape the method's lifecycle boundary.
+              interrupted = true;
+              if (firstFailure == null) {
+                firstFailure = failure;
+              }
+            } catch (final Exception failure) {
+              completed = true;
+              if (firstFailure == null) {
+                firstFailure = failure;
+              }
             }
           }
         }
+        if (interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        if (firstFailure != null) {
+          throw firstFailure;
+        }
+      } catch (Exception e) {
+        // Surface the root cause's message in the RuntimeException so call-site logs show what
+        // actually failed. The original exception remains the cause for full stack traces.
+        Throwable cause = e.getCause() != null
+            ? e.getCause()
+            : e;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+          cause = cause.getCause();
+        }
+        // Kernel-level IllegalStateExceptions and exact-math overflows are fallback signals.
+        if (cause instanceof IllegalStateException ise) {
+          throw ise;
+        }
+        if (cause instanceof ArithmeticException ae) {
+          throw ae;
+        }
+        final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+        throw new RuntimeException("Parallel scan failed — " + msg, e);
       }
-      if (interrupted) {
-        Thread.currentThread().interrupt();
+    } finally {
+      leaveExecution();
+    }
+  }
+
+  private void runChunk(final ChunkTask task, final int index) throws Exception {
+    executionLifecycle.enterAcceptedWork();
+    try {
+      task.run(index);
+    } finally {
+      executionLifecycle.leaveAcceptedWork();
+    }
+  }
+
+  private void releaseWorkerPoolCursors() {
+    synchronized (workerPoolThreadIds) {
+      for (int i = 0, size = workerPoolThreadIds.size(); i < size; i++) {
+        executionLifecycle.releaseCursor(workerPoolThreadIds.getLong(i));
       }
-      if (firstFailure != null) {
-        throw firstFailure;
-      }
-    } catch (Exception e) {
-      // Surface the root cause's message in the RuntimeException so call-site
-      // logs ({@code QueryException.getMessage()}) show what actually failed
-      // instead of the generic "Parallel scan failed" wrapper. The original
-      // exception stays as cause so full stack traces are preserved.
-      Throwable cause = e.getCause() != null
-          ? e.getCause()
-          : e;
-      while (cause.getCause() != null && cause.getCause() != cause) {
-        cause = cause.getCause();
-      }
-      // Kernel-level IllegalStateExceptions are a FALLBACK signal (column-kind
-      // drift, canonical-dict miss, ...): every tryProjection* caller catches
-      // them to route to the typed kernels / interpreter. Rethrow them
-      // unwrapped so the fallback contract holds at ANY leaf count — wrapping
-      // them here made the same query succeed under 64 leaves and hard-fail
-      // above (worker exceptions only occur on the parallel path).
-      if (cause instanceof IllegalStateException ise) {
-        throw ise;
-      }
-      // ArithmeticException is likewise a SIGNAL, not a failure: exact-math kernels
-      // (computed aggregates) throw it on overflow and their callers decline to the
-      // interpreter's decimal-promoting arithmetic. Rethrow unwrapped so the decline
-      // contract holds on the parallel path exactly as it does single-threaded.
-      if (cause instanceof ArithmeticException ae) {
-        throw ae;
-      }
-      final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
-      throw new RuntimeException("Parallel scan failed — " + msg, e);
+      workerPoolThreadIds.clear();
     }
   }
 }

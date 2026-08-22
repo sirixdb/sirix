@@ -55,7 +55,7 @@ final class FileChannelWriterDeferredMetadataForceTest {
 
   private record Fixture(FileChannelWriter writer, List<Event> events,
       AtomicBoolean failNextDataMetadataForce, AtomicBoolean failNextRevisionsMetadataForce,
-      FileChannel data, FileChannel revisions, FileChannel beacon,
+      FileChannel data, FileChannel revisions, FileChannel beacon, FileChannelReader reader,
       Path revisionsFilePath) {
   }
 
@@ -150,7 +150,7 @@ final class FileChannelWriterDeferredMetadataForceTest {
     assertEquals("injected metadata-force failure", primary.getCause().getMessage());
     assertEquals(1, releases.get(), "a failed force must not prevent the pooled borrow from being returned");
 
-    final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(),
+    final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(), newReader(),
         first.revisionsFilePath(), sharedDurability, () -> { });
     successor.forceAll();
     successor.forceAll();
@@ -196,7 +196,7 @@ final class FileChannelWriterDeferredMetadataForceTest {
     assertThrows(SirixIOException.class, first.writer()::close);
     assertEquals(1, releases.get());
 
-    final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(),
+    final FileChannelWriter successor = newWriter(first.data(), first.revisions(), first.beacon(), newReader(),
         first.revisionsFilePath(), sharedDurability, () -> { });
     successor.forceAll();
     successor.forceAll();
@@ -283,6 +283,31 @@ final class FileChannelWriterDeferredMetadataForceTest {
         "both durable uber-page beacons must follow allocation + page-tail durability");
   }
 
+  @Test
+  void missingRevisionRecordFailsBeforeEitherBeaconIsPublished(@TempDir final Path tempDir)
+      throws Exception {
+    final Fixture fixture = fixture(tempDir);
+    flushUncommittedTail(fixture.writer(), new byte[] {3, 5, 8});
+    when(fixture.reader().getRevisionFileData(0))
+        .thenThrow(new SirixIOException("injected missing revision record"));
+
+    final ResourceConfiguration config = ResourceConfiguration.newBuilder("missing-revision-record")
+        .byteHandlerPipeline(new ByteHandlerPipeline())
+        .build();
+    config.resourcePath = tempDir;
+    try (MemorySegmentBytesOut beaconBuffer = new MemorySegmentBytesOut(2 * IOStorage.BEACON_SLOT_BYTES)) {
+      final SirixIOException failure = assertThrows(SirixIOException.class,
+          () -> fixture.writer().writeUberPageReference(config, new PageReference(), new UberPage(), beaconBuffer));
+      assertEquals("injected missing revision record", failure.getMessage());
+    }
+
+    assertEquals(0L, fixture.events().stream()
+        .filter(event -> event.operation() == Operation.WRITE)
+        .filter(event -> event.offset() == IOStorage.PRIMARY_BEACON_OFFSET
+            || event.offset() == IOStorage.SECONDARY_BEACON_OFFSET)
+        .count(), "a missing revision locator must fail before either durable beacon write");
+  }
+
   private static Fixture fixture(final Path tempDir) throws IOException {
     return fixture(tempDir, new FileChannelWriter.DataAllocationDurability(), null);
   }
@@ -308,25 +333,30 @@ final class FileChannelWriterDeferredMetadataForceTest {
     recordForces(revisions, ChannelRole.REVISIONS, events, failNextRevisionsMetadataForce);
     recordForces(beacon, ChannelRole.BEACON, events, new AtomicBoolean());
 
-    final FileChannelWriter writer = newWriter(data, revisions, beacon, revisionsFilePath,
+    final FileChannelReader reader = newReader();
+    final FileChannelWriter writer = newWriter(data, revisions, beacon, reader, revisionsFilePath,
         dataAllocationDurability, releaseAction);
     return new Fixture(writer, events, failNextDataMetadataForce, failNextRevisionsMetadataForce,
-        data, revisions, beacon, revisionsFilePath);
+        data, revisions, beacon, reader, revisionsFilePath);
   }
 
   private static FileChannelWriter newWriter(final FileChannel data, final FileChannel revisions,
-      final FileChannel beacon, final Path revisionsFilePath,
+      final FileChannel beacon, final FileChannelReader reader, final Path revisionsFilePath,
       final FileChannelWriter.DataAllocationDurability dataAllocationDurability,
       final Runnable releaseAction) throws IOException {
+    return new FileChannelWriter(data, revisions, beacon, SerializationType.DATA,
+        new PagePersister(), Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader,
+        true, true, revisionsFilePath, 0L, 0L, dataAllocationDurability, releaseAction);
+  }
+
+  private static FileChannelReader newReader() {
     final FileChannelReader reader = mock(FileChannelReader.class);
     when(reader.beaconRevisionOrMinusOne(anyLong())).thenReturn(-1);
     when(reader.getRevisionFileData(0))
         .thenReturn(new RevisionFileData(IOStorage.DATA_REGION_START, Instant.EPOCH, 1L));
     when(reader.readBeaconSlot(anyLong()))
         .thenAnswer(invocation -> ByteBuffer.allocate(IOStorage.BEACON_SLOT_BYTES));
-    return new FileChannelWriter(data, revisions, beacon, SerializationType.DATA,
-        new PagePersister(), Caffeine.newBuilder().buildAsync(), new RevisionIndexHolder(), reader,
-        true, true, revisionsFilePath, 0L, 0L, dataAllocationDurability, releaseAction);
+    return reader;
   }
 
   private static void flushUncommittedTail(final FileChannelWriter writer, final byte[] bytes) {

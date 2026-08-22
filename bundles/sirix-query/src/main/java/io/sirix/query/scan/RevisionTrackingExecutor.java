@@ -30,11 +30,10 @@ import io.brackit.query.jdm.Sequence;
  * resolves to that same immutable snapshot every time, so it is unaffected.
  *
  * <p>
- * The supplier returns {@code null} when the executor can no longer be resolved — the compile chain
- * that owned it has been closed, or the resource has gone away. The last successfully resolved
- * executor is then reused: a compiled query outliving its chain keeps answering from the revision
- * it last saw rather than failing, which matters because most of these entry points are substituted
- * at translate time and have no generic pipeline to fall back to.
+ * The supplier may transiently return {@code null} when the resource cannot be resolved. The last
+ * successfully resolved executor is then reused while its chain lifecycle remains open. Terminal
+ * chain close is different: its shared admission fence permanently rejects the forwarded call
+ * before any sequential or parallel session work can start.
  *
  * <p>
  * <b>Maintenance.</b> Every method of {@link VectorizedExecutor} must be forwarded here, including
@@ -53,6 +52,9 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * {@code null} for a single-resource binding, which then answers only for its own source.
    */
   private final Function<SourceRef, Supplier<SirixVectorizedExecutor>> perSourceResolver;
+
+  /** Shared terminal fence; admission begins before either resolver can touch its store/session. */
+  private final SirixVectorizedExecutor.ExecutionLifecycle executionLifecycle;
 
   /** Last successfully resolved executor — the fallback once the resolver stops answering. */
   private volatile SirixVectorizedExecutor last;
@@ -103,9 +105,11 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   /**
    * @param resolver resolves the revision-pinned executor; must not throw, and returns {@code null}
    *        when no executor is available
+   * @param executionLifecycle lifecycle shared by the resolver's executors and owning compile chain
    */
-  public RevisionTrackingExecutor(final Supplier<SirixVectorizedExecutor> resolver) {
-    this(resolver, null);
+  public RevisionTrackingExecutor(final Supplier<SirixVectorizedExecutor> resolver,
+      final SirixVectorizedExecutor.ExecutionLifecycle executionLifecycle) {
+    this(resolver, null, executionLifecycle);
   }
 
   /**
@@ -117,14 +121,20 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    *        un-annotated scans fall back to
    * @param perSourceResolver resolver factory per source; {@code null} disables multi-resource
    *        dispatch, and a {@code null} RESULT declines that one source
+   * @param executionLifecycle lifecycle shared by every per-source executor and the owning chain
    */
   public RevisionTrackingExecutor(final Supplier<SirixVectorizedExecutor> resolver,
-      final Function<SourceRef, Supplier<SirixVectorizedExecutor>> perSourceResolver) {
+      final Function<SourceRef, Supplier<SirixVectorizedExecutor>> perSourceResolver,
+      final SirixVectorizedExecutor.ExecutionLifecycle executionLifecycle) {
     if (resolver == null) {
       throw new IllegalArgumentException("resolver must not be null");
     }
+    if (executionLifecycle == null) {
+      throw new IllegalArgumentException("executionLifecycle must not be null");
+    }
     this.resolver = resolver;
     this.perSourceResolver = perSourceResolver;
+    this.executionLifecycle = executionLifecycle;
   }
 
   /**
@@ -166,6 +176,63 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
     return last;
   }
 
+  /** Resolve and locally fence a forwarded call whose chain lifecycle is already admitted. */
+  private SirixVectorizedExecutor currentAndEnter(final QueryContext ctx) {
+    final SirixVectorizedExecutor executor = current(ctx);
+    if (executor != null) {
+      executor.enterExecution();
+    }
+    return executor;
+  }
+
+  private void leaveAndUnpin(final SirixVectorizedExecutor executor, final QueryContext ctx) {
+    try {
+      if (executor != null) {
+        executor.leaveExecution();
+      }
+    } finally {
+      try {
+        unpin(ctx);
+      } finally {
+        executionLifecycle.leave();
+      }
+    }
+  }
+
+  /**
+   * Admit before resolution. The later executor admission is reentrant on this same lifecycle, so
+   * this moves (rather than duplicates) the one global CAS already paid by a forwarded scan.
+   */
+  private void enterResolution() {
+    try {
+      executionLifecycle.enter();
+    } catch (final IllegalStateException e) {
+      clearPinAfterTerminalRejection();
+      throw e;
+    }
+  }
+
+  /**
+   * Context-aware admission for a gated evaluation. If terminal publication wins between its gate
+   * and scan, no scan finally block will run, so rejected admission must release that gate's pin
+   * here rather than retaining its QueryContext on the worker thread indefinitely.
+   */
+  private void enterResolution(final QueryContext ctx) {
+    try {
+      executionLifecycle.enter();
+    } catch (final IllegalStateException e) {
+      clearPinAfterTerminalRejection();
+      throw e;
+    }
+  }
+
+  /** Terminal close is irreversible, so no outer evaluation can still own a useful pin. */
+  private void clearPinAfterTerminalRejection() {
+    if (executionLifecycle.isClosed()) {
+      pinnedForEvaluation.get().clear();
+    }
+  }
+
   /**
    * Releases the pin the gate took for {@code ctx}. Called from every scan entry point in a
    * {@code finally}: the gate and the scan it admitted are one evaluation, and the pin must not
@@ -192,13 +259,15 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeGroupByCount(final QueryContext ctx, final String[] sourcePath, final String groupField)
       throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeGroupByCount(ctx, sourcePath, groupField);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
@@ -206,98 +275,117 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   public Sequence executeGroupByCountMulti(final QueryContext ctx, final String[] sourcePath,
       final String[] groupFields, final String[] outNames, final String countName, final PredicateNode predicate)
       throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeGroupByCountMulti(ctx, sourcePath, groupFields, outNames, countName, predicate);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executeSortedScan(final QueryContext ctx, final String[] sourcePath, final String orderField,
       final String direction) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeSortedScan(ctx, sourcePath, orderField, direction);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executeAggregate(final QueryContext ctx, final String[] sourcePath, final String func,
       final String field) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeAggregate(ctx, sourcePath, func, field);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executeCountDistinct(final QueryContext ctx, final String[] sourcePath, final String field)
       throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeCountDistinct(ctx, sourcePath, field);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executePredicateCount(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicate) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executePredicateCount(ctx, sourcePath, predicate);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executePredicateGroupByCount(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicate, final String groupField) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executePredicateGroupByCount(ctx, sourcePath, predicate, groupField);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public Sequence executePredicateAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicate, final String func, final String field) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executePredicateAggregate(ctx, sourcePath, predicate, func, field);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public boolean supportsSortedScan() {
-    final SirixVectorizedExecutor exec = current();
-    return exec != null && exec.supportsSortedScan();
+    enterResolution();
+    try {
+      final SirixVectorizedExecutor exec = current();
+      return exec != null && exec.supportsSortedScan();
+    } finally {
+      executionLifecycle.leave();
+    }
   }
 
   /**
@@ -306,27 +394,39 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    */
   @Override
   public boolean supportsBinaryAggregate() {
-    final SirixVectorizedExecutor exec = current();
-    return exec != null && exec.supportsBinaryAggregate();
+    enterResolution();
+    try {
+      final SirixVectorizedExecutor exec = current();
+      return exec != null && exec.supportsBinaryAggregate();
+    } finally {
+      executionLifecycle.leave();
+    }
   }
 
   @Override
   public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath, final String func,
       final String leftField, final String op, final String rightField) throws QueryException {
+    enterResolution(ctx);
+    SirixVectorizedExecutor exec = null;
     try {
-      final SirixVectorizedExecutor exec = current(ctx);
+      exec = currentAndEnter(ctx);
       return exec == null
           ? null
           : exec.executeBinaryAggregate(ctx, sourcePath, func, leftField, op, rightField);
     } finally {
-      unpin(ctx);
+      leaveAndUnpin(exec, ctx);
     }
   }
 
   @Override
   public boolean supportsMultiKeyGroupBy() {
-    final SirixVectorizedExecutor exec = current();
-    return exec != null && exec.supportsMultiKeyGroupBy();
+    enterResolution();
+    try {
+      final SirixVectorizedExecutor exec = current();
+      return exec != null && exec.supportsMultiKeyGroupBy();
+    } finally {
+      executionLifecycle.leave();
+    }
   }
 
   /**
@@ -338,37 +438,47 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    * On REFUSAL the pin is released, because nothing will follow it. The pipeline falls back to the
    * generic plan and no {@code execute*} forwarder ever runs, so the {@code finally} that normally
    * releases is never reached and the thread would keep a strong reference to the
-   * {@link QueryContext} and to an executor the store's LRU may already have closed — for as long as
+   * {@link QueryContext} and to an executor the store's LRU may already have retired — for as long as
    * a pooled request thread happens to stay idle.
    */
   @Override
   public boolean canExecute(final QueryContext ctx) {
-    final SirixVectorizedExecutor exec = current(ctx);
-    // Deliberately side-effect free: this is the question a gated scan asks, not the end of an
-    // evaluation, and it must NOT release the pin.
-    //
-    // Releasing here looked like it closed a retention leak — a gate that admits and is never
-    // followed by a scan leaves the pin on the thread until the next gate or scan. But `unpin`
-    // can only identify an owner by QueryContext identity, and NESTED evaluations of one query
-    // share that context. A nested pipeline asking canExecute for something this backend refuses
-    // would then clear the OUTER evaluation's pin; the outer forwarder finds none, re-resolves
-    // through the resolver, and after an intervening commit serves from a revision its own gate
-    // never verified. That is the split-revision defect this class exists to prevent, and a
-    // wrong revision is strictly worse than a retained reference.
-    //
-    // Expressing "whose pin is this?" needs an evaluation identity — a depth counter or a
-    // per-evaluation token — which the gate API does not carry. Until it does, the pin is
-    // released only by the execute* forwarders' finally blocks, which DO know their own
-    // evaluation ended. The residual retention is bounded (it lasts until the next gate or scan
-    // on this thread) and cannot produce a wrong answer, because `current` honours a pin only
-    // when its context matches by identity.
-    return exec != null && exec.canExecute(ctx);
+    enterResolution(ctx);
+    try {
+      final SirixVectorizedExecutor exec = current(ctx);
+      // Deliberately side-effect free: this is the question a gated scan asks, not the end of an
+      // evaluation, and it must NOT release the pin.
+      //
+      // Releasing here looked like it closed a retention leak — a gate that admits and is never
+      // followed by a scan leaves the pin on the thread until the next gate or scan. But `unpin`
+      // can only identify an owner by QueryContext identity, and NESTED evaluations of one query
+      // share that context. A nested pipeline asking canExecute for something this backend refuses
+      // would then clear the OUTER evaluation's pin; the outer forwarder finds none, re-resolves
+      // through the resolver, and after an intervening commit serves from a revision its own gate
+      // never verified. That is the split-revision defect this class exists to prevent, and a
+      // wrong revision is strictly worse than a retained reference.
+      //
+      // Expressing "whose pin is this?" needs an evaluation identity — a depth counter or a
+      // per-evaluation token — which the gate API does not carry. Until it does, the pin is
+      // released only by the execute* forwarders' finally blocks, which DO know their own
+      // evaluation ended. The residual retention is bounded (it lasts until the next gate or scan
+      // on this thread) and cannot produce a wrong answer, because `current` honours a pin only
+      // when its context matches by identity.
+      return exec != null && exec.canExecute(ctx);
+    } finally {
+      executionLifecycle.leave();
+    }
   }
 
   @Override
   public boolean acceptsPredicate(final String[] sourcePath, final PredicateNode predicate) {
-    final SirixVectorizedExecutor exec = current();
-    return exec != null && exec.acceptsPredicate(sourcePath, predicate);
+    enterResolution();
+    try {
+      final SirixVectorizedExecutor exec = current();
+      return exec != null && exec.acceptsPredicate(sourcePath, predicate);
+    } finally {
+      executionLifecycle.leave();
+    }
   }
 
   /**
@@ -379,26 +489,36 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    */
   @Override
   public boolean acceptsSource(final SourceRef source) {
-    if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
-      final SirixVectorizedExecutor forSource = resolveForSource(source);
-      return forSource != null && forSource.acceptsSource(source);
+    enterResolution();
+    try {
+      if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
+        final SirixVectorizedExecutor forSource = resolveForSource(source);
+        return forSource != null && forSource.acceptsSource(source);
+      }
+      final SirixVectorizedExecutor exec = current();
+      return exec != null && exec.acceptsSource(source);
+    } finally {
+      executionLifecycle.leave();
     }
-    final SirixVectorizedExecutor exec = current();
-    return exec != null && exec.acceptsSource(source);
   }
 
   @Override
   public VectorizedExecutor executorForSource(final SourceRef source) {
-    if (perSourceResolver == null || source == null || source.kind() != SourceRef.Kind.DOCUMENT) {
-      return this;
+    enterResolution();
+    try {
+      if (perSourceResolver == null || source == null || source.kind() != SourceRef.Kind.DOCUMENT) {
+        return this;
+      }
+      final Supplier<SirixVectorizedExecutor> forSource = perSourceResolver.apply(source);
+      if (forSource == null || forSource.get() == null) {
+        return this;
+      }
+      // Still revision-tracking, and still able to dispatch, so a nested scan over a third document
+      // is reached the same way.
+      return new RevisionTrackingExecutor(forSource, perSourceResolver, executionLifecycle);
+    } finally {
+      executionLifecycle.leave();
     }
-    final Supplier<SirixVectorizedExecutor> forSource = perSourceResolver.apply(source);
-    if (forSource == null || forSource.get() == null) {
-      return this;
-    }
-    // Still revision-tracking, and still able to dispatch, so a nested scan over a third document
-    // is reached the same way.
-    return new RevisionTrackingExecutor(forSource, perSourceResolver);
   }
 
   /** The executor bound to {@code source}, or {@code null} when the store cannot reach it. */
@@ -420,26 +540,31 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
    */
   @Override
   public boolean acceptsSource(final SourceRef source, final QueryContext ctx) {
-    if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
-      final SirixVectorizedExecutor forSource = resolveForSource(source);
-      if (forSource == null || !forSource.acceptsSource(source, ctx)) {
+    enterResolution(ctx);
+    try {
+      if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
+        final SirixVectorizedExecutor forSource = resolveForSource(source);
+        if (forSource == null || !forSource.acceptsSource(source, ctx)) {
+          unpin(ctx);
+          return false;
+        }
+        pinnedForEvaluation.get().set(ctx, forSource);
+        return true;
+      }
+      final SirixVectorizedExecutor exec = current(ctx);
+      if (exec == null || !exec.acceptsSource(source, ctx)) {
+        // Nothing will serve this evaluation, so leave no pin behind for the next one — but release
+        // only OUR OWN, through the same ownership rule unpin() documents. Clearing unconditionally
+        // would drop a pin belonging to an evaluation further out on this thread's stack, and the
+        // scan that outer gate already admitted would then re-resolve through the resolver: after an
+        // intervening commit that is a different revision than the one it verified.
         unpin(ctx);
         return false;
       }
-      pinnedForEvaluation.get().set(ctx, forSource);
+      pinnedForEvaluation.get().set(ctx, exec);
       return true;
+    } finally {
+      executionLifecycle.leave();
     }
-    final SirixVectorizedExecutor exec = current(ctx);
-    if (exec == null || !exec.acceptsSource(source, ctx)) {
-      // Nothing will serve this evaluation, so leave no pin behind for the next one — but release
-      // only OUR OWN, through the same ownership rule unpin() documents. Clearing unconditionally
-      // would drop a pin belonging to an evaluation further out on this thread's stack, and the
-      // scan that outer gate already admitted would then re-resolve through the resolver: after an
-      // intervening commit that is a different revision than the one it verified.
-      unpin(ctx);
-      return false;
-    }
-    pinnedForEvaluation.get().set(ctx, exec);
-    return true;
   }
 }
