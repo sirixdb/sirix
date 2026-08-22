@@ -60,8 +60,8 @@ final class ProjectionStructuralOrderDirectory {
   private static final int SPREAD_SLACK = 1 << 12;
   /** Hard bound on how many divisions one spread may descend through before it fits. */
   private static final int MAX_SPREAD_DESCENTS = 8;
-  /** Even division an exhausted append sequence carries through; it adds no odd division. */
-  private static final int APPEND_CARRY_DIVISION = 2;
+  /** Odd division a carried append sequence restarts at, keeping the label's odd division LAST. */
+  private static final int APPEND_CARRY_DIVISION = 17;
   /** Division the very first label under a parent takes, leaving slack on BOTH sides. */
   private static final int FIRST_LOCAL_DIVISION = (SPREAD_SLACK << 1) + 1;
 
@@ -638,9 +638,13 @@ final class ProjectionStructuralOrderDirectory {
      * ever compared, never read as a tree position, so it may carry.
      *
      * <p>
-     * The carry appends an EVEN division, which keeps the label's odd-division count — and therefore
-     * the level a byte round-trip recomputes — exactly what {@link #putLocalLabel} requires, while
-     * being strictly greater because the previous label's divisions are its prefix.
+     * The carry REPLACES the exhausted odd division with the next even one and appends a fresh odd
+     * division. That is strictly greater (the replaced division alone decides the comparison) and it
+     * preserves the shape the rest of this class depends on: exactly one odd division after the
+     * leading 1, and it is the LAST. Keeping only the odd COUNT is not enough — {@code Spread}
+     * descends through interior divisions via {@link #requireSeparatorDivision}, which requires them
+     * even, and {@link #fullLabel} concatenates suffixes that are prefix-free only under odd-last.
+     * The fresh odd division also restores the full range for the next append run.
      */
     static SirixDeweyID nextAppendLabel(final SirixDeweyID previous) {
       final int[] divisions = previous.getDivisionValues();
@@ -651,12 +655,18 @@ final class ProjectionStructuralOrderDirectory {
           && candidateDivisions[candidateDivisions.length - 1] > lastDivision) {
         return candidate;
       }
-      final int[] carried = Arrays.copyOf(divisions, divisions.length + 1);
-      carried[divisions.length] = APPEND_CARRY_DIVISION;
-      if (carried.length > MAX_FULL_LABEL_DIVISIONS) {
+      if (divisions.length + 1 > MAX_FULL_LABEL_DIVISIONS) {
         throw new IllegalStateException(
             "projection structural-order append sequence exhausted its division budget");
       }
+      final int separator = lastDivision + ((lastDivision & 1) == 0 ? 2 : 1);
+      if (separator <= lastDivision) {
+        throw new IllegalStateException(
+            "projection structural-order append sequence exhausted its division range");
+      }
+      final int[] carried = Arrays.copyOf(divisions, divisions.length + 1);
+      carried[divisions.length - 1] = separator;
+      carried[divisions.length] = APPEND_CARRY_DIVISION;
       return new SirixDeweyID(carried, previous.getLevel() + 1);
     }
 

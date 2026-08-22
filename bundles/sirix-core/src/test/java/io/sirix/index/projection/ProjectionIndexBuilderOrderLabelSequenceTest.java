@@ -61,10 +61,30 @@ final class ProjectionIndexBuilderOrderLabelSequenceTest {
       assertEquals(1, next.getLevel(), "append " + append + " left the local-label level behind: " + next);
       assertEquals(1, new SirixDeweyID(nextBytes).getLevel(),
           "append " + append + " did not survive a byte round-trip at level 1: " + next);
+      assertOddLast(next, append);
 
       previous = next;
       previousBytes = nextBytes;
     }
+  }
+
+  /**
+   * The shape the rest of the directory reads off a local label: exactly one odd division after the
+   * leading 1, and it is the LAST. The odd COUNT alone is what {@code putLocalLabel}'s level check
+   * covers, so a carry that moved the odd division off the end would satisfy that check while
+   * breaking {@code Spread}'s descent through interior divisions (it requires them even) and the
+   * prefix-free suffix concatenation in {@code fullLabel}.
+   */
+  private static void assertOddLast(final SirixDeweyID label, final int append) {
+    final int[] divisions = label.getDivisionValues();
+    assertEquals(1, divisions[0], "append " + append + " lost the leading division in " + label);
+    for (int index = 1; index < divisions.length - 1; index++) {
+      assertTrue(divisions[index] >= 2 && (divisions[index] & 1) == 0,
+          "append " + append + " left an interior division that cannot be descended through: " + label);
+    }
+    final int last = divisions[divisions.length - 1];
+    assertTrue(last >= 3 && (last & 1) == 1,
+        "append " + append + " did not end on an odd division: " + label);
   }
 
   @Test
