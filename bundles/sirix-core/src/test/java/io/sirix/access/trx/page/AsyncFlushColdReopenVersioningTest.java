@@ -10,6 +10,7 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.InternalNodeTrx;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -18,11 +19,13 @@ import io.sirix.io.StorageType;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -32,8 +35,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class AsyncFlushColdReopenVersioningTest {
 
   private static final String RESOURCE = "async-flush-cold-reopen-versioning";
+  private static final String REFERENCE_RESOURCE = "async-flush-cold-reopen-reference";
   private static final int AUTO_FLUSH_THRESHOLD = 128;
   private static final int INSERTED_RECORDS = 4_000;
+  private static final int HASHED_RECORDS = 512;
 
   @BeforeEach
   void setUp() {
@@ -94,6 +99,77 @@ final class AsyncFlushColdReopenVersioningTest {
         }
       }
       assertFalse(rtx.moveToRightSibling(), "unexpected value after the expected array tail");
+    }
+  }
+
+  @Test
+  @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void storageOnlyEpochsPreserveIncrementalBulkHashMetadata() {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createRollingResource(database, RESOURCE);
+      createRollingResource(database, REFERENCE_RESOURCE);
+
+      final AtomicInteger storageEpochs = new AtomicInteger();
+      NodeStorageEngineWriter.asyncFlushFaultHook = (writer, site) -> {
+        if ("prepare".equals(site)) {
+          storageEpochs.incrementAndGet();
+        }
+      };
+      try {
+        insertHashedArray(database, RESOURCE, AUTO_FLUSH_THRESHOLD,
+            AfterCommitState.KEEP_OPEN_ASYNC_FLUSH);
+      } finally {
+        NodeStorageEngineWriter.asyncFlushFaultHook = null;
+      }
+      assertTrue(storageEpochs.get() > 1,
+          "the fixture must cross multiple storage-only epoch boundaries");
+
+      insertHashedArray(database, REFERENCE_RESOURCE, Integer.MAX_VALUE, AfterCommitState.KEEP_OPEN);
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession asyncSession = database.beginResourceSession(RESOURCE);
+         final JsonResourceSession referenceSession = database.beginResourceSession(REFERENCE_RESOURCE);
+         final JsonNodeReadOnlyTrx asyncRtx = asyncSession.beginNodeReadOnlyTrx();
+         final JsonNodeReadOnlyTrx referenceRtx = referenceSession.beginNodeReadOnlyTrx()) {
+      assertEquals(HASHED_RECORDS + 1L, asyncRtx.getDescendantCount(),
+          "the document-root count must span every storage-only epoch");
+      assertEquals(referenceRtx.getDescendantCount(), asyncRtx.getDescendantCount());
+      assertEquals(referenceRtx.getHash(), asyncRtx.getHash(),
+          "storage-only rotations must preserve the incremental rolling hash");
+
+      assertTrue(asyncRtx.moveToFirstChild());
+      assertTrue(referenceRtx.moveToFirstChild());
+      assertEquals(HASHED_RECORDS, asyncRtx.getDescendantCount());
+      assertEquals(referenceRtx.getDescendantCount(), asyncRtx.getDescendantCount());
+      assertEquals(referenceRtx.getHash(), asyncRtx.getHash());
+    }
+  }
+
+  private static void createRollingResource(final Database<JsonResourceSession> database,
+      final String resourceName) {
+    database.createResource(ResourceConfiguration.newBuilder(resourceName)
+                                                 .storeDiffs(false)
+                                                 .hashKind(HashType.ROLLING)
+                                                 .buildPathSummary(false)
+                                                 .versioningApproach(VersioningType.FULL)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .build());
+  }
+
+  private static void insertHashedArray(final Database<JsonResourceSession> database,
+      final String resourceName, final int flushThreshold, final AfterCommitState afterCommitState) {
+    try (final JsonResourceSession session = database.beginResourceSession(resourceName);
+         final JsonNodeTrx wtx = session.beginNodeTrx(flushThreshold, afterCommitState)) {
+      ((InternalNodeTrx<?>) wtx).setBulkInsertion(true);
+      final long arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
+      for (int i = 0; i < HASHED_RECORDS; i++) {
+        assertTrue(wtx.moveTo(arrayNodeKey));
+        wtx.insertStringValueAsFirstChild("hash-value-" + i);
+      }
+      wtx.commit();
     }
   }
 }

@@ -573,10 +573,9 @@ final class JsonNodeTrxImpl extends
         // Hash/descendant-count maintenance for AUTO-COMMITTING bulk inserts comes in two
         // MUTUALLY EXCLUSIVE modes (mixing them double-counts ancestors):
         //  - default (repairBulkInsertHashes = false): INCREMENTAL per-insert adaptation, the
-        //    upstream behavior. Correct for imports that fit in the first auto-commit epoch
-        //    (maxNodes); for larger imports, epochs >= 2 are unmaintained (hash 0, missing
-        //    descendant counts) because reInstantiate drops the autoCommit flag — the
-        //    pre-existing gap that motivates the flag.
+        //    upstream behavior. Storage-only KEEP_OPEN_ASYNC_FLUSH epochs preserve this mode.
+        //    Revision-producing intermediate commits reInstantiate the hashing helper without its
+        //    autoCommit flag, so imports spanning those logical commits still need the repair mode.
         //  - repairBulkInsertHashes = true: per-insert adaptation OFF uniformly; ONE postorder
         //    repair over the imported subtree at the end. Correct for ANY import size; costs a
         //    full subtree walk after the import (opt-in for exactly that reason).
