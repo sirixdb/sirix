@@ -581,7 +581,8 @@ public final class ProjectionIndexBuilder {
     final LongFunction<ImmutableNode> documentNodeLookup =
         nodeKey -> storageEngineWriter.getRecord(nodeKey, IndexType.DOCUMENT, -1);
     final LongFunction<SirixDeweyID> orderLabelResolver =
-        recordKey -> structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup);
+        recordKey -> structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup,
+            ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
     final int priorRowGroupCount = 0;
     final ProjectionSetSummaryChunks.BuildAccumulator setSummaries =
         new ProjectionSetSummaryChunks.BuildAccumulator();

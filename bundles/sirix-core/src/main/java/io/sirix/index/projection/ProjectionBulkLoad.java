@@ -474,7 +474,8 @@ public final class ProjectionBulkLoad {
       diagDrains++;
       for (int i = 0; i < completedRecordKeys.size(); i++) {
         final long recordKey = completedRecordKeys.getLong(i);
-        final SirixDeweyID orderLabel = structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup);
+        final SirixDeweyID orderLabel = structuralOrderDirectory.fullLabel(recordKey, documentNodeLookup,
+            ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
         if (!appendRecord(rtx, recordKey, orderLabel)) {
           diagExtractFailures++;
         }

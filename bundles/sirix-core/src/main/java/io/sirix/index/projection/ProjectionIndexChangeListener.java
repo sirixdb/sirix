@@ -151,6 +151,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private final @Nullable NodeReadOnlyTrx maintenanceTrx;
 
   private ProjectionStructuralOrderDirectory.@Nullable Accessor structuralOrderDirectory;
+  /** Records a bounded rebalance re-spread in this transaction; their persisted rows must follow. */
+  private @Nullable LongOpenHashSet orderRelabels;
+  private ProjectionStructuralOrderDirectory.@Nullable RelabelSink orderRelabelSink;
 
   /**
    * The load-time build this transaction is feeding, or {@code null} for ordinary maintenance. When
@@ -301,6 +304,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       structuralDeltas = null;
       pendingStructuralDeletes = null;
       structuralOrderDirectory = null;
+      orderRelabels = null;
+      orderRelabelSink = null;
       resolvedRecordMemo = null;
       deepWalkVisited = null;
       arrayRootInstances = null;
@@ -488,7 +493,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       if (positions.containsKey(candidate)) {
         continue;
       }
-      final SirixDeweyID label = structuralOrderDirectory().fullLabel(candidate, this::readNode);
+      final SirixDeweyID label = structuralOrderDirectory().fullLabel(candidate, this::readNode, orderRelabelSink());
       positions.put(candidate, new InsertionPosition(label.toBytes(), false, 0L));
     }
   }
@@ -566,7 +571,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         return;
       }
       if (recordKey == currentKey) {
-        final SirixDeweyID orderLabel = orderDirectory.fullLabel(recordKey, this::readNode);
+        final SirixDeweyID orderLabel = orderDirectory.fullLabel(recordKey, this::readNode, orderRelabelSink());
         final byte[] encodedLabel = orderLabel.toBytes();
         if (!entries.isEmpty()
             && Math.addExact(pendingLabelBytes, encodedLabel.length) > STRUCTURAL_BATCH_LABEL_BYTES) {
@@ -1327,6 +1332,38 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    * mints one lazily the first time a record's row label is needed, which keeps this notification —
    * the ingestion hot path — free of document reads and HOT-trie writes.
    */
+  /**
+   * The ONE sink every order-label mint in this listener goes through, so no path can be left with
+   * its bounded rebalance unarmed. A re-spread sibling is remembered here and folded into the next
+   * apply pass as a move, which is what rewrites its persisted row-group order label.
+   */
+  private ProjectionStructuralOrderDirectory.RelabelSink orderRelabelSink() {
+    ProjectionStructuralOrderDirectory.RelabelSink sink = orderRelabelSink;
+    if (sink == null) {
+      sink = new ProjectionStructuralOrderDirectory.RelabelSink() {
+        @Override
+        public boolean canRelabel(final long nodeKey) {
+          // Only a record carries its own row: a labelled CONTAINER is a shared prefix of every
+          // record below it and must never be re-spread.
+          return isCurrentRecordRoot(nodeKey);
+        }
+
+        @Override
+        public void relabelled(final long nodeKey, final SirixDeweyID localLabel) {
+          LongOpenHashSet relabels = orderRelabels;
+          if (relabels == null) {
+            relabels = new LongOpenHashSet();
+            orderRelabels = relabels;
+          }
+          relabels.add(nodeKey);
+          markDirty(nodeKey, allColumnWords);
+        }
+      };
+      orderRelabelSink = sink;
+    }
+    return sink;
+  }
+
   private void maintainStructuralOrder(final IndexController.ChangeType type, final long nodeKey) {
     if (type == IndexController.ChangeType.DELETE) {
       stageStructuralDelete(nodeKey);
@@ -1390,7 +1427,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       throw new IllegalStateException("Projection index " + indexDef.getID()
           + " cannot relabel moved structural node " + nodeKey);
     }
-    structuralOrderDirectory().relabelDisplaced(nodeKey, this::readNode, null);
+    structuralOrderDirectory().relabelDisplaced(nodeKey, this::readNode, orderRelabelSink());
   }
 
   private void markDirty(final long recordKey, final long[] changedColumnWords) {
@@ -1689,25 +1726,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
   private LongOpenHashSet mintRecordOrderLabels(final LongOpenHashSet dirty,
       final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
       final @Nullable Long2ByteOpenHashMap rootProvenance) {
-    final LongOpenHashSet relabelled = new LongOpenHashSet();
     if (rootProvenance == null || rootProvenance.isEmpty()) {
-      return relabelled;
+      return drainOrderRelabels(dirty, dirtyColumnWords);
     }
     final ProjectionStructuralOrderDirectory.Accessor directory = structuralOrderDirectory();
-    final ProjectionStructuralOrderDirectory.RelabelSink sink =
-        new ProjectionStructuralOrderDirectory.RelabelSink() {
-          @Override
-          public boolean canRelabel(final long nodeKey) {
-            // Only a record carries its own row: a labelled CONTAINER is a shared prefix of every
-            // record below it and must never be re-spread.
-            return isCurrentRecordRoot(nodeKey);
-          }
-
-          @Override
-          public void relabelled(final long nodeKey, final SirixDeweyID localLabel) {
-            relabelled.add(nodeKey);
-          }
-        };
+    final ProjectionStructuralOrderDirectory.RelabelSink sink = orderRelabelSink();
     final long[] candidates = dirty.toLongArray();
     LongArrays.quickSort(candidates);
     final LongOpenHashSet pending = new LongOpenHashSet(candidates.length);
@@ -1740,13 +1763,28 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         minted.add(cursor);
       }
     }
-    for (final LongIterator iterator = relabelled.iterator(); iterator.hasNext();) {
+    return drainOrderRelabels(dirty, dirtyColumnWords);
+  }
+
+  /**
+   * Take over the records any mint in this transaction re-spread — the pre-pass above, but equally
+   * a subtree move's {@code relabelDisplaced} or a structural entry's own mint, which both run
+   * before this apply — and make sure each one is dirty so the apply rewrites its persisted row.
+   */
+  private LongOpenHashSet drainOrderRelabels(final LongOpenHashSet dirty,
+      final Long2ObjectOpenHashMap<long[]> dirtyColumnWords) {
+    final LongOpenHashSet relabels = orderRelabels;
+    orderRelabels = null;
+    if (relabels == null || relabels.isEmpty()) {
+      return LongOpenHashSet.of();
+    }
+    for (final LongIterator iterator = relabels.iterator(); iterator.hasNext();) {
       final long recordKey = iterator.nextLong();
       if (dirty.add(recordKey)) {
         dirtyColumnWords.put(recordKey, allColumnWords.clone());
       }
     }
-    return relabelled;
+    return relabels;
   }
 
   private long leftSiblingKeyOf(final long nodeKey) {
@@ -1926,6 +1964,12 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       }
     }
     deriveOrdinaryInsertionPositions(insertions, positionByInsertion);
+    if (orderRelabels != null && !orderRelabels.isEmpty()) {
+      // Every insertion's label is minted before this pass starts, so a rebalance here would be
+      // re-spreading rows this pass has already sized up. Fail closed rather than persist a leaf
+      // whose neighbours' order labels moved out from under it.
+      return false;
+    }
     LongArrays.quickSort(insertionOrder, (left, right) -> compareInsertionPositions(
         positionByInsertion.get(left), left, positionByInsertion.get(right), right));
     long previousInsertion = NO_RECORD_KEY;
