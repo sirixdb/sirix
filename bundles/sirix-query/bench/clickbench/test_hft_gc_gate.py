@@ -52,7 +52,7 @@ def hft_config_line(
     *,
     global_dict: str = "never",
     auto_commit_nodes: int = 4_194_304,
-    async_flush_node_cap: int = 131_072,
+    async_flush_node_cap: int = 32_768,
     arena_strategy: str = "shared",
     max_new_size_bytes: int = 1024 * MIB,
     initial_heap_bytes: int = 4096 * MIB,
@@ -88,15 +88,15 @@ def async_flush_line(
     *,
     combined_epochs: int = 100,
     side_only_epochs: int = 1,
-    kvl_pages: int = 12_000,
+    kvl_pages: int = 3_200,
     side_pages: int = 1_000,
     side_bytes: int = 32 * MIB,
     peak_active_side_bytes: int = 32 * MIB,
     rotation_permit_wait_max_ns: int = 10_000_000,
     drain_permit_wait_max_ns: int = 100_000_000,
-    kvl_attempted_pages: int = 12_000,
+    kvl_attempted_pages: int = 3_200,
     kvl_promoted_pages: int = 0,
-    kvl_attempted_pages_max: int = 128,
+    kvl_attempted_pages_max: int = 32,
     native_reservoir_count: int = 2,
     native_reservoir_bytes: int = 64 * MIB,
     pinned_trie_spill_epochs: int = 4,
@@ -996,7 +996,7 @@ class EvaluationTest(unittest.TestCase):
     def test_promoted_kvl_pages_fail_the_direct_frame_coverage_gate(self) -> None:
         lines = stable_log(100)
         lines[lines.index(async_flush_line())] = async_flush_line(
-            kvl_attempted_pages=12_007,
+            kvl_attempted_pages=3_207,
             kvl_promoted_pages=7,
         )
 
@@ -1004,12 +1004,12 @@ class EvaluationTest(unittest.TestCase):
 
         self.assertFalse(result.passed)
         self.assertTrue(any("promoted back to the live TIL" in issue for issue in result.issues))
-        self.assertEqual(12_007, result.attempted_kvl_pages)
+        self.assertEqual(3_207, result.attempted_kvl_pages)
         self.assertEqual(7, result.promoted_kvl_pages)
 
     def test_kvl_attempt_accounting_must_be_exact(self) -> None:
         lines = stable_log(100)
-        lines[lines.index(async_flush_line())] = async_flush_line(kvl_attempted_pages=12_001)
+        lines[lines.index(async_flush_line())] = async_flush_line(kvl_attempted_pages=3_201)
 
         result = gate.evaluate_run(gate.parse_lines(lines), "bad-kvl-attempt-total", min_samples=5)
 
@@ -1018,14 +1018,14 @@ class EvaluationTest(unittest.TestCase):
 
     def test_kvl_attempted_pages_per_epoch_is_bounded_and_covered_by_the_total(self) -> None:
         cases = (
-            ({"kvl_attempted_pages_max": 129}, "bounded serializer window"),
+            ({"kvl_attempted_pages_max": 33}, "bounded serializer window"),
             (
-                {"kvl_attempted_pages": 100, "kvl_attempted_pages_max": 101},
+                {"kvl_pages": 31, "kvl_attempted_pages": 31, "kvl_attempted_pages_max": 32},
                 "exceeds the total attempted KVL pages",
             ),
             ({"kvl_attempted_pages_max": 0}, "is zero despite positive"),
             (
-                {"kvl_attempted_pages": 12_001, "kvl_attempted_pages_max": 120},
+                {"kvl_attempted_pages_max": 31},
                 "per-epoch maximum times combined epochs",
             ),
         )
@@ -1081,7 +1081,7 @@ class EvaluationTest(unittest.TestCase):
         mismatches = {
             "globalDict=never": "globalDict=auto",
             "autoCommitNodes=4194304": "autoCommitNodes=1048576",
-            "asyncFlushNodeCap=131072": "asyncFlushNodeCap=1048576",
+            "asyncFlushNodeCap=32768": "asyncFlushNodeCap=1048576",
             "arenaStrategy=shared": "arenaStrategy=auto",
             f"maxNewSizeBytes={1024 * MIB}": f"maxNewSizeBytes={512 * MIB}",
             f"maxHeapBytes={4096 * MIB}": f"maxHeapBytes={2048 * MIB}",
@@ -1127,7 +1127,7 @@ class EvaluationTest(unittest.TestCase):
 
     def test_kvl_cache_must_reuse_the_disposable_native_frame(self) -> None:
         for original, replacement in (
-            ("kvlFrameCachePages=12000", "kvlFrameCachePages=0"),
+            ("kvlFrameCachePages=3200", "kvlFrameCachePages=0"),
             ("kvlCacheFallbackPages=0", "kvlCacheFallbackPages=1"),
         ):
             with self.subTest(replacement=replacement):
@@ -1144,7 +1144,7 @@ class EvaluationTest(unittest.TestCase):
         lines = stable_log(100)
         telemetry_index = lines.index(async_flush_line())
         lines[telemetry_index] = lines[telemetry_index].replace(
-            "kvlFrameCachePages=12000", "kvlFrameCachePages=11999"
+            "kvlFrameCachePages=3200", "kvlFrameCachePages=3199"
         )
 
         result = gate.evaluate_run(gate.parse_lines(lines), "incomplete-kvl-coverage", min_samples=5)
@@ -1206,7 +1206,7 @@ class EvaluationTest(unittest.TestCase):
     def test_missing_async_flush_node_cap_fails_closed(self) -> None:
         lines = stable_log(100)
         config_index = lines.index(hft_config_line())
-        lines[config_index] = lines[config_index].replace(" asyncFlushNodeCap=131072", "")
+        lines[config_index] = lines[config_index].replace(" asyncFlushNodeCap=32768", "")
 
         result = gate.evaluate_run(gate.parse_lines(lines), "missing-async-cap", min_samples=5)
 

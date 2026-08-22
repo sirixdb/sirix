@@ -2111,8 +2111,8 @@ The transaction rotates at the first safe pre-mutation boundary after either
 of two thresholds is reached. The cold first epoch is deliberately small at
 16 generation-scoped TIL entries or 16,384 completed node modifications so
 serializer/JIT and projection-maintenance warm-up cannot dominate one large
-latency event. Every subsequent epoch is bounded at 128 TIL entries (one
-background serializer window) or 131,072 completed node modifications. The
+latency event. Every subsequent epoch is bounded at 32 TIL entries (one
+background serializer window) or 32,768 completed node modifications. The
 first is an O(1) measure of actual snapshot work; structural entries make it
 conservative because they are pinned before KVL serialization. The second
 bounds the foreground index/projection maintenance performed before a

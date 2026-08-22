@@ -231,6 +231,81 @@ final class AsyncFlushLogBookkeepingTest {
   }
 
   @Test
+  @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  @DisplayName("One hot record rotates at the cold and steady node-count bounds")
+  void repeatedUpdatesTransitionFromColdToSteadyNodeCountBound() {
+    final AtomicInteger flushes = new AtomicInteger();
+    NodeStorageEngineWriter.asyncFlushFaultHook = (engineWriter, site) -> {
+      if ("prepare".equals(site)) {
+        flushes.incrementAndGet();
+      }
+    };
+
+    final int coldNodeCount = AfterCommitState.MAX_ASYNC_FLUSH_PRIMING_NODE_COUNT;
+    final int steadyNodeCount = AfterCommitState.MAX_ASYNC_FLUSH_NODE_COUNT;
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                   .storeDiffs(false)
+                                                   .hashKind(HashType.NONE)
+                                                   .buildPathSummary(false)
+                                                   .versioningApproach(VersioningType.FULL)
+                                                   .storageType(StorageType.FILE_CHANNEL)
+                                                   .build());
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
+                                                        AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        final long valueNodeKey = wtx.insertStringValueAsFirstChild("cold-a").getNodeKey();
+        final NodeStorageEngineWriter writer = (NodeStorageEngineWriter) wtx.getStorageEngineWriter();
+        final TransactionIntentLog log = writer.getLog();
+
+        // The insert is modification one. Stop exactly at the cold count: rotation is deliberately
+        // checked only at the next compound-operation-safe mutation boundary.
+        for (int mutation = 1; mutation < coldNodeCount; mutation++) {
+          assertTrue(wtx.moveTo(valueNodeKey));
+          wtx.setStringValue((mutation & 1) == 0 ? "cold-a" : "cold-b");
+        }
+        assertEquals(0, flushes.get());
+        assertEquals(0, log.getCurrentGeneration());
+        assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_PRIMING_LOG_ENTRY_COUNT,
+            "one write-hot page must leave the live-TIL page bound below the cold threshold");
+
+        assertTrue(wtx.moveTo(valueNodeKey));
+        wtx.setStringValue("steady-a");
+        assertEquals(1, flushes.get(), "the next mutation must rotate the completed cold epoch");
+        assertEquals(1, log.getCurrentGeneration());
+        writer.awaitPendingAsyncFlush();
+
+        // The triggering update is modification one of the steady epoch. Again stop exactly at the
+        // threshold, then prove that only the following mutation rotates it.
+        for (int mutation = 1; mutation < steadyNodeCount; mutation++) {
+          assertTrue(wtx.moveTo(valueNodeKey));
+          wtx.setStringValue((mutation & 1) == 0 ? "steady-a" : "steady-b");
+        }
+        assertEquals(1, flushes.get());
+        assertEquals(1, log.getCurrentGeneration());
+        assertTrue(log.liveEntryCount() < NodeStorageEngineWriter.MAX_ASYNC_FLUSH_LOG_ENTRY_COUNT,
+            "one write-hot page must leave the live-TIL page bound below the steady threshold");
+
+        assertTrue(wtx.moveTo(valueNodeKey));
+        wtx.setStringValue("final-value");
+        assertEquals(2, flushes.get(), "the next mutation must rotate the completed steady epoch");
+        assertEquals(2, log.getCurrentGeneration());
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveToFirstChild());
+      assertEquals("final-value", rtx.getValue());
+      assertEquals(1, session.getMostRecentRevisionNumber());
+    }
+  }
+
+  @Test
   @Timeout(value = 5, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   @DisplayName("An import killed by a failed flush strands no pinned entries once the writer is torn down")
   void failedImport_strandsNoPinnedEntries() {
