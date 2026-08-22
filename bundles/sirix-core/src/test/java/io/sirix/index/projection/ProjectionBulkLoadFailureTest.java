@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** Fail-closed lifecycle coverage for an intermediate load-time row-group publication fault. */
 final class ProjectionBulkLoadFailureTest {
 
-  private static final byte[] NUMERIC_KIND = {ProjectionIndexRowGroupPage.COLUMN_KIND_NUMERIC_LONG};
+  private static final byte[] STRING_KIND = {ProjectionIndexRowGroupPage.COLUMN_KIND_STRING_DICT};
   private static final int INDEX_NUMBER = 0;
 
   @BeforeEach
@@ -44,7 +44,8 @@ final class ProjectionBulkLoadFailureTest {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
-      new JsonShredder.Builder(wtx, JsonShredder.createStringReader("[{\"value\":1},{\"value\":2}]"),
+      new JsonShredder.Builder(wtx,
+          JsonShredder.createStringReader("[{\"value\":1,\"text\":\"one\"},{\"value\":2,\"text\":\"two\"}]"),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
     }
   }
@@ -85,12 +86,58 @@ final class ProjectionBulkLoadFailureTest {
   }
 
   @Test
+  void neverDictionaryModeBypassesTheLeadingSample() throws ReflectiveOperationException {
+    assertSampleBypassed("never", "/[]/text", Type.STR,
+        "NEVER mode must stream row groups instead of retaining a useless decision sample");
+  }
+
+  @Test
+  void autoModeBypassesTheLeadingSampleWhenNoColumnCanUseIt() throws ReflectiveOperationException {
+    assertSampleBypassed("auto", "/[]/value", Type.LON,
+        "a numeric-only AUTO projection must stream instead of retaining a useless sample");
+  }
+
+  private static void assertSampleBypassed(final String mode, final String fieldPath,
+      final Type fieldType, final String message) throws ReflectiveOperationException {
+    final String priorMode = System.getProperty("sirix.projection.globalDict");
+    System.setProperty("sirix.projection.globalDict", mode);
+    try {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var wtx = session.beginNodeTrx()) {
+        final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+            List.of(parse(fieldPath, PathParser.Type.JSON)), List.of(fieldType), INDEX_NUMBER,
+            IndexDef.DbType.JSON);
+        final String resourceKey = session.getResourceConfig().getResource().toString();
+        final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey,
+            wtx.getPathSummary(), wtx.getStorageEngineWriter());
+        try {
+          final Field builderField = ProjectionBulkLoad.class.getDeclaredField("builder");
+          builderField.setAccessible(true);
+          final ProjectionIndexBuilder builder = (ProjectionIndexBuilder) builderField.get(load);
+          final Field sampleField = ProjectionIndexBuilder.class.getDeclaredField("sample");
+          sampleField.setAccessible(true);
+          assertNull(sampleField.get(builder), message);
+        } finally {
+          load.abort();
+        }
+      }
+    } finally {
+      if (priorMode == null) {
+        System.clearProperty("sirix.projection.globalDict");
+      } else {
+        System.setProperty("sirix.projection.globalDict", priorMode);
+      }
+    }
+  }
+
+  @Test
   void intermediateStorageFaultPoisonsLoadAndLeavesPartialLeafBehindStaleTombstone() throws Exception {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
-          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
+          List.of(parse("/[]/text", PathParser.Type.JSON)), List.of(Type.STR), INDEX_NUMBER,
           IndexDef.DbType.JSON);
       final String resourceKey = session.getResourceConfig().getResource().toString();
       final RuntimeException injected = new RuntimeException("injected row-group publication failure");
@@ -104,8 +151,8 @@ final class ProjectionBulkLoadFailureTest {
             throw injected;
           });
 
-      // Prime the exact reachable state immediately before the 64-leaf dictionary sample drains:
-      // 63 full pages are held in the sample and the current 64th page is full. The next real record
+      // Prime the exact reachable state immediately before the 16-leaf dictionary sample drains:
+      // 15 full pages are held in the sample and the current 16th page is full. The next real record
       // closes that page during an ordinary intermediate drain and enters the borrowed callback.
       primeBeforeSampleDrain(load);
       wtx.moveToDocumentRoot();
@@ -208,9 +255,9 @@ final class ProjectionBulkLoadFailureTest {
     builderField.setAccessible(true);
     final ProjectionIndexBuilder builder = (ProjectionIndexBuilder) builderField.get(load);
 
-    final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(63);
-    for (int pageIndex = 0; pageIndex < 63; pageIndex++) {
-      sample.add(fullNumericPage((long) pageIndex * ProjectionIndexRowGroupPage.MAX_ROWS));
+    final List<ProjectionIndexRowGroupPage> sample = new ArrayList<>(15);
+    for (int pageIndex = 0; pageIndex < 15; pageIndex++) {
+      sample.add(fullStringPage((long) pageIndex * ProjectionIndexRowGroupPage.MAX_ROWS));
     }
     final Field sampleField = ProjectionIndexBuilder.class.getDeclaredField("sample");
     sampleField.setAccessible(true);
@@ -219,20 +266,20 @@ final class ProjectionBulkLoadFailureTest {
     final Field currentLeafField = ProjectionIndexBuilder.class.getDeclaredField("currentLeaf");
     currentLeafField.setAccessible(true);
     currentLeafField.set(builder,
-        fullNumericPage(63L * ProjectionIndexRowGroupPage.MAX_ROWS));
+        fullStringPage(15L * ProjectionIndexRowGroupPage.MAX_ROWS));
 
     final Field rowsEmittedField = ProjectionIndexBuilder.class.getDeclaredField("rowsEmitted");
     rowsEmittedField.setAccessible(true);
-    rowsEmittedField.setLong(builder, 64L * ProjectionIndexRowGroupPage.MAX_ROWS);
+    rowsEmittedField.setLong(builder, 16L * ProjectionIndexRowGroupPage.MAX_ROWS);
   }
 
-  private static ProjectionIndexRowGroupPage fullNumericPage(final long keyBase) {
-    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(NUMERIC_KIND);
+  private static ProjectionIndexRowGroupPage fullStringPage(final long keyBase) {
+    final ProjectionIndexRowGroupPage page = new ProjectionIndexRowGroupPage(STRING_KIND);
     final long[] values = new long[1];
     final boolean[] bools = new boolean[1];
     final String[] strings = new String[1];
     for (int row = 0; row < ProjectionIndexRowGroupPage.MAX_ROWS; row++) {
-      values[0] = row;
+      strings[0] = "sample-" + row;
       assertTrue(page.appendRow(keyBase + row + 1, values, bools, strings));
     }
     return page;

@@ -537,6 +537,7 @@ public final class ProjectionBulkLoad {
       // the new leaf count to tombstone.
       ProjectionIndexBuilder.finishPersist(indexDef, storage, firstKeys, lastKeys, 0, buildRevision,
           columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
+      builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
       try {
         bloomChunks.release();

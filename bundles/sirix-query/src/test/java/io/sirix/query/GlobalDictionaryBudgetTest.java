@@ -1,8 +1,15 @@
 package io.sirix.query;
 
 import com.google.gson.stream.JsonReader;
+import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.GlobalValueDictionaryWriter;
 import io.sirix.index.projection.ProjectionIndexBuilder;
+import io.sirix.index.projection.ProjectionIndexHOTStorage;
+import io.sirix.index.projection.ProjectionIndexMetadata;
+import io.sirix.index.projection.ProjectionIndexRowGroupPage;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.ProjectionSpec;
 import org.junit.jupiter.api.AfterEach;
@@ -17,6 +24,9 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The resource-wide value dictionary must be BOUNDED, and hitting the bound must be a decline.
@@ -71,9 +81,9 @@ final class GlobalDictionaryBudgetTest {
     System.clearProperty(BUDGET_PROPERTY);
   }
 
-  private static String dataset() {
-    final StringBuilder sb = new StringBuilder(RECORDS * 96).append('[');
-    for (int i = 0; i < RECORDS; i++) {
+  private static String dataset(final int records) {
+    final StringBuilder sb = new StringBuilder(records * 96).append('[');
+    for (int i = 0; i < records; i++) {
       if (i > 0) {
         sb.append(',');
       }
@@ -85,17 +95,66 @@ final class GlobalDictionaryBudgetTest {
     return sb.append(']').toString();
   }
 
+  private static String runtimeCapDataset() {
+    final int sampledRows = 16 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    final int novelRows = GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
+        - ProjectionIndexRowGroupPage.MAX_ROWS + 1;
+    final StringBuilder sb = new StringBuilder((sampledRows + novelRows) * 64).append('[');
+    for (int i = 0; i < sampledRows + novelRows; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      final String value = i < sampledRows
+          ? "sample-" + (i % ProjectionIndexRowGroupPage.MAX_ROWS)
+          : "novel-" + (i - sampledRows);
+      sb.append("{\"id\":").append(i).append(",\"url\":\"").append(value).append("\"}");
+    }
+    return sb.append(']').toString();
+  }
+
+  private static String nearStructuralCapDataset() {
+    final int sampledRows = 16 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    final StringBuilder sb = new StringBuilder((sampledRows + 2) * 64).append('[');
+    for (int i = 0; i < sampledRows + 2; i++) {
+      if (i > 0) {
+        sb.append(',');
+      }
+      final int value = i == sampledRows - 1 ? 0 : i;
+      sb.append("{\"id\":").append(i).append(",\"url\":\"near-cap-").append(value).append("\"}");
+    }
+    return sb.append(']').toString();
+  }
+
   private int loadAndCountGlobalColumns(final String dbName, final long expectedRows) throws IOException {
+    return loadAndCountGlobalColumns(dbName, expectedRows, RECORDS);
+  }
+
+  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows,
+      final int records) throws IOException {
+    return loadAndCountGlobalColumns(dbName, expectedRows, dataset(records));
+  }
+
+  private int loadAndCountGlobalColumns(final String dbName, final long expectedRows,
+      final String json) throws IOException {
     try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
                                                         .location(root.resolve(dbName))
                                                         .numberOfNodesBeforeAutoCommit(4096)
                                                         .buildPathSummary(true)
                                                         .buildPathStatistics(false)
                                                         .build();
-        final JsonReader reader = new JsonReader(new StringReader(dataset()))) {
+        final JsonReader reader = new JsonReader(new StringReader(json))) {
       store.create("coll", "res.jn", reader, new ProjectionSpec(ROOT_PATH, FIELD_PATHS, FIELD_TYPES, expectedRows));
     }
     return ProjectionIndexBuilder.globalDictionaryColumnsBuilt();
+  }
+
+  private ProjectionIndexMetadata projectionMetadata(final String dbName) {
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(root.resolve(dbName).resolve("coll"));
+        final JsonResourceSession session = database.beginResourceSession("res.jn");
+        final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(session.getMostRecentRevisionNumber())) {
+      final byte[] raw = ProjectionIndexHOTStorage.readBlob(rtx.getStorageEngineReader(), 0, 0L);
+      return raw == null ? null : ProjectionIndexMetadata.parse(raw);
+    }
   }
 
   @Test
@@ -142,21 +201,36 @@ final class GlobalDictionaryBudgetTest {
   }
 
   @Test
+  @DisplayName("AUTO reserves a full row group of headroom before converting a near-cap sample")
+  void structuralEntryLimitDeclinesDuringElectionWithoutAbandoningTheProjection() throws IOException {
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    assertEquals(1, loadAndCountGlobalColumns("structural-control", -1L),
+        "the smaller control must prove that AUTO elects this all-unique string shape");
+
+    assertEquals(0, loadAndCountGlobalColumns("structural-decline", -1L, nearStructuralCapDataset()),
+        "a 16,383-distinct sample must decline before two later novel values exhaust the interner");
+    final ProjectionIndexMetadata metadata = projectionMetadata("structural-decline");
+    assertNotNull(metadata, "a safe dictionary decline must retain the optional projection");
+    assertFalse(metadata.isStale(), "the structurally bounded AUTO election abandoned the projection");
+    assertEquals(17, metadata.rowGroupCount(),
+        "every local-dictionary row group must remain visible after the decline");
+  }
+
+  @Test
   @DisplayName("An unhinted load whose dictionary blows its cap ABANDONS the projection and still completes")
   void runtimeCapAbandonsTheProjectionButNotTheLoad() throws IOException {
-    // The fail-soft that defect (11) actually needed: no hint, a cap the corpus cannot respect, and
-    // the load must still finish. Before the cap existed this shape did not throw — it degraded into
-    // a collector loop that produced almost nothing and never terminated on its own.
-    System.setProperty(BUDGET_PROPERTY, String.valueOf(GlobalValueDictionaryWriter.MINIMUM_BUDGET_BYTES + (8L << 10)));
-    // COMPLETION is the whole assertion, and it is not vacuous: this exact shape — no hint, a corpus
-    // whose dictionary cannot fit — is what ran for two hours at 100M without finishing or failing.
-    // Returning at all is the behaviour change.
-    //
-    // Deliberately NOT asserting the global-column count: when the cap fires during the sample
-    // conversion the election never reaches its counter, so the static reads whatever a previous
-    // test left there. The abandonment itself is pinned where it is observable — the writer's typed
-    // refusal in GlobalValueDictionaryWriterBudgetTest, and the WARN the listener logs.
-    loadAndCountGlobalColumns("abandoned", -1L);
+    // The first 16 leaves repeat the same 1,024 values, so AUTO safely elects a global dictionary.
+    // Later rows introduce enough novel values to reach id 16,385 after election. That is a genuine
+    // runtime structural refusal rather than an election-time budget decline.
+    System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
+    assertEquals(1, loadAndCountGlobalColumns("runtime-control", -1L),
+        "the completed control must establish the last-successful-build diagnostic");
+    assertEquals(1, loadAndCountGlobalColumns("abandoned", -1L, runtimeCapDataset()),
+        "an abandoned builder must not overwrite the diagnostic from the latest completed build");
+
+    final ProjectionIndexMetadata metadata = projectionMetadata("abandoned");
+    assertTrue(metadata == null || metadata.isStale(),
+        "a partially global-encoded projection became visible after runtime abandonment");
   }
 
   // The writer's own refusal is pinned next to the writer, in

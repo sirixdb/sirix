@@ -13,6 +13,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.exception.SirixException;
 import io.sirix.index.projection.ProjectionBulkLoad;
+import io.sirix.index.projection.ProjectionIndexBuilder;
 import io.sirix.index.projection.ProjectionIndexCatalog;
 import io.sirix.index.projection.ProjectionIndexHOTStorage;
 import io.sirix.index.projection.ProjectionIndexMetadata;
@@ -69,6 +70,8 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
   private static final int NOTE_BUCKETS = 13;
 
   private static final int INDEX_NUMBER = 0;
+
+  private static final String GLOBAL_DICTIONARY_PROPERTY = "sirix.projection.globalDict";
 
   private static final String ROOT_PATH = "/[]";
 
@@ -189,6 +192,19 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
       List<byte[]> rowGroups) {
   }
 
+  private static void assertEquivalent(final Snapshot incremental, final Snapshot postPass) {
+    Assertions.assertEquals(postPass.rootPath(), incremental.rootPath());
+    Assertions.assertArrayEquals(postPass.fieldNames(), incremental.fieldNames());
+    Assertions.assertArrayEquals(postPass.columnKinds(), incremental.columnKinds(),
+        "the two builds must reach the same per-column dictionary decision");
+    Assertions.assertEquals(postPass.rowGroupCount(), incremental.rowGroupCount(),
+        "the two builds must pack the records into the same number of row groups");
+    for (int i = 0; i < postPass.rowGroupCount(); i++) {
+      Assertions.assertArrayEquals(postPass.rowGroups().get(i), incremental.rowGroups().get(i),
+          "row group " + (i + 1) + " differs between the load-time and post-pass builds");
+    }
+  }
+
   private Snapshot snapshot(final String dbName) {
     final Path dbPath = root.resolve(dbName).resolve("coll");
     try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath);
@@ -234,17 +250,36 @@ public final class ProjectionLoadTimeBuildEquivalenceTest {
     final Snapshot incremental = snapshot("incremental");
     final Snapshot postPass = snapshot("postpass");
 
-    Assertions.assertEquals(postPass.rootPath(), incremental.rootPath());
-    Assertions.assertArrayEquals(postPass.fieldNames(), incremental.fieldNames());
-    // The column kinds carry the per-column dictionary decision. Both builds measure it on the same
-    // first 64 leaves, so a difference here would mean the load-time build saw different rows.
-    Assertions.assertArrayEquals(postPass.columnKinds(), incremental.columnKinds(),
-        "the two builds must reach the same per-column dictionary decision");
-    Assertions.assertEquals(postPass.rowGroupCount(), incremental.rowGroupCount(),
-        "the two builds must pack the records into the same number of row groups");
-    for (int i = 0; i < postPass.rowGroupCount(); i++) {
-      Assertions.assertArrayEquals(postPass.rowGroups().get(i), incremental.rowGroups().get(i),
-          "row group " + (i + 1) + " differs between the load-time and post-pass builds");
+    assertEquivalent(incremental, postPass);
+  }
+
+  @Test
+  public void neverModeStreamsAndPersistsSeveralLeavesByteForByte() throws IOException {
+    final String previousMode = System.getProperty(GLOBAL_DICTIONARY_PROPERTY);
+    System.setProperty(GLOBAL_DICTIONARY_PROPERTY, "never");
+    try {
+      loadIncremental("incremental-never");
+      loadPostPass("postpass-never");
+
+      final Snapshot incremental = snapshot("incremental-never");
+      final Snapshot postPass = snapshot("postpass-never");
+      assertEquivalent(incremental, postPass);
+      Assertions.assertEquals((RECORDS + ProjectionIndexRowGroupPage.MAX_ROWS - 1)
+              / ProjectionIndexRowGroupPage.MAX_ROWS, incremental.rowGroupCount(),
+          "NEVER mode must persist every row across several immediately emitted leaves");
+      Assertions.assertEquals(0, ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
+          "a successfully completed NEVER build must publish a zero global-column diagnostic");
+      ProjectionIndexRegistry.clear();
+      ProjectionIndexCatalog.clearCache();
+      Databases.clearGlobalCaches();
+      Assertions.assertEquals(RECORDS, aggregate("incremental-never", root, "count", "age"),
+          "the cold-open projection must serve every immediately streamed row");
+    } finally {
+      if (previousMode == null) {
+        System.clearProperty(GLOBAL_DICTIONARY_PROPERTY);
+      } else {
+        System.setProperty(GLOBAL_DICTIONARY_PROPERTY, previousMode);
+      }
     }
   }
 
