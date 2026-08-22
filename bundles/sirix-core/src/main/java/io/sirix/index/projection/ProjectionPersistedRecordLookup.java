@@ -127,12 +127,66 @@ final class ProjectionPersistedRecordLookup {
     return loaded;
   }
 
+  void invalidate(final int physicalSlot) {
+    if (cachedSlot == physicalSlot) {
+      cachedSlot = 0;
+      cachedKeys = null;
+    }
+    if (keysBySlot != null) {
+      keysBySlot.remove(physicalSlot);
+    }
+  }
+
   int descriptorsRead() {
     return descriptorsRead;
   }
 
   int keySegmentsRead() {
     return keySegmentsRead;
+  }
+
+  long firstRecord() {
+    if (fences.liveRowGroupCount() == 0) {
+      return -1L;
+    }
+    return edgeRecord(fences.documentHead(), true);
+  }
+
+  long lastRecord() {
+    if (fences.liveRowGroupCount() == 0) {
+      return -1L;
+    }
+    return edgeRecord(fences.lastPhysicalSlot(), false);
+  }
+
+  long previousRecord(final long packed) {
+    final int physicalSlot = slot(packed);
+    final int row = row(packed);
+    final long[] recordKeys = keys(physicalSlot).view().recordKeys();
+    if (row > 0) {
+      return recordKeys[row - 1];
+    }
+    final int previousSlot = fences.previous(physicalSlot);
+    return previousSlot == 0 ? -1L : edgeRecord(previousSlot, false);
+  }
+
+  long nextRecord(final long packed) {
+    final int physicalSlot = slot(packed);
+    final int row = row(packed);
+    final long[] recordKeys = keys(physicalSlot).view().recordKeys();
+    if (row + 1 < recordKeys.length) {
+      return recordKeys[row + 1];
+    }
+    final int nextSlot = fences.next(physicalSlot);
+    return nextSlot == 0 ? -1L : edgeRecord(nextSlot, true);
+  }
+
+  private long edgeRecord(final int physicalSlot, final boolean first) {
+    final long[] recordKeys = keys(physicalSlot).view().recordKeys();
+    if (recordKeys.length == 0) {
+      throw new IllegalStateException("projection physical leaf " + physicalSlot + " is empty");
+    }
+    return first ? recordKeys[0] : recordKeys[recordKeys.length - 1];
   }
 
   static int slot(final long packed) {

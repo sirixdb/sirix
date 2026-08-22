@@ -9,6 +9,7 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.ExprUtil;
+import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 /**
@@ -20,45 +21,44 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
  */
 public final class SirixConstGroupAggregateExpr implements Expr {
 
-  private final SirixVectorizedExecutor executor;
+  private final SirixExecutorProvider executorProvider;
   private final String[] sourcePath;
   private final PredicateNode predicateOrNull;
   private final String[] funcs;
   private final String[] aggFields;
   private final long[] offsets;
   private final String[] outNames;
-  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
-  private final SourceRef runtimeSourceRef;
+  private final SourceRef sourceRef;
   private final Expr genericFallback;
 
-  public SirixConstGroupAggregateExpr(final SirixVectorizedExecutor executor, final String[] sourcePath,
+  public SirixConstGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
-      final String[] outNames, final SourceRef runtimeSourceRef, final Expr genericFallback) {
-    this.executor = executor;
+      final String[] outNames, final SourceRef sourceRef, final Expr genericFallback) {
+    this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
     this.funcs = funcs;
     this.aggFields = aggFields;
     this.offsets = offsets;
     this.outNames = outNames;
-    this.runtimeSourceRef = runtimeSourceRef;
+    this.sourceRef = sourceRef;
     this.genericFallback = genericFallback;
   }
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    executor.enterExecution();
-    try {
-      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
-          && executor.canExecute(ctx)) {
-        final Sequence served =
-            executor.executeConstGroupAggregate(ctx, sourcePath, predicateOrNull, funcs, aggFields, offsets, outNames);
-        if (served != null) {
-          return served;
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
+    if (lease != null) {
+      try (lease) {
+        final SirixVectorizedExecutor executor = lease.executor();
+        if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
+          final Sequence served = executor.executeConstGroupAggregate(ctx, sourcePath, predicateOrNull, funcs,
+              aggFields, offsets, outNames);
+          if (served != null) {
+            return served;
+          }
         }
       }
-    } finally {
-      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

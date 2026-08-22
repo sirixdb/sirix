@@ -40,7 +40,7 @@ final class ProjectionIndexFencesTest {
   private static final String RESOURCE_NAME = "testResource";
   private static final Path DATABASE_PATH = JsonTestHelper.PATHS.PATH1.getFile();
   private static final int INDEX_NUMBER = 0;
-  private static final int FENCE_ENTRY_BYTES = 144;
+  private static final int FENCE_ENTRY_BYTES = 244;
   private static final int DOCUMENT_NEXT_OFFSET = 16;
   private static final int DOCUMENT_PREVIOUS_OFFSET = 20;
 
@@ -134,6 +134,78 @@ final class ProjectionIndexFencesTest {
         assertArrayEquals(rng[0], readBack[0], "cold first fences");
         assertArrayEquals(rng[1], readBack[1], "cold last fences");
       }
+    }
+  }
+
+  @Test
+  void buildWriterStreamsCompletedChunksAcrossTransactionEpochs() {
+    final int rowGroups = ProjectionIndexFences.CHUNK_LEAVES + 8;
+    final long[][] expected = ranges(rowGroups, 11);
+    final ProjectionIndexFences.BuildWriter writer = new ProjectionIndexFences.BuildWriter();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int index = 0; index < ProjectionIndexFences.CHUNK_LEAVES; index++) {
+          writer.append(storage, expected[0][index], expected[1][index]);
+        }
+        assertEquals(1, writer.chunksWritten(),
+            "a completed fence chunk must publish in the epoch that completed it");
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int index = ProjectionIndexFences.CHUNK_LEAVES; index < rowGroups; index++) {
+          writer.append(storage, expected[0][index], expected[1][index]);
+        }
+        assertEquals(1, writer.chunksWritten(), "only the partial second chunk remains before finish");
+        writer.finish(storage, 0);
+        assertEquals(2, writer.chunksWritten());
+        wtx.commit();
+      }
+      Databases.getGlobalBufferManager().clearAllCaches();
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        assertArrayEquals(expected[0], ProjectionIndexFences.read(storage, rowGroups)[0]);
+        assertArrayEquals(expected[1], ProjectionIndexFences.read(storage, rowGroups)[1]);
+        assertArrayEquals(java.util.stream.IntStream.rangeClosed(1, rowGroups).toArray(),
+            ProjectionIndexFences.readPhysicalOrder(storage, rowGroups));
+      }
+    }
+  }
+
+  @Test
+  void exactFullFenceChunkTerminatesAfterFinishAndColdReopen() {
+    final int rowGroups = ProjectionIndexFences.CHUNK_LEAVES;
+    final long[][] expected = ranges(rowGroups, 17);
+    final ProjectionIndexFences.BuildWriter writer = new ProjectionIndexFences.BuildWriter();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        for (int index = 0; index < rowGroups; index++) {
+          writer.append(storage, expected[0][index], expected[1][index]);
+        }
+        assertEquals(1, writer.chunksWritten());
+        wtx.commit();
+      }
+      try (JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final ProjectionIndexHOTStorage storage =
+            new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+        writer.finish(storage, 0);
+        wtx.commit();
+      }
+    }
+    Databases.clearGlobalCaches();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertArrayEquals(java.util.stream.IntStream.rangeClosed(1, rowGroups).toArray(),
+          ProjectionIndexFences.readPhysicalOrder(rtx.getStorageEngineReader(), INDEX_NUMBER, rowGroups));
     }
   }
 

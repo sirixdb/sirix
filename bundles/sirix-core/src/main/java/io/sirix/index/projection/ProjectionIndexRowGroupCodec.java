@@ -159,6 +159,7 @@ public final class ProjectionIndexRowGroupCodec {
         putLongLE(out, orderExceptionBits[word]);
       }
     }
+    encodeOrderLabels(out, page);
     if (rowCount > 0) {
       for (int c = 0; c < columnCount; c++) {
         putLongLE(out, page.columnMin(c));
@@ -451,6 +452,7 @@ public final class ProjectionIndexRowGroupCodec {
     } else {
       throw new IllegalStateException("unknown projection order-exception kind " + orderKind);
     }
+    final OrderLabels orderLabels = decodeOrderLabels(in, rowCount);
     final long[] columnMin = new long[columnCount];
     final long[] columnMax = new long[columnCount];
     final long[][] numericCols = new long[columnCount][];
@@ -503,7 +505,8 @@ public final class ProjectionIndexRowGroupCodec {
     }
     final ProjectionIndexRowGroupPage page =
         ProjectionIndexRowGroupPage.reconstruct(kinds, rowCount, firstRecordKey, lastRecordKey, recordKeys,
-            orderExceptionBits, columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts,
+            orderExceptionBits, orderLabels.bytes(), orderLabels.offsets(), orderLabels.bytes().length,
+            columnMin, columnMax, numericCols, booleanCols, dictIdCols, dicts,
             setCountCols, setElemCols, presence, columnFlags);
     return page.serialize();
   }
@@ -527,6 +530,41 @@ public final class ProjectionIndexRowGroupCodec {
       throw new IllegalStateException("Bad record-key mode " + mode);
     }
     return keys;
+  }
+
+  static void encodeOrderLabels(final ByteArrayOutputStream out, final ProjectionIndexRowGroupPage page) {
+    final int rowCount = page.getRowCount();
+    final byte[] bytes = page.orderLabelBytes();
+    final int[] offsets = page.orderLabelOffsets();
+    final int length = page.orderLabelLength();
+    if (rowCount == 0 && (bytes == null || offsets == null)) {
+      putIntLE(out, 0);
+      putIntLE(out, 0);
+      return;
+    }
+    ProjectionIndexRowGroupPage.validateOrderLabels(rowCount, bytes, offsets, length);
+    putIntLE(out, length);
+    for (int row = 0; row <= rowCount; row++) {
+      putIntLE(out, offsets[row]);
+    }
+    out.write(bytes, 0, length);
+  }
+
+  static OrderLabels decodeOrderLabels(final Cursor in, final int rowCount) {
+    final int length = in.readInt();
+    if (length < 0 || length > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES) {
+      throw new IllegalStateException("invalid projection Dewey order-label byte length " + length);
+    }
+    final int[] offsets = new int[ProjectionIndexRowGroupPage.MAX_ROWS + 1];
+    for (int row = 0; row <= rowCount; row++) {
+      offsets[row] = in.readInt();
+    }
+    final byte[] bytes = in.readBytes(length);
+    ProjectionIndexRowGroupPage.validateOrderLabels(rowCount, bytes, offsets, length);
+    return new OrderLabels(bytes, offsets);
+  }
+
+  record OrderLabels(byte[] bytes, int[] offsets) {
   }
 
   /**

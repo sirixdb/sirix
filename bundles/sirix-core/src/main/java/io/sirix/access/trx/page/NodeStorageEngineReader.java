@@ -47,6 +47,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
+import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.index.name.Names;
@@ -91,6 +92,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.ArrayList;
@@ -2206,6 +2208,114 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
   }
 
+  KeyValueLeafPage readRecordPageFromExactReference(final PageReference pageReference) {
+    assertNotClosed();
+    checkArgument(pageReference.getKey() != Constants.NULL_ID_LONG, "Page reference must have a durable key");
+    ensureFsstSymbolTablesLoaded();
+
+    final PageFragmentsResult result = getOwnedPageFragments(pageReference);
+    try {
+      resolveFsstSymbolTables(result.pages());
+      return (KeyValueLeafPage) resourceConfig.versioningType.combineRecordPages(result.pages(),
+          resourceConfig.maxNumberOfRevisionsToRestore, this);
+    } finally {
+      for (final KeyValuePage<DataRecord> page : result.pages()) {
+        ((KeyValueLeafPage) page).close();
+      }
+    }
+  }
+
+  PageFragmentsResult getOwnedPageFragments(final PageReference pageReference) {
+    assertNotClosed();
+    checkArgument(pageReference.getKey() != Constants.NULL_ID_LONG, "Page reference must have a durable key");
+    final List<KeyValuePage<DataRecord>> pages = new ArrayList<>(1 + pageReference.getPageFragments().size());
+    try {
+      final KeyValueLeafPage latestPage = readOwnedRecordPage(pageReference, true);
+      pages.add(latestPage);
+      if (resourceConfig.versioningType != VersioningType.FULL
+          && latestPage.size() != Constants.NDP_NODE_COUNT) {
+        for (final PageFragmentKey fragment : pageReference.getPageFragments()) {
+          final PageReference fragmentReference = new PageReference().setKey(fragment.key())
+                                                                      .setDatabaseId(databaseId)
+                                                                      .setResourceId(resourceId);
+          pages.add(readOwnedRecordPage(fragmentReference, false));
+        }
+        pages.subList(1, pages.size())
+             .sort(Comparator.comparingInt(KeyValuePage<DataRecord>::getRevision).reversed());
+      }
+      materializeFragments(pages);
+      return new PageFragmentsResult(pages, new ArrayList<>(pageReference.getPageFragments()),
+          pageReference.getKey());
+    } catch (final RuntimeException | Error failure) {
+      for (final KeyValuePage<DataRecord> page : pages) {
+        try {
+          ((KeyValueLeafPage) page).close();
+        } catch (final Throwable closeFailure) {
+          if (closeFailure != failure) {
+            failure.addSuppressed(closeFailure);
+          }
+        }
+      }
+      throw failure;
+    }
+  }
+
+  private KeyValueLeafPage readOwnedRecordPage(final PageReference sourceReference, final boolean copyHash) {
+    final PageReference directReference = new PageReference().setKey(sourceReference.getKey())
+                                                               .setDatabaseId(databaseId)
+                                                               .setResourceId(resourceId);
+    if (copyHash) {
+      directReference.copyHashFrom(sourceReference);
+    }
+    final Page page = pageReader.read(directReference, resourceConfig);
+    if (!(page instanceof KeyValueLeafPage recordPage)) {
+      if (page != null) {
+        page.close();
+      }
+      throw new SirixIOException("Durable key " + sourceReference.getKey() + " does not reference a record page");
+    }
+    return recordPage;
+  }
+
+  @Nullable
+  DataRecord readDetachedRecord(final KeyValueLeafPage page, final long recordKey) {
+    final int offset = StorageEngineReader.recordPageOffset(recordKey);
+    DataRecord record = null;
+    final MemorySegment slottedPage = page.getSlottedPage();
+    if (slottedPage != null && PageLayout.isSlotPopulated(slottedPage, offset)) {
+      page.ensureChunkFor(offset);
+      if (PageLayout.getDirNodeKindId(slottedPage, offset) > 0) {
+        record = getRecordFromSlottedPage(page, recordKey, offset);
+      } else {
+        final MemorySegment slot = page.getSlot(offset);
+        if (slot != null) {
+          record = deserializeDetachedRecord(slot.toArray(ValueLayout.JAVA_BYTE), recordKey, offset, page);
+        }
+      }
+    } else {
+      final PageReference overflowReference = page.getPageReference(recordKey);
+      if (overflowReference != null && overflowReference.getKey() != Constants.NULL_ID_LONG) {
+        final byte[] data = readOverflowPage(overflowReference).getDataBytes();
+        record = deserializeDetachedRecord(data, recordKey, offset, page);
+      }
+    }
+    if (record == null) {
+      record = page.getRecord(offset);
+    }
+    if (record instanceof FlyweightNode flyweightNode && flyweightNode.isBound()) {
+      record = flyweightNode.toSnapshot();
+    }
+    return checkItemIfDeleted(record);
+  }
+
+  private DataRecord deserializeDetachedRecord(final byte[] data, final long recordKey, final int offset,
+      final KeyValueLeafPage page) {
+    final DataRecord record = resourceConfig.recordPersister.deserialize(new ByteArrayBytesIn(data), recordKey,
+        page.getDeweyIdAsByteArray(offset), resourceConfig);
+    propagateFsstSymbolTableToRecord(record, page);
+    return record;
+  }
+
   @Nullable
   private Page getInMemoryPageInstance(IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
     Page page = pageReferenceToRecordPage.getPage();
@@ -2243,13 +2353,14 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public PageReference getLeafPageReference(final long recordPageKey, final int indexNumber,
+  public @Nullable PageReference getLeafPageReference(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);
   }
 
-  PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final long recordPageKey,
+  @Nullable PageReference getLeafPageReference(final PageReference pageReferenceToSubtree,
+      final long recordPageKey,
       final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, revisionRootPage);
   }

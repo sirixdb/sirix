@@ -308,7 +308,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  protected void initializeIndexController(final int revision, IndexController<?, ?> controller) {
+  protected void initializeIndexController(final int revision, AbstractIndexController<?, ?> controller) {
     // Deserialize index definitions.
     // For write transactions, the revision number is the NEW revision being created,
     // but index definitions are stored at the LAST COMMITTED revision (and only for
@@ -353,6 +353,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     try (final InputStream in = new FileInputStream(indexes.toFile())) {
       controller.getIndexes().init(IndexController.deserialize(in).getFirstChild());
+      controller.refreshIndexCapabilities();
     } catch (IOException | DocumentException | SirixException e) {
       throw new SirixIOException("Index definitions couldn't be deserialized!", e);
     }

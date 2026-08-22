@@ -76,6 +76,16 @@ final class ClickBenchSourceTest {
     }
   }
 
+  @Test
+  void legacyLdjsonAdapterSkipsWhitespaceOnlyLines() throws IOException {
+    final Path ldjson = temporaryDirectory.resolve("whitespace-lines.jsonl");
+    Files.writeString(ldjson, "{\"id\":1}\n \t \n\t{\"id\":2}\n", StandardCharsets.UTF_8);
+
+    try (Reader source = ClickBenchSource.open(ldjson.toString())) {
+      assertEquals("[{\"id\":1},{\"id\":2}]", sourceToString(source));
+    }
+  }
+
   private static String sourceToString(final Reader source) throws IOException {
     final StringBuilder value = new StringBuilder();
     final char[] buffer = new char[256];

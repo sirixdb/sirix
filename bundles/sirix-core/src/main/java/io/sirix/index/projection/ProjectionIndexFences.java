@@ -9,6 +9,7 @@ import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 /**
  * Persistent local-order and normal-backbone routing metadata for projection row groups.
@@ -35,9 +36,10 @@ public final class ProjectionIndexFences {
   static final long ORDER_HEADER_SLOT = CHUNK_SLOT_BASE + (1L << 20);
 
   private static final int ORDER_MAGIC = 0x4F464950;
-  private static final byte ORDER_VERSION = 0;
-  private static final int ORDER_HEADER_BYTES = 32;
+  private static final byte ORDER_VERSION = 1;
   private static final int SKIP_LEVELS = 25;
+  private static final int DOCUMENT_SKIP_TAILS_OFFSET = 32;
+  private static final int ORDER_HEADER_BYTES = DOCUMENT_SKIP_TAILS_OFFSET + SKIP_LEVELS * Integer.BYTES;
 
   private static final int FIRST_OFFSET = 0;
   private static final int LAST_OFFSET = 8;
@@ -47,7 +49,8 @@ public final class ProjectionIndexFences {
   private static final int NUMERIC_SKIP_OFFSET = 28;
   private static final int BASE_UPPER_OFFSET = NUMERIC_SKIP_OFFSET + SKIP_LEVELS * Integer.BYTES;
   private static final int FREE_NEXT_OFFSET = BASE_UPPER_OFFSET + Long.BYTES;
-  private static final int ENTRY_BYTES = 144;
+  private static final int DOCUMENT_BACK_SKIP_OFFSET = 144;
+  private static final int ENTRY_BYTES = DOCUMENT_BACK_SKIP_OFFSET + SKIP_LEVELS * Integer.BYTES;
 
   private ProjectionIndexFences() {
   }
@@ -70,38 +73,11 @@ public final class ProjectionIndexFences {
       throw new IllegalArgumentException("fence arrays must carry exactly rowGroupCount " + rowGroupCount
           + " entries, got " + first.length + "/" + last.length);
     }
-    long baseUpper = Long.MIN_VALUE;
-    for (int chunkId = 0; chunkId < chunkCount(rowGroupCount); chunkId++) {
-      final int start = chunkId * CHUNK_LEAVES;
-      final int end = Math.min(start + CHUNK_LEAVES, rowGroupCount);
-      final byte[] bytes = new byte[(end - start) * ENTRY_BYTES];
-      for (int index = start; index < end; index++) {
-        final long normalFirst = first[index];
-        final long normalLast = last[index];
-        final boolean normal = validateNormalRange(normalFirst, normalLast);
-        if (normal) {
-          if (normalFirst <= baseUpper) {
-            throw new IllegalStateException("projection normal backbone is not strictly increasing at leaf "
-                + (index + 1) + ": " + normalFirst + " <= " + baseUpper);
-          }
-          baseUpper = normalLast;
-        }
-        final int offset = (index - start) * ENTRY_BYTES;
-        RowGroupDescriptor.putLongLE(bytes, offset + FIRST_OFFSET, normalFirst);
-        RowGroupDescriptor.putLongLE(bytes, offset + LAST_OFFSET, normalLast);
-        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + DOC_NEXT_OFFSET,
-            index + 1 < rowGroupCount ? index + 2 : 0);
-        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + DOC_PREV_OFFSET, index);
-        ProjectionIndexRowGroupCodec.putIntLEAt(bytes, offset + OWNER_BASE_OFFSET, index + 1);
-        RowGroupDescriptor.putLongLE(bytes, offset + BASE_UPPER_OFFSET, baseUpper);
-      }
-      storage.putBlob(CHUNK_SLOT_BASE + chunkId, bytes);
+    final BuildWriter writer = new BuildWriter();
+    for (int index = 0; index < rowGroupCount; index++) {
+      writer.append(storage, first[index], last[index]);
     }
-    for (int chunkId = chunkCount(rowGroupCount); chunkId < chunkCount(priorRowGroupCount); chunkId++) {
-      storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
-    }
-    storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0,
-        rowGroupCount == 0 ? 0 : 1, rowGroupCount));
+    writer.finish(storage, priorRowGroupCount);
   }
 
   /** Read physical-slot-aligned normal fence arrays, or {@code null} for malformed/missing chunks. */
@@ -152,59 +128,64 @@ public final class ProjectionIndexFences {
     checkRowGroupCount(rowGroupCount);
     final OrderHeader header = readOrderHeader(reader.read(ORDER_HEADER_SLOT), rowGroupCount);
     final int physicalCount = header.physicalRowGroupCount();
-    final int[] docNext = new int[physicalCount + 1];
-    final int[] docPrev = new int[physicalCount + 1];
-    final int[] freeNext = new int[physicalCount + 1];
-    for (int chunkId = 0; chunkId < chunkCount(physicalCount); chunkId++) {
-      final int start = chunkId * CHUNK_LEAVES;
-      final int entries = Math.min(CHUNK_LEAVES, physicalCount - start);
-      final byte[] bytes = reader.read(CHUNK_SLOT_BASE + chunkId);
-      if (bytes == null || bytes.length != entries * ENTRY_BYTES) {
-        throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);
-      }
-      for (int local = 0; local < entries; local++) {
-        final int slot = start + local + 1;
-        final int offset = local * ENTRY_BYTES;
-        docNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_NEXT_OFFSET);
-        docPrev[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + DOC_PREV_OFFSET);
-        freeNext[slot] = ProjectionIndexRowGroupCodec.getIntLE(bytes, offset + FREE_NEXT_OFFSET);
-      }
-    }
-    final boolean[] free = new boolean[physicalCount + 1];
-    int freeCount = 0;
-    int freeSlot = header.freeHead();
-    while (freeSlot != 0) {
-      if (freeSlot <= header.baseRowGroupCount() || freeSlot > physicalCount || free[freeSlot]
-          || freeCount++ >= physicalCount) {
-        throw new IllegalStateException("malformed projection row-group free list at " + freeSlot);
-      }
-      free[freeSlot] = true;
-      freeSlot = freeNext[freeSlot];
-    }
+    final OrderEntryReader entries = new OrderEntryReader(reader, physicalCount);
     final int[] order = new int[rowGroupCount];
-    final boolean[] visited = new boolean[physicalCount + 1];
     int count = 0;
     int previous = 0;
     int slot = header.documentHead();
     while (slot != 0) {
-      if (slot < 1 || slot > physicalCount || free[slot] || visited[slot] || docPrev[slot] != previous
-          || count == rowGroupCount) {
+      if (slot < 1 || slot > physicalCount || count == rowGroupCount
+          || entries.intValue(slot, DOC_PREV_OFFSET) != previous
+          || entries.intValue(slot, OWNER_BASE_OFFSET) < 1
+          || entries.intValue(slot, OWNER_BASE_OFFSET) > header.baseRowGroupCount()) {
         throw new IllegalStateException("malformed projection document order at physical leaf " + slot);
       }
-      visited[slot] = true;
       order[count++] = slot;
       previous = slot;
-      slot = docNext[slot];
+      slot = entries.intValue(slot, DOC_NEXT_OFFSET);
     }
-    if (previous != header.documentTail() || count != rowGroupCount || count + freeCount != physicalCount) {
-      throw new IllegalStateException("projection document order reaches " + count + " live and " + freeCount
-          + " free of " + physicalCount + " physical leaves");
+    if (previous != header.documentTail() || count != rowGroupCount) {
+      throw new IllegalStateException("projection document order reaches " + count + " of "
+          + rowGroupCount + " live physical leaves");
     }
     return order;
   }
 
+  private static final class OrderEntryReader {
+    private final BlobReader reader;
+    private final int physicalCount;
+    private int cachedChunkId = -1;
+    private byte @Nullable [] cachedChunk;
+
+    private OrderEntryReader(final BlobReader reader, final int physicalCount) {
+      this.reader = reader;
+      this.physicalCount = physicalCount;
+    }
+
+    private int intValue(final int slot, final int fieldOffset) {
+      if (slot < 1 || slot > physicalCount) {
+        throw new IllegalStateException("projection physical leaf is out of range: " + slot);
+      }
+      final int chunkId = (slot - 1) / CHUNK_LEAVES;
+      byte[] chunk = cachedChunk;
+      if (chunkId != cachedChunkId) {
+        chunk = reader.read(CHUNK_SLOT_BASE + chunkId);
+        final int start = chunkId * CHUNK_LEAVES;
+        final int expectedBytes = Math.min(CHUNK_LEAVES, physicalCount - start) * ENTRY_BYTES;
+        if (chunk == null || chunk.length != expectedBytes) {
+          throw new IllegalStateException("missing or malformed projection fence chunk " + chunkId);
+        }
+        cachedChunkId = chunkId;
+        cachedChunk = chunk;
+      }
+      return ProjectionIndexRowGroupCodec.getIntLE(chunk,
+          ((slot - 1) % CHUNK_LEAVES) * ENTRY_BYTES + fieldOffset);
+    }
+  }
+
   private static byte[] orderHeader(final int baseRowGroupCount, final int physicalRowGroupCount,
-      final int liveRowGroupCount, final int freeHead, final int documentHead, final int documentTail) {
+      final int liveRowGroupCount, final int freeHead, final int documentHead, final int documentTail,
+      final int[] documentSkipTails) {
     final byte[] bytes = new byte[ORDER_HEADER_BYTES];
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 0, ORDER_MAGIC);
     bytes[Integer.BYTES] = ORDER_VERSION;
@@ -214,6 +195,10 @@ public final class ProjectionIndexFences {
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 20, freeHead);
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 24, documentHead);
     ProjectionIndexRowGroupCodec.putIntLEAt(bytes, 28, documentTail);
+    for (int level = 0; level < SKIP_LEVELS; level++) {
+      ProjectionIndexRowGroupCodec.putIntLEAt(bytes,
+          DOCUMENT_SKIP_TAILS_OFFSET + level * Integer.BYTES, documentSkipTails[level]);
+    }
     return bytes;
   }
 
@@ -229,18 +214,39 @@ public final class ProjectionIndexFences {
     final int freeHead = ProjectionIndexRowGroupCodec.getIntLE(bytes, 20);
     final int documentHead = ProjectionIndexRowGroupCodec.getIntLE(bytes, 24);
     final int documentTail = ProjectionIndexRowGroupCodec.getIntLE(bytes, 28);
-    if ((rowGroupCount == 0 && (baseCount != 0 || physicalCount != 0 || documentHead != 0 || documentTail != 0))
-        || (rowGroupCount > 0 && (baseCount < 1 || baseCount > rowGroupCount || physicalCount < rowGroupCount
+    final int[] documentSkipTails = new int[SKIP_LEVELS];
+    for (int level = 0; level < SKIP_LEVELS; level++) {
+      final int tail = ProjectionIndexRowGroupCodec.getIntLE(bytes,
+          DOCUMENT_SKIP_TAILS_OFFSET + level * Integer.BYTES);
+      if (tail < 0 || tail > physicalCount) {
+        throw new IllegalStateException("projection document skip tail is out of range at level " + level);
+      }
+      documentSkipTails[level] = tail;
+    }
+    if (rowGroupCount == 0) {
+      for (final int tail : documentSkipTails) {
+        if (tail != 0) {
+          throw new IllegalStateException("empty projection document order retains a skip tail");
+        }
+      }
+    }
+    if ((rowGroupCount == 0 && documentSkipTails[0] != 0)
+        || (rowGroupCount > 0 && documentSkipTails[0] != documentTail)) {
+      throw new IllegalStateException("projection level-zero document skip tail is malformed");
+    }
+    if ((rowGroupCount == 0 && (documentHead != 0 || documentTail != 0))
+        || (rowGroupCount > 0 && (baseCount < 1 || baseCount > physicalCount || physicalCount < rowGroupCount
             || documentHead < 1 || documentHead > physicalCount || documentTail < 1
             || documentTail > physicalCount))
+        || baseCount < 0 || baseCount > physicalCount
         || physicalCount > ProjectionIndexHOTStorage.MAX_ROW_GROUPS || freeHead < 0 || freeHead > physicalCount) {
       throw new IllegalStateException("projection row-group order header is out of range");
     }
-    return new OrderHeader(baseCount, physicalCount, freeHead, documentHead, documentTail);
+    return new OrderHeader(baseCount, physicalCount, freeHead, documentHead, documentTail, documentSkipTails);
   }
 
   private record OrderHeader(int baseRowGroupCount, int physicalRowGroupCount, int freeHead,
-                             int documentHead, int documentTail) {
+                             int documentHead, int documentTail, int[] documentSkipTails) {
   }
 
   private static void checkRowGroupCount(final int rowGroupCount) {
@@ -264,6 +270,108 @@ public final class ProjectionIndexFences {
     return first != Long.MAX_VALUE || last != Long.MIN_VALUE;
   }
 
+  static final class BuildWriter {
+    private final byte[] chunk = new byte[CHUNK_LEAVES * ENTRY_BYTES];
+    private int chunkEntries;
+    private int chunksWritten;
+    private int rowGroupCount;
+    private long baseUpper = Long.MIN_VALUE;
+    private final int[] documentSkipTails = new int[SKIP_LEVELS];
+    private boolean finished;
+
+    int rowGroupCount() {
+      return rowGroupCount;
+    }
+
+    int chunksWritten() {
+      return chunksWritten;
+    }
+
+    void append(final ProjectionIndexHOTStorage storage, final long first, final long last) {
+      Objects.requireNonNull(storage, "storage must not be null");
+      if (finished) {
+        throw new IllegalStateException("projection fence build writer is already finished");
+      }
+      if (rowGroupCount == ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
+        throw new IllegalStateException("projection row-group limit reached");
+      }
+      final boolean normal = validateNormalRange(first, last);
+      if (normal && first <= baseUpper) {
+        throw new IllegalStateException("projection normal backbone is not strictly increasing at leaf "
+            + (rowGroupCount + 1) + ": " + first + " <= " + baseUpper);
+      }
+      final int nextSlot = rowGroupCount + 1;
+      if (chunkEntries > 0) {
+        ProjectionIndexRowGroupCodec.putIntLEAt(chunk,
+            (chunkEntries - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, nextSlot);
+      }
+      final int offset = chunkEntries * ENTRY_BYTES;
+      Arrays.fill(chunk, offset, offset + ENTRY_BYTES, (byte) 0);
+      RowGroupDescriptor.putLongLE(chunk, offset + FIRST_OFFSET, first);
+      RowGroupDescriptor.putLongLE(chunk, offset + LAST_OFFSET, last);
+      ProjectionIndexRowGroupCodec.putIntLEAt(chunk, offset + DOC_PREV_OFFSET, rowGroupCount);
+      ProjectionIndexRowGroupCodec.putIntLEAt(chunk, offset + OWNER_BASE_OFFSET, nextSlot);
+      final int height = documentSkipHeight(nextSlot);
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        ProjectionIndexRowGroupCodec.putIntLEAt(chunk,
+            offset + DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, documentSkipTails[level]);
+        if (level < height) {
+          documentSkipTails[level] = nextSlot;
+        }
+      }
+      if (normal) {
+        baseUpper = last;
+      }
+      RowGroupDescriptor.putLongLE(chunk, offset + BASE_UPPER_OFFSET, baseUpper);
+      if (chunkEntries + 1 == CHUNK_LEAVES
+          && nextSlot < ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
+        ProjectionIndexRowGroupCodec.putIntLEAt(chunk, offset + DOC_NEXT_OFFSET, nextSlot + 1);
+      }
+      chunkEntries++;
+      rowGroupCount++;
+      if (chunkEntries == CHUNK_LEAVES) {
+        flushChunk(storage);
+      }
+    }
+
+    void finish(final ProjectionIndexHOTStorage storage, final int priorRowGroupCount) {
+      Objects.requireNonNull(storage, "storage must not be null");
+      checkRowGroupCount(priorRowGroupCount);
+      if (finished) {
+        throw new IllegalStateException("projection fence build writer is already finished");
+      }
+      if (chunkEntries > 0) {
+        flushChunk(storage);
+      } else if (rowGroupCount > 0 && rowGroupCount % CHUNK_LEAVES == 0) {
+        if (chunksWritten == 0) {
+          throw new IllegalStateException("projection fence writer lost its completed chunks");
+        }
+        final long finalChunkSlot = CHUNK_SLOT_BASE + chunksWritten - 1L;
+        final byte[] persistedFinalChunk = storage.getBlob(finalChunkSlot);
+        if (persistedFinalChunk == null || persistedFinalChunk.length != CHUNK_LEAVES * ENTRY_BYTES) {
+          throw new IllegalStateException("projection final fence chunk is unavailable at finish");
+        }
+        final byte[] finalChunk = persistedFinalChunk.clone();
+        ProjectionIndexRowGroupCodec.putIntLEAt(finalChunk,
+            (CHUNK_LEAVES - 1) * ENTRY_BYTES + DOC_NEXT_OFFSET, 0);
+        storage.putBlob(finalChunkSlot, finalChunk);
+      }
+      for (int chunkId = chunkCount(rowGroupCount); chunkId < chunkCount(priorRowGroupCount); chunkId++) {
+        storage.tombstoneRowGroup(CHUNK_SLOT_BASE + chunkId);
+      }
+      storage.putBlob(ORDER_HEADER_SLOT, orderHeader(rowGroupCount, rowGroupCount, rowGroupCount, 0,
+          rowGroupCount == 0 ? 0 : 1, rowGroupCount, documentSkipTails));
+      finished = true;
+    }
+
+    private void flushChunk(final ProjectionIndexHOTStorage storage) {
+      storage.putBlob(CHUNK_SLOT_BASE + chunksWritten,
+          Arrays.copyOf(chunk, chunkEntries * ENTRY_BYTES));
+      chunksWritten++;
+      chunkEntries = 0;
+    }
+  }
+
   @FunctionalInterface
   private interface BlobReader {
     byte @Nullable [] read(long slot);
@@ -271,6 +379,14 @@ public final class ProjectionIndexFences {
 
   public static Accessor open(final ProjectionIndexHOTStorage storage, final int rowGroupCount) {
     return new Accessor(storage, rowGroupCount);
+  }
+
+  record DocumentPosition(int[] predecessors, int[] successors) {
+    DocumentPosition {
+      if (predecessors.length != SKIP_LEVELS || successors.length != SKIP_LEVELS) {
+        throw new IllegalArgumentException("projection document position has the wrong skip height");
+      }
+    }
   }
 
   public static final class Accessor {
@@ -281,19 +397,20 @@ public final class ProjectionIndexFences {
     private final int priorFreeHead;
     private final int priorDocumentHead;
     private final int priorDocumentTail;
+    private final int[] priorDocumentSkipTails;
     private int baseRowGroupCount;
     private int currentPhysicalRowGroupCount;
     private int liveRowGroupCount;
     private int freeHead;
     private int documentHead;
     private int documentTail;
+    private final int[] documentSkipTails;
     private final Int2ObjectOpenHashMap<byte[]> chunks = new Int2ObjectOpenHashMap<>();
     private final IntOpenHashSet changedChunks = new IntOpenHashSet();
     private final IntOpenHashSet reusedSlots = new IntOpenHashSet();
     private final IntOpenHashSet allocatedSlots = new IntOpenHashSet();
     /** Owner-confined skip-search scratch, reused by every local numeric mutation/validation. */
     private final int[] numericPredecessors = new int[SKIP_LEVELS];
-    private @Nullable IntOpenHashSet freeSlots;
     private int chunksRead;
     private int chunksWritten;
     private long bytesRead;
@@ -312,12 +429,14 @@ public final class ProjectionIndexFences {
       priorFreeHead = header.freeHead();
       priorDocumentHead = header.documentHead();
       priorDocumentTail = header.documentTail();
+      priorDocumentSkipTails = header.documentSkipTails().clone();
       currentPhysicalRowGroupCount = priorPhysicalRowGroupCount;
       baseRowGroupCount = priorBaseRowGroupCount;
       liveRowGroupCount = rowGroupCount;
       freeHead = priorFreeHead;
       documentHead = priorDocumentHead;
       documentTail = priorDocumentTail;
+      documentSkipTails = priorDocumentSkipTails.clone();
     }
 
     public long first(final int slot) {
@@ -342,6 +461,36 @@ public final class ProjectionIndexFences {
 
     public int documentHead() {
       return documentHead;
+    }
+
+    DocumentPosition documentPosition(final byte[] orderLabel,
+        final ProjectionPersistedRecordLookup lookup) {
+      Objects.requireNonNull(orderLabel, "orderLabel must not be null");
+      Objects.requireNonNull(lookup, "lookup must not be null");
+      if (orderLabel.length == 0) {
+        throw new IllegalArgumentException("projection Dewey order label must not be empty");
+      }
+      final int[] predecessors = new int[SKIP_LEVELS];
+      final int[] successors = new int[SKIP_LEVELS];
+      int successor = 0;
+      int traversed = 0;
+      for (int level = SKIP_LEVELS - 1; level >= 0; level--) {
+        int cursor = successor == 0 ? documentSkipTails[level] : successor;
+        while (cursor != 0 && compareFirstOrderLabel(cursor, orderLabel, lookup) >= 0) {
+          successor = cursor;
+          cursor = checkedDocumentBack(cursor, level);
+          if (++traversed > currentPhysicalRowGroupCount + SKIP_LEVELS) {
+            throw new IllegalStateException("projection document skip routing did not advance");
+          }
+        }
+        predecessors[level] = cursor;
+        successors[level] = successor;
+      }
+      return new DocumentPosition(predecessors, successors);
+    }
+
+    DocumentPosition documentTailPosition() {
+      return new DocumentPosition(documentSkipTails.clone(), new int[SKIP_LEVELS]);
     }
 
     public int lastPhysicalSlot() {
@@ -442,17 +591,63 @@ public final class ProjectionIndexFences {
       clearEntry(1);
       setInt(1, OWNER_BASE_OFFSET, 1);
       setLong(1, BASE_UPPER_OFFSET, Long.MIN_VALUE);
+      for (int level = 0; level < documentSkipHeight(1); level++) {
+        documentSkipTails[level] = 1;
+      }
       return 1;
+    }
+
+    int bootstrapDocumentBase(final long recordKey) {
+      if (liveRowGroupCount != 0 || documentHead != 0 || documentTail != 0) {
+        throw new IllegalStateException("a projection document base can only be bootstrapped from an empty order");
+      }
+      if (baseRowGroupCount == 0) {
+        return bootstrapFirstBase();
+      }
+      int low = 1;
+      int high = baseRowGroupCount;
+      while (low <= high) {
+        final int middle = (low + high) >>> 1;
+        if (baseUpper(middle) < recordKey) {
+          low = middle + 1;
+        } else {
+          high = middle - 1;
+        }
+      }
+      final int slot = Math.min(low, baseRowGroupCount);
+      if (ownerBase(slot) != 0 || previous(slot) != 0 || next(slot) != 0) {
+        throw new IllegalStateException("projection dormant base " + slot + " is not empty");
+      }
+      setInt(slot, OWNER_BASE_OFFSET, slot);
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        if (documentSkipTails[level] != 0) {
+          throw new IllegalStateException("projection empty document order retains a skip tail at level " + level);
+        }
+        setInt(slot, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, 0);
+        if (level < documentSkipHeight(slot)) {
+          documentSkipTails[level] = slot;
+        }
+      }
+      documentHead = slot;
+      documentTail = slot;
+      liveRowGroupCount = 1;
+      return slot;
     }
 
     public int allocateSlot() {
       final int slot;
       if (freeHead != 0) {
         slot = freeHead;
-        freeHead = freeNext(slot);
-        if (freeSlots != null) {
-          freeSlots.remove(slot);
+        if (slot <= baseRowGroupCount || slot > currentPhysicalRowGroupCount
+            || allocatedSlots.contains(slot) || ownerBase(slot) != 0
+            || previous(slot) != 0 || next(slot) != 0) {
+          throw new IllegalStateException("malformed projection row-group free head " + slot);
         }
+        final int nextFree = freeNext(slot);
+        if (nextFree < 0 || nextFree > currentPhysicalRowGroupCount || nextFree == slot) {
+          throw new IllegalStateException("malformed projection row-group free edge " + slot + " -> " + nextFree);
+        }
+        freeHead = nextFree;
         reusedSlots.add(slot);
       } else {
         if (currentPhysicalRowGroupCount == ProjectionIndexHOTStorage.MAX_ROW_GROUPS) {
@@ -474,10 +669,10 @@ public final class ProjectionIndexFences {
       if (slot < 1 || slot > currentPhysicalRowGroupCount) {
         return false;
       }
-      if (allocatedSlots.contains(slot) || slot <= baseRowGroupCount) {
+      if (allocatedSlots.contains(slot)) {
         return true;
       }
-      return !freeSlots().contains(slot);
+      return ownerBase(slot) != 0;
     }
 
     public boolean canRecycle(final int slot) {
@@ -485,6 +680,10 @@ public final class ProjectionIndexFences {
     }
 
     public void recycle(final int slot) {
+      recycle(slot, legacyPositionAfter(slot));
+    }
+
+    void recycle(final int slot, final DocumentPosition positionAfterSlot) {
       if (!canRecycle(slot) || !isLivePhysicalSlot(slot)) {
         throw new IllegalArgumentException("projection row group is not a live recyclable split leaf: " + slot);
       }
@@ -492,6 +691,7 @@ public final class ProjectionIndexFences {
       if (hasNormal(slot)) {
         unlinkNumeric(slot);
       }
+      unlinkDocumentSkip(slot, positionAfterSlot);
       final int prev = previous(slot);
       final int next = next(slot);
       if (prev == 0) {
@@ -507,11 +707,37 @@ public final class ProjectionIndexFences {
       clearEntry(slot);
       setInt(slot, FREE_NEXT_OFFSET, freeHead);
       freeHead = slot;
-      if (freeSlots != null) {
-        freeSlots.add(slot);
-      }
       reusedSlots.remove(slot);
       allocatedSlots.remove(slot);
+      liveRowGroupCount--;
+    }
+
+    void retireEmptyBase(final int slot, final DocumentPosition positionAfterSlot) {
+      if (slot < 1 || slot > baseRowGroupCount || !isLivePhysicalSlot(slot)) {
+        throw new IllegalArgumentException("projection row group is not a live base leaf: " + slot);
+      }
+      validateDocumentLinks(slot);
+      unlinkDocumentSkip(slot, positionAfterSlot);
+      final int predecessor = previous(slot);
+      final int successor = next(slot);
+      if (predecessor == 0) {
+        documentHead = successor;
+      } else {
+        setInt(predecessor, DOC_NEXT_OFFSET, successor);
+      }
+      if (successor == 0) {
+        documentTail = predecessor;
+      } else {
+        setInt(successor, DOC_PREV_OFFSET, predecessor);
+      }
+      setLong(slot, FIRST_OFFSET, Long.MAX_VALUE);
+      setLong(slot, LAST_OFFSET, Long.MIN_VALUE);
+      setInt(slot, OWNER_BASE_OFFSET, 0);
+      setInt(slot, DOC_PREV_OFFSET, 0);
+      setInt(slot, DOC_NEXT_OFFSET, 0);
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        setInt(slot, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, 0);
+      }
       liveRowGroupCount--;
     }
 
@@ -548,6 +774,10 @@ public final class ProjectionIndexFences {
 
     /** Splice a freshly allocated local split after {@code slot} in explicit document order. */
     public void linkAfter(final int slot, final int newSlot) {
+      linkAfter(slot, newSlot, legacyPositionAfter(slot));
+    }
+
+    void linkAfter(final int slot, final int newSlot, final DocumentPosition position) {
       if (!isLivePhysicalSlot(slot) || !allocatedSlots.contains(newSlot) || ownerBase(newSlot) != 0) {
         throw new IllegalArgumentException("invalid projection row-group link " + slot + " -> " + newSlot);
       }
@@ -560,6 +790,7 @@ public final class ProjectionIndexFences {
         throw new IllegalStateException("projection row group has no valid base owner: " + slot);
       }
       final int successor = next(slot);
+      linkDocumentSkip(slot, newSlot, position);
       setInt(newSlot, OWNER_BASE_OFFSET, owner);
       setInt(newSlot, DOC_PREV_OFFSET, slot);
       setInt(newSlot, DOC_NEXT_OFFSET, successor);
@@ -684,9 +915,10 @@ public final class ProjectionIndexFences {
       if (baseRowGroupCount != priorBaseRowGroupCount
           || currentPhysicalRowGroupCount != priorPhysicalRowGroupCount
           || liveRowGroupCount != priorLiveRowGroupCount || freeHead != priorFreeHead
-          || documentHead != priorDocumentHead || documentTail != priorDocumentTail) {
+          || documentHead != priorDocumentHead || documentTail != priorDocumentTail
+          || !Arrays.equals(documentSkipTails, priorDocumentSkipTails)) {
         storage.putBlob(ORDER_HEADER_SLOT, orderHeader(baseRowGroupCount, currentPhysicalRowGroupCount,
-            liveRowGroupCount, freeHead, documentHead, documentTail));
+            liveRowGroupCount, freeHead, documentHead, documentTail, documentSkipTails));
       }
     }
 
@@ -723,6 +955,101 @@ public final class ProjectionIndexFences {
         throw new IllegalArgumentException("projection numeric skip level out of range: " + level);
       }
       return intValue(slot, NUMERIC_SKIP_OFFSET + level * Integer.BYTES);
+    }
+
+    private int compareFirstOrderLabel(final int slot, final byte[] orderLabel,
+        final ProjectionPersistedRecordLookup lookup) {
+      validateLiveOwner(slot);
+      final ProjectionIndexColumnSegmentCodec.KeysView keys = lookup.keys(slot).view();
+      if (keys.recordKeys().length == 0) {
+        throw new IllegalStateException("projection document skip points to empty leaf " + slot);
+      }
+      return keys.compareOrderLabelAt(0, orderLabel);
+    }
+
+    private int documentBack(final int slot, final int level) {
+      if (level < 0 || level >= SKIP_LEVELS) {
+        throw new IllegalArgumentException("projection document skip level out of range: " + level);
+      }
+      return intValue(slot, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES);
+    }
+
+    private int checkedDocumentBack(final int slot, final int level) {
+      final int candidate = documentBack(slot, level);
+      if (candidate == 0) {
+        return 0;
+      }
+      if (candidate == slot || !isLivePhysicalSlot(candidate)) {
+        throw new IllegalStateException("malformed projection document skip edge " + slot + " -> "
+            + candidate + " at level " + level);
+      }
+      validateLiveOwner(candidate);
+      return candidate;
+    }
+
+    private void linkDocumentSkip(final int predecessorSlot, final int newSlot,
+        final DocumentPosition position) {
+      if (position.predecessors()[0] != predecessorSlot) {
+        throw new IllegalStateException("projection document skip position does not follow leaf "
+            + predecessorSlot);
+      }
+      final int height = documentSkipHeight(newSlot);
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        final int predecessor = position.predecessors()[level];
+        setInt(newSlot, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, predecessor);
+        if (level >= height) {
+          continue;
+        }
+        final int successor = position.successors()[level];
+        if (successor == 0) {
+          if (documentSkipTails[level] != predecessor) {
+            throw new IllegalStateException("projection document skip tail drift at level " + level);
+          }
+          documentSkipTails[level] = newSlot;
+        } else {
+          if (checkedDocumentBack(successor, level) != predecessor) {
+            throw new IllegalStateException("projection document skip splice is not adjacent at level " + level);
+          }
+          setInt(successor, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, newSlot);
+        }
+      }
+    }
+
+    private void unlinkDocumentSkip(final int slot, final DocumentPosition positionAfterSlot) {
+      final int height = documentSkipHeight(slot);
+      for (int level = 0; level < height; level++) {
+        if (positionAfterSlot.predecessors()[level] != slot) {
+          throw new IllegalStateException("projection document skip removal is not adjacent at level " + level);
+        }
+        final int predecessor = checkedDocumentBack(slot, level);
+        final int successor = positionAfterSlot.successors()[level];
+        if (successor == 0) {
+          if (documentSkipTails[level] != slot) {
+            throw new IllegalStateException("projection document skip tail does not name removed leaf " + slot);
+          }
+          documentSkipTails[level] = predecessor;
+        } else {
+          if (checkedDocumentBack(successor, level) != slot) {
+            throw new IllegalStateException("projection document skip successor does not name removed leaf " + slot);
+          }
+          setInt(successor, DOCUMENT_BACK_SKIP_OFFSET + level * Integer.BYTES, predecessor);
+        }
+      }
+    }
+
+    private DocumentPosition legacyPositionAfter(final int slot) {
+      final int[] predecessors = new int[SKIP_LEVELS];
+      final int[] successors = new int[SKIP_LEVELS];
+      final int height = documentSkipHeight(slot);
+      for (int level = 0; level < SKIP_LEVELS; level++) {
+        predecessors[level] = level < height ? slot : documentBack(slot, level);
+        int candidate = next(slot);
+        while (candidate != 0 && documentSkipHeight(candidate) <= level) {
+          candidate = next(candidate);
+        }
+        successors[level] = candidate;
+      }
+      return new DocumentPosition(predecessors, successors);
     }
 
     private void insertNumeric(final int slot) {
@@ -822,24 +1149,6 @@ public final class ProjectionIndexFences {
       }
     }
 
-    private IntOpenHashSet freeSlots() {
-      IntOpenHashSet slots = freeSlots;
-      if (slots != null) {
-        return slots;
-      }
-      slots = new IntOpenHashSet();
-      int slot = freeHead;
-      while (slot != 0) {
-        if (slot <= baseRowGroupCount || slot > currentPhysicalRowGroupCount || !slots.add(slot)
-            || slots.size() > currentPhysicalRowGroupCount) {
-          throw new IllegalStateException("malformed projection row-group free list at physical leaf " + slot);
-        }
-        slot = freeNext(slot);
-      }
-      freeSlots = slots;
-      return slots;
-    }
-
     private void clearEntry(final int slot) {
       final byte[] chunk = chunk(slot, true);
       final int offset = entryOffset(slot);
@@ -924,5 +1233,14 @@ public final class ProjectionIndexFences {
       return Math.min(SKIP_LEVELS,
           Long.numberOfTrailingZeros(mixed | (1L << (SKIP_LEVELS - 1))) + 1);
     }
+  }
+
+  private static int documentSkipHeight(final int physicalSlot) {
+    long mixed = physicalSlot * 0x9E3779B97F4A7C15L;
+    mixed ^= mixed >>> 33;
+    mixed *= 0xC2B2AE3D27D4EB4FL;
+    mixed ^= mixed >>> 29;
+    return Math.min(SKIP_LEVELS,
+        Long.numberOfTrailingZeros(mixed | (1L << (SKIP_LEVELS - 1))) + 1);
   }
 }

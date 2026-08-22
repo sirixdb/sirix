@@ -263,6 +263,9 @@ public final class ClickBenchSource {
           atLineStart = true;
           continue;
         }
+        if (atLineStart && (c == ' ' || c == '\t')) {
+          continue;
+        }
         if (atLineStart) {
           atLineStart = false;
           final boolean comma = needComma;

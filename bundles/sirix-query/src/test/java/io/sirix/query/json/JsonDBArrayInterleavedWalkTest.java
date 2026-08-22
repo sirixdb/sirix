@@ -279,6 +279,82 @@ final class JsonDBArrayInterleavedWalkTest {
   }
 
   @Test
+  @DisplayName("an anchor is re-derived when a sibling is inserted before it")
+  void anAnchorIsRefusedOnceItsOrdinalChanges() {
+    store.create(COLL, RES, "[0,1,2]");
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    final JsonDBArray array = new JsonDBArray(wtx, coll);
+    final long arrayKey = array.getNodeKey();
+
+    assertEquals(0, elementAt(array, 0));
+    assertEquals(3, array.values().size());
+
+    wtx.moveTo(arrayKey);
+    wtx.insertNumberValueAsFirstChild(99);
+
+    assertEquals(99, elementAt(array, 0));
+    assertEquals(4, array.len());
+    assertEquals(0, elementAt(array, 1));
+    assertEquals(2, elementAt(array, 3));
+
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
+  @DisplayName("materialized values are discarded when the transaction rolls back")
+  void rollbackInvalidatesMaterializedValues() {
+    store.create(COLL, RES, "[0,1,2]");
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    final JsonDBArray array = new JsonDBArray(wtx, coll);
+    final long arrayKey = array.getNodeKey();
+
+    wtx.moveTo(arrayKey);
+    wtx.insertNumberValueAsFirstChild(99);
+    assertEquals(4, array.values().size());
+    assertEquals(99, elementAt(array, 0));
+
+    wtx.rollback();
+
+    assertEquals(3, array.values().size());
+    assertEquals(0, elementAt(array, 0));
+    assertEquals(2, elementAt(array, 2));
+    wtx.close();
+  }
+
+  @Test
+  @DisplayName("materialized values are discarded when the transaction reverts")
+  void revertInvalidatesMaterializedValues() {
+    store.create(COLL, RES, "[0,1,2]");
+    final JsonDBCollection coll = store.lookup(COLL);
+    final JsonResourceSession session = ((JsonDBArray) coll.getDocument(RES)).getResourceSession();
+    final JsonNodeTrx wtx = session.beginNodeTrx();
+    wtx.moveToDocumentRoot();
+    final JsonDBArray array = new JsonDBArray(wtx, coll);
+    final long arrayKey = array.getNodeKey();
+
+    wtx.moveTo(arrayKey);
+    wtx.insertNumberValueAsFirstChild(99);
+    wtx.commit();
+    assertEquals(4, array.values().size());
+    assertEquals(99, elementAt(array, 0));
+
+    wtx.revertTo(1);
+
+    assertEquals(3, array.values().size());
+    assertEquals(0, elementAt(array, 0));
+    assertEquals(2, elementAt(array, 2));
+    wtx.rollback();
+    wtx.close();
+  }
+
+  @Test
   @DisplayName("an explicit values() still materializes, and at() then answers from that list")
   void anExplicitValuesCallStillMemoizes() throws Exception {
     final JsonDBArray array = loadArray(numbers(ELEMENTS));

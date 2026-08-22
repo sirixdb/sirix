@@ -93,8 +93,11 @@ public final class ProjectionIndexRowGroupCodecTest {
     final byte[] raw = page.serialize();
     final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
     assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
-    assertTrue(compact.length * 5 < raw.length,
-        "expected >5x compaction on bench-shaped data, got " + raw.length + " -> " + compact.length);
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
+        + page.orderLabelLength();
+    assertTrue((compact.length - orderLabelLaneBytes) * 5 < raw.length - orderLabelLaneBytes,
+        "expected >5x compaction on bench-shaped column data excluding exact Dewey labels, got "
+            + (raw.length - orderLabelLaneBytes) + " -> " + (compact.length - orderLabelLaneBytes));
   }
 
   @Test
@@ -183,10 +186,11 @@ public final class ProjectionIndexRowGroupCodecTest {
     final byte[] raw = page.serialize();
     final byte[] compact = ProjectionIndexRowGroupCodec.encode(raw);
     assertArrayEquals(raw, ProjectionIndexRowGroupCodec.decode(compact));
-    // Constant columns (age=5, single dict value, amount=0) all collapse:
-    // the compact form must be a small fraction of raw.
-    assertTrue(compact.length * 10 < raw.length,
-        "constant columns should collapse, got " + raw.length + " -> " + compact.length);
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
+        + page.orderLabelLength();
+    assertTrue((compact.length - orderLabelLaneBytes) * 10 < raw.length - orderLabelLaneBytes,
+        "constant columns should collapse excluding exact Dewey labels, got "
+            + (raw.length - orderLabelLaneBytes) + " -> " + (compact.length - orderLabelLaneBytes));
   }
 
   @Test

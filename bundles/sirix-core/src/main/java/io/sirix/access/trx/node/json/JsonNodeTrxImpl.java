@@ -2756,6 +2756,7 @@ final class JsonNodeTrxImpl extends
 
           // Compute and assign new DeweyIDs.
           if (storeDeweyIDs()) {
+            nodeReadOnlyTrx.moveTo(movedNodeKey);
             deweyIDManager.computeNewDeweyIDs();
           }
 
@@ -2870,6 +2871,7 @@ final class JsonNodeTrxImpl extends
 
           // Recompute DeweyIDs if they are used.
           if (storeDeweyIDs()) {
+            nodeReadOnlyTrx.moveTo(movedNodeKey);
             deweyIDManager.computeNewDeweyIDs();
           }
 

@@ -41,7 +41,7 @@ final class ProjectionBulkLoadFailureTest {
   void setUp() {
     JsonTestHelper.deleteEverything();
     ProjectionBulkLoad.clearActive();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       new JsonShredder.Builder(wtx,
@@ -58,7 +58,7 @@ final class ProjectionBulkLoadFailureTest {
 
   @Test
   void failedDuplicateArmDoesNotAbortThePreexistingOwner() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // The fixture has /[] records, so use a genuinely empty root that satisfies the load-time
@@ -86,6 +86,35 @@ final class ProjectionBulkLoadFailureTest {
   }
 
   @Test
+  void arrayChildCountRejectsCompletelyMissedRecordAttribution() {
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
+          List.of(parse("/[]/value", PathParser.Type.JSON)), List.of(Type.LON), INDEX_NUMBER,
+          IndexDef.DbType.JSON);
+      final String resourceKey = session.getResourceConfig().getResource().toString();
+      final ProjectionBulkLoad load = ProjectionBulkLoad.begin(indexDef, resourceKey, wtx,
+          wtx.getPathSummary(), wtx.getStorageEngineWriter(), 2L);
+      assertTrue(wtx.moveToDocumentRoot());
+      assertTrue(wtx.moveToFirstChild());
+      load.noteArrayRootInstance(wtx.getNodeKey(), wtx);
+      load.drain(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx);
+
+      wtx.insertObjectAsFirstChild();
+      load.drain(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx);
+
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> load.finish(wtx.getStorageEngineWriter(), wtx.getPathSummary(), wtx,
+              wtx.getRevisionNumber()));
+      assertTrue(failure.getMessage().contains("emitted 0 rows for 3 records"));
+      assertTrue(load.isFinished());
+      assertNull(ProjectionBulkLoad.active(resourceKey, INDEX_NUMBER, wtx));
+      wtx.rollback();
+    }
+  }
+
+  @Test
   void neverDictionaryModeBypassesTheLeadingSample() throws ReflectiveOperationException {
     assertSampleBypassed("never", "/[]/text", Type.STR,
         "NEVER mode must stream row groups instead of retaining a useless decision sample");
@@ -102,7 +131,7 @@ final class ProjectionBulkLoadFailureTest {
     final String priorMode = System.getProperty("sirix.projection.globalDict");
     System.setProperty("sirix.projection.globalDict", mode);
     try {
-      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
            final var wtx = session.beginNodeTrx()) {
         final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
@@ -133,7 +162,7 @@ final class ProjectionBulkLoadFailureTest {
 
   @Test
   void intermediateStorageFaultPoisonsLoadAndLeavesPartialLeafBehindStaleTombstone() throws Exception {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),
@@ -190,7 +219,7 @@ final class ProjectionBulkLoadFailureTest {
 
   @Test
   void finalCommitPublicationFaultMakesTheOwningTransactionRollbackOnly() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH2.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = IndexDefs.createProjectionIdxDef(parse("/[]", PathParser.Type.JSON),

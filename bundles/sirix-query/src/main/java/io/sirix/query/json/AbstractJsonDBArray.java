@@ -162,10 +162,14 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
    * this array, and the sibling chain reachable from an anchor is by construction this array's
    * elements. Under a writer it can: an edit made through a DIFFERENT item bound to the same array,
    * or straight through the transaction, is invisible here — the same reason {@link #childCount} is
-   * left unknown for a writer. So a writer verifies the anchor's parent before trusting it, and a
-   * reader — which is every scan — pays nothing for a check that cannot fail.
+   * left unknown for a writer. A writer therefore discards every cached position and materialized
+   * value list whenever its transaction's monotonic mutation sequence changes, then verifies an
+   * anchor's parent before trusting it. A reader — which is every scan — pays neither check.
    */
   private final boolean cursorMayMutate;
+
+  /** Writer mutation sequence against which all cached positional state is valid. */
+  private long observedMutationSequence;
 
   private enum Op {
     Replace,
@@ -229,6 +233,9 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // See the field javadoc: only a read-only cursor sees a fixed revision, so only there can the
     // count be trusted for the lifetime of this item.
     cursorMayMutate = rtx instanceof JsonNodeTrx;
+    observedMutationSequence = cursorMayMutate
+        ? ((JsonNodeTrx) rtx).getMutationSequence()
+        : 0L;
     childCount = cursorMayMutate
         ? CHILD_COUNT_UNKNOWN
         : rtx.getChildCount();
@@ -540,6 +547,20 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     // A mutation ends the walk the read-ahead was serving; whatever it has in flight is for a
     // shape that no longer exists.
     closePrefetcher();
+    if (cursorMayMutate) {
+      observedMutationSequence = ((JsonNodeTrx) rtx).getMutationSequence();
+    }
+  }
+
+  private void refreshMutableState() {
+    if (!cursorMayMutate) {
+      return;
+    }
+    final long currentSequence = ((JsonNodeTrx) rtx).getMutationSequence();
+    if (currentSequence != observedMutationSequence) {
+      values = null;
+      invalidateScanState();
+    }
   }
 
   protected final void moveRtx() {
@@ -626,6 +647,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public List<Sequence> values() {
+    refreshMutableState();
     moveRtx();
 
     if (values == null) {
@@ -657,6 +679,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public Sequence at(final int index) {
+    refreshMutableState();
     if (index < 0) {
       return null;
     }
@@ -983,6 +1006,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public IntNumeric length() {
+    refreshMutableState();
     final var materialized = values;
     if (materialized != null) {
       return new Int64(materialized.size());
@@ -996,6 +1020,7 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   @Override
   public int len() {
+    refreshMutableState();
     // Answer from the materialized element list when there is one, WITHOUT moving the cursor.
     //
     // brackit's array unbox drives the loop with len() once per element, and moveRtx() re-anchors

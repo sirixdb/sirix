@@ -103,8 +103,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
         previousNodeKey = node.getNodeKey();
       }
 
-      nodeTrx.moveTo(nodeKey);
     }
+    nodeTrx.moveTo(nodeKey);
   }
 
   public void adaptNonStructuralNodes(DataRecord root) {

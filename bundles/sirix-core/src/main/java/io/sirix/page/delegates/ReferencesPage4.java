@@ -30,6 +30,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.utils.ToStringHelper;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -128,6 +129,15 @@ public final class ReferencesPage4 implements Page {
       return newReference;
     }
 
+    return null;
+  }
+
+  public @Nullable PageReference referenceAtOffset(final int offset) {
+    for (int index = 0, count = offsets.size(); index < count; index++) {
+      if (offsets.getShort(index) == offset) {
+        return references.get(index);
+      }
+    }
     return null;
   }
 

@@ -12,6 +12,7 @@ import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
+import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.Axis;
 import io.sirix.api.Database;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -38,6 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class ProjectionIndexXmlIntegrationTest {
@@ -56,7 +59,7 @@ final class ProjectionIndexXmlIntegrationTest {
 
   @Test
   void buildsRowsFromNestedElementsAndAttributes() {
-    final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    final var database = XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
          final var wtx = session.beginNodeTrx()) {
       final String document = "<records><record id=\"1\"><name>A</name><score>7</score></record>"
@@ -107,6 +110,56 @@ final class ProjectionIndexXmlIntegrationTest {
   }
 
   @Test
+  void projectionCreationRejectsDeweyDisabledXmlResourceWithoutResidue() {
+    final String disabled = "projection-xml-dewey-disabled";
+    final Database<XmlResourceSession> database =
+        XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
+    assertTrue(database.createResource(ResourceConfiguration.newBuilder(disabled)
+        .useDeweyIDs(false)
+        .build()));
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        Path.parse("/records/record", PathParser.Type.XML),
+        List.of(Path.parse("/records/record/score", PathParser.Type.XML)),
+        List.of(Type.INT), 0, IndexDef.DbType.XML);
+
+    try (final var session = database.beginResourceSession(disabled);
+         final var wtx = session.beginNodeTrx()) {
+      final XmlIndexController controller =
+          (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> controller.createProjectionIndexAtLoadStart(definition, wtx, -1L));
+      assertTrue(failure.getMessage().contains("Dewey IDs"));
+      assertNull(ProjectionBulkLoad.active(
+          session.getResourceConfig().getResource().toString(), definition.getID()));
+      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
+      assertFalse(controller.hasProjectionIndex());
+      new XmlShredder.Builder(wtx,
+          XmlShredder.createStringReader("<records><record><score>1</score></record></records>"),
+          InsertPosition.AS_FIRST_CHILD).build().call();
+      wtx.commit();
+    }
+
+    try (final var session = database.beginResourceSession(disabled);
+         final var wtx = session.beginNodeTrx()) {
+      final XmlIndexController controller =
+          (XmlIndexController) session.getWtxIndexController(wtx.getRevisionNumber());
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> controller.createIndexes(Set.of(definition), wtx));
+      assertTrue(failure.getMessage().contains("Dewey IDs"));
+      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
+      assertFalse(controller.hasProjectionIndex());
+      wtx.commit();
+    }
+
+    try (final var session = database.beginResourceSession(disabled);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
+      assertNull(controller.getIndexes().getIndexDef(definition.getID(), definition.getType()));
+      assertFalse(controller.hasProjectionIndex());
+    }
+  }
+
+  @Test
   void xmlNumericSourceTypesNeverClaimFalsePureDoubleEvidence() {
     final IndexDef definition = IndexDefs.createProjectionIdxDef(
         Path.parse("/records/record", PathParser.Type.XML),
@@ -128,7 +181,7 @@ final class ProjectionIndexXmlIntegrationTest {
   @Test
   void indexCreationPreservesPreexistingNonMonotoneDocumentOrder() {
     final Database<XmlResourceSession> database =
-        XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+        XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
          final var wtx = session.beginNodeTrx()) {
       new XmlShredder.Builder(wtx,
@@ -170,7 +223,7 @@ final class ProjectionIndexXmlIntegrationTest {
   @Test
   void recordRootMovesAndArbitraryInsertionsPreserveDocumentOrder() {
     final Database<XmlResourceSession> database =
-        XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+        XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     final String document = "<root><records><record><score>1</score><left/><right/></record>"
         + "<record><score>2</score></record></records>"
         + "<archive><record><score>9</score></record></archive></root>";
@@ -291,6 +344,94 @@ final class ProjectionIndexXmlIntegrationTest {
     ProjectionIndexCatalog.clearCache();
     Databases.clearGlobalCaches();
     assertPersistedOrder(database, definition, 0L, 2L, 5L, 9L, 10L);
+  }
+
+  @Test
+  void adjacentLeafDeleteUpdateInsertAndMoveRemainOrderedAfterColdReopen() {
+    final int recordCount = ProjectionIndexRowGroupPage.MAX_ROWS * 2 + 1;
+    final StringBuilder document = new StringBuilder(recordCount * 48);
+    document.append("<records>");
+    for (int value = 0; value < recordCount; value++) {
+      document.append("<record><score>").append(value).append("</score></record>");
+    }
+    document.append("</records>");
+
+    final Database<XmlResourceSession> database =
+        XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document.toString()),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        Path.parse("/records/record", PathParser.Type.XML),
+        List.of(Path.parse("/records/record/score", PathParser.Type.XML)),
+        List.of(Type.INT), 0, IndexDef.DbType.XML);
+    try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      session.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
+      wtx.commit();
+    }
+
+    final long recordsKey;
+    final long firstSecondLeafRecordKey;
+    final long secondSecondLeafRecordKey;
+    final long secondSecondLeafScoreTextKey;
+    final long finalFirstLeafRecordKey;
+    final long tailRecordKey;
+    try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      recordsKey = elementKey(rtx, "records", 0);
+      finalFirstLeafRecordKey = elementKey(rtx, "record", ProjectionIndexRowGroupPage.MAX_ROWS - 1);
+      firstSecondLeafRecordKey = elementKey(rtx, "record", ProjectionIndexRowGroupPage.MAX_ROWS);
+      secondSecondLeafRecordKey = elementKey(rtx, "record", ProjectionIndexRowGroupPage.MAX_ROWS + 1);
+      tailRecordKey = elementKey(rtx, "record", recordCount - 1);
+      assertTrue(rtx.moveTo(secondSecondLeafRecordKey));
+      assertTrue(rtx.moveToFirstChild());
+      assertTrue(rtx.moveToFirstChild());
+      secondSecondLeafScoreTextKey = rtx.getNodeKey();
+    }
+
+    ProjectionIndexChangeListener.resetMaintenanceTelemetry();
+    try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
+         final var wtx = session.beginNodeTrx()) {
+      assertTrue(wtx.moveTo(firstSecondLeafRecordKey));
+      wtx.remove();
+      assertTrue(wtx.moveTo(secondSecondLeafScoreTextKey));
+      wtx.setValue("9000");
+      assertTrue(wtx.moveTo(finalFirstLeafRecordKey));
+      wtx.insertElementAsRightSibling(new QNm("record"))
+          .insertElementAsFirstChild(new QNm("score"))
+          .insertTextAsFirstChild("7777");
+      assertTrue(wtx.moveTo(recordsKey));
+      wtx.moveSubtreeToFirstChild(tailRecordKey);
+      wtx.commit();
+    }
+
+    final long[] expected = new long[recordCount];
+    int offset = 0;
+    expected[offset++] = recordCount - 1L;
+    for (int value = 0; value < ProjectionIndexRowGroupPage.MAX_ROWS; value++) {
+      expected[offset++] = value;
+    }
+    expected[offset++] = 7777L;
+    expected[offset++] = 9000L;
+    for (int value = ProjectionIndexRowGroupPage.MAX_ROWS + 2; value < recordCount - 1; value++) {
+      expected[offset++] = value;
+    }
+    assertEquals(expected.length, offset);
+    assertPersistedOrder(database, definition, expected);
+    assertEquals(0L, ProjectionIndexChangeListener.maintenanceTelemetry().fullRebuilds());
+
+    database.close();
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final Database<XmlResourceSession> reopened =
+             Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile())) {
+      assertPersistedOrder(reopened, definition, expected);
+    }
   }
 
   @ParameterizedTest(name = "{0} preserves sibling projection maintenance across history")
@@ -465,6 +606,7 @@ final class ProjectionIndexXmlIntegrationTest {
           .hashKind(HashType.NONE)
           .buildPathSummary(true)
           .buildPathStatistics(false)
+          .useDeweyIDs(true)
           .versioningApproach(versioningType)
           .maxNumberOfRevisionsToRestore(3)
           .build()));
@@ -692,7 +834,7 @@ final class ProjectionIndexXmlIntegrationTest {
   }
 
   private ProjectionIndexRowGroupPage buildSingleLeaf(final String document, final IndexDef definition) {
-    final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    final var database = XmlTestHelper.getDatabaseWithDeweyIDsEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(XmlTestHelper.RESOURCE);
          final var wtx = session.beginNodeTrx()) {
       new XmlShredder.Builder(wtx, XmlShredder.createStringReader(document), InsertPosition.AS_FIRST_CHILD)

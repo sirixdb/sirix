@@ -9,6 +9,7 @@ import io.brackit.query.jdm.Expr;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.ExprUtil;
+import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 /**
@@ -18,7 +19,7 @@ import io.sirix.query.scan.SirixVectorizedExecutor;
  */
 public final class SirixRowMaterializeExpr implements Expr {
 
-  private final SirixVectorizedExecutor executor;
+  private final SirixExecutorProvider executorProvider;
   private final String[] sourcePath;
   private final PredicateNode predicateOrNull;
   private final String[] fields;
@@ -27,15 +28,14 @@ public final class SirixRowMaterializeExpr implements Expr {
   private final int[] direct;
   private final int[][] codes;
   private final long[][] consts;
-  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
-  private final SourceRef runtimeSourceRef;
+  private final SourceRef sourceRef;
   private final Expr genericFallback;
 
-  public SirixRowMaterializeExpr(final SirixVectorizedExecutor executor,
+  public SirixRowMaterializeExpr(final SirixExecutorProvider executorProvider,
       final String[] sourcePath, final PredicateNode predicateOrNull, final String[] fields,
       final String[] outNames, final int[] direct, final int[][] codes, final long[][] consts,
-      final SourceRef runtimeSourceRef, final Expr genericFallback) {
-    this.executor = executor;
+      final SourceRef sourceRef, final Expr genericFallback) {
+    this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
     this.fields = fields;
@@ -43,27 +43,24 @@ public final class SirixRowMaterializeExpr implements Expr {
     this.direct = direct;
     this.codes = codes;
     this.consts = consts;
-    this.runtimeSourceRef = runtimeSourceRef;
+    this.sourceRef = sourceRef;
     this.genericFallback = genericFallback;
   }
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    executor.enterExecution();
-    try {
-      // Runtime source gate — see SirixGroupAggregateExpr#evaluate. The generic fallback runs only
-      // after releasing this executor admission.
-      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
-          && executor.canExecute(ctx)) {
-        final Sequence served =
-            executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames, direct,
-                codes, consts);
-        if (served != null) {
-          return served;
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
+    if (lease != null) {
+      try (lease) {
+        final SirixVectorizedExecutor executor = lease.executor();
+        if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
+          final Sequence served = executor.executeRowMaterialize(sourcePath, predicateOrNull, fields, outNames,
+              direct, codes, consts);
+          if (served != null) {
+            return served;
+          }
         }
       }
-    } finally {
-      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

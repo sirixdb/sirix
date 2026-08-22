@@ -9,10 +9,17 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.Databases;
 import io.sirix.access.trx.node.json.FusedStringCursor;
 import io.sirix.access.trx.node.json.ForwardingJsonNodeReadOnlyTrx;
+import io.sirix.access.trx.node.json.JsonIndexController;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.api.Axis;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.axis.DescendantAxis;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
+import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
@@ -68,7 +75,7 @@ final class ProjectionIndexNestedPathTest {
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(JSON),
@@ -83,7 +90,7 @@ final class ProjectionIndexNestedPathTest {
 
   private static List<byte[]> buildLeaves(final String rootPath, final String agePath,
       final String namePath, final String cityPath) {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx();
          final var pathSummary = manager.openPathSummary()) {
@@ -119,7 +126,7 @@ final class ProjectionIndexNestedPathTest {
     // rejected loudly — the builder cannot emit correct rows for it (the
     // inner record's fields would overwrite the outer row's columns).
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
@@ -161,7 +168,7 @@ final class ProjectionIndexNestedPathTest {
   @Test
   void repeatedJsonDescendantScalarIsUnrepresentableInsteadOfLastWins() {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
@@ -188,9 +195,76 @@ final class ProjectionIndexNestedPathTest {
   }
 
   @Test
+  void repeatedJsonDescendantStringSetsAreUnioned() {
+    JsonTestHelper.deleteEverything();
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
+          "{\"records\":[{\"left\":{\"tags\":[\"a\"]},\"right\":{\"tags\":[\"b\"]}}]}"),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx();
+         final var pathSummary = manager.openPathSummary()) {
+      final IndexDef def = IndexDefs.createProjectionIdxDef(
+          parse("/records/[]", PathParser.Type.JSON),
+          List.of(parse("//tags/[]", PathParser.Type.JSON)),
+          List.of(Type.STR), 0, IndexDef.DbType.JSON);
+      final List<byte[]> leaves = new ArrayList<>();
+      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
+
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
+      assertEquals(2, leaf.stringSetCountColumn(0)[0]);
+      assertFalse(leaf.columnUnrepresentable(0));
+      assertEquals(1L, ProjectionIndexByteScan.conjunctiveCount(leaves,
+          new ProjectionIndexScan.ColumnPredicate[] {
+              ProjectionIndexScan.ColumnPredicate.stringEq(0, "a".getBytes(StandardCharsets.UTF_8))
+          }));
+      assertEquals(1L, ProjectionIndexByteScan.conjunctiveCount(leaves,
+          new ProjectionIndexScan.ColumnPredicate[] {
+              ProjectionIndexScan.ColumnPredicate.stringEq(0, "b".getBytes(StandardCharsets.UTF_8))
+          }));
+    }
+  }
+
+  @Test
+  void oversizedStringSetFailsClosedWithinItsBoundedLane() {
+    JsonTestHelper.deleteEverything();
+    final StringBuilder json = new StringBuilder(160 << 10);
+    json.append("{\"records\":[{\"tags\":[");
+    for (int index = 0; index <= ProjectionIndexRowExtractor.MAX_STRING_SET_ELEMENTS_PER_ROW; index++) {
+      if (index != 0) {
+        json.append(',');
+      }
+      json.append("\"x\"");
+    }
+    json.append("]}]}");
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json.toString()),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var rtx = manager.beginNodeReadOnlyTrx();
+         final var pathSummary = manager.openPathSummary()) {
+      final IndexDef def = IndexDefs.createProjectionIdxDef(
+          parse("/records/[]", PathParser.Type.JSON),
+          List.of(parse("/records/[]/tags/[]", PathParser.Type.JSON)),
+          List.of(Type.STR), 0, IndexDef.DbType.JSON);
+      final List<byte[]> leaves = new ArrayList<>();
+      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
+      final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leaves.getFirst());
+      assertTrue(leaf.columnUnrepresentable(0));
+      assertEquals(0, leaf.stringSetCountColumn(0)[0]);
+    }
+  }
+
+  @Test
   void indexCreationPreservesPreexistingNonMonotoneRecordOrder() {
     JsonTestHelper.deleteEverything();
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       new JsonShredder.Builder(wtx, JsonShredder.createStringReader(
@@ -243,8 +317,162 @@ final class ProjectionIndexNestedPathTest {
   }
 
   @Test
+  void firstRecordInsertionUsesPersistedOrderAcrossLargeSiblingRun() {
+    JsonTestHelper.deleteEverything();
+    final StringBuilder json = new StringBuilder(128 << 10);
+    json.append("{\"left\":{\"records\":[{\"age\":1}]}");
+    for (int value = 0; value < 20_000; value++) {
+      json.append(",\"gap").append(value).append("\":").append(value);
+    }
+    json.append(",\"right\":{\"records\":[]}}");
+
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      new JsonShredder.Builder(wtx, JsonShredder.createStringReader(json.toString()),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
+    }
+
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        parse("//records/[]", PathParser.Type.JSON),
+        List.of(parse("//records/[]/age", PathParser.Type.JSON)),
+        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      manager.getWtxIndexController(wtx.getRevisionNumber()).createIndexes(Set.of(definition), wtx);
+      wtx.commit();
+    }
+
+    ProjectionIndexChangeListener.resetMaintenanceTelemetry();
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      final Axis descendants = new DescendantAxis(wtx);
+      int recordsArrays = 0;
+      long rightRecordsKey = -1L;
+      while (descendants.hasNext()) {
+        descendants.nextLong();
+        if (isNamedArray(wtx, "records") && ++recordsArrays == 2) {
+          rightRecordsKey = wtx.getNodeKey();
+          break;
+        }
+      }
+      assertTrue(rightRecordsKey >= 0, "the fixture must contain two record-set arrays");
+      assertTrue(wtx.moveTo(rightRecordsKey));
+      wtx.insertObjectAsFirstChild()
+          .insertObjectRecordAsFirstChild("age", new NumberValue(2));
+      wtx.commit();
+    }
+    assertEquals(0,
+        ProjectionIndexChangeListener.lastMaintenanceLocality().documentNeighborNodesRead(),
+        "persisted order routing must not walk unrelated document siblings");
+    assertTrue(ProjectionIndexChangeListener.lastMaintenanceLocality().keySegmentsRead() < 64,
+        "persisted order routing must not inspect the 20,000 unrelated siblings");
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final int revision = manager.getMostRecentRevisionNumber();
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.load(manager, revision, definition);
+      assertNotNull(handle);
+      final List<Long> values = new ArrayList<>();
+      for (final byte[] payload : handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          manager, revision, definition.getID(), handle.rowGroupCount()))) {
+        final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(payload);
+        for (int row = 0; row < leaf.getRowCount(); row++) {
+          values.add(leaf.numericColumn(0)[row]);
+        }
+      }
+      assertEquals(List.of(1L, 2L), values);
+    }
+  }
+
+  @Test
+  void loadTimeSiblingArraysSurviveAsyncEpochsAndColdReopen() {
+    JsonTestHelper.deleteEverything();
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef definition = IndexDefs.createProjectionIdxDef(
+        parse("//records/[]", PathParser.Type.JSON),
+        List.of(parse("//records/[]/age", PathParser.Type.JSON)),
+        List.of(Type.LON), 0, IndexDef.DbType.JSON);
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+         final var wtx = manager.beginNodeTrx()) {
+      final JsonIndexController controller =
+          (JsonIndexController) manager.getWtxIndexController(wtx.getRevisionNumber());
+      final ProjectionBulkLoad load =
+          controller.createProjectionIndexAtLoadStart(definition, wtx, 4L);
+
+      final long rootObjectKey = wtx.insertObjectAsFirstChild().getNodeKey();
+      final long leftArrayKey = wtx.insertObjectRecordAsFirstChild("left", new ObjectValue())
+          .insertObjectRecordAsFirstChild("records", new ArrayValue())
+          .getNodeKey();
+      assertTrue(wtx.moveTo(leftArrayKey));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"age\":1}"),
+          JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"age\":2}"),
+          JsonNodeTrx.Commit.NO);
+      controller.notifyBeforePageFlush();
+      assertEquals(1L, load.rowsEmitted());
+      wtx.getStorageEngineWriter().asyncFlush();
+      wtx.getStorageEngineWriter().awaitPendingAsyncFlush();
+
+      assertTrue(wtx.moveTo(rootObjectKey));
+      final long rightArrayKey = wtx.insertObjectRecordAsLastChild("right", new ObjectValue())
+          .insertObjectRecordAsFirstChild("records", new ArrayValue())
+          .getNodeKey();
+      assertTrue(wtx.moveTo(rightArrayKey));
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"age\":3}"),
+          JsonNodeTrx.Commit.NO);
+      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"age\":4}"),
+          JsonNodeTrx.Commit.NO);
+      controller.notifyBeforePageFlush();
+      assertEquals(3L, load.rowsEmitted());
+      wtx.getStorageEngineWriter().asyncFlush();
+      wtx.getStorageEngineWriter().awaitPendingAsyncFlush();
+      wtx.commit();
+      assertTrue(load.isFinished());
+    }
+
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    Databases.clearGlobalCaches();
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      final int revision = manager.getMostRecentRevisionNumber();
+      final ProjectionIndexRegistry.Handle handle =
+          ProjectionIndexCatalog.load(manager, revision, definition);
+      assertNotNull(handle);
+      final List<byte[]> leaves = handle.rowGroupPayloads(ProjectionIndexCatalog.rowGroupMaterializer(
+          manager, revision, definition.getID(), handle.rowGroupCount()));
+      final long[] values = new long[4];
+      int offset = 0;
+      for (final byte[] leafBytes : leaves) {
+        final ProjectionIndexRowGroupPage leaf = ProjectionIndexRowGroupPage.deserialize(leafBytes);
+        System.arraycopy(leaf.numericColumn(0), 0, values, offset, leaf.getRowCount());
+        offset += leaf.getRowCount();
+      }
+      assertEquals(values.length, offset);
+      assertArrayEquals(new long[] {1L, 2L, 3L, 4L}, values);
+    }
+  }
+
+  private static boolean isNamedArray(final JsonNodeReadOnlyTrx rtx, final String name) {
+    if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY) {
+      return name.equals(rtx.getName().getLocalName());
+    }
+    if (rtx.getKind() != NodeKind.ARRAY) {
+      return false;
+    }
+    final long nodeKey = rtx.getNodeKey();
+    final boolean named = rtx.moveToParent() && rtx.getKind().playsObjectKeyRole()
+        && name.equals(rtx.getName().getLocalName());
+    rtx.moveTo(nodeKey);
+    return named;
+  }
+
+  @Test
   void scalarExtractionUsesValueBytesWithoutMaterializingStrings() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var delegate = manager.beginNodeReadOnlyTrx();
          final var pathSummary = manager.openPathSummary()) {
@@ -296,7 +524,7 @@ final class ProjectionIndexNestedPathTest {
 
   @Test
   void scalarExtractionUsesCallerOwnedFusedUtf8Scratch() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var delegate = manager.beginNodeReadOnlyTrx();
          final var pathSummary = manager.openPathSummary()) {

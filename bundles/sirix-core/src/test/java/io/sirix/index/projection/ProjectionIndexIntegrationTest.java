@@ -59,7 +59,7 @@ final class ProjectionIndexIntegrationTest {
   void buildScanCountsAllFeatures() {
     shredAbcLocations();
 
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var rtx = manager.beginNodeReadOnlyTrx();
          final var pathSummary = manager.openPathSummary()) {
@@ -174,7 +174,7 @@ final class ProjectionIndexIntegrationTest {
 
   private static void shredAbcLocations() {
     final var jsonPath = Paths.get("src", "test", "resources", "json", "abc-location-stations.json");
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
          final var wtx = manager.beginNodeTrx()) {
       final var shredder = new JsonShredder.Builder(wtx, JsonShredder.createFileReader(jsonPath),

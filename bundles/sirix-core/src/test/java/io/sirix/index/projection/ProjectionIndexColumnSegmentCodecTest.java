@@ -305,9 +305,11 @@ final class ProjectionIndexColumnSegmentCodecTest {
     for (final byte[] seg : encoded.segments()) {
       total += seg.length;
     }
-    assertTrue(total * 4 < raw.length,
-        "expected >4x compaction on bench-shaped data (segment headers cost a little vs PIXC), got " + raw.length
-            + " -> " + total);
+    final int orderLabelLaneBytes = Integer.BYTES + (page.getRowCount() + 1) * Integer.BYTES
+        + page.orderLabelLength();
+    assertTrue((total - orderLabelLaneBytes) * 4 < raw.length - orderLabelLaneBytes,
+        "expected >4x compaction on bench-shaped column data excluding exact Dewey labels, got "
+            + (raw.length - orderLabelLaneBytes) + " -> " + (total - orderLabelLaneBytes));
   }
 
   @Test

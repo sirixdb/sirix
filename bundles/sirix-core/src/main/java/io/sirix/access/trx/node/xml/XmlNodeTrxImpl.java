@@ -227,6 +227,7 @@ final class XmlNodeTrxImpl extends
 
             // Compute and assign new DeweyIDs.
             if (storeDeweyIDs()) {
+              nodeReadOnlyTrx.moveTo(movedNodeKey);
               deweyIDManager.computeNewDeweyIDs();
             }
           } finally {
@@ -428,6 +429,7 @@ final class XmlNodeTrxImpl extends
 
             // Recompute DeweyIDs if they are used.
             if (storeDeweyIDs()) {
+              nodeReadOnlyTrx.moveTo(movedNodeKey);
               deweyIDManager.computeNewDeweyIDs();
             }
           } finally {

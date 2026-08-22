@@ -1229,7 +1229,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int rowGroupCount, final int[] physicalOrder,
       final @Nullable ArrayList<RawBlobSlot> segmentSlotsOut) {
     final Long2ObjectRBTreeMap<RawBlobSlot> descriptors = new Long2ObjectRBTreeMap<>();
-    collectSlotsRange(reader, indexNumber, rowGroupCount, -1, -1, descriptors, segmentSlotsOut);
+    collectSlotsRange(reader, indexNumber, rowGroupCount, 1, MAX_ROW_GROUPS, descriptors, segmentSlotsOut);
     return drainOrderedDescriptors(descriptors, rowGroupCount, indexNumber, physicalOrder);
   }
 
@@ -2763,15 +2763,10 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
    */
   private static boolean collectRowGroupDirectorySlots(final StorageEngineReader reader, final int indexNumber,
       final PageReference rootRef, final DirectoryWalk walk) {
-    // UNBOUNDED, not [0x00..8, 0xFF..8]: both name the whole trie, but explicit bounds make the
-    // cursor lex-compare every key against the upper bound on every step — a comparison that,
-    // against an all-0xFF bound, can never once be true. Passing null lets the cursor skip the
-    // bound check and start at the leftmost leaf directly (measured: 0.687 -> 0.659 ms over 977
-    // row groups, 3 forks x 10 iterations). A key longer than 8 bytes, which the bounded form
-    // would have quietly ended the scan on, now reaches decodeKey8BE and fails loudly — the
-    // better outcome for a store that must contain only 8-byte slot keys.
+    final byte[] firstRowGroupSlot = slotKeyBytes(1L << 16);
+    final byte[] lastRowGroupSlot = slotKeyBytes(((long) MAX_ROW_GROUPS << 16) | 0xFFFFL);
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
-        HOTRangeCursor cursor = trieReader.range(rootRef, null, null)) {
+        HOTRangeCursor cursor = trieReader.range(rootRef, firstRowGroupSlot, lastRowGroupSlot)) {
       // Optimistic-stamp discipline: all reads and capture copies for a slot happen first, the
       // stamp is validated, and only then do the results reach the DirectoryWalk callbacks (whose
       // effects cannot be retracted) or the unresolved-page early return. A torn batch

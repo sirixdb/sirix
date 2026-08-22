@@ -101,6 +101,13 @@ public interface NodeTrx extends NodeReadOnlyTrx {
   void awaitPendingAsyncCommit();
 
   /**
+   * Get the transaction-local sequence of visible state changes.
+   *
+   * @return the monotonic visible-state sequence
+   */
+  long getMutationSequence();
+
+  /**
    * Truncate to a revision.
    *
    * @param revision the revision to truncate to

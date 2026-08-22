@@ -26,7 +26,9 @@ import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import org.jspecify.annotations.Nullable;
 
+import java.util.Objects;
 
 /**
  * Bitmap based indirect page holds a set of references to build a reference tree.
@@ -107,6 +109,18 @@ public final class IndirectPage extends AbstractForwardingPage {
     }
 
     return reference;
+  }
+
+  public @Nullable PageReference referenceAt(final int offset) {
+    Objects.checkIndex(offset, Constants.INP_REFERENCE_COUNT);
+    final PageReference reference = switch (delegate) {
+      case ReferencesPage4 references -> references.referenceAtOffset(offset);
+      case BitmapReferencesPage references -> references.referenceAtOffset(offset);
+      case FullReferencesPage references -> references.referenceAt(offset);
+      default -> throw new IllegalStateException(
+          "Unknown IndirectPage delegate type: " + delegate.getClass().getName());
+    };
+    return reference == null || reference.isVirginStructuralPlaceholder() ? null : reference;
   }
 
   /**

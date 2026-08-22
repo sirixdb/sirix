@@ -22,6 +22,7 @@ import io.brackit.query.operator.TupleImpl;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.util.ExprUtil;
 import io.brackit.query.util.sort.Ordering;
+import io.sirix.query.scan.SirixExecutorProvider;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ import java.util.List;
  */
 public final class SirixGroupAggregateExpr implements Expr {
 
-  private final SirixVectorizedExecutor executor;
+  private final SirixExecutorProvider executorProvider;
   private final String[] sourcePath;
   private final PredicateNode predicateOrNull;
   private final String[] groupFields;
@@ -88,11 +89,10 @@ public final class SirixGroupAggregateExpr implements Expr {
   private final int[] constEntryPos;
   private final String[] constEntryNames;
   private final long[] constEntryValues;
-  /** Non-null only for a VARIABLE source (external variable): re-verified per evaluation. */
-  private final SourceRef runtimeSourceRef;
+  private final SourceRef sourceRef;
   private final Expr genericFallback;
 
-  public SirixGroupAggregateExpr(final SirixVectorizedExecutor executor, final String[] sourcePath,
+  public SirixGroupAggregateExpr(final SirixExecutorProvider executorProvider, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] groupFields, final String[] keyNames, final String[] funcs,
       final String[] aggFields, final String[] outNames, final int[] orderIndexes, final boolean[] orderAsc,
       final boolean[] orderEmptyLeast, final long limit, final long[] keyOffsets, final int[] keySubstr,
@@ -100,8 +100,8 @@ public final class SirixGroupAggregateExpr implements Expr {
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having, final int[] decorPos, final String[] decorPrefix, final String[] decorSuffix,
       final int[] constEntryPos, final String[] constEntryNames, final long[] constEntryValues,
-      final SourceRef runtimeSourceRef, final Expr genericFallback) {
-    this.executor = executor;
+      final SourceRef sourceRef, final Expr genericFallback) {
+    this.executorProvider = executorProvider;
     this.sourcePath = sourcePath;
     this.predicateOrNull = predicateOrNull;
     this.groupFields = groupFields;
@@ -109,7 +109,7 @@ public final class SirixGroupAggregateExpr implements Expr {
     this.funcs = funcs;
     this.aggFields = aggFields;
     this.outNames = outNames;
-    this.runtimeSourceRef = runtimeSourceRef;
+    this.sourceRef = sourceRef;
     this.genericFallback = genericFallback;
     this.keyOffsets = keyOffsets;
     this.keySubstr = keySubstr;
@@ -151,34 +151,26 @@ public final class SirixGroupAggregateExpr implements Expr {
 
   @Override
   public Sequence evaluate(final QueryContext ctx, final Tuple tuple) throws QueryException {
-    executor.enterExecution();
-    try {
-      // Runtime source gate: an external-variable source is verifiable only now, when the context
-      // carries the actual binding. Leave this admission before evaluating the generic fallback.
-      if ((runtimeSourceRef == null || executor.acceptsSource(runtimeSourceRef, ctx))
-          && executor.canExecute(ctx)) {
-        final SirixVectorizedExecutor.ServedGroups served =
-            executor.executeGroupByAggregate(ctx, sourcePath, predicateOrNull, groupFields, keyNames, funcs, aggFields,
-                outNames, orderIndexes, orderAsc, orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields,
-                keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod, keyStringify, having);
-        if (served != null) {
-          if (orderIndexes == null || served.ordered()) {
-            // Either no order-by, or the kernel already ordered (and under a limit, truncated to
-            // the first `limit` groups of the stable order — the downstream fn:subsequence still
-            // slices its window out of that prefix, which is all it can ever pull).
-            return postProcess(served.groups());
+    final SirixExecutorProvider.Lease lease = executorProvider.acquire(ctx, sourceRef);
+    if (lease != null) {
+      try (lease) {
+        final SirixVectorizedExecutor executor = lease.executor();
+        if ((sourceRef == null || executor.acceptsSource(sourceRef, ctx)) && executor.canExecute(ctx)) {
+          final SirixVectorizedExecutor.ServedGroups served = executor.executeGroupByAggregate(ctx, sourcePath,
+              predicateOrNull, groupFields, keyNames, funcs, aggFields, outNames, orderIndexes, orderAsc,
+              orderEmptyLeast, limit, keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern,
+              keyRegexRepl, keyDivMod, keyStringify, having);
+          if (served != null) {
+            if (orderIndexes == null || served.ordered()) {
+              return postProcess(served.groups());
+            }
+            final Sequence sorted = sort(served.groups());
+            if (sorted != null) {
+              return postProcess(sorted);
+            }
           }
-          final Sequence sorted = sort(served.groups());
-          if (sorted != null) {
-            return postProcess(sorted);
-          }
-          // Unsortable here (a key that is not an atomic, incomparable types across groups). The
-          // generic pipeline re-derives the same groups and either orders them or raises the very
-          // error the interpreter would raise — both are answers this wrapper must not invent.
         }
       }
-    } finally {
-      executor.leaveExecution();
     }
     return genericFallback.evaluate(ctx, tuple);
   }

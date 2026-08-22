@@ -164,7 +164,7 @@ import java.util.concurrent.atomic.LongAdder;
  * declines. Every fast path is fail-closed: a shape, encoding or page it cannot serve returns no
  * claim and the caller's generic pipeline answers.
  */
-public final class SirixVectorizedExecutor implements VectorizedExecutor {
+public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   /**
    * Chain-wide lifetime shared by every revision-specific executor a compile chain creates.
@@ -1141,6 +1141,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     executionLifecycle.leave();
+  }
+
+  @Override
+  public Lease acquire(final QueryContext context, final SourceRef source) {
+    enterExecution();
+    return new Lease(this, this::leaveExecution);
   }
 
   /** Borrow this lifecycle's revision-rebindable cursor for the calling thread. */

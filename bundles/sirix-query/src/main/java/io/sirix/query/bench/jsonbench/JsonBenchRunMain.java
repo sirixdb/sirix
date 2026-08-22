@@ -49,6 +49,7 @@ import java.util.Set;
  *   JsonBenchRunMain &lt;dbDir&gt; [--tries N] [--queries 1,3-5] [--variant N]
  *                    [--dump DIR] [--json FILE] [--threads N] [--load-time SECONDS]
  *                    [--reuse-executor] [--build-projection] [--query-file F] [--comment TEXT]
+ *                    [--allow-missing-projection]
  * </pre>
  *
  * <h2>What is measured</h2> Each query runs {@code --tries} times (try 1 is the cold run, the best
@@ -58,6 +59,8 @@ import java.util.Set;
  * and a memo hit would report a hash lookup as the hot runtime. The store, its page caches and the
  * OS page cache stay shared across tries, which is what a hot run is supposed to measure. Pass
  * {@code --reuse-executor} to measure the memoized behaviour instead.
+ * {@code run-benchmark.sh} invokes this runner once per query attempt with {@code --tries 1}, so its
+ * published protocol uses a fresh process for the cold attempt and every hot attempt.
  *
  * <p>
  * {@code --dump DIR} writes each query's result to {@code DIR/qN.jsonl}, one JSON array per result
@@ -68,20 +71,25 @@ public final class JsonBenchRunMain {
 
   private static final int QUERY_COUNT = 5;
 
+  private static final String[] REQUIRED_PROJECTION_FIELDS =
+      {"kind", "did", "time_us", "commit/collection", "commit/operation"};
+
   private JsonBenchRunMain() {
     throw new AssertionError("no instances");
   }
 
   /** The harness's command line, after parsing and validation. */
   private record Options(Path dbDir, int tries, int variant, int threads, double loadTime, boolean reuseExecutor,
-      Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected, boolean buildProjection) {
+      Path dumpDir, Path jsonOut, String comment, String adHoc, Set<Integer> selected, boolean buildProjection,
+      boolean allowMissingProjection) {
   }
 
   public static void main(final String[] args) throws Exception {
     if (args.length < 1) {
       System.err.println("Usage: JsonBenchRunMain <dbDir> [--tries N] [--queries 1,3-5] "
           + "[--variant N] [--dump DIR] [--json FILE] [--threads N] [--query-file F] "
-          + "[--load-time SECONDS] [--reuse-executor] [--build-projection] [--comment TEXT]");
+          + "[--load-time SECONDS] [--reuse-executor] [--build-projection] [--comment TEXT] "
+          + "[--allow-missing-projection]");
       System.exit(2);
       return;
     }
@@ -124,8 +132,6 @@ public final class JsonBenchRunMain {
       final JsonResourceSession session = collection.getDatabase().beginResourceSession(JsonBenchSchema.RESOURCE);
       final int revision = session.getMostRecentRevisionNumber();
 
-      warmCatalog(session, revision);
-
       SirixVectorizedExecutor shared = null;
       if (options.reuseExecutor() && fastPaths) {
         shared = new SirixVectorizedExecutor(session, revision, options.threads());
@@ -152,20 +158,19 @@ public final class JsonBenchRunMain {
   }
 
   /**
-   * Open-time catalog warm, untimed by design: every JSONBench system loads its catalog metadata when
-   * the database opens (ClickHouse reads its part metadata and column marks then); this store's
-   * equivalent is the projection handle build — a directory walk plus the bloom blocks. The segment
-   * readahead kicks here too, so it leads the first data query instead of racing it.
+   * Catalog discovery and segment readahead performed inside the first query's measured window.
    *
-   * <p>
-   * Guarded on the projection actually existing: a corpus loaded without one must not fail to run, it
-   * just measures the generic pipeline.
+   * <p>A published benchmark requires a usable covering projection. Diagnostic runs may explicitly
+   * allow the generic pipeline with {@code --allow-missing-projection}.
    */
-  private static void warmCatalog(final JsonResourceSession session, final int revision) {
+  static void warmCatalog(final JsonResourceSession session, final int revision,
+      final boolean allowMissingProjection) {
     final long t0 = System.nanoTime();
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexCatalog.lookupCovering(session,
-        session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"}, new String[] {"kind"});
+        session.getResourceConfig().getResource().toString(), revision, new String[] {"[]"},
+        REQUIRED_PROJECTION_FIELDS);
     final long tLookup = System.nanoTime();
+    requireUsableProjection(handle, allowMissingProjection);
     if (handle != null && handle.columnStoreOrNull() != null) {
       handle.kickSegmentPrefetch(Runnable::run, () -> session.beginNodeReadOnlyTrx(revision),
           trx -> ((JsonNodeReadOnlyTrx) trx).getStorageEngineReader());
@@ -173,6 +178,15 @@ public final class JsonBenchRunMain {
     if (PHASE_DIAG) {
       System.err.printf("[phase] warmCatalog lookup=%.1f ms kick=%.1f ms | t=%.1f..%.1f%n", (tLookup - t0) / 1e6,
           (System.nanoTime() - tLookup) / 1e6, t0 / 1e6, System.nanoTime() / 1e6);
+    }
+  }
+
+  static void requireUsableProjection(final ProjectionIndexRegistry.Handle handle,
+      final boolean allowMissingProjection) {
+    if (!allowMissingProjection && (handle == null || handle.columnStoreOrNull() == null)) {
+      throw new IllegalStateException("JSONBench requires a usable projection covering all five query columns; "
+          + "load with projection indexing enabled or rerun with --build-projection. "
+          + "Use --allow-missing-projection only for diagnostic generic-pipeline runs");
     }
   }
 
@@ -187,7 +201,7 @@ public final class JsonBenchRunMain {
   /** Reads the command line; {@link #validate} checks the ranges. */
   private static Options parseOptions(final String[] args) throws IOException {
     final Path dbDir = Path.of(args[0]);
-    int tries = 3;
+    int tries = 4;
     int variant = 0;
     int threads = Runtime.getRuntime().availableProcessors();
     double loadTime = -1.0;
@@ -198,6 +212,7 @@ public final class JsonBenchRunMain {
     String adHoc = null;
     Set<Integer> selected = null;
     boolean buildProjection = false;
+    boolean allowMissingProjection = false;
 
     for (int i = 1; i < args.length; i++) {
       switch (args[i]) {
@@ -215,11 +230,12 @@ public final class JsonBenchRunMain {
           adHoc = Files.readString(Path.of(requireValue(args, ++i, "--query-file")), StandardCharsets.UTF_8);
         case "--reuse-executor" -> reuseExecutor = true;
         case "--build-projection" -> buildProjection = true;
+        case "--allow-missing-projection" -> allowMissingProjection = true;
         default -> throw new IllegalArgumentException("unknown option: " + args[i]);
       }
     }
     return validate(new Options(dbDir, tries, variant, threads, loadTime, reuseExecutor, dumpDir, jsonOut, comment,
-        adHoc, selected, buildProjection));
+        adHoc, selected, buildProjection, allowMissingProjection));
   }
 
   private static Options validate(final Options options) throws IOException {
@@ -250,6 +266,7 @@ public final class JsonBenchRunMain {
     }
     try {
       final long t0 = System.nanoTime();
+      warmCatalog(session, revision, options.allowMissingProjection());
       final String serialized = execute(chain, ctx,
           JsonBenchQueries.wrap(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, options.adHoc()));
       System.out.printf("# ad-hoc query took %.3f s%n", (System.nanoTime() - t0) / 1e9);
@@ -290,18 +307,23 @@ public final class JsonBenchRunMain {
         }
         try {
           final long t0 = System.nanoTime();
-          final String serialized = execute(chain, ctx, text);
-          tries[t] = (System.nanoTime() - t0) / 1e9;
-          if (PHASE_DIAG) {
-            System.err.printf("[phase] q%d try%d ran %.3f s | t=%.1f..%.1f%n", query.index(), t + 1, tries[t],
-                t0 / 1e6, System.nanoTime() / 1e6);
+          if (t == 0) {
+            warmCatalog(session, revision, options.allowMissingProjection());
           }
-          if (t == options.tries() - 1 && options.dumpDir() != null) {
-            rows = dump(options.dumpDir(), query.index(), serialized);
+          try {
+            final String serialized = execute(chain, ctx, text);
+            tries[t] = (System.nanoTime() - t0) / 1e9;
+            if (PHASE_DIAG) {
+              System.err.printf("[phase] q%d try%d ran %.3f s | t=%.1f..%.1f%n", query.index(), t + 1, tries[t],
+                  t0 / 1e6, System.nanoTime() / 1e6);
+            }
+            if (t == options.tries() - 1 && options.dumpDir() != null) {
+              rows = dump(options.dumpDir(), query.index(), serialized);
+            }
+          } catch (final Exception e) {
+            note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
+            break;
           }
-        } catch (final Exception e) {
-          note = e.getClass().getSimpleName() + ": " + firstLine(e.getMessage());
-          break;
         } finally {
           if (perTry != null) {
             SequentialPipelineStrategy.setVectorizedExecutor(null);

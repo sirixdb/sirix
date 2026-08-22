@@ -61,6 +61,7 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
  *   24:  byte[columnCount] kinds
  *   24+columnCount: long[rowCount] recordKeys    (if rowCount > 0)
  *   then byte orderExceptionKind and, only for DENSE, ceil(rowCount/64) bitmap words
+ *   then int orderLabelByteLength, int[rowCount+1] orderLabelOffsets, byte[orderLabelByteLength]
  *   then per column in order:
  *     long min, long max
  *     NUMERIC_LONG:  long[rowCount] values
@@ -4551,22 +4552,37 @@ public final class ProjectionIndexByteScan {
   /** End of KEYS in the raw V0 leaf; NONE is the allocation-free one-byte common case. */
   private static int columnStreamStart(final byte[] payload, final int rowCount, final int columnCount) {
     final long markerOffsetLong = 24L + columnCount + (long) rowCount * Long.BYTES;
-    if (rowCount < 0 || columnCount < 0 || markerOffsetLong < 0 || markerOffsetLong >= payload.length) {
+    if (rowCount < 0 || rowCount > ProjectionIndexRowGroupPage.MAX_ROWS || columnCount < 0
+        || markerOffsetLong < 0 || markerOffsetLong >= payload.length) {
       throw new IllegalStateException("truncated projection KEYS stream");
     }
     final int markerOffset = (int) markerOffsetLong;
     final byte kind = payload[markerOffset];
+    final long orderLabelsOffset;
     if (kind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_NONE) {
-      return markerOffset + 1;
-    }
-    if (kind != ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE || rowCount == 0) {
+      orderLabelsOffset = markerOffsetLong + 1L;
+    } else if (kind == ProjectionIndexRowGroupPage.ORDER_EXCEPTIONS_DENSE && rowCount > 0) {
+      orderLabelsOffset = markerOffsetLong + 1L + ((rowCount + 63L) >>> 6) * Long.BYTES;
+    } else {
       throw new IllegalStateException("unknown projection order-exception kind " + kind);
     }
-    final long end = markerOffsetLong + 1L + ((rowCount + 63L) >>> 6) * Long.BYTES;
-    if (end > payload.length) {
-      throw new IllegalStateException("truncated projection order-exception bitmap");
+    final long offsetsEnd = orderLabelsOffset + Integer.BYTES
+        + Math.multiplyExact((long) rowCount + 1L, Integer.BYTES);
+    if (offsetsEnd > payload.length) {
+      throw new IllegalStateException("truncated projection Dewey order-label metadata");
     }
-    return (int) end;
+    final int labelByteLength = getIntLE(payload, (int) orderLabelsOffset);
+    if (labelByteLength < 0 || labelByteLength > ProjectionIndexRowGroupPage.MAX_ORDER_LABEL_BYTES
+        || offsetsEnd + labelByteLength > payload.length) {
+      throw new IllegalStateException("invalid projection Dewey order-label byte length " + labelByteLength);
+    }
+    final int firstOffset = getIntLE(payload, (int) orderLabelsOffset + Integer.BYTES);
+    final int finalOffset = getIntLE(payload,
+        (int) orderLabelsOffset + Integer.BYTES + Math.multiplyExact(rowCount, Integer.BYTES));
+    if (firstOffset != 0 || finalOffset != labelByteLength) {
+      throw new IllegalStateException("invalid projection Dewey order-label offsets");
+    }
+    return Math.toIntExact(offsetsEnd + labelByteLength);
   }
 
   // ------------------------------------------------------------------

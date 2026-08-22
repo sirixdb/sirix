@@ -227,6 +227,14 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     return arenaLength;
   }
 
+  long budgetBytes() {
+    return budgetBytes;
+  }
+
+  AdmissionPolicy admissionPolicy() {
+    return admissionPolicy;
+  }
+
   long hashAt(final int id) {
     if (id < 1 || id > entryCount) throw new IllegalArgumentException("invalid dictionary id");
     return hashes[id];

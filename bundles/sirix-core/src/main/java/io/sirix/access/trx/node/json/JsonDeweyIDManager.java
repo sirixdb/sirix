@@ -104,8 +104,8 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
         previousNodeKey = node.getNodeKey();
       }
 
-      nodeTrx.moveTo(nodeKey);
     }
+    nodeTrx.moveTo(nodeKey);
   }
 
   private void persistUpdatedRecord(final DataRecord record) {

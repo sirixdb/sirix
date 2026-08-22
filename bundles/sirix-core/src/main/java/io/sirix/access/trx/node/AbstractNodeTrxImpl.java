@@ -152,10 +152,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private long modificationCount;
 
   /**
-   * Monotonic mutation-attempt sequence used to validate transaction-local cursor fast paths.
+   * Monotonic visible-state sequence used to validate transaction-local cursor fast paths.
    * Unlike {@link #modificationCount}, this value is never reset at an intermediate flush.
    */
   private long mutationSequence;
+
+  @Override
+  public final long getMutationSequence() {
+    return mutationSequence;
+  }
 
   /**
    * One-shot marker for a cursor that was just rebound to a newly inserted document node.
@@ -165,14 +170,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * normally must resolve every move through the transaction-intent log: an async flush can replace
    * the active modified page while the frozen predecessor remains open. The marker makes only the
    * provably safe immediate self-move skippable. A subsequent mutation changes
-   * {@link #mutationSequence}; a commit/revert replaces {@link #storageEngineWriter}; and the
-   * type-specific transaction additionally verifies that the physical cursor still has this key.
+   * {@link #mutationSequence}; an async page flush advances the transaction-log generation; a
+   * commit/revert replaces {@link #storageEngineWriter}; and the type-specific transaction
+   * additionally verifies that the physical cursor still has this key.
    * The first explicit {@code moveTo} consumes the marker regardless of whether it qualifies.
    * Consuming the marker only approves reuse of the physical binding; the caller must still invoke
    * {@link InternalNodeReadOnlyTrx#prepareForApprovedSelfMove()} before reporting success.</p>
    */
   private long freshlyInsertedCursorNodeKey = Long.MIN_VALUE;
   private long freshlyInsertedCursorMutationSequence;
+  private int freshlyInsertedCursorLogGeneration;
   @Nullable
   private StorageEngineWriter freshlyInsertedCursorWriter;
 
@@ -750,6 +757,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     assert nodeReadOnlyTrx.getNodeKey() == nodeKey : "insert must leave the cursor on the new node";
     freshlyInsertedCursorNodeKey = nodeKey;
     freshlyInsertedCursorMutationSequence = mutationSequence;
+    freshlyInsertedCursorLogGeneration = storageEngineWriter.getLog().getCurrentGeneration();
     freshlyInsertedCursorWriter = storageEngineWriter;
   }
 
@@ -766,6 +774,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final boolean consumeFreshlyInsertedSelfMove(final long nodeKey) {
     final long markedNodeKey = freshlyInsertedCursorNodeKey;
     final long markedMutationSequence = freshlyInsertedCursorMutationSequence;
+    final int markedLogGeneration = freshlyInsertedCursorLogGeneration;
     final StorageEngineWriter markedWriter = freshlyInsertedCursorWriter;
 
     // Every explicit move consumes the marker. A later move must take the normal TIL-aware path.
@@ -775,6 +784,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     return nodeKey == markedNodeKey
         && mutationSequence == markedMutationSequence
         && storageEngineWriter == markedWriter
+        && storageEngineWriter.getLog().getCurrentGeneration() == markedLogGeneration
         && nodeReadOnlyTrx.getNodeKey() == nodeKey;
   }
 
@@ -1007,6 +1017,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
       nodeReadOnlyTrx.moveTo(rollbackNodeKey);
+      mutationSequence++;
 
       return self();
     } finally {
@@ -1070,6 +1081,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Move to document root.
       moveToDocumentRoot();
+      mutationSequence++;
     } finally {
       if (lock != null) {
         lock.unlock();

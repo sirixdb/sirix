@@ -52,10 +52,10 @@ import java.util.concurrent.ConcurrentMap;
  * <h2>What is written when</h2>
  *
  * Full leaves stream into the definition's HOT sub-tree as they fill and ride the auto-commit that
- * follows. Retained derived state is explicit and bounded: two fence longs per emitted leaf, one
- * 256-leaf Bloom-reference window per local-string column, and only those set-summary values that
- * still fit their one optional summary chunk. Complete Bloom windows stream to storage eagerly;
- * fence chunks, the Bloom manifests, set summaries and live metadata publish at {@link #finish}.
+ * follows. Retained derived state is explicit and bounded: one 32-leaf fence tail, one 256-leaf
+ * Bloom-reference window per local-string column, and only those set-summary values that still fit
+ * their one optional summary chunk. Complete fence and Bloom windows stream to storage eagerly;
+ * the partial tails, Bloom manifests, set summaries and live metadata publish at {@link #finish}.
  * Slot 0 holds the {@link ProjectionIndexMetadata#staleTombstone() stale tombstone} for the whole
  * load, so a load that dies half-way leaves a projection every reader SKIPS in favour of the generic
  * pipeline. Writing a truthful-looking {@code rowGroupCount=0} metadata instead would make every
@@ -96,9 +96,8 @@ public final class ProjectionBulkLoad {
   /** The record-fed builder; owns the current leaf, the dictionary sample and the dictionaries. */
   private final ProjectionIndexBuilder builder;
 
-  /** Per-leaf record-key fences, in leaf order — the metadata's zone maps. */
-  private final LongArrayList firstKeys = new LongArrayList();
-  private final LongArrayList lastKeys = new LongArrayList();
+  /** Bounded fence-chunk stream; only its current 32-leaf tail remains on heap. */
+  private final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
 
   /** Bounded 256-row-group fingerprint accumulator; full chunks are persisted eagerly. */
   private final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
@@ -134,14 +133,11 @@ public final class ProjectionBulkLoad {
   /** Highest record key ever closed — the append-only contract's witness. */
   private long lastClosedRecordKey = Long.MIN_VALUE;
 
-  /**
-   * Node keys of the ARRAY instances whose elements are this projection's records. Owned here rather
-   * than by the listener because listeners are rebuilt at every auto-commit, and because these are
-   * what make the end-of-load row-count check possible: an array node knows how many children it has,
-   * so the load can prove it emitted a row for every one of them instead of hoping its per-node
-   * attribution missed none.
-   */
-  private final LongOpenHashSet arrayRootInstances = new LongOpenHashSet(4);
+  /** The append-only record-set array currently receiving children. */
+  private long activeArrayRootKey = -1L;
+  private long activeArrayRootCountedChildren;
+  private long expectedArrayRecords;
+  private long arrayRootInstanceCount;
 
   /** Storage of the CURRENT epoch; set on entry to every method that writes. */
   private @Nullable ProjectionIndexHOTStorage storage;
@@ -196,7 +192,7 @@ public final class ProjectionBulkLoad {
     return " [notifications=" + diagNotifications + " skippedNamedKind=" + diagSkippedNamedKind + " skippedPathClass="
         + diagSkippedPathClass + " notUnderRecordSet=" + diagNotUnderRecordSet + " unresolved=" + diagUnresolved
         + " observed=" + diagObserved + " closed=" + diagClosed + " drains=" + diagDrains
-        + " extractFailures=" + diagExtractFailures + " arrayRoots=" + arrayRootInstances.size() + ']';
+        + " extractFailures=" + diagExtractFailures + " arrayRoots=" + arrayRootInstanceCount + ']';
   }
 
   private ProjectionBulkLoad(final IndexDef indexDef, final String key, final Object ownerToken,
@@ -210,11 +206,9 @@ public final class ProjectionBulkLoad {
     this.arrayElementRoot = ProjectionIndexBuilder.isArrayLayerPath(indexDef.getProjectionRootPath());
     this.builder = ProjectionIndexBuilder.streamingBorrowed(indexDef, pathSummary, leaf -> {
       if (leaf.getRowCount() == 0) {
-        throw new IllegalStateException("Projection leaf " + firstKeys.size() + " is empty");
+        throw new IllegalStateException("Projection leaf " + fenceWriter.rowGroupCount() + " is empty");
       }
-      final int physicalSlot = firstKeys.size() + 1;
-      firstKeys.add(leaf.firstRecordKey());
-      lastKeys.add(leaf.lastRecordKey());
+      final int physicalSlot = fenceWriter.rowGroupCount() + 1;
       if (hasSetColumn) {
         setSummaries.append(leaf);
       }
@@ -222,6 +216,7 @@ public final class ProjectionBulkLoad {
           ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
       final ProjectionIndexHOTStorage currentStorage = currentStorage();
       checkedPublisher.publish(currentStorage, physicalSlot, encoded);
+      fenceWriter.append(currentStorage, leaf.firstRecordKey(), leaf.lastRecordKey());
       ProjectionIndexBuilder.persistOrderExceptionLocators(leaf, physicalSlot,
           ProjectionRecordLocator.open(currentStorage));
       bloomChunks.append(encoded, physicalSlot, currentStorage);
@@ -283,6 +278,11 @@ public final class ProjectionBulkLoad {
     if (!indexDef.isProjectionIndex()) {
       throw new IllegalArgumentException(
           "ProjectionBulkLoad requires an IndexType.PROJECTION IndexDef; got " + indexDef.getType());
+    }
+    if (!storageEngineWriter.getResourceSession().getResourceConfig().areDeweyIDsStored
+        || ownerToken instanceof NodeReadOnlyTrx ownerTrx && !ownerTrx.storeDeweyIDs()) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
     }
     final String key = keyOf(resourceKey, indexDef.getID());
     final ProjectionBulkLoad load = new ProjectionBulkLoad(indexDef, key, ownerToken, pathSummary,
@@ -371,12 +371,25 @@ public final class ProjectionBulkLoad {
 
   /** Whether {@code nodeKey} is a known record-set array instance. */
   public boolean isArrayRootInstance(final long nodeKey) {
-    return arrayRootInstances.contains(nodeKey);
+    return nodeKey == activeArrayRootKey;
   }
 
   /** Remember an array instance whose elements are records. */
-  public void noteArrayRootInstance(final long nodeKey) {
-    arrayRootInstances.add(nodeKey);
+  public void noteArrayRootInstance(final long nodeKey, final NodeReadOnlyTrx rtx) {
+    if (nodeKey == activeArrayRootKey) {
+      return;
+    }
+    if (activeArrayRootKey >= 0) {
+      try {
+        countActiveArrayRootRecords(rtx);
+      } catch (final Throwable failure) {
+        poisonAfterFailure(failure);
+        throw ProjectionBulkLoad.<RuntimeException>rethrowUnchecked(failure);
+      }
+    }
+    activeArrayRootKey = nodeKey;
+    activeArrayRootCountedChildren = 0L;
+    arrayRootInstanceCount++;
   }
 
   /**
@@ -430,16 +443,21 @@ public final class ProjectionBulkLoad {
    */
   public void drain(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummary,
       final NodeReadOnlyTrx rtx) {
-    if (finished || completedRecordKeys.isEmpty()) {
+    if (finished) {
       return;
     }
     long savedNodeKey = -1L;
     boolean restoreCursor = false;
     Throwable primaryFailure = null;
     try {
+      countArrayRootRecords(rtx);
+      if (completedRecordKeys.isEmpty()) {
+        return;
+      }
       // Acquisition can allocate/prepare the HOT root and therefore fail. Keep it under the same
       // poison boundary as extraction and publication so no ACTIVE load survives a writer fault.
       this.storage = ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+      builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       savedNodeKey = rtx.getNodeKey();
       restoreCursor = true;
       // The summary is still growing: a field whose first occurrence is in this batch has only just
@@ -451,6 +469,7 @@ public final class ProjectionBulkLoad {
           diagExtractFailures++;
         }
       }
+      builder.flushStreamingDictionaryGeneration(storageEngineWriter);
     } catch (final Throwable failure) {
       primaryFailure = failure;
       poisonAfterFailure(failure);
@@ -526,16 +545,20 @@ public final class ProjectionBulkLoad {
     try {
       assertRecordSetShape(pathSummary);
       drain(storageEngineWriter, pathSummary, rtx);
-      assertEveryRecordEmitted(rtx);
+      countArrayRootRecords(rtx);
+      assertEveryRecordEmitted();
       this.storage = ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
+      builder.beginStreamingDictionaryEpoch(storageEngineWriter);
       builder.finishStreaming();
       final byte[] columnKinds = builder.columnKinds();
-      bloomChunks.finishChunks(storage, firstKeys.size(), columnKinds);
+      bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       final long[] valueDictionaryHeaderKeys =
-          ProjectionIndexBuilder.flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
+          builder.flushStreamingDictionaryGeneration(storageEngineWriter);
+      fenceWriter.finish(storage, 0);
       // priorRowGroupCount 0: a bulk load owns a sub-tree it created itself, so there is nothing above
       // the new leaf count to tombstone.
-      ProjectionIndexBuilder.finishPersist(indexDef, storage, firstKeys, lastKeys, 0, buildRevision,
+      ProjectionIndexBuilder.finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), 0,
+          buildRevision,
           columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
@@ -578,35 +601,52 @@ public final class ProjectionBulkLoad {
    * takes the kind-filtered fast path; a non-array record root is resolved by the full ancestor walk
    * for every notification and has no comparable counter to check against.
    */
-  private void assertEveryRecordEmitted(final NodeReadOnlyTrx rtx) {
-    if (arrayRootInstances.isEmpty()) {
+  private void assertEveryRecordEmitted() {
+    if (arrayRootInstanceCount == 0) {
       return;
     }
-    final long savedNodeKey = rtx.getNodeKey();
-    long expected = 0;
-    try {
-      for (final LongIterator it = arrayRootInstances.iterator(); it.hasNext();) {
-        final long arrayKey = it.nextLong();
-        if (!rtx.moveTo(arrayKey)) {
-          throw new IllegalStateException("Projection bulk load for " + key + " cannot re-read record-set array "
-              + arrayKey + " at the end of the load");
-        }
-        expected += rtx.getChildCount();
-      }
-    } finally {
-      if (!rtx.moveTo(savedNodeKey)) {
-        ((NodeCursor) rtx).moveToDocumentRoot();
-      }
-    }
-    if (expected != builder.rowsEmitted()) {
+    if (expectedArrayRecords != builder.rowsEmitted()) {
       throw new IllegalStateException("Projection index " + indexDef.getID() + " on " + key + " emitted "
-          + builder.rowsEmitted() + " rows for " + expected + " records: the load-time build's per-notification "
+          + builder.rowsEmitted() + " rows for " + expectedArrayRecords
+          + " records: the load-time build's per-notification "
           + "record attribution missed records, and the index would have answered over fewer records than the "
           + "resource holds. Nothing was published — slot 0 still holds the tombstone, so the resource's data is "
           + "intact and its queries fall back to the generic pipeline. Build the index with "
           + "jn:create-projection-index over the loaded resource, which walks it rather than attributing "
           + "notifications." + diagnostics());
     }
+  }
+
+  private void countArrayRootRecords(final NodeReadOnlyTrx rtx) {
+    if (activeArrayRootKey >= 0) {
+      countActiveArrayRootRecords(rtx);
+    }
+  }
+
+  private void countActiveArrayRootRecords(final NodeReadOnlyTrx rtx) {
+    final long savedNodeKey = rtx.getNodeKey();
+    final long children;
+    try {
+      children = arrayChildCount(rtx, activeArrayRootKey);
+    } finally {
+      if (!rtx.moveTo(savedNodeKey)) {
+        ((NodeCursor) rtx).moveToDocumentRoot();
+      }
+    }
+    if (children < activeArrayRootCountedChildren) {
+      throw new IllegalStateException("Projection bulk load for " + key + " saw record-set array "
+          + activeArrayRootKey + " shrink from " + activeArrayRootCountedChildren + " to " + children);
+    }
+    expectedArrayRecords = Math.addExact(expectedArrayRecords, children - activeArrayRootCountedChildren);
+    activeArrayRootCountedChildren = children;
+  }
+
+  private long arrayChildCount(final NodeReadOnlyTrx rtx, final long arrayKey) {
+    if (!rtx.moveTo(arrayKey)) {
+      throw new IllegalStateException("Projection bulk load for " + key
+          + " cannot read record-set array " + arrayKey + " during its bounded drain");
+    }
+    return rtx.getChildCount();
   }
 
   /**
@@ -682,17 +722,7 @@ public final class ProjectionBulkLoad {
 
   /** Leaf count so far — used by tests to compare the two build routes. */
   public int rowGroupCount() {
-    return firstKeys.size();
-  }
-
-  /** Defensive copy of the per-leaf first record keys — test observability. */
-  public long[] leafFirstKeys() {
-    return firstKeys.toLongArray();
-  }
-
-  /** Defensive copy of the per-leaf last record keys — test observability. */
-  public long[] leafLastKeys() {
-    return lastKeys.toLongArray();
+    return fenceWriter.rowGroupCount();
   }
 
   /** Drop every armed load — test isolation only. */

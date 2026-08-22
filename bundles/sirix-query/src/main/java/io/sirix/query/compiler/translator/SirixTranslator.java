@@ -58,7 +58,7 @@ import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.module.Namespaces;
 import io.sirix.query.compiler.optimizer.ComputedAggregateDetectionStage;
-import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.query.scan.SirixExecutorProvider;
 import io.brackit.query.expr.Accessor;
 import io.brackit.query.jdm.Axis;
 import io.brackit.query.jdm.Expr;
@@ -154,7 +154,7 @@ public class SirixTranslator extends TopDownTranslator {
             node.getChild(0).getProperty(ComputedAggregateDetectionStage.COMPUTED_AGG))
         && COMPUTED_AGG_FUNCS.contains(fn.getLocalName())
         && SequentialPipelineStrategy.getVectorizedExecutor()
-            instanceof SirixVectorizedExecutor executor) {
+            instanceof SirixExecutorProvider executor) {
       // Built-in aggregates only: unprefixed calls resolve to the JSONiq default function
       // namespace, fn:* to the XQuery one — both are the builtins. A user-defined
       // local:sum must never be served with fn:sum semantics.
@@ -177,7 +177,7 @@ public class SirixTranslator extends TopDownTranslator {
           final Expr generic = super.functionCall(node);
           return new SirixComputedAggregateExpr(executor, sourcePath,
               (PredicateNode) pipe.getProperty("VECTORIZED_PREDICATE_TREE"), fn.getLocalName(),
-              fields, code, consts, SirixPipelineStrategy.runtimeRef(sourceRef), generic);
+              fields, code, consts, SirixPipelineStrategy.sourceRef(sourceRef), generic);
         }
       }
     }

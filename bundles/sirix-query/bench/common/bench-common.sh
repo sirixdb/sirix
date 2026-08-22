@@ -15,7 +15,7 @@
 BENCH_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BENCH_DIR="$(cd "${BENCH_COMMON_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${BENCH_DIR}/../../.." && pwd)"
-EVICT_PY="${BENCH_COMMON_DIR}/evict.py"
+EVICT_PY="${BENCH_EVICT_PY:-${BENCH_COMMON_DIR}/evict.py}"
 
 # ---------------------------------------------------------------------------
 # diagnostics

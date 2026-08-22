@@ -19,6 +19,8 @@ import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.pageskip.PageSkipRegistry;
+import io.sirix.index.projection.ProjectionIndexCatalog;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBCollection;
 import io.sirix.query.scan.SirixVectorizedExecutor;
@@ -460,6 +462,50 @@ public final class AutoWiredExecutorTest {
       }
     } finally {
       Databases.removeDatabase(scanDir.resolve("scan-db"));
+    }
+  }
+
+  @Test
+  public void autoWiringServesSirixSpecificPredicateAndConstantGroupRoutes() throws IOException {
+    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+        .storeDeweyIds(true)
+        .build()) {
+      store.create(DB_A, RES_A, "[{\"age\":10},{\"age\":20},{\"age\":30},{\"age\":40}]");
+    }
+    query("""
+        let $doc := jn:doc('json-path1','a.jn')
+        let $stats := jn:create-projection-index($doc, '/[]', ('/[]/age'), ('long'))
+        return {"revision": sdb:commit($doc)}
+        """);
+    ProjectionIndexRegistry.clear();
+    ProjectionIndexCatalog.clearCache();
+    final String predicate =
+        "for $r in jn:doc('json-path1','a.jn')[] where $r.age gt 15 return $r";
+    final String constantGroup = """
+        for $r in jn:doc('json-path1','a.jn')[]
+        let $g := 1
+        group by $g
+        return {"total": sum($r.age)}
+        """;
+
+    try (final BasicJsonDBStore store = newStore();
+         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+         final SirixCompileChain generic = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+         final SirixCompileChain autoWired = SirixCompileChain.createWithJsonStore(store)) {
+      final String expectedPredicate = evaluate(generic, ctx, predicate);
+      final String expectedConstantGroup = evaluate(generic, ctx, constantGroup);
+      final long predicateBefore = SirixVectorizedExecutor.predicateScanServedCount();
+      final long constantBefore = SirixVectorizedExecutor.constGroupAggServedCount();
+      final Query compiledConstantGroup = new Query(autoWired, constantGroup);
+
+      assertEquals(expectedPredicate, evaluate(autoWired, ctx, predicate));
+      assertEquals(expectedConstantGroup, serialize(compiledConstantGroup, ctx));
+      new Query(autoWired,
+          "let $doc := jn:doc('json-path1','a.jn') return insert json {\"age\":50} into $doc").evaluate(ctx);
+      assertEquals(evaluate(generic, ctx, constantGroup), serialize(compiledConstantGroup, ctx));
+      assertEquals(1L, SirixVectorizedExecutor.predicateScanServedCount() - predicateBefore);
+      assertEquals(2L, SirixVectorizedExecutor.constGroupAggServedCount() - constantBefore);
     }
   }
 

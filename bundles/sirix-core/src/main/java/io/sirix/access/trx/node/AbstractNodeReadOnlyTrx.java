@@ -981,9 +981,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Write-transaction singleton moveTo. Uses the writer's TIL for page resolution (modified pages).
-   * Same-page optimization caches the modified page between calls. Falls back to moveToLegacy if the
-   * page is not in TIL.
+   * Write-transaction singleton moveTo. Uses the writer for current-revision page resolution.
+   * Falls back to moveToLegacy when the page is unchanged from the committed base revision.
    *
    * @param nodeKey the node key to move to
    * @param writer the storage engine writer (for TIL page resolution)
@@ -993,6 +992,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
     final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
+    final KeyValueLeafPage previousPage = currentPage;
+    final long previousPageKey = currentPageKey;
     KeyValueLeafPage page;
 
     // Resolve through the writer's TIL on EVERY move (getModifiedPageForRead has an O(1)
@@ -1007,11 +1008,91 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // TransactionIntentLog.put, which is why the old fast path appeared safe.
     page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
     if (page == null) {
-      // Page not in TIL — fall back to legacy (allocating) moveTo
-      return moveToLegacy(nodeKey);
+      final boolean moved = moveToLegacy(nodeKey);
+      if (moved) {
+        writer.releasePageForRead(previousPage);
+        currentPage = null;
+        currentPageKey = -1;
+      }
+      return moved;
     }
 
-    return bindWritePageSlot(nodeKey, page, slotOffset, true);
+    if (writer.isReadOnlyPageForRead(page)) {
+      final boolean moved;
+      try {
+        moved = moveToDetachedWritePage(nodeKey, page, writer);
+      } catch (final RuntimeException | Error failure) {
+        if (page != previousPage) {
+          writer.releasePageForRead(page);
+        }
+        currentPage = previousPage;
+        currentPageKey = previousPageKey;
+        throw failure;
+      }
+      if (moved) {
+        if (previousPage != page) {
+          writer.releasePageForRead(previousPage);
+        }
+        currentPage = page;
+        currentPageKey = targetPageKey;
+      } else {
+        if (page != previousPage) {
+          writer.releasePageForRead(page);
+        }
+        currentPage = previousPage;
+        currentPageKey = previousPageKey;
+      }
+      return moved;
+    }
+
+    boolean moved = bindWritePageSlot(nodeKey, page, slotOffset, false);
+    if (!moved) {
+      moved = moveToLegacyWrite(nodeKey, writer);
+    }
+    if (moved) {
+      if (singletonMode) {
+        if (previousPage != page) {
+          writer.releasePageForRead(previousPage);
+        }
+      } else {
+        writer.releasePageForRead(previousPage);
+        writer.releasePageForRead(page);
+        currentPage = null;
+        currentPageKey = -1;
+      }
+    } else {
+      if (page != previousPage) {
+        writer.releasePageForRead(page);
+      }
+      currentPage = previousPage;
+      currentPageKey = previousPageKey;
+    }
+    return moved;
+  }
+
+  private boolean moveToDetachedWritePage(final long nodeKey, final KeyValueLeafPage page,
+      final StorageEngineWriter writer) {
+    final DataRecord newNode = writer.getDetachedRecordForRead(page, nodeKey);
+    if (newNode == null) {
+      return false;
+    }
+    setCurrentNode((N) newNode);
+    return true;
+  }
+
+  private boolean moveToLegacyWrite(final long nodeKey, final StorageEngineWriter writer) {
+    DataRecord newNode;
+    try {
+      newNode = writer.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
+      newNode = null;
+    }
+    if (newNode == null) {
+      return false;
+    }
+    setCurrentNode((N) newNode);
+    currentNodeKey = nodeKey;
+    return true;
   }
 
   /**

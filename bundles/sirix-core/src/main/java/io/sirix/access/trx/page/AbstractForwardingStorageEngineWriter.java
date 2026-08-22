@@ -9,6 +9,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Forwards all methods to the delegate.
@@ -132,6 +133,28 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   @Override
   public void assertTransactionWritable() {
     delegate().assertTransactionWritable();
+  }
+
+  @Override
+  public @Nullable KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
+      final IndexType indexType, final int index) {
+    return delegate().getModifiedPageForRead(recordPageKey, indexType, index);
+  }
+
+  @Override
+  public boolean isReadOnlyPageForRead(final KeyValueLeafPage page) {
+    return delegate().isReadOnlyPageForRead(page);
+  }
+
+  @Override
+  public @Nullable DataRecord getDetachedRecordForRead(final KeyValueLeafPage page,
+      final long recordKey) {
+    return delegate().getDetachedRecordForRead(page, recordKey);
+  }
+
+  @Override
+  public void releasePageForRead(final @Nullable KeyValueLeafPage page) {
+    delegate().releasePageForRead(page);
   }
 
   @Override

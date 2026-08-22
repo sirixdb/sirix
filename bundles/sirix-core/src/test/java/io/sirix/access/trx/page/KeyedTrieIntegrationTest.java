@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 
 /**
@@ -118,12 +119,9 @@ final class KeyedTrieIntegrationTest {
         final PageReference rootRef = concreteReader.getPageReference(revisionRootPage, IndexType.DOCUMENT, -1);
 
         // Use a very large page key that is beyond any pages created.
-        // The trie traversal may return a reference from a valid trie level even for
-        // non-existent page keys, so we just verify it doesn't throw.
         final PageReference leafRef =
             reader.getReferenceToLeafOfSubtree(rootRef, 999_999, -1, IndexType.DOCUMENT, revisionRootPage);
-        // The reference may be non-null with an existing key if the trie doesn't extend that far;
-        // the important thing is that no exception is thrown during traversal.
+        assertNull(leafRef);
       }
     }
 

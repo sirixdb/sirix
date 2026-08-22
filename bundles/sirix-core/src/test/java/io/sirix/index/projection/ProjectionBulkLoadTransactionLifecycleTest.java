@@ -43,7 +43,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void rollbackAbortsOnlyTheCurrentTransactionsOwnerAndAllowsARearm() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = projectionDefinition();
@@ -72,7 +72,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void revertAbortsTheOwnerBeforeReplacingItsPageWriter() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = projectionDefinition();
@@ -91,7 +91,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void cleanCloseAfterAnIntermediateMaintenanceEpochAbortsTheOwner() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = projectionDefinition();
@@ -116,7 +116,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void successfulCountBasedIntermediateCommitKeepsTheSameOwnerActive() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx(1)) {
       final IndexDef indexDef = projectionDefinition();
@@ -142,8 +142,10 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void anUnrelatedWriteTransactionCannotResolveOrAbortTheOwner() {
-    final var ownerDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    final var unrelatedDatabase = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
+    final var ownerDatabase =
+        JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
+    final var unrelatedDatabase =
+        JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH2.getFile());
     try (final var ownerSession = ownerDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var unrelatedSession = unrelatedDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
         final var ownerWtx = ownerSession.beginNodeTrx();
@@ -176,7 +178,7 @@ final class ProjectionBulkLoadTransactionLifecycleTest {
 
   @Test
   void droppingTheDefinitionAbortsItsExactLoadOwner() {
-    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       final IndexDef indexDef = projectionDefinition();

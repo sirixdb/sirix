@@ -18,6 +18,7 @@ import io.sirix.index.path.summary.PathNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
+import io.sirix.node.ValueDictionaryHeaderNode;
 
 import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -226,6 +227,9 @@ public final class ProjectionIndexBuilder {
 
   /** Per-column resource-wide dictionaries; null slots are columns that stayed per-leaf. */
   private GlobalValueDictionaryWriter[] globalDictionaries;
+
+  /** Encoders attached to live leaves; streaming builds rotate writers behind stable wrappers. */
+  private GlobalValueDictionaryEncoder[] globalDictionaryEncoders;
 
   /** Build-local diagnostic, published only after the outer pipeline makes its metadata visible. */
   private int globalDictionaryColumns;
@@ -554,6 +558,10 @@ public final class ProjectionIndexBuilder {
   private static void buildAndPersist(final IndexDef indexDef, final PathSummaryReader pathSummary,
       final NodeReadOnlyTrx rtx, final StorageEngineWriter storageEngineWriter,
       final boolean emptyRecordSetAllowed) {
+    if (!rtx.storeDeweyIDs()) {
+      throw new IllegalStateException("Projection index " + indexDef.getID()
+          + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
+    }
     final ProjectionIndexHOTStorage storage =
         ProjectionIndexHOTStorage.forBulkBuild(storageEngineWriter, indexDef.getID());
     // Explicit creation/recreation owns this complete index sub-tree. Reset it before emitting V0
@@ -580,11 +588,10 @@ public final class ProjectionIndexBuilder {
     }
     // Streaming build (descriptor layout): each leaf is written the moment the builder emits
     // it — one leaf in memory at a time, matching this class's streaming contract instead of
-    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Besides the two
-    // fence longs per leaf, retained derived state is bounded: at most one 256-leaf Bloom window per
+    // buffering all encoded leaves on the heap (~240 MB at the 100 M-row scale). Retained derived
+    // state is bounded: at most one 32-leaf fence tail, one 256-leaf Bloom window per
     // string column and only set-summary values that still fit their one persisted summary chunk.
-    final LongArrayList firstKeys = new LongArrayList();
-    final LongArrayList lastKeys = new LongArrayList();
+    final ProjectionIndexFences.BuildWriter fenceWriter = new ProjectionIndexFences.BuildWriter();
     final ProjectionBloomChunks.Writer bloomChunks = new ProjectionBloomChunks.Writer();
     final boolean hasSetColumn = hasStringSetColumn(indexDef);
     final ProjectionIndexColumnSegmentCodec.EncodeWorkspace encodeWorkspace =
@@ -592,11 +599,9 @@ public final class ProjectionIndexBuilder {
     final ProjectionRecordLocator.Accessor recordLocator = ProjectionRecordLocator.open(storage);
     final ProjectionIndexBuilder builder = new ProjectionIndexBuilder(indexDef, pathSummary, leaf -> {
       if (leaf.getRowCount() == 0) {
-        throw new IllegalStateException("Projection leaf " + firstKeys.size() + " is empty");
+        throw new IllegalStateException("Projection leaf " + fenceWriter.rowGroupCount() + " is empty");
       }
-      final int physicalSlot = firstKeys.size() + 1;
-      firstKeys.add(leaf.firstRecordKey());
-      lastKeys.add(leaf.lastRecordKey());
+      final int physicalSlot = fenceWriter.rowGroupCount() + 1;
       // Accumulate the index-wide per-value ROW counts while the leaf is in hand. Summing the
       // per-leaf counts is exact: a record lives in exactly one leaf, and the per-leaf figures
       // already count rows rather than occurrences.
@@ -606,6 +611,7 @@ public final class ProjectionIndexBuilder {
       final ProjectionIndexColumnSegmentCodec.EncodedRowGroup encoded =
           ProjectionIndexColumnSegmentCodec.encodeReferencedOnly(leaf, encodeWorkspace);
       storage.putRowGroupAsColumnSegmentSlots(physicalSlot, encoded);
+      fenceWriter.append(storage, leaf.firstRecordKey(), leaf.lastRecordKey());
       persistOrderExceptionLocators(leaf, physicalSlot, recordLocator);
       bloomChunks.append(encoded, physicalSlot, storage);
     }, false);
@@ -618,12 +624,14 @@ public final class ProjectionIndexBuilder {
         throw new IllegalArgumentException("projection build requires a JSON or XML node transaction");
       }
       final byte[] columnKinds = builder.columnKinds();
-      bloomChunks.finishChunks(storage, firstKeys.size(), columnKinds);
+      bloomChunks.finishChunks(storage, fenceWriter.rowGroupCount(), columnKinds);
       // Dictionaries are written after the leaves, and only once: the leaves refer to values by id,
       // so nothing can be persisted about a dictionary until every id it will ever mint is known.
       final long[] valueDictionaryHeaderKeys =
           flushValueDictionaries(builder.globalDictionaries(), storageEngineWriter);
-      finishPersist(indexDef, storage, firstKeys, lastKeys, priorRowGroupCount, rtx.getRevisionNumber(),
+      fenceWriter.finish(storage, priorRowGroupCount);
+      finishPersistWithStreamingFences(indexDef, storage, fenceWriter.rowGroupCount(), priorRowGroupCount,
+          rtx.getRevisionNumber(),
           columnKinds, setSummaries, valueDictionaryHeaderKeys, bloomChunks);
       builder.publishGlobalDictionaryColumnsBuilt();
     } finally {
@@ -799,7 +807,27 @@ public final class ProjectionIndexBuilder {
       final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
       final long @Nullable [] valueDictionaryHeaderKeys,
       final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
-    final int rowGroupCount = firstKeys.size();
+    finishPersist(indexDef, storage, firstKeys.size(), firstKeys, lastKeys, priorRowGroupCount,
+        buildRevision, columnKinds, setSummaries, valueDictionaryHeaderKeys, streamingBloomChunks);
+  }
+
+  static void finishPersistWithStreamingFences(final IndexDef indexDef,
+      final ProjectionIndexHOTStorage storage, final int rowGroupCount,
+      final int priorRowGroupCount, final int buildRevision, final byte[] columnKinds,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
+      final long @Nullable [] valueDictionaryHeaderKeys,
+      final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
+    finishPersist(indexDef, storage, rowGroupCount, null, null, priorRowGroupCount, buildRevision,
+        columnKinds, setSummaries, valueDictionaryHeaderKeys, streamingBloomChunks);
+  }
+
+  private static void finishPersist(final IndexDef indexDef, final ProjectionIndexHOTStorage storage,
+      final int rowGroupCount, final @Nullable LongArrayList firstKeys,
+      final @Nullable LongArrayList lastKeys, final int priorRowGroupCount,
+      final int buildRevision, final byte[] columnKinds,
+      final ProjectionSetSummaryChunks.BuildAccumulator setSummaries,
+      final long @Nullable [] valueDictionaryHeaderKeys,
+      final ProjectionBloomChunks.@Nullable Writer streamingBloomChunks) {
     for (long slot = rowGroupCount + 1; slot <= priorRowGroupCount; slot++) {
       storage.tombstoneRowGroupAsColumnSegmentSlots(slot);
     }
@@ -817,8 +845,10 @@ public final class ProjectionIndexBuilder {
     // Fingerprint BLOCKS — the contiguous acceleration over the per-leaf segments just written.
     // Tombstone-first covers columns whose block existed but is empty now.
     storage.removeBloomBlocks(columnKinds.length);
-    ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
-        priorRowGroupCount);
+    if (firstKeys != null && lastKeys != null) {
+      ProjectionIndexFences.write(storage, rowGroupCount, firstKeys.toLongArray(), lastKeys.toLongArray(),
+          priorRowGroupCount);
+    }
     if (streamingBloomChunks != null) {
       streamingBloomChunks.publishManifests(storage, rowGroupCount);
     }
@@ -1171,6 +1201,194 @@ public final class ProjectionIndexBuilder {
     return globalDictionaries;
   }
 
+  void beginStreamingDictionaryEpoch(final StorageEngineWriter storageEngineWriter) {
+    if (!streaming) {
+      throw new IllegalStateException("dictionary epochs are only available to a streaming builder");
+    }
+    Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
+    if (encoders == null) {
+      return;
+    }
+    for (final GlobalValueDictionaryEncoder encoder : encoders) {
+      if (encoder instanceof final StreamingGlobalDictionary dictionary) {
+        dictionary.bind(storageEngineWriter);
+      }
+    }
+  }
+
+  long @Nullable [] flushStreamingDictionaryGeneration(
+      final StorageEngineWriter storageEngineWriter) {
+    if (!streaming) {
+      throw new IllegalStateException("dictionary generations are only available to a streaming builder");
+    }
+    Objects.requireNonNull(storageEngineWriter, "storageEngineWriter must not be null");
+    final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
+    if (encoders == null) {
+      return null;
+    }
+    long[] headerKeys = null;
+    for (int column = 0; column < encoders.length; column++) {
+      GlobalValueDictionaryEncoder encoder = encoders[column];
+      if (encoder == null) {
+        continue;
+      }
+      if (encoder instanceof final GlobalValueDictionaryWriter initialGeneration) {
+        final StreamingGlobalDictionary streamingDictionary =
+            new StreamingGlobalDictionary(column, initialGeneration);
+        encoders[column] = streamingDictionary;
+        if (globalDictionaries != null) {
+          globalDictionaries[column] = null;
+        }
+        encoder = streamingDictionary;
+      }
+      if (!(encoder instanceof final StreamingGlobalDictionary dictionary)) {
+        throw new IllegalStateException("streaming global dictionary column " + column
+            + " has an unsupported encoder " + encoder.getClass().getName());
+      }
+      dictionary.bind(storageEngineWriter);
+      if (headerKeys == null) {
+        headerKeys = new long[encoders.length];
+      }
+      headerKeys[column] = dictionary.flush();
+    }
+    return headerKeys;
+  }
+
+  static final class StreamingGlobalDictionary implements GlobalValueDictionaryEncoder {
+    private final int column;
+    private final long budgetBytes;
+    private final GlobalValueDictionaryWriter.AdmissionPolicy admissionPolicy;
+    private long headerKey;
+    private int baseEntryCount;
+    private @Nullable ValueDictionaryHeaderNode baseHeader;
+    private @Nullable StorageEngineWriter storageEngineWriter;
+    private @Nullable GlobalValueDictionaryWriter additions;
+
+    StreamingGlobalDictionary(final int column,
+        final GlobalValueDictionaryWriter initialGeneration) {
+      this.column = column;
+      this.budgetBytes = initialGeneration.budgetBytes();
+      this.admissionPolicy = initialGeneration.admissionPolicy();
+      this.additions = initialGeneration;
+    }
+
+    void bind(final StorageEngineWriter writer) {
+      Objects.requireNonNull(writer, "writer must not be null");
+      if (storageEngineWriter != null && storageEngineWriter != writer) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " is already bound to another storage epoch");
+      }
+      storageEngineWriter = writer;
+      if (headerKey == 0) {
+        return;
+      }
+      final ValueDictionaryHeaderNode header = GlobalValueDictionary.header(headerKey, writer);
+      if (header == null || !header.isDirectoryComplete()) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " cannot read its durable generation header " + headerKey);
+      }
+      baseHeader = header;
+      baseEntryCount = header.getEntryCount();
+    }
+
+    @Override
+    public int intern(final String value) {
+      Objects.requireNonNull(value, "value must not be null");
+      final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
+          GlobalValueDictionaryWriter.MAX_VALUE_BYTES);
+      if (encodedLength > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " cannot persist a UTF-8 value above "
+            + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+      }
+      final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
+      return intern(utf8, 0, utf8.length);
+    }
+
+    @Override
+    public int intern(final byte[] source, final int offset, final int length) {
+      Objects.checkFromIndexSize(offset, length, source.length);
+      final StorageEngineWriter writer = storageEngineWriter;
+      if (writer == null) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " is not bound to a streaming storage epoch");
+      }
+      if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " cannot persist a value above " + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+      }
+      if (headerKey != 0) {
+        final int existing = GlobalValueDictionary.probe(headerKey, source, offset, length, writer);
+        if (existing > 0) {
+          return existing;
+        }
+        if (existing == GlobalValueDictionary.ID_UNKNOWN) {
+          throw new IllegalStateException("global dictionary column " + column
+              + " cannot probe generation header " + headerKey);
+        }
+      }
+      GlobalValueDictionaryWriter generation = additions;
+      if (generation == null) {
+        generation = new GlobalValueDictionaryWriter(column, budgetBytes, admissionPolicy);
+        additions = generation;
+      }
+      final int localId = generation.intern(source, offset, length);
+      final long globalId = (long) baseEntryCount + localId;
+      if (globalId > Integer.MAX_VALUE) {
+        throw new IllegalStateException("global dictionary column " + column + " exhausted dictionary ids");
+      }
+      return (int) globalId;
+    }
+
+    long flush() {
+      final StorageEngineWriter writer = storageEngineWriter;
+      if (writer == null) {
+        throw new IllegalStateException("global dictionary column " + column
+            + " is not bound to a streaming storage epoch");
+      }
+      final GlobalValueDictionaryWriter generation = additions;
+      try {
+        if (generation == null || generation.entryCount() == 0) {
+          if (headerKey == 0) {
+            throw new IllegalStateException("global dictionary column " + column
+                + " has no values or durable header");
+          }
+          return headerKey;
+        }
+        final NamePage namePage = writer.getNamePage(writer.getActualRevisionRootPage());
+        final DatabaseType databaseType = GlobalValueDictionary.databaseTypeOf(writer);
+        if (headerKey == 0) {
+          headerKey = generation.flush(namePage, databaseType, writer, writer.getLog());
+        } else {
+          final ValueDictionaryHeaderNode header = baseHeader;
+          if (header == null) {
+            throw new IllegalStateException("global dictionary column " + column
+                + " has no base header for append");
+          }
+          generation.flushAppend(header, namePage, databaseType, writer, writer.getLog());
+        }
+        return headerKey;
+      } finally {
+        if (generation != null) {
+          generation.release();
+          additions = null;
+        }
+        baseHeader = null;
+        storageEngineWriter = null;
+      }
+    }
+
+    void release() {
+      if (additions != null) {
+        additions.release();
+        additions = null;
+      }
+      baseHeader = null;
+      storageEngineWriter = null;
+    }
+  }
+
   /**
    * Release build-only state after a streaming load finishes or aborts.
    *
@@ -1189,6 +1407,15 @@ public final class ProjectionIndexBuilder {
       }
       globalDictionaries = null;
     }
+    final GlobalValueDictionaryEncoder[] encoders = globalDictionaryEncoders;
+    if (encoders != null) {
+      for (final GlobalValueDictionaryEncoder encoder : encoders) {
+        if (encoder instanceof final StreamingGlobalDictionary dictionary) {
+          dictionary.release();
+        }
+      }
+      globalDictionaryEncoders = null;
+    }
     if (sample != null) {
       sample.clear();
       sample = null;
@@ -1201,11 +1428,11 @@ public final class ProjectionIndexBuilder {
     final ProjectionIndexRowGroupPage reusable = reusableLeaf;
     if (reusable != null) {
       reusableLeaf = null;
-      reusable.setGlobalDictionaries(globalDictionaries);
+      reusable.setGlobalDictionaries(globalDictionaryEncoders);
       return reusable;
     }
     final ProjectionIndexRowGroupPage leaf = new ProjectionIndexRowGroupPage(extractor.columnKindsRef());
-    leaf.setGlobalDictionaries(globalDictionaries);
+    leaf.setGlobalDictionaries(globalDictionaryEncoders);
     return leaf;
   }
 
@@ -1219,7 +1446,7 @@ public final class ProjectionIndexBuilder {
       }
       return;
     }
-    reusableLeaf = emitBorrowedLeafForReuse(currentLeaf, globalDictionaries, leafSink);
+    reusableLeaf = emitBorrowedLeafForReuse(currentLeaf, globalDictionaryEncoders, leafSink);
     leavesEmitted++;
   }
 
@@ -1231,7 +1458,7 @@ public final class ProjectionIndexBuilder {
    * failure-path coverage without exposing reuse through the public API.
    */
   static ProjectionIndexRowGroupPage emitBorrowedLeafForReuse(final ProjectionIndexRowGroupPage leaf,
-      final GlobalValueDictionaryWriter[] dictionaries, final BorrowedLeafSink leafSink) {
+      final GlobalValueDictionaryEncoder[] dictionaries, final BorrowedLeafSink leafSink) {
     leaf.setGlobalDictionaries(dictionaries);
     leafSink.accept(leaf);
     leaf.resetForBuilderReuse(dictionaries);
@@ -1405,7 +1632,9 @@ public final class ProjectionIndexBuilder {
       }
     }
     globalDictionaries = dictionaries;
-    reusableLeaf = emitBorrowedSampleForReuse(sample, dictionaries, leafSink);
+    globalDictionaryEncoders = new GlobalValueDictionaryEncoder[dictionaries.length];
+    System.arraycopy(dictionaries, 0, globalDictionaryEncoders, 0, dictionaries.length);
+    reusableLeaf = emitBorrowedSampleForReuse(sample, globalDictionaryEncoders, leafSink);
     leavesEmitted += sample.size();
     globalDictionaryColumns = globalColumns;
     // currentLeaf is the last buffered leaf (flushCurrentRowGroup buffered it before calling
@@ -1461,7 +1690,7 @@ public final class ProjectionIndexBuilder {
    * drain.
    */
   static void emitBorrowedSample(final List<ProjectionIndexRowGroupPage> sample,
-      final GlobalValueDictionaryWriter[] dictionaries, final BorrowedLeafSink leafSink) {
+      final GlobalValueDictionaryEncoder[] dictionaries, final BorrowedLeafSink leafSink) {
     for (final ProjectionIndexRowGroupPage leaf : sample) {
       leaf.setGlobalDictionaries(dictionaries);
       leafSink.accept(leaf);
@@ -1477,7 +1706,7 @@ public final class ProjectionIndexBuilder {
    * @return the reset final sample leaf, or {@code null} for an empty sample
    */
   static @Nullable ProjectionIndexRowGroupPage emitBorrowedSampleForReuse(
-      final List<ProjectionIndexRowGroupPage> sample, final GlobalValueDictionaryWriter[] dictionaries,
+      final List<ProjectionIndexRowGroupPage> sample, final GlobalValueDictionaryEncoder[] dictionaries,
       final BorrowedLeafSink leafSink) {
     final int last = sample.size() - 1;
     for (int i = 0; i <= last; i++) {

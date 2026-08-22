@@ -31,7 +31,7 @@ $KIT/clean-corpus.py $W/data 1m                 # -> $W/data/bluesky-1m-clean.nd
 # 3. ClickHouse reference: table, UTC reference answers, cold/hot baseline
 $KIT/clickhouse-setup.sh 1m $W/data/bluesky-1m-clean.ndjson $CH $W
 
-# 4. SirixDB: load if absent, then evicted cool-gated rounds + the differential
+# 4. SirixDB: load if absent, then isolated cold/hot query rounds + the differential
 $KIT/run-benchmark.sh 1m $W/db-1m $W/ch-ref-1m --data $W/data/bluesky-1m-clean.ndjson
 
 # 5. the ahead-of-time binary the published numbers use (three-step PGO, ~45 min)
@@ -84,8 +84,8 @@ export GRADLE_FLAGS="--offline --no-daemon"
 | --- | --- |
 | `download-data.sh <tier> <dir>` | fetch `file_NNNN.json.gz` from the ClickHouse public bucket; resumable, and idempotent *offline* (an existing file is verified with `gzip -t`, not re-downloaded) |
 | `clean-corpus.py <dir> <tier>` | concatenate the tier's files into one NDJSON, dropping unparseable lines and printing their line numbers |
-| `clickhouse-setup.sh <tier> <corpus> <chbin> [workdir]` | DDL + load + UTC reference answers + the cold/hot ClickHouse baseline |
-| `run-benchmark.sh <tier> <db> <ref>` | SirixDB: load if absent, N evicted cool-gated rounds, differential, scoreboard |
+| `clickhouse-setup.sh <tier> <corpus> <chbin> [workdir]` | DDL + durably synchronized load + UTC answers + the cold/hot ClickHouse baseline |
+| `run-benchmark.sh <tier> <db> <ref>` | SirixDB: load if absent, N isolated cold/hot rounds, differential, scoreboard |
 | `pgo-native.sh <db>` | the three-step instrument → collect → optimise native build |
 | `queries.sql` | the five upstream ClickHouse queries, verbatim |
 | `compare-results.py` | the differential: SirixDB's JSONL dump vs ClickHouse's TSV |
@@ -145,9 +145,18 @@ pipeline. Check the counters. Two diagnosis cycles were also lost to reading `# 
 route is dead" when the print simply did not include that counter: check that the counter you are
 reasoning about is in the line at all. `-Dsirix.projDiag=true` prints *why* a query declined.
 
-**Isolated runs do not transfer to suite context.** A query measured alone pays fills and catalog work
-that in the suite an earlier query already paid, and vice versa. Attribution runs must reproduce the
-regime they explain.
+**Every timed query is isolated.** For each query, the harness cool-gates and evicts the database,
+then launches one fresh cold process and three fresh hot processes without another eviction. Catalog
+discovery and projection-segment prefetch run inside each process's query timer. This is the same
+state sequence used by the ClickHouse baseline. Both scripts default to `ROUNDS=2` and `TRIES=4`;
+the baseline records those values and the scoreboard refuses a mismatch or a legacy baseline.
+Every timed ClickHouse query uses the same UTC session setting as reference generation. Attribution
+runs must reproduce the complete protocol.
+
+**Load time ends after durable synchronization.** Both loaders close their database writers and run
+`sync(1)` inside the measured ingestion window, failing the load if the barrier fails. The ClickHouse
+table uses plain `MergeTree`, so replicated-table synchronization commands are not applicable. Both
+loaders report monotonic, millisecond-resolution wall time.
 
 **At 100 M, `ps` RSS is meaningless.** It counts resident *mapped database pages*: 23 GB of RSS was
 2 GB of anonymous memory. Read the anonymous figure from `free` instead. (The one genuine kernel OOM
@@ -189,8 +198,9 @@ find *where* the time is, and a CPU profile only to name *what* that phase is do
 ## 6. Results being reproduced
 
 Ahead-of-time (GraalVM native image) binaries with a **freshly collected** profile, cool-gated,
-evicted page cache, min of two rounds, `--tries 3`. ClickHouse measured on the same machine, the same
-cleaned corpus, and the same eviction protocol.
+evicted page cache, min of two rounds, `--tries 3`. These are historical campaign figures from the
+earlier whole-suite process protocol; new runs use isolated per-query processes and must not be
+compared to these rows as though the protocols were identical.
 
 | tier | SirixDB cold | ClickHouse cold | SirixDB hot | ClickHouse hot |
 | --- | --- | --- | --- | --- |
@@ -274,8 +284,8 @@ References produced on a Europe/Berlin box answer hour **17** where UTC answers 
 `2024-11-21 17:25:49.000167` where UTC prints `16:25:49.000167`. SirixDB's hour key is deliberately
 pure integer arithmetic (`(time_us idiv 3600000000) mod 24`) — timezone-free, and equal to the UTC
 hour — and it emits raw microseconds, so the comparator's parse back to microseconds is only well
-defined against a UTC reference. `clickhouse-setup.sh` appends `SETTINGS session_timezone='UTC'` to
-every reference query.
+defined against UTC. `clickhouse-setup.sh` appends `SETTINGS session_timezone='UTC'` to every
+reference and timed baseline query.
 
 ---
 
@@ -308,6 +318,13 @@ freedom SQL leaves, and no more.
 `JsonBenchProjection` declares five columns: `/[]/kind`, `/[]/did`, `/[]/time_us`,
 `/[]/commit/collection` and `/[]/commit/operation` — the same five fields the ClickHouse schema types
 explicitly.
+
+Projection creation is part of the benchmark load contract and fails the loader by default. On the
+explicit second-pass route, `-Djsonbench.projection.required=false` may retain a successfully shredded
+resource after an index failure for later repair with `JsonBenchRunMain --build-projection`; timings
+from that recovery mode are not benchmark results. The runner rejects a missing, stale, or
+non-columnar projection before executing a timed query unless the diagnostic-only
+`--allow-missing-projection` flag is supplied.
 
 Creating it originally failed with `Projected field name 'did' is ambiguous: it also occurs at a
 different path under the record set`. That is true of the corpus — `did` occurs at six further paths
@@ -345,6 +362,7 @@ projection diagnostics, so one switch reports the whole route.
 
 Other useful runner flags: `--queries 1,3-5` (one-based) to select a subset, `--build-projection` to
 add the projection to an already-loaded corpus without re-shredding, `--query-file F` to run one
-hand-written body against the same binding, and
+hand-written body against the same binding, `--allow-missing-projection` for an explicitly
+non-benchmark generic diagnostic, and
 `-Pjsonbench.jvmArgs="-Dsirix.query.autoVectorize=false"` to force the generic pipeline for a
 correctness A/B.

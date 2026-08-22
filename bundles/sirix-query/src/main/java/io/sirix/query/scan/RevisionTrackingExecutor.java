@@ -42,7 +42,7 @@ import io.brackit.query.jdm.Sequence;
  * working query into a failing one. {@code RevisionTrackingExecutorTest} asserts the full set is
  * overridden, so a new interface method fails the build rather than the user.
  */
-public final class RevisionTrackingExecutor implements VectorizedExecutor {
+public final class RevisionTrackingExecutor implements SirixExecutorProvider {
 
   /** Resolves the executor for the current revision; {@code null} when it cannot be resolved. */
   private final Supplier<SirixVectorizedExecutor> resolver;
@@ -252,6 +252,56 @@ public final class RevisionTrackingExecutor implements VectorizedExecutor {
   /** The executor most recently resolved, for tests and diagnostics; may be {@code null}. */
   public SirixVectorizedExecutor lastResolved() {
     return last;
+  }
+
+  @Override
+  public Lease acquire(final QueryContext context, final SourceRef source) {
+    enterResolution(context);
+    SirixVectorizedExecutor executor = null;
+    boolean executorAdmitted = false;
+    try {
+      final Pin pin = pinnedForEvaluation.get();
+      if (pin.executor != null && pin.ctx == context) {
+        executor = pin.executor;
+      } else if (perSourceResolver != null && source != null && source.kind() == SourceRef.Kind.DOCUMENT) {
+        pin.clear();
+        executor = resolveForSource(source);
+      } else {
+        executor = current(context);
+      }
+      if (executor == null) {
+        unpin(context);
+        executionLifecycle.leave();
+        return null;
+      }
+      executor.enterExecution();
+      executorAdmitted = true;
+      final SirixVectorizedExecutor admitted = executor;
+      return new Lease(admitted, () -> {
+        try {
+          admitted.leaveExecution();
+        } finally {
+          try {
+            unpin(context);
+          } finally {
+            executionLifecycle.leave();
+          }
+        }
+      });
+    } catch (final RuntimeException | Error exception) {
+      try {
+        if (executorAdmitted) {
+          executor.leaveExecution();
+        }
+      } finally {
+        try {
+          unpin(context);
+        } finally {
+          executionLifecycle.leave();
+        }
+      }
+      throw exception;
+    }
   }
 
   // ==================== forwarding ====================

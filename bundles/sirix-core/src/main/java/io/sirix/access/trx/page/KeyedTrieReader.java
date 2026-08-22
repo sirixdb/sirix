@@ -28,7 +28,7 @@ import io.sirix.page.IndirectPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
-import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
 import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
@@ -83,19 +83,32 @@ final class KeyedTrieReader {
         storageEngineReader.getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber,
             revisionRootPage);
 
+    if (maxHeight == 0) {
+      return pageKey == 0 && !reference.isVirginStructuralPlaceholder()
+          ? reference
+          : null;
+    }
+
     // Iterate through all levels.
     for (int level = inpLevelPageCountExp.length - maxHeight,
         height = inpLevelPageCountExp.length; level < height; level++) {
-      final Page derefPage = storageEngineReader.dereferenceIndirectPageReference(reference);
+      final IndirectPage derefPage = storageEngineReader.dereferenceIndirectPageReference(reference);
       if (derefPage == null) {
         reference = null;
         break;
       } else {
-        offset = (int) (levelKey >> inpLevelPageCountExp[level]);
+        final long levelOffset = levelKey >>> inpLevelPageCountExp[level];
+        if (levelOffset >= Constants.INP_REFERENCE_COUNT) {
+          return null;
+        }
+        offset = (int) levelOffset;
         levelKey -= (long) offset << inpLevelPageCountExp[level];
 
         try {
-          reference = derefPage.getOrCreateReference(offset);
+          reference = derefPage.referenceAt(offset);
+          if (reference == null) {
+            break;
+          }
         } catch (final IndexOutOfBoundsException e) {
           throw new SirixIOException("Node key isn't supported, it's too big!");
         }

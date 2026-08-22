@@ -29,6 +29,7 @@ import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.BitSet;
@@ -103,7 +104,7 @@ public final class FullReferencesPage implements Page {
   }
 
   /** Allocation-free indexed access without exposing the mutable structural backing array. */
-  public PageReference referenceAt(final int index) {
+  public @Nullable PageReference referenceAt(final int index) {
     return references[Objects.checkIndex(index, references.length)];
   }
 

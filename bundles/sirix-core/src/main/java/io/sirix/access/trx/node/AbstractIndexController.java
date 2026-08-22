@@ -137,6 +137,16 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     this.casIndex = casIndex;
     this.nameIndex = nameIndex;
     this.vectorIndex = vectorIndex;
+    refreshIndexCapabilities();
+  }
+
+  final void refreshIndexCapabilities() {
+    hasPathIndex = false;
+    hasCASIndex = false;
+    hasNameIndex = false;
+    hasVectorIndex = false;
+    hasValidTimeIndex = false;
+    hasProjectionIndex = false;
     for (final IndexDef indexDef : indexes.getIndexDefs()) {
       updateIndexCapability(indexDef.getType());
     }

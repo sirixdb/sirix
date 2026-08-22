@@ -759,6 +759,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
       copy.records = Arrays.copyOf(records, records.length);
     }
 
+    try {
+      materializePreservedSlotsInto(copy);
+    } catch (final RuntimeException | Error failure) {
+      copy.close();
+      throw failure;
+    }
+
     // Share the FSST symbol table reference — the byte[] is immutable once bound, and the
     // parse/matcher caches key on its identity. Cloning it here made every snapshot-flushed
     // page a cache miss, re-parsing the table and rebuilding a ~½ MB matcher index per page.
@@ -769,6 +776,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.siri
     copy.fsstSymbolTableId = fsstSymbolTableId;
 
     return copy;
+  }
+
+  private void materializePreservedSlotsInto(final KeyValueLeafPage copy) {
+    final MemorySegment copyPage = copy.slottedPage;
+    if (copyPage == null || !PageLayout.hasPreservedSlots(copyPage)) {
+      return;
+    }
+
+    final KeyValueLeafPage completePage = completePageRef;
+    if (completePage == null) {
+      throw new IllegalStateException("Page " + recordPageKey + " has preserved slots without a complete page");
+    }
+
+    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+      if (!PageLayout.isSlotPreserved(copy.slottedPage, slot)
+          || copy.records != null && copy.records[slot] != null
+          || PageLayout.isSlotPopulated(copy.slottedPage, slot)) {
+        continue;
+      }
+
+      final MemorySegment completeSlottedPage = completePage.getSlottedPage();
+      if (completeSlottedPage == null || !PageLayout.isSlotPopulated(completeSlottedPage, slot)) {
+        throw new IllegalStateException("Page " + recordPageKey + " cannot preserve missing slot " + slot);
+      }
+      copy.copySlotFromPage(completePage, slot);
+    }
+
+    PageLayout.clearPreservationBitmap(copy.slottedPage);
   }
 
   @Override

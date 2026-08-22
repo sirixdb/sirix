@@ -46,6 +46,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
 
   @Override
   public XmlIndexController createIndexes(final Set<IndexDef> indexDefs, final XmlNodeTrx nodeWriteTrx) {
+    requireProjectionDeweyIds(indexDefs, nodeWriteTrx);
     // Build the indexes.
     IndexBuilder.build(nodeWriteTrx, createIndexBuilders(indexDefs, nodeWriteTrx));
 
@@ -74,6 +75,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
 
   private ProjectionBulkLoad[] armProjectionIndexesAtLoadStart(final Set<IndexDef> indexDefs,
       final XmlNodeTrx nodeWriteTrx, final long expectedRows) {
+    requireProjectionDeweyIds(indexDefs, nodeWriteTrx);
     final String resourceKey = nodeWriteTrx.getResourceSession().getResourceConfig().getResource().toString();
     for (final IndexDef indexDef : indexDefs) {
       if (!indexDef.isProjectionIndex()) {
@@ -112,6 +114,19 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
         }
       }
       throw XmlIndexController.<RuntimeException>rethrowUnchecked(armFailure);
+    }
+  }
+
+  private static void requireProjectionDeweyIds(final Set<IndexDef> indexDefs,
+      final XmlNodeReadOnlyTrx nodeReadTrx) {
+    if (nodeReadTrx.storeDeweyIDs()) {
+      return;
+    }
+    for (final IndexDef indexDef : indexDefs) {
+      if (indexDef.isProjectionIndex()) {
+        throw new IllegalStateException("Projection index " + indexDef.getID()
+            + " requires stored Dewey IDs; recreate the resource with Dewey IDs enabled");
+      }
     }
   }
 

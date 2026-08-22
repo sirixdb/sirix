@@ -291,6 +291,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
   }
 
+  private static final class ReadPageResolution {
+    private @Nullable PageContainer pageContainer;
+    private @Nullable PageReference durableReference;
+
+    void clear() {
+      pageContainer = null;
+      durableReference = null;
+    }
+
+    void setPageContainer(final PageContainer pageContainer) {
+      this.pageContainer = pageContainer;
+      durableReference = null;
+    }
+
+    void setDurableReference(final PageReference durableReference) {
+      pageContainer = null;
+      this.durableReference = durableReference;
+    }
+  }
+
   /**
    * The most recent page container.
    */
@@ -456,12 +476,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /** Scratch reference receives direct-write offsets without mutating a live tree reference. */
   private final PageReference pinnedTrieSpillShadowReference = new PageReference();
 
-  /**
-   * Whether this writer has attempted an uncommitted direct trie write since the last durable
-   * beacon. Set before the first write so even a partial/throwing append forces resource-cache
-   * invalidation on abort before the backend reuses that logical tail.
-   */
-  private boolean hasUncommittedPinnedTriePrewrites;
+  /** Whether this writer has appended to a reclaimable tail since the last durable beacon. */
+  private boolean hasUncommittedReclaimableWrites;
+
+  private long firstUncommittedPageOffset = Long.MAX_VALUE;
+
+  private final ReadPageResolution readPageResolution = new ReadPageResolution();
+
+  private long cursorDurableReadOffset = Constants.NULL_ID_LONG;
+
+  private @Nullable KeyValueLeafPage cursorDurableReadPage;
+
+  private long secondCursorDurableReadOffset = Constants.NULL_ID_LONG;
+
+  private @Nullable KeyValueLeafPage secondCursorDurableReadPage;
 
   /** Owner of the two fixed native side-payload reservoirs. Lazily allocated and explicitly closed. */
   private @Nullable Arena sidePagePayloadArena;
@@ -1254,9 +1282,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Calculate page.
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
 
-    final PageContainer pageCont = getPageContainer(recordPageKey, index, indexType);
-
+    final int revision = newRevisionRootPage.getRevision();
+    PageContainer pageCont = getMostRecentPageContainer(indexType, recordPageKey, index, revision);
+    PageReference durableReference = null;
     if (pageCont == null) {
+      final ReadPageResolution resolution = resolvePageForRead(recordPageKey, index, indexType, revision);
+      pageCont = resolution.pageContainer;
+      durableReference = resolution.durableReference;
+    }
+
+    if (pageCont == null && durableReference == null) {
       // Fallback to underlying reader. The reader may return a FlyweightNode bound to a page
       // whose MemorySegment lifecycle is managed by the reader (guard-based eviction).
       // Since the writer cannot hold the reader's page guard, the segment may be freed and
@@ -1268,12 +1303,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         fn.unbind();
       }
       return record;
-    } else {
+    } else if (pageCont != null) {
       DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
         node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
       }
       return (V) storageEngineReader.checkItemIfDeleted(node);
+    }
+
+    final KeyValueLeafPage durablePage =
+        storageEngineReader.readRecordPageFromExactReference(requireNonNull(durableReference));
+    try {
+      return (V) storageEngineReader.readDetachedRecord(durablePage, recordKey);
+    } finally {
+      durablePage.retire();
     }
   }
 
@@ -1895,17 +1938,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      // Conservative by design: Writer.write may flush internally when the shared buffer crosses
-      // FLUSH_SIZE, and an I/O exception can therefore leave an aborted offset range even if this
-      // method never reaches its explicit final flush.
-      hasUncommittedPinnedTriePrewrites = true;
       injectAsyncFlushFault("trie-spill-before-write");
       final ResourceConfiguration resourceConfiguration = getResourceSession().getResourceConfig();
       for (int i = 0; i < pinnedTrieSpillBatch.size(); i++) {
         pinnedTrieSpillShadowReference.clearHash();
         pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
         pinnedTrieSpillShadowReference.setPage(null);
-        storagePageReaderWriter.write(resourceConfiguration, pinnedTrieSpillShadowReference,
+        writeUncommittedPage(resourceConfiguration, pinnedTrieSpillShadowReference,
             pinnedTrieSpillBatch.pageAt(i), bufferBytes);
         pinnedTrieSpillBatch.setWriteResult(i, pinnedTrieSpillShadowReference.getKey(),
             pinnedTrieSpillShadowReference.getHashAsLong(), pinnedTrieSpillShadowReference.hasHash());
@@ -1942,6 +1981,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       pinnedTrieSpillShadowReference.clearHash();
       pinnedTrieSpillShadowReference.setKey(Constants.NULL_ID_LONG);
       pinnedTrieSpillShadowReference.setPage(null);
+    }
+  }
+
+  private void writeUncommittedPage(final ResourceConfiguration resourceConfiguration,
+      final PageReference reference, final Page page, final BytesOut<?> bufferedBytes) {
+    if (storagePageReaderWriter.supportsReclaimableUncommittedWrites()) {
+      hasUncommittedReclaimableWrites = true;
+    }
+    try {
+      storagePageReaderWriter.write(resourceConfiguration, reference, page, bufferedBytes);
+    } finally {
+      final long pageOffset = reference.getKey();
+      if (pageOffset != Constants.NULL_ID_LONG) {
+        firstUncommittedPageOffset = Math.min(firstUncommittedPageOffset, pageOffset);
+      }
     }
   }
 
@@ -2340,7 +2394,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                     encodedBytes = 0L;
                     frameCache = false;
                   }
-                  storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
+                  writeUncommittedPage(config, shadowRef, serializationCopy, bgBuffer);
                   if (HFT_TELEMETRY_ENABLED) {
                     // Count only KVL pages whose synchronous writer call consumed the encoded cache.
                     // This is the exact denominator for the two mutually-exclusive cache outcomes;
@@ -2541,7 +2595,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
       shadowRef.setKey(Constants.NULL_ID_LONG);
       shadowRef.clearHash();
-      storagePageReaderWriter.write(config, shadowRef, overflowPage, bgBuffer);
+      writeUncommittedPage(config, shadowRef, overflowPage, bgBuffer);
       sidePages.diskOffsets[i] = shadowRef.getKey();
       if ((i & 63) == 63) {
         markAsyncFlushProgress();
@@ -3064,7 +3118,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
               + "still pending — awaitPendingAsyncFlush must drain every active side-page batch before root "
               + "serialization");
         }
-        storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
+        writeUncommittedPage(getResourceSession().getResourceConfig(), reference, sideMapPage, bufferBytes);
         reference.setPage(null);
         return;
       }
@@ -3107,7 +3161,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     final PageReference.TransactionLogReference logReference = reference.transactionLogReference();
-    storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+    writeUncommittedPage(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
     PageReference.completeTransactionLogReference(logReference, reference.getKey(), reference.getHashAsLong(),
         reference.hasHash());
 
@@ -3253,7 +3307,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           uberPage, bufferBytes);
       // The beacon now makes every foreground prewrite part of a durable reachable revision; an
       // eventual close must not invalidate those committed offsets.
-      hasUncommittedPinnedTriePrewrites = false;
+      hasUncommittedReclaimableWrites = false;
+      firstUncommittedPageOffset = Long.MAX_VALUE;
+      closeCursorDurableReadPage();
 
       final long t4 = timing
           ? System.nanoTime()
@@ -3813,20 +3869,21 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Drop this resource's global page-cache entries before an aborted backend tail can be reused.
    *
-   * <p>Foreground trie spill writes offsets ahead of the commit beacon. A reclaimable backend starts
-   * the next writer at the prior durable frontier, so an abort intentionally overwrites those
-   * offsets. Any cache entry populated from the prewritten bytes must be gone before that reuse or a
-   * reader can observe the aborted page under the successor page's numeric key.</p>
+   * <p>A reclaimable backend starts the next writer at the prior durable frontier, so an abort
+   * intentionally overwrites every page appended ahead of the commit beacon. Any cache entry
+   * populated from those bytes must be gone before that reuse.</p>
    */
-  private void invalidateCachesForAbortedPinnedTriePrewrites() {
-    if (!hasUncommittedPinnedTriePrewrites) {
+  private void invalidateCachesForAbortedUncommittedWrites() {
+    if (!hasUncommittedReclaimableWrites) {
+      firstUncommittedPageOffset = Long.MAX_VALUE;
       return;
     }
     // Use the retained immutable session/config directly: close() invokes this after the reader has
     // been closed, where the forwarding accessor correctly refuses normal read operations.
     final ResourceConfiguration resourceConfiguration = storageEngineReader.resourceSession.getResourceConfig();
     Databases.clearCachesForResource(resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
-    hasUncommittedPinnedTriePrewrites = false;
+    hasUncommittedReclaimableWrites = false;
+    firstUncommittedPageOffset = Long.MAX_VALUE;
   }
 
   @Override
@@ -3865,6 +3922,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       teardownFailure = retainFirstFailure(teardownFailure, t);
     }
 
+    try {
+      closeCursorDurableReadPage();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
+
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     try {
@@ -3890,7 +3953,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      invalidateCachesForAbortedPinnedTriePrewrites();
+      invalidateCachesForAbortedUncommittedWrites();
       injectAsyncFlushFault("rollback-after-trie-cache-invalidate");
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
@@ -3979,6 +4042,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         teardownFailure = retainFirstFailure(teardownFailure, t);
       }
     }
+    try {
+      closeCursorDurableReadPage();
+    } catch (final Throwable t) {
+      teardownFailure = retainFirstFailure(teardownFailure, t);
+    }
     // Release reader guards before asking the TIL to close its pages. A reader-close failure is
     // retained, but must not prevent the log from making its own best-effort release.
     try {
@@ -4023,7 +4091,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     try {
-      invalidateCachesForAbortedPinnedTriePrewrites();
+      invalidateCachesForAbortedUncommittedWrites();
       injectAsyncFlushFault("close-after-trie-cache-invalidate");
     } catch (final Throwable t) {
       teardownFailure = retainFirstFailure(teardownFailure, t);
@@ -4047,7 +4115,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // entries are still addressable. If either barrier fails, retain the permit deliberately: a
     // wedged resource is fail-closed, whereas handing it to a successor can return wrong pages.
     if (!isBoundToNodeTrx && unboundTrxId != Constants.NULL_ID_INT
-        && !hasUncommittedPinnedTriePrewrites && storageWriterClosed) {
+        && !hasUncommittedReclaimableWrites && storageWriterClosed) {
       try {
         storageEngineReader.resourceSession.closePageWriteTransaction(unboundTrxId, this);
       } catch (final Throwable t) {
@@ -4135,40 +4203,32 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return null;
   }
 
-  private PageContainer getPageContainer(final long recordPageKey, final int indexNumber, final IndexType indexType) {
-    final int revision = newRevisionRootPage.getRevision();
-    final PageContainer pageContainer =
-        getMostRecentPageContainer(indexType, recordPageKey, indexNumber, revision);
-    if (pageContainer != null) {
-      return pageContainer;
-    }
-    return resolvePageContainer(recordPageKey, indexNumber, indexType, revision);
-  }
-
   /**
    * Cache/trie resolution after the tiny most-recent-page fast path misses. Kept out of
    * {@link #getModifiedPageForRead} so C2 can inline its overwhelmingly common cache hit without
    * also inlining this cold resolver's mutable-key lookup and keyed-trie traversal.
    */
-  private PageContainer resolvePageContainer(final long recordPageKey, final int indexNumber,
+  private ReadPageResolution resolvePageForRead(final long recordPageKey, final int indexNumber,
       final IndexType indexType, final int revision) {
+    readPageResolution.clear();
     lookupKey.setIndexType(indexType)
              .setRecordPageKey(recordPageKey)
              .setIndexNumber(indexNumber)
              .setRevisionNumber(revision);
     final PageContainer cached = pageContainerCache.get(lookupKey);
     if (cached != null) {
-      return cached;
+      readPageResolution.setPageContainer(cached);
+      return readPageResolution;
     }
 
     final PageReference pageReference =
         storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-    // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
-    // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
-    // the reader's getLeafPageReference would try to load them from disk with key=-1.
     final PageReference reference =
-        keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType), pageReference,
-            recordPageKey, indexNumber, indexType, newRevisionRootPage);
+        storageEngineReader.getReferenceToLeafOfSubtree(pageReference, recordPageKey, indexNumber, indexType,
+            newRevisionRootPage);
+    if (reference == null) {
+      return readPageResolution;
+    }
     final PageContainer resolved = log.get(reference);
 
     // NEVER cache a FROZEN container here (#1077): this read-path helper runs between an async
@@ -4180,7 +4240,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (resolved != null && !log.isFrozen(reference)) {
       pageContainerCache.put(new IndexLogKey(indexType, recordPageKey, indexNumber, revision), resolved);
     }
-    return resolved;
+    if (resolved != null) {
+      readPageResolution.setPageContainer(resolved);
+    } else if (firstUncommittedPageOffset != Long.MAX_VALUE
+        && reference.getKey() >= firstUncommittedPageOffset) {
+      readPageResolution.setDurableReference(reference);
+    }
+    return readPageResolution;
   }
 
   @Nullable
@@ -4396,9 +4462,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.closeCurrentPageGuard();
     }
 
-    final var result = storageEngineReader.getPageFragments(reference);
+    final boolean ownedFragments = firstUncommittedPageOffset != Long.MAX_VALUE
+        && reference.getKey() >= firstUncommittedPageOffset;
+    final var result = ownedFragments
+        ? storageEngineReader.getOwnedPageFragments(reference)
+        : storageEngineReader.getPageFragments(reference);
 
-    // All fragments are guarded by getPageFragments() to prevent eviction during combining
     try {
       // A fragment fresh off disk may carry only its symbol table's dictionary id; the combine
       // decodes through the table bytes, so they must be resolved first — see the reader's
@@ -4422,10 +4491,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // high enough to reliably overlap a reader's guard with a writer remove (see
       // HOTVersionedLeafStressTest.soakWithConcurrentReaders with hot.soak.index=name).
       for (var page : result.pages()) {
-        ((KeyValueLeafPage) page).releaseGuard();
+        if (ownedFragments) {
+          ((KeyValueLeafPage) page).close();
+        } else {
+          ((KeyValueLeafPage) page).releaseGuard();
+        }
       }
-      // Note: Fragments remain in cache for potential reuse. ClockSweeper will evict them when
-      // appropriate.
     }
   }
 
@@ -4565,7 +4636,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final int revision = newRevisionRootPage.getRevision();
     PageContainer pc = getMostRecentPageContainer(indexType, recordPageKey, index, revision);
     if (pc == null) {
-      pc = resolvePageContainer(recordPageKey, index, indexType, revision);
+      final ReadPageResolution resolution = resolvePageForRead(recordPageKey, index, indexType, revision);
+      pc = resolution.pageContainer;
+      if (pc == null && resolution.durableReference != null) {
+        return cursorPageFromExactReference(resolution.durableReference);
+      }
     }
     if (pc != null) {
       final var modified = pc.getModified();
@@ -4574,6 +4649,74 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     }
     return null;
+  }
+
+  private KeyValueLeafPage cursorPageFromExactReference(final PageReference reference) {
+    final KeyValueLeafPage currentPage = cursorDurableReadPage;
+    if (currentPage != null && !currentPage.isClosed() && cursorDurableReadOffset == reference.getKey()) {
+      return currentPage;
+    }
+    final KeyValueLeafPage secondPage = secondCursorDurableReadPage;
+    if (secondPage != null && !secondPage.isClosed() && secondCursorDurableReadOffset == reference.getKey()) {
+      return secondPage;
+    }
+    final KeyValueLeafPage loadedPage = storageEngineReader.readRecordPageFromExactReference(reference);
+    if (currentPage == null) {
+      cursorDurableReadOffset = reference.getKey();
+      cursorDurableReadPage = loadedPage;
+    } else if (secondPage == null) {
+      secondCursorDurableReadOffset = reference.getKey();
+      secondCursorDurableReadPage = loadedPage;
+    } else {
+      loadedPage.retire();
+      throw new IllegalStateException("The write cursor retained more than two durable read pages");
+    }
+    return loadedPage;
+  }
+
+  @Override
+  public boolean isReadOnlyPageForRead(final KeyValueLeafPage page) {
+    return cursorDurableReadPage == page || secondCursorDurableReadPage == page;
+  }
+
+  @Override
+  public @Nullable DataRecord getDetachedRecordForRead(final KeyValueLeafPage page, final long recordKey) {
+    return storageEngineReader.readDetachedRecord(page, recordKey);
+  }
+
+  @Override
+  public void releasePageForRead(final @Nullable KeyValueLeafPage page) {
+    if (page == null) {
+      return;
+    }
+    if (cursorDurableReadPage == page) {
+      cursorDurableReadPage = null;
+      cursorDurableReadOffset = Constants.NULL_ID_LONG;
+      if (!page.isClosed()) {
+        page.retire();
+      }
+    } else if (secondCursorDurableReadPage == page) {
+      secondCursorDurableReadPage = null;
+      secondCursorDurableReadOffset = Constants.NULL_ID_LONG;
+      if (!page.isClosed()) {
+        page.retire();
+      }
+    }
+  }
+
+  private void closeCursorDurableReadPage() {
+    final KeyValueLeafPage firstPage = cursorDurableReadPage;
+    final KeyValueLeafPage secondPage = secondCursorDurableReadPage;
+    cursorDurableReadPage = null;
+    cursorDurableReadOffset = Constants.NULL_ID_LONG;
+    secondCursorDurableReadPage = null;
+    secondCursorDurableReadOffset = Constants.NULL_ID_LONG;
+    if (firstPage != null && !firstPage.isClosed()) {
+      firstPage.retire();
+    }
+    if (secondPage != null && !secondPage.isClosed()) {
+      secondPage.retire();
+    }
   }
 
   @Override
@@ -4630,7 +4773,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // that the "run this before opening anything that reads the file" precondition never covered.
     Databases.clearCachesForResource(resourceSession.getResourceConfig().getDatabaseId(),
         storageEngineReader.getResourceId());
-    hasUncommittedPinnedTriePrewrites = false;
+    hasUncommittedReclaimableWrites = false;
+    firstUncommittedPageOffset = Long.MAX_VALUE;
+    closeCursorDurableReadPage();
     // Path-class records are cached per (resource, revision), and truncateTo RE-ISSUES the
     // truncated revision numbers over different content -- the same offset-reuse hazard the page
     // caches are dropped for above. Without this a PathFilter/CASFilter at a re-issued revision is

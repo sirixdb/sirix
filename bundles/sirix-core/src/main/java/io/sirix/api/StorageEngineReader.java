@@ -362,7 +362,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} &lt; 0
    */
-  PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey, int indexNumber,
+  @Nullable PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey, int indexNumber,
       IndexType indexType, RevisionRootPage revisionRootPage);
 
   /**

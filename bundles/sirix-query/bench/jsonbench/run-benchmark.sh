@@ -2,7 +2,7 @@
 #
 # run-benchmark.sh <tier> <sirix-db-dir> <clickhouse-ref-dir>
 #
-# The SirixDB side of JSONBench: load if needed, run N cool-gated evicted
+# The SirixDB side of JSONBench: load if needed, run isolated cold/hot query
 # rounds, prove the answers against the ClickHouse reference, and print the
 # scoreboard.
 #
@@ -14,8 +14,8 @@
 #   --data F | DATA=F     cleaned corpus, required only when the db must be built
 #   --bin B  | SIRIX_BIN=B  run an ahead-of-time image instead of the JVM
 #                           (the shipped numbers are all native -- see README)
-#   --rounds N | ROUNDS=2   evicted rounds; the suite figure is the min over them
-#   --tries N  | TRIES=3    tries per query inside one round
+#   --rounds N | ROUNDS=2   isolated rounds; the suite figure selects one complete round
+#   --tries N  | TRIES=4    one cold plus three hot processes per query
 #   --out DIR  | OUT=DIR    per-round JSON + logs (default <db>-results)
 #   SKIP_DIFF=1             skip the differential (not recommended: a timing
 #                           without a correctness proof is not a result)
@@ -72,16 +72,26 @@ TIER="$1"; DB="$2"; REF="$3"; shift 3
 DATA="${DATA:-}"
 SIRIX_BIN="${SIRIX_BIN:-}"
 ROUNDS="${ROUNDS:-2}"
-TRIES="${TRIES:-3}"
+TRIES="${TRIES:-4}"
 OUT="${OUT:-}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --data)   DATA="${2:-}"; shift 2 ;;
-    --bin)    SIRIX_BIN="${2:-}"; shift 2 ;;
-    --rounds) ROUNDS="${2:-}"; shift 2 ;;
-    --tries)  TRIES="${2:-}"; shift 2 ;;
-    --out)    OUT="${2:-}"; shift 2 ;;
+    --data)
+      [ "$#" -ge 2 ] || die "--data requires a value"
+      DATA="$2"; shift 2 ;;
+    --bin)
+      [ "$#" -ge 2 ] || die "--bin requires a value"
+      SIRIX_BIN="$2"; shift 2 ;;
+    --rounds)
+      [ "$#" -ge 2 ] || die "--rounds requires a value"
+      ROUNDS="$2"; shift 2 ;;
+    --tries)
+      [ "$#" -ge 2 ] || die "--tries requires a value"
+      TRIES="$2"; shift 2 ;;
+    --out)
+      [ "$#" -ge 2 ] || die "--out requires a value"
+      OUT="$2"; shift 2 ;;
     -h|--help) usage ;;
     *) die "unknown option: $1" ;;
   esac
@@ -102,7 +112,10 @@ HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 need_cmd python3
 need_dir "${REF}" "the ClickHouse reference directory (run clickhouse-setup.sh)"
 need_file "${REF}/q1.tsv" "reference answers"
+need_file "${REF}/baseline.txt" "measured ClickHouse protocol baseline"
 need_file "${HERE}/compare-results.py" "the differential comparator"
+need_file "${HERE}/merge-query-results.py" "the isolated-run merger"
+need_file "${HERE}/summarize-results.py" "the complete-round summarizer"
 
 # --- the config table -------------------------------------------------------
 case "${TIER}" in
@@ -145,7 +158,7 @@ if [ -n "${SIRIX_BIN}" ]; then
   log "engine: native image ${SIRIX_BIN}"
   run_suite() {  # run_suite <json-out> <log-out> [extra args...]
     local json="$1" logf="$2"; shift 2
-    "${SIRIX_BIN}" "${DB}" --tries "${TRIES}" --json "${json}" "$@" ${RUN_FLAGS} \
+    "${SIRIX_BIN}" "${DB}" --tries "${RUN_TRIES:-${TRIES}}" --json "${json}" "$@" ${RUN_FLAGS} \
         > "${logf}" 2>&1 \
       || die "the native runner failed; its output is in ${logf}"
   }
@@ -161,7 +174,7 @@ else
     # show the tail of the log; a swallowed cause here cost three dead runs.
     "${GRADLE_LAUNCHER}" --console=plain ${GRADLE_FLAGS:-} -p "${REPO_ROOT}" \
         :sirix-query:jsonBench \
-        -Pjsonbench.args="${DB} --tries ${TRIES} --json ${json}${extra}" \
+        -Pjsonbench.args="${DB} --tries ${RUN_TRIES:-${TRIES}} --json ${json}${extra}" \
         -Pjsonbench.jvmArgs="${RUN_FLAGS}" > "${logf}" 2>&1 \
       || { echo "--- last 40 lines of ${logf} ---" >&2; tail -40 "${logf}" >&2;
            die "the JVM runner failed; full output in ${logf}"; }
@@ -169,12 +182,29 @@ else
 fi
 
 # --- 3. the timed rounds ----------------------------------------------------
-log "running ${ROUNDS} evicted round(s), --tries ${TRIES}, cool gate ${COOL_MAX_C} C"
+log "running ${ROUNDS} isolated round(s), ${TRIES} fresh process(es) per query, cool gate ${COOL_MAX_C} C"
 for round in $(seq 1 "${ROUNDS}"); do
-  cool_gate
-  evict_paths "${DB}"
   log "round ${round}/${ROUNDS}"
-  run_suite "${OUT}/round-${round}.json" "${OUT}/round-${round}.log"
+  parts_dir="${OUT}/round-${round}-parts"
+  mkdir -p "${parts_dir}" || die "cannot create ${parts_dir}"
+  round_log="${OUT}/round-${round}.log"
+  : > "${round_log}" || die "cannot write ${round_log}"
+  parts=()
+  for query in 1 2 3 4 5; do
+    cool_gate
+    evict_paths "${DB}"
+    for attempt in $(seq 1 "${TRIES}"); do
+      part_json="${parts_dir}/q${query}-try${attempt}.json"
+      part_log="${parts_dir}/q${query}-try${attempt}.log"
+      RUN_TRIES=1 run_suite "${part_json}" "${part_log}" --queries "${query}"
+      parts+=("${part_json}")
+      printf '# Q%d try%d\n' "${query}" "${attempt}" >> "${round_log}"
+      cat "${part_log}" >> "${round_log}"
+    done
+  done
+  python3 "${HERE}/merge-query-results.py" --out "${OUT}/round-${round}.json" \
+      --queries 5 --tries "${TRIES}" "${parts[@]}" \
+    || die "could not merge isolated timings for round ${round}"
   grep -h '^# served' "${OUT}/round-${round}.log" | sed 's/^/    /' || true
 done
 
@@ -185,9 +215,7 @@ DIFF_STATUS="skipped"
 if [ "${SKIP_DIFF:-0}" != "1" ]; then
   log "differential run (--dump, untimed)"
   rm -rf "${OUT}/dump"
-  TRIES_SAVED="${TRIES}"; TRIES=1
-  run_suite "${OUT}/dump.json" "${OUT}/dump.log" --dump "${OUT}/dump"
-  TRIES="${TRIES_SAVED}"
+  RUN_TRIES=1 run_suite "${OUT}/dump.json" "${OUT}/dump.log" --dump "${OUT}/dump"
   # Written first, then echoed: piping into `tee` would test TEE's exit status,
   # so a failing differential would be reported as a pass.
   python3 "${HERE}/compare-results.py" --dump "${OUT}/dump" --ref "${REF}" \
@@ -202,107 +230,9 @@ if [ "${SKIP_DIFF:-0}" != "1" ]; then
 fi
 
 # --- 5. the scoreboard ------------------------------------------------------
-python3 - "${TIER}" "${OUT}" "${ROUNDS}" "${REF}/baseline.txt" "${DIFF_STATUS}" <<'PYEOF' || die "could not summarise the rounds in ${OUT}"
-import json, sys
-from pathlib import Path
-
-tier, out, rounds, baseline_path, diff_status = sys.argv[1], Path(sys.argv[2]), int(sys.argv[3]), Path(sys.argv[4]), sys.argv[5]
-
-# ClickHouse baselines measured during the campaign, used when the reference
-# directory carries no baseline.txt of its own (see clickhouse-setup.sh).
-PUBLISHED = {
-    "1m":   [(0.021, 0.015), (0.064, 0.058), (0.027, 0.024), (0.036, 0.023), (0.039, 0.025)],
-    "10m":  [(0.023, 0.025), (0.277, 0.227), (0.088, 0.078), (0.124, 0.074), (0.131, 0.080)],
-    "100m": [(0.108, 0.105), (2.182, 1.921), (0.797, 0.528), (0.489, 0.427), (0.580, 0.523)],
-}
-
-# The runner writes one row per query and fills the ones --queries left out with
-# nulls, so the executed set is derived rather than assumed -- otherwise a subset
-# run sums to a suite figure that is quietly missing queries.
-rows_per_round = []
-executed = None
-total_queries = None
-for r in range(1, rounds + 1):
-    path = out / f"round-{r}.json"
-    if not path.exists():
-        sys.exit(f"missing round output: {path}")
-    doc = json.loads(path.read_text())
-    rows = doc.get("result") or doc.get("results")
-    if not rows:
-        sys.exit(f"{path} carries no 'result' array -- the run produced no timings")
-    ran = [i for i, row in enumerate(rows) if row and row[0] is not None]
-    # This script always asks for the whole suite, so a null row is a query that
-    # FAILED -- never a query that was not requested. Dropping it from the sum
-    # would produce a suite figure that is quietly missing a query.
-    missing = [i + 1 for i in range(len(rows)) if i not in ran]
-    if missing:
-        sys.exit(f"{path}: no timing for Q{', Q'.join(str(m) for m in missing)} -- "
-                 f"those queries failed. Read the round log next to this file; the summary "
-                 f"is withheld because a partial sum is not a suite result.")
-    if executed is None:
-        executed, total_queries = ran, len(rows)
-    elif ran != executed:
-        sys.exit(f"round {r} ran a different query set than round 1 -- not comparable")
-    rows_per_round.append(rows)
-
-cold = [min(rd[q][0] for rd in rows_per_round) for q in executed]
-# --tries 1 reports a cold number and no hot one; say so instead of printing NaN.
-have_hot = len(rows_per_round[0][executed[0]]) > 1
-hot = [min(min(rd[q][1:]) for rd in rows_per_round) for q in executed] if have_hot \
-    else [None] * len(executed)
-queries = len(executed)
-full_suite = queries == total_queries
-
-# The baseline is indexed by the QUERY number (1-based, as the runner's --queries
-# takes them and as baseline.txt spells them), while `executed` holds 0-based row
-# indices; a subset run must line the two up rather than compare Q3 against Q1.
-base, base_src = None, ""
-if baseline_path.exists():
-    parsed = {}
-    for line in baseline_path.read_text().splitlines():
-        parts = line.split()
-        if len(parts) == 3:
-            parsed[parts[0]] = (float(parts[1]), float(parts[2]))
-    if all(f"Q{i+1}" in parsed for i in executed):
-        base = [parsed[f"Q{i+1}"] for i in executed]
-        base_src = f"measured on this machine ({baseline_path})"
-if base is None and tier in PUBLISHED and max(executed) < len(PUBLISHED[tier]):
-    base = [PUBLISHED[tier][i] for i in executed]
-    base_src = "published campaign figures (no baseline.txt in the reference dir)"
-
-def ratio(ours, theirs):
-    if ours is None or not theirs:
-        return "     -"
-    r = ours / theirs
-    return f"{r:5.2f}x" + (" " if r >= 1 else "*")
-
-def ms(value):
-    return "       -" if value is None else f"{value * 1000:8.0f}"
-
-print()
-print(f"  JSONBench, tier {tier} -- min over {rounds} evicted round(s)")
-print(f"  ClickHouse baseline: {base_src if base else 'unavailable'}")
-if not full_suite:
-    print(f"  SUBSET: {queries} of {total_queries} queries "
-          f"({','.join(str(i + 1) for i in executed)}) -- the Σ row is NOT the suite figure.")
-print()
-head = "  query |  sirix cold |   sirix hot |     CH cold |      CH hot |  cold |   hot"
-print(head)
-print("  " + "-" * (len(head) - 2))
-for slot, qidx in enumerate(executed):
-    bc, bh = base[slot] if base else (0.0, 0.0)
-    print(f"     Q{qidx+1} | {ms(cold[slot])} ms | {ms(hot[slot])} ms |"
-          f" {bc*1000:8.0f} ms | {bh*1000:8.0f} ms | {ratio(cold[slot], bc)} | {ratio(hot[slot], bh)}")
-sc = sum(cold)
-sh = sum(hot) if have_hot else None
-bc, bh = (sum(x[0] for x in base), sum(x[1] for x in base)) if base else (0.0, 0.0)
-print("  " + "-" * (len(head) - 2))
-print(f"      Σ | {ms(sc)} ms | {ms(sh)} ms |"
-      f" {bc*1000:8.0f} ms | {bh*1000:8.0f} ms | {ratio(sc, bc)} | {ratio(sh, bh)}")
-print()
-print("  ratios are sirix/ClickHouse; '*' marks the rows where SirixDB is faster.")
-print(f"  differential: {diff_status}")
-PYEOF
+python3 "${HERE}/summarize-results.py" "${TIER}" "${OUT}" "${ROUNDS}" "${TRIES}" \
+    "${REF}/baseline.txt" "${DIFF_STATUS}" \
+  || die "could not summarise the rounds in ${OUT}"
 
 log "per-round JSON and logs: ${OUT}"
 if [ "${DIFF_STATUS}" = "FAIL" ]; then

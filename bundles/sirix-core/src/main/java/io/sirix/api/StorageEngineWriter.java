@@ -452,15 +452,46 @@ public interface StorageEngineWriter extends StorageEngineReader {
   PageGuard acquireGuardForNode(long nodeKey);
 
   /**
-   * Get the TIL's modified {@link KeyValueLeafPage} for a given record page key, or null if not in TIL.
-   * Used by the singleton moveTo path to read from the correct (modified) page during write transactions.
+   * Get the current writer revision's {@link KeyValueLeafPage} for a given record page key, or
+   * {@code null} when the page is unchanged from the committed base revision.
+   * Used by the singleton moveTo path to read from the correct page during write transactions.
    *
    * @param recordPageKey the record page key
    * @param indexType the index type
    * @param index the index number
-   * @return the modified page if in TIL, null otherwise
+   * @return the current writer page, or {@code null} when the committed reader can resolve it
    */
   default @Nullable KeyValueLeafPage getModifiedPageForRead(long recordPageKey, IndexType indexType, int index) {
     return null;
+  }
+
+  /**
+   * Determine whether a page returned by {@link #getModifiedPageForRead(long, IndexType, int)} is a
+   * private read-only materialization.
+   *
+   * @param page the returned page
+   * @return {@code true} when callers must detach records before releasing the page
+   */
+  default boolean isReadOnlyPageForRead(KeyValueLeafPage page) {
+    return false;
+  }
+
+  /**
+   * Read a record whose lazy state no longer depends on the supplied private page.
+   *
+   * @param page the private read-only page
+   * @param recordKey the record key
+   * @return the detached record, or {@code null}
+   */
+  default @Nullable DataRecord getDetachedRecordForRead(KeyValueLeafPage page, long recordKey) {
+    return null;
+  }
+
+  /**
+   * Release a private page returned for current-revision reads.
+   *
+   * @param page the page, or {@code null}
+   */
+  default void releasePageForRead(@Nullable KeyValueLeafPage page) {
   }
 }

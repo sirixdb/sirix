@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import io.sirix.access.Databases;
 import io.brackit.query.node.stream.ArrayStream;
 import io.brackit.query.util.serialize.StringSerializer;
+import io.sirix.index.projection.ProjectionBulkLoad;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -15,9 +16,15 @@ import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BasicJsonDBStoreTest {
 
@@ -65,6 +72,53 @@ class BasicJsonDBStoreTest {
     builder.numberOfNodesBeforeAutoCommit(expectedNodes);
     store = builder.build();
     assertEquals(expectedNodes, store.options().numberOfNodesBeforeAutoCommit());
+  }
+
+  @Test
+  void defaultStoreResourcesSupportLoadTimeProjectionsWithDeweyIds() {
+    store = builder.build();
+    final ProjectionSpec projection = new ProjectionSpec("/[]", List.of("/[]/value"), List.of("long"));
+    final JsonDBCollection collection = store.create("defaultDewey", "resource",
+        new JsonReader(new StringReader("[{\"value\":1}]")), projection);
+
+    try (final var session = collection.getDatabase().beginResourceSession("resource");
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(session.getResourceConfig().areDeweyIDsStored);
+      final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
+      assertNotNull(controller.getIndexes().getIndexDef(0, projection.toIndexDef().getType()));
+      assertTrue(controller.hasProjectionIndex());
+    }
+  }
+
+  @Test
+  void genericResourcesKeepTheOptInDeweyDefault() {
+    store = builder.build();
+    final JsonDBCollection collection = store.create("defaultGeneric", "resource", "[1]");
+
+    try (final var session = collection.getDatabase().beginResourceSession("resource")) {
+      assertFalse(session.getResourceConfig().areDeweyIDsStored);
+    }
+  }
+
+  @Test
+  void explicitDeweyDisableRejectsProjectionWithoutCatalogOrListenerResidue() {
+    store = builder.storeDeweyIds(false).build();
+    final ProjectionSpec projection = new ProjectionSpec("/[]", List.of("/[]/value"), List.of("long"));
+    final IllegalStateException failure = assertThrows(IllegalStateException.class,
+        () -> store.create("disabledDewey", "resource",
+            new JsonReader(new StringReader("[{\"value\":1}]")), projection));
+    assertTrue(failure.getMessage().contains("Dewey IDs"));
+
+    final JsonDBCollection collection = store.lookup("disabledDewey");
+    try (final var session = collection.getDatabase().beginResourceSession("resource");
+         final var rtx = session.beginNodeReadOnlyTrx()) {
+      assertFalse(session.getResourceConfig().areDeweyIDsStored);
+      final var controller = session.getRtxIndexController(rtx.getRevisionNumber());
+      assertNull(controller.getIndexes().getIndexDef(0, projection.toIndexDef().getType()));
+      assertFalse(controller.hasProjectionIndex());
+      assertNull(ProjectionBulkLoad.active(
+          session.getResourceConfig().getResource().toString(), 0));
+    }
   }
 
   @Test

@@ -30,6 +30,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.utils.GapList;
 import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 
 import java.util.BitSet;
 import java.util.List;
@@ -165,6 +166,10 @@ public final class BitmapReferencesPage implements Page {
     } else {
       return createNewReference(offset);
     }
+  }
+
+  public @Nullable PageReference referenceAtOffset(final int offset) {
+    return bitmap.get(offset) ? references.get(index(offset)) : null;
   }
 
   @Override

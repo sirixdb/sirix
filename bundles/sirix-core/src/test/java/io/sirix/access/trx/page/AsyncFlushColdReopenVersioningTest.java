@@ -12,10 +12,13 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.access.trx.node.InternalNodeTrx;
 import io.sirix.api.Database;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.index.IndexType;
 import io.sirix.io.StorageType;
+import io.sirix.node.RevisionReferencesNode;
 import io.sirix.settings.VersioningType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -102,6 +105,111 @@ final class AsyncFlushColdReopenVersioningTest {
     }
   }
 
+  @ParameterizedTest(name = "{0} flushed mutations remain visible to their writer")
+  @EnumSource(VersioningType.class)
+  @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void flushedMutationsRemainVisibleAndSurviveColdReopen(final VersioningType versioningType) {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    final long updatedNodeKey;
+    final long deletedNodeKey;
+    final long insertedNodeKey;
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createVersionedResource(database, versioningType);
+      final long arrayNodeKey;
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        arrayNodeKey = wtx.insertArrayAsFirstChild().getNodeKey();
+        updatedNodeKey = wtx.insertStringValueAsFirstChild("before-update").getNodeKey();
+        assertTrue(wtx.moveTo(arrayNodeKey));
+        deletedNodeKey = wtx.insertStringValueAsFirstChild("delete-me").getNodeKey();
+        wtx.commit();
+      }
+
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
+               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        assertTrue(wtx.moveTo(updatedNodeKey));
+        wtx.setStringValue("after-update");
+        assertTrue(wtx.moveTo(deletedNodeKey));
+        wtx.remove();
+        assertTrue(wtx.moveTo(arrayNodeKey));
+        insertedNodeKey = wtx.insertStringValueAsFirstChild("inserted").getNodeKey();
+
+        final var writer = wtx.getStorageEngineWriter();
+        writer.asyncFlush();
+        writer.awaitPendingAsyncFlush();
+        rotatePastFlushedDocumentPage(writer);
+
+        assertTrue(wtx.moveTo(insertedNodeKey));
+        assertEquals("inserted", wtx.getValue());
+        assertTrue(wtx.moveTo(updatedNodeKey));
+        assertEquals("after-update", wtx.getValue());
+        wtx.setStringValue("after-boundary-update");
+        assertFalse(wtx.moveTo(deletedNodeKey));
+        wtx.commit();
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveTo(insertedNodeKey));
+      assertEquals("inserted", rtx.getValue());
+      assertTrue(rtx.moveTo(updatedNodeKey));
+      assertEquals("after-boundary-update", rtx.getValue());
+      assertFalse(rtx.moveTo(deletedNodeKey));
+    }
+  }
+
+  @ParameterizedTest(name = "{0} rollback invalidates reclaimable async-page offsets")
+  @EnumSource(VersioningType.class)
+  @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
+  void rollbackInvalidatesReclaimableAsyncPageOffsets(final VersioningType versioningType) {
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    final long valueNodeKey;
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createVersionedResource(database, versioningType);
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        wtx.insertArrayAsFirstChild();
+        valueNodeKey = wtx.insertStringValueAsFirstChild("base").getNodeKey();
+        wtx.commit();
+      }
+
+      try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+           final JsonNodeTrx wtx = session.beginNodeTrx(Integer.MAX_VALUE,
+               AfterCommitState.KEEP_OPEN_ASYNC_FLUSH)) {
+        assertTrue(wtx.moveTo(valueNodeKey));
+        wtx.setStringValue("aborted");
+        final var writer = wtx.getStorageEngineWriter();
+        writer.asyncFlush();
+        writer.awaitPendingAsyncFlush();
+        rotatePastFlushedDocumentPage(writer);
+        assertTrue(wtx.moveTo(valueNodeKey));
+        assertEquals("aborted", wtx.getValue());
+
+        wtx.rollback();
+        assertTrue(wtx.moveTo(valueNodeKey));
+        wtx.setStringValue("successor");
+        wtx.commit();
+
+        try (final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          assertTrue(rtx.moveTo(valueNodeKey));
+          assertEquals("successor", rtx.getValue());
+        }
+      }
+    }
+
+    Databases.clearGlobalCaches();
+    try (final Database<JsonResourceSession> database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+         final JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+      assertTrue(rtx.moveTo(valueNodeKey));
+      assertEquals("successor", rtx.getValue());
+    }
+  }
+
   @Test
   @Timeout(value = 2, unit = TimeUnit.MINUTES, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
   void storageOnlyEpochsPreserveIncrementalBulkHashMetadata() {
@@ -157,6 +265,25 @@ final class AsyncFlushColdReopenVersioningTest {
                                                  .versioningApproach(VersioningType.FULL)
                                                  .storageType(StorageType.FILE_CHANNEL)
                                                  .build());
+  }
+
+  private static void createVersionedResource(final Database<JsonResourceSession> database,
+      final VersioningType versioningType) {
+    database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
+                                                 .storeDiffs(false)
+                                                 .hashKind(HashType.NONE)
+                                                 .buildPathSummary(false)
+                                                 .versioningApproach(versioningType)
+                                                 .maxNumberOfRevisionsToRestore(3)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .build());
+  }
+
+  private static void rotatePastFlushedDocumentPage(final StorageEngineWriter writer) {
+    final long changedNodeKey = writer.getActualRevisionRootPage().getMaxNodeKeyInChangedNodesIndex() + 1;
+    writer.createRecord(new RevisionReferencesNode(changedNodeKey, new int[] {1}), IndexType.CHANGED_NODES, -1);
+    writer.asyncFlush();
+    writer.awaitPendingAsyncFlush();
   }
 
   private static void insertHashedArray(final Database<JsonResourceSession> database,

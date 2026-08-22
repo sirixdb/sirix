@@ -16,7 +16,7 @@ import io.sirix.query.compiler.optimizer.GroupAggregateDetectionStage;
 import io.sirix.query.compiler.optimizer.RowMaterializeDetectionStage;
 import io.sirix.query.compiler.optimizer.SortedScanDetectionStage;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
-import io.sirix.query.scan.SirixVectorizedExecutor;
+import io.sirix.query.scan.SirixExecutorProvider;
 
 /**
  * Sirix-aware pipeline strategy that extends Brackit's sequential strategy with support for
@@ -38,14 +38,16 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    */
   @Override
   public Expr compilePipeExpr(AST node, Compiler compiler) throws QueryException {
-    final Expr generic = super.compilePipeExpr(node, compiler);
+    final Expr generic = Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
+        ? super.compileGenericPipeExpr(node, compiler)
+        : super.compilePipeExpr(node, compiler);
     // P5b stage 7b (+gap 1b multi-key): sorted-scan serving. Brackit's own
     // supportsSortedScan hook DROPS the predicate (its sorted() factory never receives
     // it), so sirix consumes its OWN SortedScanDetectionStage annotations here instead —
     // predicate included — and keeps supportsSortedScan false.
     if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.SORTED_SCAN))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor sortExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider sortExecutor) {
       final String[] sortSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
       final String[] orderFields = (String[]) node.getProperty(SortedScanDetectionStage.SORTED_FIELDS);
       final boolean[] descending = (boolean[]) node.getProperty(SortedScanDetectionStage.SORTED_DESC);
@@ -60,7 +62,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), orderFields, descending, topK == null
                 ? -1L
                 : topK,
-            returnField, sortExecutor.boundDatabaseName(), runtimeRef(sortSourceRef), generic);
+            returnField, sourceRef(sortSourceRef), generic);
       }
     }
     // P5b stage 7d: predicate scan — filtered rows (or one field of them) in document order,
@@ -68,7 +70,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
     // scan-without-sort branch inside the shared expr.
     if (Boolean.TRUE.equals(node.getProperty(SortedScanDetectionStage.PREDICATE_SCAN))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor predExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider predExecutor) {
       final String[] predSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
       final PredicateNode predTree = (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE");
       final SourceRef predSourceRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
@@ -77,13 +79,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       if (predSourcePath != null && predTree != null && acceptsOrRuntimeCheckable(predExecutor, predSourceRef)) {
         return new SirixSortedScanExpr(predExecutor, predSourcePath, predTree, null, null, predTopK == null
             ? -1L
-            : predTopK, predReturnField, predExecutor.boundDatabaseName(), runtimeRef(predSourceRef), generic);
+            : predTopK, predReturnField, sourceRef(predSourceRef), generic);
       }
     }
     // P5b stage 7c: covered-row serving (record-constructor returns over covered fields).
     if (Boolean.TRUE.equals(node.getProperty(RowMaterializeDetectionStage.ROW_MAT))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor rowExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider rowExecutor) {
       final String[] rowSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
       final String[] rowFields = (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_FIELDS);
       final String[] rowOutNames = (String[]) node.getProperty(RowMaterializeDetectionStage.ROW_MAT_OUT_NAMES);
@@ -95,13 +97,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
           && rowConsts != null && acceptsOrRuntimeCheckable(rowExecutor, rowSourceRef)) {
         return new SirixRowMaterializeExpr(rowExecutor, rowSourcePath,
             (PredicateNode) node.getProperty("VECTORIZED_PREDICATE_TREE"), rowFields, rowOutNames, rowDirect, rowCodes,
-            rowConsts, runtimeRef(rowSourceRef), generic);
+            rowConsts, sourceRef(rowSourceRef), generic);
       }
     }
     // Constant-key grouping (Q29's `let $g := 1 ... group by $g`): one scalar pass, one record.
     if (Boolean.TRUE.equals(node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_CONST))
         && !(generic instanceof VectorizedGroupByExpr)
-        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor constExecutor) {
+        && SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider constExecutor) {
       final SourceRef constRef = (SourceRef) node.getProperty("VECTORIZED_SOURCE_REF");
       final String[] constSourcePath = (String[]) node.getProperty("VECTORIZED_SOURCE_PATH_PREFIX");
       final String[] constFuncs = (String[]) node.getProperty(GroupAggregateDetectionStage.GROUP_AGG_FUNCS);
@@ -112,7 +114,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
           && constOffsets != null && constOffsets.length == constFuncs.length
           && acceptsOrRuntimeCheckable(constExecutor, constRef)) {
         return new SirixConstGroupAggregateExpr(constExecutor, constSourcePath, servedPredicate(node), constFuncs,
-            constFields, constOffsets, constOutNames, runtimeRef(constRef), generic);
+            constFields, constOffsets, constOutNames, sourceRef(constRef), generic);
       }
       return generic;
     }
@@ -129,7 +131,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
       // shape at compile time, so its own runtime path exists).
       return generic;
     }
-    if (!(SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixVectorizedExecutor sirixExecutor)) {
+    if (!(SequentialPipelineStrategy.getVectorizedExecutor() instanceof SirixExecutorProvider sirixExecutor)) {
       return generic;
     }
     // Source identity/revision gate — the same check brackit's own vectorized dispatch
@@ -223,7 +225,7 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
             : -1L,
         keyOffsets, keySubstr, keyCondFields, keyCondLits, keyCondElse, keyRegexPattern, keyRegexRepl, keyDivMod,
         keyStringify, having, decorPos, decorPrefix, decorSuffix, constEntryPos, constEntryNames, constEntryValues,
-        runtimeRef(sourceRef), generic);
+        sourceRef(sourceRef), generic);
   }
 
   /**
@@ -247,15 +249,13 @@ public final class SirixPipelineStrategy extends SequentialPipelineStrategy {
    * {@code VectorizedExecutor#acceptsSource(SourceRef, QueryContext)}; the expr carries the ref and
    * declines to its generic fallback when the runtime binding is foreign.
    */
-  static boolean acceptsOrRuntimeCheckable(final SirixVectorizedExecutor executor, final SourceRef ref) {
+  static boolean acceptsOrRuntimeCheckable(final SirixExecutorProvider executor, final SourceRef ref) {
     return ref == null || ref.kind() == SourceRef.Kind.VARIABLE || executor.acceptsSource(ref);
   }
 
-  /** The ref an expr must re-check at runtime: only VARIABLE refs; others are settled at compile. */
-  static SourceRef runtimeRef(final SourceRef ref) {
-    return ref != null && ref.kind() == SourceRef.Kind.VARIABLE
-        ? ref
-        : null;
+  /** Carries the admitted source into the revision-stable evaluation lease and runtime gate. */
+  static SourceRef sourceRef(final SourceRef ref) {
+    return ref;
   }
 
   @SuppressWarnings("unchecked")

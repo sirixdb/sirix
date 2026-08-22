@@ -178,6 +178,34 @@ final class RevisionTrackingExecutorTest {
     });
   }
 
+  @Test
+  void aCapabilityLeaseConsumesTheGatePinItAdmitted() throws Exception {
+    withResource((session, executorFactory, lifecycle) -> {
+      final SirixVectorizedExecutor gated = executorFactory.get();
+      final SirixVectorizedExecutor afterLease = executorFactory.get();
+      try {
+        final AtomicReference<SirixVectorizedExecutor> answer = new AtomicReference<>(gated);
+        final RevisionTrackingExecutor executor =
+            new RevisionTrackingExecutor(answer::get, ignored -> answer::get, lifecycle);
+        final SourceRef source = SourceRef.document(DB, RES, SourceRef.LATEST_REVISION);
+        final QueryContext evaluation = new BrackitQueryContext();
+
+        assertTrue(executor.acceptsSource(source, evaluation));
+        answer.set(afterLease);
+        try (final SirixExecutorProvider.Lease lease = executor.acquire(evaluation, source)) {
+          assertNotNull(lease);
+          assertSame(gated, lease.executor());
+        }
+
+        assertTrue(executor.canExecute(evaluation));
+        assertSame(afterLease, executor.lastResolved());
+      } finally {
+        gated.close();
+        afterLease.close();
+      }
+    });
+  }
+
   /**
    * Belt and braces for the same property: a pin is bound to the evaluation that took it, so even
    * one left behind cannot answer for a LATER execution — which carries its own

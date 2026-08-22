@@ -54,10 +54,9 @@ import java.util.stream.Stream;
  * shreds to roughly 31M nodes, i.e. ~237 windows, which is what bounds ingest memory;</li>
  * <li>{@code -Djsonbench.projection} (default true) — build the projection index over the five
  * columns the queries touch, as part of the load;</li>
- * <li>{@code -Djsonbench.projection.required} (default false) — make a failed projection build
- * fatal. Off by default deliberately: the ingest is the expensive half and a projection can be
- * added in place afterwards ({@code JsonBenchRunMain --build-projection}), so an index problem must
- * not throw a completed shred away. The failure is still reported loudly;</li>
+ * <li>{@code -Djsonbench.projection.required} (default true) — make a failed second-pass projection
+ * build fatal. Set this to false only to retain a completed shred for later repair with
+ * {@code JsonBenchRunMain --build-projection}; such a load is not a valid benchmark result;</li>
  * <li>{@code -DbuildPathSummary} (defaults to {@code jsonbench.projection}) — the projection
  * builder resolves its field paths through the summary, so the two cannot disagree;</li>
  * <li>{@code -DbuildPathStatistics} (default false), {@code -DhashType} (default NONE);</li>
@@ -97,7 +96,7 @@ public final class JsonBenchLoadMain {
     final int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "131072"));
     final boolean projection = Boolean.parseBoolean(System.getProperty("jsonbench.projection", "true"));
     final boolean projectionRequired =
-        Boolean.parseBoolean(System.getProperty("jsonbench.projection.required", "false"));
+        Boolean.parseBoolean(System.getProperty("jsonbench.projection.required", "true"));
     // One-pass by default: the projection is declared before the shred and maintained by it. The
     // second-pass route stays available (-Djsonbench.projection.incremental=false) — it is what every
     // published number so far was measured with, and the only route for an already-loaded corpus.
@@ -122,13 +121,8 @@ public final class JsonBenchLoadMain {
         autoCommit, pathSummary, pathStatistics, hashType);
 
     final long start = System.nanoTime();
-    try (var store = BasicJsonDBStore.newBuilder()
-                                     .location(dbDir)
-                                     .numberOfNodesBeforeAutoCommit(autoCommit)
-                                     .buildPathSummary(pathSummary)
-                                     .buildPathStatistics(pathStatistics)
-                                     .hashType(hashType)
-                                     .build()) {
+    try (var store = newLoadStoreBuilder(dbDir, autoCommit, pathSummary, pathStatistics, projection, hashType)
+        .build()) {
       try (Reader src = ClickBenchSource.open(source); JsonReader jsonReader = new JsonReader(src)) {
         if (projection && incrementalProjection) {
           store.create(JsonBenchSchema.DATABASE, JsonBenchSchema.RESOURCE, jsonReader, JsonBenchProjection.spec());
@@ -137,8 +131,8 @@ public final class JsonBenchLoadMain {
         }
       }
     }
-    double loadSeconds = (System.nanoTime() - start) / 1e9;
-    System.out.printf("# shred: %.3f s%n", loadSeconds);
+    final double shredSeconds = (System.nanoTime() - start) / 1e9;
+    System.out.printf("# shred: %.3f s%n", shredSeconds);
 
     // The projection index is part of LOADING, the same way ClickHouse builds its typed subcolumns
     // while ingesting: a run without it measures the row path and can say nothing about any column
@@ -157,7 +151,6 @@ public final class JsonBenchLoadMain {
         System.out.printf("# projection: columns=%d globalDictColumns=%d built in %.3f s by a second pass%n",
             JsonBenchProjection.COLUMN_PATHS.size(), ProjectionIndexBuilder.globalDictionaryColumnsBuilt(),
             projectionSeconds);
-        loadSeconds += projectionSeconds;
       } catch (final RuntimeException e) {
         System.out.printf("# projection: FAILED — %s%n", e);
         System.out.println("# projection: no query will be served from columns; the shred itself is intact and the "
@@ -174,6 +167,7 @@ public final class JsonBenchLoadMain {
     // time" means "the data is on disk" the way the JSONBench driver intends.
     sync();
 
+    final double loadSeconds = (System.nanoTime() - start) / 1e9;
     final long bytes = directorySize(dbDir);
     System.out.printf("Load time: %.3f%n", loadSeconds);
     System.out.printf("Data size: %d%n", bytes);
@@ -282,6 +276,18 @@ public final class JsonBenchLoadMain {
     return objects;
   }
 
+  static BasicJsonDBStore.Builder newLoadStoreBuilder(final Path dbDir, final int autoCommit,
+      final boolean pathSummary, final boolean pathStatistics, final boolean projection,
+      final HashType hashType) {
+    return BasicJsonDBStore.newBuilder()
+                           .location(dbDir)
+                           .numberOfNodesBeforeAutoCommit(autoCommit)
+                           .buildPathSummary(pathSummary)
+                           .buildPathStatistics(pathStatistics)
+                           .storeDeweyIds(projection)
+                           .hashType(hashType);
+  }
+
   /**
    * Sums every file below {@code dir}; JSONBench counts indexes and logs, i.e. everything.
    *
@@ -300,15 +306,21 @@ public final class JsonBenchLoadMain {
     }
   }
 
-  /** Best-effort {@code sync(1)}; ignored where it is not available. */
-  private static void sync() {
+  /** Runs {@code sync(1)} and returns only after it has durably completed. */
+  private static void sync() throws IOException {
+    awaitSuccessfulSync(new ProcessBuilder("sync").inheritIO().start());
+  }
+
+  static void awaitSuccessfulSync(final Process process) throws IOException {
+    final int exitCode;
     try {
-      new ProcessBuilder("sync").inheritIO().start().waitFor();
-    } catch (final IOException | InterruptedException e) {
-      if (e instanceof InterruptedException) {
-        Thread.currentThread().interrupt();
-      }
-      System.out.println("# note: could not run sync(1): " + e.getMessage());
+      exitCode = process.waitFor();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IOException("interrupted while waiting for sync(1)", e);
+    }
+    if (exitCode != 0) {
+      throw new IOException("sync(1) exited with status " + exitCode);
     }
   }
 }
