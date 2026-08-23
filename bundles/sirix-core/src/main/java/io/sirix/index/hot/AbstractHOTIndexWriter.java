@@ -526,7 +526,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // If leaf is already in log, return the modified instance directly.
       final PageContainer existingLeafContainer = storageEngineWriter.getLog().get(currentRef);
       if (existingLeafContainer != null && existingLeafContainer.getModified() instanceof HOTLeafPage modifiedLeaf
-          && !modifiedLeaf.isClosed()) {
+          && servesTraversal(modifiedLeaf)) {
         return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
 
@@ -668,20 +668,34 @@ public abstract class AbstractHOTIndexWriter<K> {
    * </p>
    */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
-    final PageContainer container = storageEngineWriter.getLog().get(ref);
+    final TransactionIntentLog log = storageEngineWriter.getLog();
+    final PageContainer container = log.get(ref);
     if (container != null) {
       final Page modified = container.getModified();
-      if (modified != null && !modified.isClosed()) {
+      if (servesTraversal(modified)) {
         return modified;
       }
       final Page complete = container.getComplete();
-      if (complete != null && !complete.isClosed()) {
+      if (servesTraversal(complete)) {
         return complete;
       }
     }
 
+    // The log has the entry but released its HOT leaf: an incremental merge moved that leaf's
+    // entries into a sibling. Neither remaining source describes this slot any more — the instance
+    // still swizzled here is the freed page, and the durable image behind the reference is the
+    // leaf's PRE-MERGE bytes, whose keys now also live in the merge target. Handing either one to
+    // the descent seeds it with a leaf whose key set contradicts the live routing, and the insert
+    // dispatch reads that contradiction as a branch escape (mismatch bit at or above an ancestor's
+    // discriminative bit) it cannot place incrementally — which on the projection index, where
+    // subtree rebuilds are refused outright, ends the transaction. Resolving to nothing keeps the
+    // traversal on the trie's own structure.
+    if (log.namesReleasedHOTLeafEntry(ref)) {
+      return null;
+    }
+
     final Page swizzled = ref.getPage();
-    if (swizzled != null && !swizzled.isClosed()) {
+    if (servesTraversal(swizzled)) {
       return swizzled;
     }
 
@@ -690,6 +704,24 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     return storageEngineWriter.loadHOTPage(ref);
+  }
+
+  /**
+   * Whether {@code page} may be handed to a write-path descent.
+   *
+   * <p>
+   * {@code isClosed()} alone is not the predicate for a HOT leaf: {@link HOTLeafPage#close()} marks
+   * the page orphaned immediately but defers the teardown to the last {@code releaseGuard()}, and
+   * throughout that window the page already refuses {@code acquireGuard()} while {@code isClosed()}
+   * still reads false. This is the same test {@code TransactionIntentLog} applies to a container, so
+   * the log layer and the reference layer agree on which pages are gone.
+   * </p>
+   */
+  private static boolean servesTraversal(final @Nullable Page page) {
+    if (page == null || page.isClosed()) {
+      return false;
+    }
+    return !(page instanceof HOTLeafPage leaf) || !leaf.isOrphaned();
   }
 
   /**

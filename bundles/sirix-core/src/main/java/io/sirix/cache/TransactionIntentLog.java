@@ -904,6 +904,49 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
+   * Whether {@code ref} names an entry that is still here but no longer resolvable, because every
+   * page it holds is a HOT leaf {@link #releaseOrphanedHOTLeaves(List)} already freed.
+   *
+   * <p>
+   * {@link #get} answers {@code null} for two entirely different situations: this transaction never
+   * logged the reference at all, and this transaction logged it and then released its leaf. Only the
+   * first may fall back to durable storage. Falling back for the second resurrects the leaf's
+   * <em>pre-merge</em> image — the entries it held before an incremental merge moved them into a
+   * sibling — so the merged keys exist twice and the resulting descent contradicts the live routing.
+   * A caller that can reach storage therefore has to ask which of the two it is looking at.
+   * </p>
+   *
+   * <p>
+   * Only the three direct layers are consulted, and no identity is rebound: a released entry is a
+   * live array slot by construction, and callers ask this immediately after a {@link #get} that has
+   * already followed and rebound any forwarding chain.
+   * </p>
+   *
+   * @param ref the reference to classify
+   * @return {@code true} iff the entry exists and every page it holds is a released HOT leaf
+   */
+  public boolean namesReleasedHOTLeafEntry(final PageReference ref) {
+    final int logKey = ref.getLogKey();
+    if (logKey < 0) {
+      return false;
+    }
+    final int generation = ref.getActiveTilGeneration();
+    final PageContainer entry;
+    if (generation == PINNED_GENERATION) {
+      entry = isLivePinnedSlot(logKey)
+          ? pinnedEntries[logKey]
+          : null;
+    } else if (generation == currentGeneration && logKey < size) {
+      entry = entries[logKey];
+    } else if (snapshotEntries != null && generation == snapshotGeneration && logKey < snapshotSize) {
+      entry = snapshotEntries[logKey];
+    } else {
+      entry = null;
+    }
+    return entry != null && resolvableContainer(entry) == null;
+  }
+
+  /**
    * Get the reference that owns the entry {@code ref} resolves to. Used to copy disk offsets when a
    * duplicate reference (from HOTIndirectPage COW) resolves to the same TIL entry.
    *
