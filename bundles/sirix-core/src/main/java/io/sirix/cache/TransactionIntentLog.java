@@ -1165,6 +1165,45 @@ public final class TransactionIntentLog implements AutoCloseable {
     return releasedHOTLeafIdentityReplacements.get(((long) generation << 32) | (logKey & 0xFFFFFFFFL));
   }
 
+  /**
+   * The reference the log itself keeps for a released entry — the one that owns it.
+   *
+   * <p>
+   * A released entry that no merge produced has lost nothing: a spill closes the exact container it
+   * has just written out, and a superseded container is closed together with its successor. In both
+   * cases the page is still addressable, but only through the identity the ENTRY's own reference
+   * received. A copy of that reference — every indirect-page copy-on-write deep-copies its child
+   * references — does not: {@code refreshTransactionLogReference()} follows a shared handle, and a
+   * copy taken before the publication (or one made without the handle) has none to follow, so it
+   * carries a bare log key and no durable offset. Handing the copy's resolution over to the owning
+   * reference is what lets it reach the page anyway.
+   * </p>
+   *
+   * <p>
+   * Scoped to released entries on purpose: for a resolvable entry the ordinary layers already answer,
+   * and returning an owner there would let a caller bypass them. Nothing is rebound — the identity is
+   * read exactly as given, through the same three regions {@link #releasedEntry} consults.
+   * </p>
+   *
+   * @param logKey the log key the reference names
+   * @param generation the generation the reference names
+   * @return the owning reference, or {@code null} when that identity names no released entry
+   */
+  public @Nullable PageReference releasedEntryOwnerReference(final int logKey, final int generation) {
+    if (releasedEntry(logKey, generation) == null) {
+      return null;
+    }
+    if (generation == PINNED_GENERATION) {
+      return pinnedRefs[logKey];
+    }
+    if (generation == currentGeneration) {
+      return entryRefs[logKey];
+    }
+    return snapshotRefs == null
+        ? null
+        : snapshotRefs[logKey];
+  }
+
   /** Resolve a packed {@code (generation, logKey)} through the same regions {@link #get} uses. */
   private @Nullable PageContainer resolvePackedIdentity(final long packed) {
     final int generation = (int) (packed >> 32);

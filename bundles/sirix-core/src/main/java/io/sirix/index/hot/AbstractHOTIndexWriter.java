@@ -205,7 +205,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private PageReference selfHealScope;
 
   /**
-   * Set by {@link #resolveHOTPageForTraversal} when it refused a released HOT leaf and had no
+   * Set by {@link #resolveHOTPageForTraversal} when it refused a MERGED-AWAY HOT leaf and had no
    * replacement to forward the descent to. Transaction-local like every other field here (the writer
    * is single-threaded) and cleared at the start of each {@link #prepareLeafOfTree}: the empty-slot
    * arm has to tell "this reference never had a page" from "this reference's page is gone", and the
@@ -724,7 +724,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    * answering nothing lets the caller's empty-slot arm fabricate an empty leaf over the slot. The
    * forwarding is followed here rather than inside a single lookup because the replacement may have
    * been merged away in turn, so the links form a chain; {@link #MAX_RELEASED_LEAF_FORWARDS} bounds
-   * it. Only a chain that ends nowhere sets {@link #releasedLeafRefused}.
+   * it. Only a MERGE chain that ends nowhere sets {@link #releasedLeafRefused} — an entry no merge
+   * released lost its page, not its keys to another page, so it is answered with nothing instead.
    * </p>
    */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
@@ -760,45 +761,16 @@ public abstract class AbstractHOTIndexWriter<K> {
     // named answers "none" for an entry that very much exists and has been released.
     final int logKeyBeforeResolution = ref.getLogKey();
     final int generationBeforeResolution = ref.getActiveTilGeneration();
-    boolean releasedWithoutMerge = false;
-    final PageContainer container = log.get(ref);
-    if (container != null) {
-      final Page modified = container.getModified();
-      if (servesTraversal(modified)) {
-        return modified;
-      }
-      final Page complete = container.getComplete();
-      if (servesTraversal(complete)) {
-        return complete;
-      }
+    final Page resident = servingPageOf(log.get(ref));
+    if (resident != null) {
+      return resident;
     }
 
-    // The log has the entry but every page it holds is a closed HOT leaf. That is the state an
-    // incremental merge leaves behind after moving the leaf's entries into a sibling — and for THAT
-    // case neither remaining source describes this slot any more: the instance still swizzled here
-    // is the freed page, and the durable image behind the reference is the leaf's PRE-MERGE bytes,
-    // whose keys now also live in the merge target. Handing either one to the descent seeds it with
-    // a leaf whose key set contradicts the live routing, and the insert dispatch reads that
-    // contradiction as a branch escape (mismatch bit at or above an ancestor's discriminative bit)
-    // it cannot place incrementally — which on the projection index, where subtree rebuilds are
-    // refused outright, ends the transaction. The merge forwarded the orphan to the page that
-    // absorbed its entries, and that page is the one the descent must continue at.
-    //
-    // It is NOT, however, the only way an entry loses every page: a spill closes the very container
-    // it has just written out, and a superseded container is closed with its successor. Those merged
-    // nothing away and forwarded nothing, and their durable image is the live one — so an entry with
-    // no forwarding link is handed to mergeReleasedEntry, which asks the authority.
+    // The log has the entry but every page it holds is a closed HOT leaf. Two very different things
+    // produce that state, and they want opposite answers — see disposeOfMergedAwayEntry.
+    boolean releasedWithoutMerge = false;
     if (namesReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
-      // get() has already tried the packed-identity forwarding; that link only resolves while the
-      // replacement is still an addressable log entry, so ask for the replacement's REFERENCE, which
-      // outlives both a mid-transaction spill to a durable offset and a retired generation.
-      final PageReference replacement =
-          releasedEntryReplacement(log, ref, logKeyBeforeResolution, generationBeforeResolution);
-      if (replacement != null) {
-        forwardedReplacementRef = replacement;
-        return null;
-      }
-      if (mergeReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
+      if (disposeOfMergedAwayEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
         return null;
       }
       // Unresolvable, but no merge released it: fall through to the durable image, which IS the live
@@ -812,11 +784,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     if (releasedWithoutMerge && ref.getKey() < 0) {
-      // The fall-through above needs somewhere to land, and here there is nowhere: the entry's pages
-      // are closed, the swizzle cannot serve, and no durable image was ever written for this
-      // reference. Refuse rather than return the null the empty-slot arm reads as permission to
-      // fabricate a leaf over a slot that still routes for the keys it lost.
-      releasedLeafRefused = true;
+      continueAtReleasedEntryOwner(log, ref, logKeyBeforeResolution, generationBeforeResolution);
       return null;
     }
 
@@ -825,6 +793,90 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     return reloadUnlessAlreadyMergedAway(log, ref);
+  }
+
+  /** The page a resolved container can hand a write-path descent, or {@code null} if neither can. */
+  private static @Nullable Page servingPageOf(final @Nullable PageContainer container) {
+    if (container == null) {
+      return null;
+    }
+    final Page modified = container.getModified();
+    if (servesTraversal(modified)) {
+      return modified;
+    }
+    final Page complete = container.getComplete();
+    return servesTraversal(complete)
+        ? complete
+        : null;
+  }
+
+  /**
+   * Dispose of the descent for an unresolvable entry <em>if an incremental merge is what released
+   * it</em>.
+   *
+   * <p>
+   * For a merged-away leaf neither remaining source describes this slot any more: the instance still
+   * swizzled on the reference is the freed page, and the durable image behind it is the leaf's
+   * PRE-MERGE bytes, whose keys now also live in the merge target. Handing either one to the descent
+   * seeds it with a leaf whose key set contradicts the live routing, and the insert dispatch reads
+   * that contradiction as a branch escape (mismatch bit at or above an ancestor's discriminative bit)
+   * it cannot place incrementally — which on the projection index, where subtree rebuilds are refused
+   * outright, ends the transaction. The merge forwarded the orphan to the page that absorbed its
+   * entries, and that page is the one the descent must continue at.
+   * </p>
+   *
+   * <p>
+   * It is NOT the only way an entry loses every page: a spill closes the very container it has just
+   * written out, and a superseded container is closed with its successor. Those merged nothing away
+   * and their durable image is the live one, so they must be left to the caller's fall-through.
+   * </p>
+   *
+   * @return {@code true} iff a merge released this entry, in which case the descent has already been
+   *         given its forwarding target or refused
+   */
+  private boolean disposeOfMergedAwayEntry(final TransactionIntentLog log, final PageReference ref,
+      final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    // get() has already tried the packed-identity forwarding; that link only resolves while the
+    // replacement is still an addressable log entry, so ask for the replacement's REFERENCE, which
+    // outlives both a mid-transaction spill to a durable offset and a retired generation.
+    final PageReference replacement =
+        releasedEntryReplacement(log, ref, logKeyBeforeResolution, generationBeforeResolution);
+    if (replacement != null) {
+      forwardedReplacementRef = replacement;
+      return true;
+    }
+    return mergeReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution);
+  }
+
+  /**
+   * Send the descent to the reference the log owns for a released entry no merge produced.
+   *
+   * <p>
+   * The fall-through has nowhere to land ON THIS REFERENCE: the entry's pages are closed, the swizzle
+   * cannot serve, and this reference carries no durable offset. The ENTRY's own reference usually
+   * does — the publication that closed the container (a pinned-trie spill, a supersession) applies
+   * the durable identity to the reference the log holds for it, and a copy taken before that only
+   * sees it through a shared handle it may not have.
+   * </p>
+   *
+   * <p>
+   * When there is no owner to continue at either, the descent is answered with nothing rather than
+   * refused. {@link #releasedLeafRefused} exists to stop the empty-slot arm fabricating a leaf over a
+   * slot whose keys MOVED, and only {@code releaseOrphanedHOTLeaves} moves them — it is the sole
+   * producer of a merge, and it always records both the page-key blacklist entry
+   * {@link #mergeReleasedEntry} just failed to find and a forwarding link. An entry unresolvable
+   * without one lost its page, not its keys to another page, so there is nothing left for a
+   * fabricated leaf to shadow. Refusing here instead ended the {@code windows-latest / query} lane's
+   * transaction on a slot no merge had ever touched — the dead end that outlived three successive
+   * fixes to the forwarding, because none of them was on the path it takes.
+   * </p>
+   */
+  private void continueAtReleasedEntryOwner(final TransactionIntentLog log, final PageReference ref,
+      final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    final PageReference owner = releasedEntryOwner(log, ref, logKeyBeforeResolution, generationBeforeResolution);
+    if (owner != null && owner != ref && (owner.getKey() >= 0 || owner.getLogKey() >= 0)) {
+      forwardedReplacementRef = owner;
+    }
   }
 
   /**
@@ -887,6 +939,24 @@ public abstract class AbstractHOTIndexWriter<K> {
     return replacement != null
         ? replacement
         : log.releasedHOTLeafReplacementReference(logKeyBeforeResolution, generationBeforeResolution);
+  }
+
+  /**
+   * The reference that OWNS a released entry, asked against both identities for the same reason
+   * {@link #namesReleasedEntry} is.
+   *
+   * <p>
+   * Distinct from {@link #releasedEntryReplacement}: that one names where a merge moved the entries,
+   * this one names the same entry from the log's side. It is what a reference COPY is missing when
+   * the publication that closed the container applied a durable offset the copy never received.
+   * </p>
+   */
+  private static @Nullable PageReference releasedEntryOwner(final TransactionIntentLog log, final PageReference ref,
+      final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    final PageReference owner = log.releasedEntryOwnerReference(ref.getLogKey(), ref.getActiveTilGeneration());
+    return owner != null
+        ? owner
+        : log.releasedEntryOwnerReference(logKeyBeforeResolution, generationBeforeResolution);
   }
 
   /**

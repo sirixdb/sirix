@@ -537,20 +537,68 @@ final class HOTTraversalResolutionTest {
   }
 
   /**
-   * The fall-through needs somewhere to land. A closed entry whose reference was never flushed has no
-   * durable image and no usable swizzle, so nothing can serve it — and answering {@code null} there
-   * would hand the empty-slot arm the one value it reads as permission to fabricate a leaf over a
-   * slot that still routes for the keys it lost.
+   * A copy of a spilled entry's reference must reload through the reference the LOG owns.
+   *
+   * <p>
+   * The {@code windows-latest / query} lane's remaining dead end, and the one no fix to the merge
+   * FORWARDING could move — which is why the failure message stayed byte-identical across three
+   * rounds that each closed a different forwarding door. A pinned-trie spill writes a HOT leaf out
+   * mid-transaction, applies the durable offset to the reference the log holds for that entry, and
+   * closes the exact container it wrote. Every indirect-page copy-on-write deep-copies its child
+   * references, so the reference the trie routes through can be a copy taken before that publication:
+   * it names the now-unresolvable entry, carries no offset of its own, and
+   * {@code refreshTransactionLogReference()} has no completed handle to follow. Nothing MOVED — the
+   * page is exactly where the spill put it — so the descent has to reach it through the owning
+   * reference rather than dead-end on the copy.
+   * </p>
    */
   @Test
-  void aClosedEntryWithNoDurableImageIsStillRefusedRatherThanFabricated() {
+  void aCopyOfASpilledEntrysReferenceReloadsThroughTheReferenceTheLogOwns() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage spilledLeaf = newReleasableLeaf();
+      when(spilledLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final PageReference owningReference = new PageReference();
+      log.put(owningReference, PageContainer.getInstance(spilledLeaf, spilledLeaf));
+
+      // What the trie routes through: an independent copy taken before the spill published anything.
+      final PageReference copyHeldByTheTrie = new PageReference(owningReference);
+
+      // The spill: the bytes are on disk under an offset applied to the OWNING reference, and the
+      // container it wrote out is closed. The copy learns neither.
+      owningReference.setKey(DURABLE_OFFSET);
+      spilledLeaf.close();
+      assertTrue(log.namesReleasedHOTLeafEntry(copyHeldByTheTrie), "the copy still names the closed entry");
+      assertEquals(Constants.NULL_ID_LONG, copyHeldByTheTrie.getKey(),
+          "the copy is what this test is about: it never received the spill's durable offset");
+
+      // What the offset addresses is the leaf's LIVE content — the spill is what put it there.
+      final HOTLeafPage durableImage = mock(HOTLeafPage.class);
+      when(durableImage.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
+      when(storageEngineWriter.loadHOTPage(any(PageReference.class))).thenReturn(durableImage);
+
+      assertSame(durableImage, resolveForTraversal(storageEngineWriter, copyHeldByTheTrie),
+          "a copy that never received the spill's offset must resolve through the reference the log owns");
+    } finally {
+      log.close();
+    }
+  }
+
+  /**
+   * The refusal itself is unchanged where it belongs: a MERGE that named no replacement really did
+   * move this slot's keys into a sibling, so answering {@code null} would hand the empty-slot arm the
+   * one value it reads as permission to fabricate a leaf over a slot that still routes for them.
+   */
+  @Test
+  void aMergedAwayEntryWithNoReplacementIsStillRefusedRatherThanFabricated() {
     final TransactionIntentLog log = newLog();
     try {
       final HOTLeafPage closedLeaf = newReleasableLeaf();
       when(closedLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
       final PageReference reference = new PageReference();
       log.put(reference, PageContainer.getInstance(closedLeaf, closedLeaf));
-      closedLeaf.close();
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
 
       final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
       when(storageEngineWriter.getLog()).thenReturn(log);
@@ -561,7 +609,7 @@ final class HOTTraversalResolutionTest {
       final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
       final IllegalStateException failure = assertThrows(IllegalStateException.class,
           () -> writer.prepareLeafOfTreeForTest(reference, new byte[Long.BYTES], Long.BYTES),
-          "a closed entry with nothing left to serve it must not be answered with a fabricated leaf");
+          "a merged-away entry with no replacement must not be answered with a fabricated leaf");
       assertTrue(failure.getMessage().contains("released leaf"), failure.getMessage());
     } finally {
       log.close();
