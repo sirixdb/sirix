@@ -305,7 +305,8 @@ final class HOTTraversalResolutionTest {
       when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
       final PageReference casReference = new PageReference();
       log.put(casReference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
-      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), null, List.of(casReference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), null, List.of(casReference),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       // A PATH leaf that is perfectly alive and shares the number, because its index counts its own.
       final HOTLeafPage livePathLeaf = mock(HOTLeafPage.class);
@@ -345,7 +346,8 @@ final class HOTTraversalResolutionTest {
       final PageReference replacement = new PageReference();
       log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
       assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
@@ -375,7 +377,8 @@ final class HOTTraversalResolutionTest {
       final PageReference replacement = new PageReference();
       log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       PageReference.completeTransactionLogReference(staleCopy.transactionLogReference(), DURABLE_OFFSET);
       staleCopy.refreshTransactionLogReference();
@@ -421,7 +424,8 @@ final class HOTTraversalResolutionTest {
       assertTrue(replacement.refreshTransactionLogReference(), "the merge target must now be a disk reference");
       assertEquals(Constants.NULL_ID_INT, replacement.getLogKey());
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan),
+          TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
       when(storageEngineWriter.loadHOTPage(

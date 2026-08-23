@@ -176,9 +176,14 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /** {@link #releaseOrphanedHOTLeaves} caller: the periodic leaf-consolidation sweep. */
   public static final int RELEASE_SITE_CONSOLIDATE = 1;
-  /** {@link #releaseOrphanedHOTLeaves} caller: a scoped {@code rebuildSubtree} at the insert depth. */
+  /**
+   * {@link #releaseOrphanedHOTLeaves} caller: a scoped {@code rebuildSubtree} at the insert depth.
+   */
   public static final int RELEASE_SITE_REBUILD_SUBTREE = 2;
-  /** {@link #releaseOrphanedHOTLeaves} caller: {@code rebuildExistingSubtree} (self-heal / fold repair). */
+  /**
+   * {@link #releaseOrphanedHOTLeaves} caller: {@code rebuildExistingSubtree} (self-heal / fold
+   * repair).
+   */
   public static final int RELEASE_SITE_REBUILD_EXISTING = 3;
   /** {@link #releaseOrphanedHOTLeaves} caller: the Direction-1 leaf-frontier splice. */
   public static final int RELEASE_SITE_FRONTIER_SPLICE = 4;
@@ -193,8 +198,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * Parallel to {@link #releasedHOTLeafReplacements}: same keys, written by the same loop, so the two
    * cannot disagree about membership. Only the refusal path (which ends the transaction) reads it.
    */
-  private final Long2ObjectOpenHashMap<Long2IntOpenHashMap> releasedHOTLeafSiteTags =
-      new Long2ObjectOpenHashMap<>();
+  private final Long2ObjectOpenHashMap<Long2IntOpenHashMap> releasedHOTLeafSiteTags = new Long2ObjectOpenHashMap<>();
 
   /** The human-readable name of a {@code RELEASE_SITE_*} tag, for refusal messages. */
   public static String releaseSiteName(final int siteTag) {
@@ -208,10 +212,15 @@ public final class TransactionIntentLog implements AutoCloseable {
     };
   }
 
-  /** The {@code RELEASE_SITE_*} tag recorded for a released page key, or {@link #RELEASE_SITE_UNKNOWN}. */
+  /**
+   * The {@code RELEASE_SITE_*} tag recorded for a released page key, or
+   * {@link #RELEASE_SITE_UNKNOWN}.
+   */
   public int releasedHOTLeafSiteTag(final long indexScope, final long pageKey) {
     final Long2IntOpenHashMap tags = releasedHOTLeafSiteTags.get(indexScope);
-    return tags == null ? RELEASE_SITE_UNKNOWN : tags.getOrDefault(pageKey, RELEASE_SITE_UNKNOWN);
+    return tags == null
+        ? RELEASE_SITE_UNKNOWN
+        : tags.getOrDefault(pageKey, RELEASE_SITE_UNKNOWN);
   }
 
   // ==================== GENERATION COUNTER ====================

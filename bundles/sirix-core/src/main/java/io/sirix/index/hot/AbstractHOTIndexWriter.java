@@ -222,12 +222,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private @Nullable String releasedLeafRefusalDetail;
 
-  /** Record a refusal over a KNOWN released page: names the cause, the page and the releasing site. */
+  /**
+   * Record a refusal over a KNOWN released page: names the cause, the page and the releasing site.
+   */
   private void refuseReleasedLeaf(final TransactionIntentLog log, final String cause, final long pageKey) {
     releasedLeafRefused = true;
     final int siteTag = log.releasedHOTLeafSiteTag(indexScope(), pageKey);
-    releasedLeafRefusalDetail = cause + " pageKey=" + pageKey + " releasedBy="
-        + TransactionIntentLog.releaseSiteName(siteTag);
+    releasedLeafRefusalDetail =
+        cause + " pageKey=" + pageKey + " releasedBy=" + TransactionIntentLog.releaseSiteName(siteTag);
   }
 
   /**
@@ -596,8 +598,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (releasedLeafRefused) {
       throw new IllegalStateException("HOT " + indexType + " index " + indexNumber
           + " descent reached a released leaf with no replacement to forward to at depth " + pathDepth
-          + "; refusing to replace it with an empty leaf ["
-          + (releasedLeafRefusalDetail == null ? "cause=unrecorded" : releasedLeafRefusalDetail) + "]");
+          + "; refusing to replace it with an empty leaf [" + (releasedLeafRefusalDetail == null
+              ? "cause=unrecorded"
+              : releasedLeafRefusalDetail)
+          + "]");
     }
     //
     // The page key comes from the allocator, like every other page this writer creates. It used to
@@ -764,9 +768,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     // A cycle longer than one link: refuse rather than spin, and let the caller's empty-slot arm
     // fail loudly instead of fabricating a leaf over a slot whose content is somewhere in the cycle.
     releasedLeafRefused = true;
-    releasedLeafRefusalDetail = "cause=forward-cycle hops=" + MAX_RELEASED_LEAF_FORWARDS + " start(key="
-        + ref.getKey() + ",logKey=" + ref.getLogKey() + ",gen=" + ref.getActiveTilGeneration() + ") last(key="
-        + current.getKey() + ",logKey=" + current.getLogKey() + ",gen=" + current.getActiveTilGeneration() + ")";
+    releasedLeafRefusalDetail = "cause=forward-cycle hops=" + MAX_RELEASED_LEAF_FORWARDS + " start(key=" + ref.getKey()
+        + ",logKey=" + ref.getLogKey() + ",gen=" + ref.getActiveTilGeneration() + ") last(key=" + current.getKey()
+        + ",logKey=" + current.getLogKey() + ",gen=" + current.getActiveTilGeneration() + ")";
     return null;
   }
 
@@ -929,8 +933,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       forwardedReplacementRef = replacement;
       return null;
     }
-    refuseReleasedLeaf(log, replacement == null ? "cause=null-replacement(durable)" : "cause=self-replacement(durable)",
-        durableLeaf.getPageKey());
+    refuseReleasedLeaf(log, replacement == null
+        ? "cause=null-replacement(durable)"
+        : "cause=self-replacement(durable)", durableLeaf.getPageKey());
     return null;
   }
 
@@ -1023,8 +1028,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (replacement != null && replacement != ref) {
       forwardedReplacementRef = replacement;
     } else {
-      refuseReleasedLeaf(log, replacement == null ? "cause=null-replacement(entry)" : "cause=self-replacement(entry)",
-          pageKey);
+      refuseReleasedLeaf(log, replacement == null
+          ? "cause=null-replacement(entry)"
+          : "cause=self-replacement(entry)", pageKey);
     }
     return true;
   }
@@ -3369,7 +3375,9 @@ public abstract class AbstractHOTIndexWriter<K> {
   private void consolidateSubtree(PageReference ref) {
     final List<PageReference> orphanedLeaves = new ArrayList<>();
     consolidateSubtree(ref, orphanedLeaves);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), ref, orphanedLeaves, TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
+    storageEngineWriter.getLog()
+                       .releaseOrphanedHOTLeaves(indexScope(), ref, orphanedLeaves,
+                           TransactionIntentLog.RELEASE_SITE_CONSOLIDATE);
   }
 
   private void consolidateSubtree(PageReference ref, List<PageReference> orphanedLeaves) {
@@ -3476,7 +3484,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), subtreeRef, staleLeafRefs, TransactionIntentLog.RELEASE_SITE_REBUILD_SUBTREE);
+    storageEngineWriter.getLog()
+                       .releaseOrphanedHOTLeaves(indexScope(), subtreeRef, staleLeafRefs,
+                           TransactionIntentLog.RELEASE_SITE_REBUILD_SUBTREE);
   }
 
   /**
@@ -3571,7 +3581,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     reattachSegmentRefs(built.rootPage(), segmentRefs);
     ref.setPage(built.rootPage());
     registerFreshSubtree(ref);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), ref, staleLeafRefs, TransactionIntentLog.RELEASE_SITE_REBUILD_EXISTING);
+    storageEngineWriter.getLog()
+                       .releaseOrphanedHOTLeaves(indexScope(), ref, staleLeafRefs,
+                           TransactionIntentLog.RELEASE_SITE_REBUILD_EXISTING);
   }
 
   /**
@@ -3946,7 +3958,8 @@ public abstract class AbstractHOTIndexWriter<K> {
         propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
       }
       storageEngineWriter.getLog()
-                         .releaseOrphanedHOTLeaves(indexScope(), navResult.pathRefs()[nodeDepth], orphanedLeafRefs, TransactionIntentLog.RELEASE_SITE_FRONTIER_SPLICE);
+                         .releaseOrphanedHOTLeaves(indexScope(), navResult.pathRefs()[nodeDepth], orphanedLeafRefs,
+                             TransactionIntentLog.RELEASE_SITE_FRONTIER_SPLICE);
       DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
       if (frontier.size() == 2) {
         DIRECTION_ONE_LEAF_PAIR_SPLICE.incrementAndGet();
@@ -4105,7 +4118,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reuse the scoped-rebuild spine propagation: treat the leaf level as rebuiltDepth=pathDepth so
     // it refreshes the parent's height + the leaf-slot partial (and recurses on an I7 collision).
     propagateRebuildUpSpine(navResult, pathDepth, keySlice, valueSlice);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), newRef, List.of(oldLeafRef), TransactionIntentLog.RELEASE_SITE_LEAF_REBUILD_ROOT);
+    storageEngineWriter.getLog()
+                       .releaseOrphanedHOTLeaves(indexScope(), newRef, List.of(oldLeafRef),
+                           TransactionIntentLog.RELEASE_SITE_LEAF_REBUILD_ROOT);
   }
 
   /**
