@@ -173,6 +173,16 @@ final class ChunkedBodyLazyReadPolicyTest {
       }
     }
 
+    // Load-bearing, and the only factor that is: the read has to be COLD. The record-page cache
+    // lives in the single global BufferManager, which deliberately survives database close, so the
+    // fragment-chained pages this revision just wrote are still resident and a point lookup is
+    // answered from the cache without ever reaching the combine arm that A6 declines laziness in.
+    // Closing the database is not enough; only dropping the global caches makes the next open read
+    // like a freshly started process. Neither the versioning type nor the revision count moves this
+    // counter -- measured across SLIDING_SNAPSHOT/DIFFERENTIAL/INCREMENTAL x 2/5/9 revisions, every
+    // cell reports 0 warm and 2 cold. (FULL has no fragments at all by construction, so it would
+    // report 0 in both -- hence the resource above must NOT be built with FULL versioning.)
+    Databases.clearGlobalCaches();
     ChunkedBodyConfig.resetDiag();
     final List<String> seen = readByPointLookup(file);
     final long fallbacks = ChunkedBodyConfig.eagerFallbacks();
