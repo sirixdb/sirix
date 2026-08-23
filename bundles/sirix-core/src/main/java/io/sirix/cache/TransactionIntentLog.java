@@ -13,6 +13,8 @@ import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 
@@ -77,7 +79,7 @@ public final class TransactionIntentLog implements AutoCloseable {
   private long[] hotLeafIndexBits = new long[8];
 
   /**
-   * Scratch for {@link #releaseOrphanedHOTLeaves(List)}: orphan leaf -> the log index that owns it.
+   * Scratch for {@link #releaseOrphanedHOTLeaves}: orphan leaf -> the log index that owns it.
    *
    * <p>
    * Reference-keyed (identity, like {@code IdentityHashMap}) with a primitive {@code int} value, and
@@ -92,6 +94,38 @@ public final class TransactionIntentLog implements AutoCloseable {
   {
     orphanCloseable.defaultReturnValue(-1);
   }
+
+  /**
+   * Page keys of the HOT leaves {@link #releaseOrphanedHOTLeaves} freed in this transaction.
+   *
+   * <p>
+   * The log-identity tests ({@link #namesReleasedHOTLeafEntry}) only work while a reference still
+   * NAMES the entry. Two ordinary events erase that: {@code refreshTransactionLogReference()} drops
+   * the log key the moment a shared handle publishes a durable offset (which the pinned trie spill
+   * does mid-transaction), and {@code PageReference#getPage()} clears the swizzle of a closed HOT
+   * leaf on first read. After either, a reference to a merged-away leaf is indistinguishable from an
+   * ordinary non-resident one, so the write path reloads it — and what comes back is the leaf's
+   * <em>pre-merge</em> image, whose keys by then also live in the merge target.
+   * </p>
+   *
+   * <p>
+   * The page key survives both erasures: it is stamped into the page, so the durable image carries
+   * it, and {@code pageKeyAllocator} issues it once — a split, a merge and a rebuild all take FRESH
+   * keys for their outputs, and only a copy-on-write copy of the very same logical page repeats one
+   * (and is released together with its source). The set therefore names exactly the logical pages
+   * that no longer exist, and it is bounded by the number of leaves this transaction merged away —
+   * merges, not records, so it does not grow with the load.
+   * </p>
+   *
+   * <p>
+   * Keyed by index scope because page keys are NOT globally unique: every {@code (indexType,
+   * indexNumber)} pair has its own {@code maxHotPageKey} counter, and one log serves all of a
+   * transaction's indexes at once. A single flat set would let a PATH merge blacklist a live
+   * PROJECTION leaf that happens to carry the same number, which is a far worse failure than the one
+   * this set exists to prevent.
+   * </p>
+   */
+  private final Long2ObjectOpenHashMap<LongOpenHashSet> releasedHOTLeafPageKeys = new Long2ObjectOpenHashMap<>();
 
   // ==================== GENERATION COUNTER ====================
 
@@ -803,8 +837,8 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Note that log index {@code index} holds a HOT leaf page, so
-   * {@link #releaseOrphanedHOTLeaves(List)} will look at it. Idempotent and O(1).
+   * Note that log index {@code index} holds a HOT leaf page, so {@link #releaseOrphanedHOTLeaves}
+   * will look at it. Idempotent and O(1).
    *
    * @param index the log index the container was stored at
    * @param container the container just stored there
@@ -854,11 +888,11 @@ public final class TransactionIntentLog implements AutoCloseable {
    * released.
    *
    * <p>
-   * Releasing a merged-away HOT leaf ({@link #releaseOrphanedHOTLeaves(List)}) frees its 64 KB
-   * off-heap frame but deliberately leaves the container in place — the commit path iterates the log
-   * by index, so a hole is not a state it may see. Without this filter the entry stayed RESOLVABLE:
-   * every reference naming it — including the copies each indirect-page copy-on-write deep-copies —
-   * got the freed page back, because both {@code loadHOTPage} implementations hand a container's page
+   * Releasing a merged-away HOT leaf ({@link #releaseOrphanedHOTLeaves}) frees its 64 KB off-heap
+   * frame but deliberately leaves the container in place — the commit path iterates the log by index,
+   * so a hole is not a state it may see. Without this filter the entry stayed RESOLVABLE: every
+   * reference naming it — including the copies each indirect-page copy-on-write deep-copies — got the
+   * freed page back, because both {@code loadHOTPage} implementations hand a container's page
    * straight to their caller. The HOT writer then dead-ended in {@code cowHOTLeafForModification}:
    * {@code acquireGuard()} can never succeed on a released page and re-resolution keeps producing
    * that same instance, so its retry could not win on ANY schedule. That is the
@@ -905,7 +939,7 @@ public final class TransactionIntentLog implements AutoCloseable {
 
   /**
    * Whether {@code ref} names an entry that is still here but no longer resolvable, because every
-   * page it holds is a HOT leaf {@link #releaseOrphanedHOTLeaves(List)} already freed.
+   * page it holds is a HOT leaf {@link #releaseOrphanedHOTLeaves} already freed.
    *
    * <p>
    * {@link #get} answers {@code null} for two entirely different situations: this transaction never
@@ -926,11 +960,28 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return {@code true} iff the entry exists and every page it holds is a released HOT leaf
    */
   public boolean namesReleasedHOTLeafEntry(final PageReference ref) {
-    final int logKey = ref.getLogKey();
+    return namesReleasedHOTLeafEntry(ref.getLogKey(), ref.getActiveTilGeneration());
+  }
+
+  /**
+   * The same classification against an explicitly supplied identity.
+   *
+   * <p>
+   * {@link #get} is not identity-preserving: its completed-offsets layer rewrites the reference into
+   * a pure durable one, and {@code PageReference#refreshTransactionLogReference()} does the same as
+   * soon as a shared handle publishes a durable offset. A caller that has to ask "was this entry
+   * released?" after a {@code get} therefore has to ask about the identity the reference carried
+   * BEFORE that call, not the one left behind by it.
+   * </p>
+   *
+   * @param logKey the log key the reference named
+   * @param generation the generation the reference named
+   * @return {@code true} iff that entry exists and every page it holds is a released HOT leaf
+   */
+  public boolean namesReleasedHOTLeafEntry(final int logKey, final int generation) {
     if (logKey < 0) {
       return false;
     }
-    final int generation = ref.getActiveTilGeneration();
     final PageContainer entry;
     if (generation == PINNED_GENERATION) {
       entry = isLivePinnedSlot(logKey)
@@ -944,6 +995,42 @@ public final class TransactionIntentLog implements AutoCloseable {
       entry = null;
     }
     return entry != null && resolvableContainer(entry) == null;
+  }
+
+  /**
+   * Whether {@code pageKey} names a HOT leaf this transaction merged away and freed.
+   *
+   * <p>
+   * The last resort of the write-path descent: once a reference has lost both its log identity and
+   * its swizzle, its durable offset is the only thing left, and following it produces the leaf's
+   * pre-merge image. That image is not garbage — it deserializes into a structurally plausible leaf —
+   * so nothing downstream rejects it; it simply holds keys that now live in the merge target too, and
+   * the descent it seeds contradicts the live routing. Checking the reloaded page's own key is what
+   * survives every identity erasure.
+   * </p>
+   *
+   * @param indexScope the page-key namespace to look in, from {@link #indexScope}
+   * @param pageKey the page key of a page resolved from durable storage
+   * @return {@code true} iff this transaction released the leaf with that page key
+   */
+  public boolean namesReleasedHOTLeafPage(final long indexScope, final long pageKey) {
+    if (releasedHOTLeafPageKeys.isEmpty()) {
+      return false;
+    }
+    final LongOpenHashSet released = releasedHOTLeafPageKeys.get(indexScope);
+    return released != null && released.contains(pageKey);
+  }
+
+  /**
+   * The page-key namespace a {@code (indexType, indexNumber)} pair owns.
+   *
+   * @param indexType the index type
+   * @param indexNumber the index number within that type
+   * @return a collision-free scope id for {@link #namesReleasedHOTLeafPage} and
+   *         {@link #releaseOrphanedHOTLeaves}
+   */
+  public static long indexScope(final IndexType indexType, final int indexNumber) {
+    return ((long) indexType.ordinal() << 32) | (indexNumber & 0xFFFF_FFFFL);
   }
 
   /**
@@ -1747,6 +1834,9 @@ public final class TransactionIntentLog implements AutoCloseable {
     completedDiskOffsets.clear();
     forwardedEntries.clear();
     completedDiskHashes.clear();
+    // Released page keys are scoped to the transaction that merged those leaves away; the next one
+    // starts from the committed trie, where nothing is missing.
+    releasedHOTLeafPageKeys.clear();
     rethrowFailure(closeFailure);
   }
 
@@ -2043,9 +2133,10 @@ public final class TransactionIntentLog implements AutoCloseable {
    * {@code AsyncFlushLogBookkeepingTest}, not by a targeted unit test — driving a HOT leaf merge
    * against a pinned leaf directly would need a HOT-index fixture this class has none of.
    *
+   * @param indexScope the page-key namespace the released leaves belong to, from {@link #indexScope}
    * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
    */
-  public void releaseOrphanedHOTLeaves(final List<PageReference> orphanRefs) {
+  public void releaseOrphanedHOTLeaves(final long indexScope, final List<PageReference> orphanRefs) {
     if (orphanRefs == null || orphanRefs.isEmpty()) {
       return;
     }
@@ -2124,10 +2215,23 @@ public final class TransactionIntentLog implements AutoCloseable {
         unshareIfElsewhere(entry.getModified(), i, closeable);
       }
     }
+    LongOpenHashSet releasedForScope = null;
     for (final HOTLeafPage leaf : closeable.keySet()) {
       // A leaf held by a pinned entry other than its own is shared and must keep its frame.
       if (!leaf.isClosed() && !isPinnedElsewhere(leaf, decodePinnedOwner(closeable.getInt(leaf)))
           && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
+        // Record the logical page BEFORE closing it. Once closed, every reference naming it can lose
+        // both its log identity and its swizzle, and only the page key still says this image is gone
+        // (see releasedHOTLeafPageKeys). Allocated on the first ACTUAL release, so the common call
+        // that frees nothing costs no map entry.
+        if (releasedForScope == null) {
+          releasedForScope = releasedHOTLeafPageKeys.get(indexScope);
+          if (releasedForScope == null) {
+            releasedForScope = new LongOpenHashSet();
+            releasedHOTLeafPageKeys.put(indexScope, releasedForScope);
+          }
+        }
+        releasedForScope.add(leaf.getPageKey());
         leaf.close();
       }
     }

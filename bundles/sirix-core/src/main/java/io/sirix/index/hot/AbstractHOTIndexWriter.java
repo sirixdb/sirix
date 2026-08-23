@@ -536,9 +536,15 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Empty tree path: create a new leaf at currentRef (root or missing child).
     // currentRef here is owned by the CoW'd parent's children array (top-down CoW above).
-    final HOTLeafPage newLeaf = new HOTLeafPage(currentRef.getKey() >= 0
-        ? currentRef.getKey()
-        : 0, storageEngineWriter.getRevisionNumber(), indexType);
+    //
+    // The page key comes from the allocator, like every other page this writer creates. It used to
+    // be currentRef.getKey() — a durable BYTE OFFSET — which is not in the page-key space at all:
+    // two different pages can carry the same number (an offset and an allocated key collide freely,
+    // and the root case fell back to a hard-coded 0), and page keys are identity in this trie —
+    // strandConfinedToLeaf compares them, and the released-leaf test below resolveHOTPageForTraversal
+    // relies on one key naming one logical page.
+    final HOTLeafPage newLeaf =
+        new HOTLeafPage(pageKeyAllocator.getAsLong(), storageEngineWriter.getRevisionNumber(), indexType);
     final PageContainer container = PageContainer.getInstance(newLeaf, newLeaf);
     storageEngineWriter.getLog().put(currentRef, container);
 
@@ -669,6 +675,11 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
     final TransactionIntentLog log = storageEngineWriter.getLog();
+    // Capture the identity BEFORE resolving: get() rewrites a reference whose shared handle has
+    // published a durable offset into a pure disk reference, so asking it afterwards which entry it
+    // named answers "none" for an entry that very much exists and has been released.
+    final int logKeyBeforeResolution = ref.getLogKey();
+    final int generationBeforeResolution = ref.getActiveTilGeneration();
     final PageContainer container = log.get(ref);
     if (container != null) {
       final Page modified = container.getModified();
@@ -690,7 +701,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // discriminative bit) it cannot place incrementally — which on the projection index, where
     // subtree rebuilds are refused outright, ends the transaction. Resolving to nothing keeps the
     // traversal on the trie's own structure.
-    if (log.namesReleasedHOTLeafEntry(ref)) {
+    if (namesReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
       return null;
     }
 
@@ -703,7 +714,51 @@ public abstract class AbstractHOTIndexWriter<K> {
       return null;
     }
 
-    return storageEngineWriter.loadHOTPage(ref);
+    return reloadUnlessAlreadyMergedAway(log, ref);
+  }
+
+  /**
+   * The durable fallback, minus the images of leaves this transaction already merged away.
+   *
+   * <p>
+   * The last door, and the only one still open once a reference has lost BOTH its log identity (a
+   * shared handle published a durable offset — the pinned trie spill does this mid-transaction) and
+   * its swizzle ({@code PageReference#getPage()} clears a closed HOT leaf's swizzle on first read).
+   * Such a reference is indistinguishable from a merely non-resident one, so no test on the reference
+   * can see that its leaf is gone. The page that comes back says so itself: it carries the page key
+   * {@code releaseOrphanedHOTLeaves} recorded when it freed the frame, and its bytes are the leaf's
+   * PRE-MERGE image, whose keys by then also live in the merge target.
+   * </p>
+   */
+  private @Nullable Page reloadUnlessAlreadyMergedAway(final TransactionIntentLog log, final PageReference ref) {
+    final Page durable = storageEngineWriter.loadHOTPage(ref);
+    if (durable instanceof HOTLeafPage durableLeaf
+        && log.namesReleasedHOTLeafPage(indexScope(), durableLeaf.getPageKey())) {
+      ref.clearPageIfSame(durableLeaf);
+      return null;
+    }
+    return durable;
+  }
+
+  /**
+   * Whether {@code ref} names a transaction-log entry whose HOT leaf an incremental merge released.
+   *
+   * <p>
+   * Asked against both identities on purpose. {@link TransactionIntentLog#get} is not
+   * identity-preserving — it rewrites a reference whose shared handle has published a durable offset
+   * into a pure disk reference — so the identity the reference carried on the way IN is the one that
+   * still names the entry, while the one it carries on the way out is what every later layer sees.
+   * </p>
+   */
+  private static boolean namesReleasedEntry(final TransactionIntentLog log, final PageReference ref,
+      final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    return log.namesReleasedHOTLeafEntry(ref)
+        || log.namesReleasedHOTLeafEntry(logKeyBeforeResolution, generationBeforeResolution);
+  }
+
+  /** This writer's page-key namespace — page keys are unique only within one index. */
+  private long indexScope() {
+    return TransactionIntentLog.indexScope(indexType, indexNumber);
   }
 
   /**
@@ -3041,7 +3096,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private void consolidateSubtree(PageReference ref) {
     final List<PageReference> orphanedLeaves = new ArrayList<>();
     consolidateSubtree(ref, orphanedLeaves);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(orphanedLeaves);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), orphanedLeaves);
   }
 
   private void consolidateSubtree(PageReference ref, List<PageReference> orphanedLeaves) {
@@ -3148,7 +3203,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), staleLeafRefs);
   }
 
   /**
@@ -3243,7 +3298,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     reattachSegmentRefs(built.rootPage(), segmentRefs);
     ref.setPage(built.rootPage());
     registerFreshSubtree(ref);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), staleLeafRefs);
   }
 
   /**
@@ -3617,7 +3672,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (nodeDepth > 0) {
         propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
       }
-      storageEngineWriter.getLog().releaseOrphanedHOTLeaves(orphanedLeafRefs);
+      storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), orphanedLeafRefs);
       DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
       if (frontier.size() == 2) {
         DIRECTION_ONE_LEAF_PAIR_SPLICE.incrementAndGet();
@@ -3776,7 +3831,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reuse the scoped-rebuild spine propagation: treat the leaf level as rebuiltDepth=pathDepth so
     // it refreshes the parent's height + the leaf-slot partial (and recurses on an I7 collision).
     propagateRebuildUpSpine(navResult, pathDepth, keySlice, valueSlice);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(List.of(oldLeafRef));
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), List.of(oldLeafRef));
   }
 
   /**
