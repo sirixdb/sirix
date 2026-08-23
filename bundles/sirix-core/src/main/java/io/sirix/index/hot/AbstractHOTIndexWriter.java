@@ -214,6 +214,25 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private boolean releasedLeafRefused;
 
+  /**
+   * Scratch handing the replacement reference from {@link #resolveOneHopForTraversal} back to
+   * {@link #resolveHOTPageForTraversal}'s forwarding loop. A field rather than a return value pair so
+   * the hot descent path stays allocation-free; transaction-local like every other field here.
+   */
+  private @Nullable PageReference forwardedReplacementRef;
+
+  /**
+   * Cap on how many released-leaf forwardings one resolution may follow.
+   *
+   * <p>
+   * A merge target can itself be merged away later in the same transaction, so the links form a
+   * chain, and the log refuses only the one-element cycle (an orphan forwarded to its own slot). This
+   * bound is what makes a longer cycle terminate; a legitimate chain is at most as long as the number
+   * of merges that touched one slot, which is orders of magnitude below it.
+   * </p>
+   */
+  private static final int MAX_RELEASED_LEAF_FORWARDS = 16;
+
   // ===== I8-onset localizer (opt-in, -Dhot.localize.i8=true). Pinpoints the per-insert dispatch
   // handler that first introduces an I8 (children-by-firstKey) violation under churn. Diagnostic
   // only; gated off in production. =====
@@ -698,8 +717,43 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <p>
    * Prefers the modified TIL page so in-transaction reads see latest writes.
    * </p>
+   *
+   * <p>
+   * A reference whose HOT leaf an incremental merge released resolves to the page that ABSORBED its
+   * entries instead — that page is where the keys the reference still routes for actually live, and
+   * answering nothing lets the caller's empty-slot arm fabricate an empty leaf over the slot. The
+   * forwarding is followed here rather than inside a single lookup because the replacement may have
+   * been merged away in turn, so the links form a chain; {@link #MAX_RELEASED_LEAF_FORWARDS} bounds
+   * it. Only a chain that ends nowhere sets {@link #releasedLeafRefused}.
+   * </p>
    */
   private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
+    PageReference current = ref;
+    for (int hop = 0; hop < MAX_RELEASED_LEAF_FORWARDS; hop++) {
+      forwardedReplacementRef = null;
+      final Page page = resolveOneHopForTraversal(current);
+      if (page != null) {
+        return page;
+      }
+      final PageReference next = forwardedReplacementRef;
+      forwardedReplacementRef = null;
+      if (next == null || next == current) {
+        return null;
+      }
+      current = next;
+    }
+    // A cycle longer than one link: refuse rather than spin, and let the caller's empty-slot arm
+    // fail loudly instead of fabricating a leaf over a slot whose content is somewhere in the cycle.
+    releasedLeafRefused = true;
+    return null;
+  }
+
+  /**
+   * One step of {@link #resolveHOTPageForTraversal}: the page for {@code ref}, or {@code null} with
+   * either {@link #forwardedReplacementRef} set to the reference the descent must continue at or
+   * {@link #releasedLeafRefused} set because there is none.
+   */
+  private @Nullable Page resolveOneHopForTraversal(final PageReference ref) {
     final TransactionIntentLog log = storageEngineWriter.getLog();
     // Capture the identity BEFORE resolving: get() rewrites a reference whose shared handle has
     // published a durable offset into a pure disk reference, so asking it afterwards which entry it
@@ -725,12 +779,18 @@ public abstract class AbstractHOTIndexWriter<K> {
     // the descent seeds it with a leaf whose key set contradicts the live routing, and the insert
     // dispatch reads that contradiction as a branch escape (mismatch bit at or above an ancestor's
     // discriminative bit) it cannot place incrementally — which on the projection index, where
-    // subtree rebuilds are refused outright, ends the transaction. The merge forwarded the orphan's
-    // identity to the page that absorbed its entries, so get() has already offered the descent the
-    // one page that IS correct here; reaching this point means the merge named no replacement.
+    // subtree rebuilds are refused outright, ends the transaction. The merge forwarded the orphan to
+    // the page that absorbed its entries, and that page is the one the descent must continue at.
     if (namesReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
-      // releaseOrphanedHOTLeaves forwards the identity, so get() already tried the replacement;
-      // reaching here means the merge named none.
+      // get() has already tried the packed-identity forwarding; that link only resolves while the
+      // replacement is still an addressable log entry, so ask for the replacement's REFERENCE, which
+      // outlives both a mid-transaction spill to a durable offset and a retired generation.
+      final PageReference replacement =
+          releasedEntryReplacement(log, ref, logKeyBeforeResolution, generationBeforeResolution);
+      if (replacement != null) {
+        forwardedReplacementRef = replacement;
+        return null;
+      }
       releasedLeafRefused = true;
       return null;
     }
@@ -768,19 +828,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     ref.clearPageIfSame(durableLeaf);
     // The merge's replacement, not nothing: the entries this image still shows went into that page,
-    // so continuing the descent there is what keeps a stale reference copy routing to them.
-    final PageContainer replacement = log.releasedHOTLeafReplacementContainer(indexScope(), durableLeaf.getPageKey());
-    final Page modified = replacement == null
-        ? null
-        : replacement.getModified();
-    if (servesTraversal(modified)) {
-      return modified;
-    }
-    final Page complete = replacement == null
-        ? null
-        : replacement.getComplete();
-    if (servesTraversal(complete)) {
-      return complete;
+    // so continuing the descent there is what keeps a stale reference copy routing to them. The
+    // replacement is named by its reference, so it resolves whether it is still a log entry or has
+    // since spilled to a durable offset of its own.
+    final PageReference replacement = log.releasedHOTLeafReplacementReference(indexScope(), durableLeaf.getPageKey());
+    if (replacement != null && replacement != ref) {
+      forwardedReplacementRef = replacement;
+      return null;
     }
     releasedLeafRefused = true;
     return null;
@@ -800,6 +854,19 @@ public abstract class AbstractHOTIndexWriter<K> {
       final int logKeyBeforeResolution, final int generationBeforeResolution) {
     return log.namesReleasedHOTLeafEntry(ref)
         || log.namesReleasedHOTLeafEntry(logKeyBeforeResolution, generationBeforeResolution);
+  }
+
+  /**
+   * The replacement a released entry forwards to, asked against both identities for the same reason
+   * {@link #namesReleasedEntry} is.
+   */
+  private static @Nullable PageReference releasedEntryReplacement(final TransactionIntentLog log,
+      final PageReference ref, final int logKeyBeforeResolution, final int generationBeforeResolution) {
+    final PageReference replacement =
+        log.releasedHOTLeafReplacementReference(ref.getLogKey(), ref.getActiveTilGeneration());
+    return replacement != null
+        ? replacement
+        : log.releasedHOTLeafReplacementReference(logKeyBeforeResolution, generationBeforeResolution);
   }
 
   /** This writer's page-key namespace — page keys are unique only within one index. */

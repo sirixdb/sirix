@@ -10,6 +10,7 @@ import io.sirix.cache.BufferManager;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
+import io.sirix.settings.Constants;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -66,6 +68,9 @@ final class HOTTraversalResolutionTest {
 
   /** The page key of the leaf an incremental merge folded into its sibling. */
   private static final long MERGED_AWAY_PAGE_KEY = 17L;
+
+  /** The durable offset a pinned-trie spill publishes for the merge target mid-transaction. */
+  private static final long REPLACEMENT_OFFSET = 8192L;
 
   /**
    * The page key the writer's allocator issues in
@@ -383,6 +388,47 @@ final class HOTTraversalResolutionTest {
 
       assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
           "the durable pre-merge image must be replaced by the page that absorbed its entries");
+    } finally {
+      log.close();
+    }
+  }
+
+  /**
+   * The forwarding has to outlive the replacement's own log identity, which is as perishable as the
+   * orphan's. The pinned trie spills HOT leaves mid-transaction: the merge target's shared handle
+   * publishes a durable offset and {@code refreshTransactionLogReference()} drops its log key on the
+   * spot, so a merge running afterwards can name no {@code (generation, logKey)} for it at all. A
+   * forwarding recorded as that identity is then no forwarding — the descent dead-ends exactly as if
+   * the merge had named nothing, and the empty-slot arm refuses. Whether the spill has happened yet
+   * is pure IO timing, which is why this only ever surfaced on the {@code windows-latest / query}
+   * lane, as {@code "descent reached a released leaf with no replacement to forward to"}.
+   */
+  @Test
+  void aReleasedLeafResolvesToAReplacementThatAlreadySpilledToADurableOffset() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage mergedAwayLeaf = newReleasableLeaf();
+      when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final PageReference orphan = new PageReference();
+      log.put(orphan, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
+      final PageReference staleCopy = new PageReference(orphan);
+
+      final HOTLeafPage mergeTarget = mock(HOTLeafPage.class);
+      final PageReference replacement = new PageReference();
+      log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
+      // The spill, before the merge: from here the merge target names no log entry, only a disk offset.
+      PageReference.completeTransactionLogReference(replacement.transactionLogReference(), REPLACEMENT_OFFSET);
+      assertTrue(replacement.refreshTransactionLogReference(), "the merge target must now be a disk reference");
+      assertEquals(Constants.NULL_ID_INT, replacement.getLogKey());
+
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+
+      final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
+      when(storageEngineWriter.loadHOTPage(
+          argThat(loaded -> loaded != null && loaded.getKey() == REPLACEMENT_OFFSET))).thenReturn(mergeTarget);
+
+      assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
+          "a replacement that spilled to a durable offset before the merge must still be forwarded to");
     } finally {
       log.close();
     }

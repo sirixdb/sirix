@@ -125,16 +125,43 @@ public final class TransactionIntentLog implements AutoCloseable {
    * </p>
    *
    * <p>
-   * The value is the REPLACEMENT the merge spliced in — the page that absorbed the released leaf's
-   * entries — packed as {@code (generation << 32) | logKey}, or {@link #NO_REPLACEMENT} when the
-   * merge could not name one. Refusing the pre-merge image is only half of the answer: a descent that
-   * reaches such a reference has to continue SOMEWHERE, and the write path's "unresolvable means
-   * empty slot" arm answers that question by fabricating a fresh empty leaf over it — a slot that
-   * then routes keys away from the leaf that actually holds them. Forwarding to the replacement is
-   * what makes the stale copy route correctly instead.
+   * The value is the REFERENCE of the replacement the merge spliced in — the page that absorbed the
+   * released leaf's entries — or {@code null} when the merge could not name one. Refusing the
+   * pre-merge image is only half of the answer: a descent that reaches such a reference has to
+   * continue SOMEWHERE, and the write path's "unresolvable means empty slot" arm answers that
+   * question by fabricating a fresh empty leaf over it — a slot that then routes keys away from the
+   * leaf that actually holds them. Forwarding to the replacement is what makes the stale copy route
+   * correctly instead.
+   * </p>
+   *
+   * <p>
+   * The reference, not the {@code (generation, logKey)} identity it happened to carry while the merge
+   * ran: that identity is exactly as perishable as the orphan's own. A pinned-trie spill publishes a
+   * durable offset for the merge target mid-transaction and {@code refreshTransactionLogReference()}
+   * drops its log key the moment it does, and an async-flush rotation retires the generation two
+   * epochs later. In both cases a recorded identity resolves to nothing, and the forwarding degrades
+   * back into the dead end it exists to prevent — silently, and only when the IO timing lines up,
+   * which is why it survived as a Windows-lane-only failure. The reference survives both erasures
+   * because it IS the slot the trie routes through: resolving it again reaches the log while the
+   * replacement is resident and its durable offset once it is not. Stored, never copied — the copy
+   * constructor refuses a reference with a pending page write, and a copy would stop tracking any
+   * later rebinding of the slot.
    * </p>
    */
-  private final Long2ObjectOpenHashMap<Long2LongOpenHashMap> releasedHOTLeafReplacements =
+  private final Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<PageReference>> releasedHOTLeafReplacements =
+      new Long2ObjectOpenHashMap<>();
+
+  /**
+   * The same forwarding, keyed by the packed {@code (generation, logKey)} identity of the orphan.
+   *
+   * <p>
+   * {@link #releasedHOTLeafReplacements} can only be consulted once the descent holds a page to read
+   * a page key off, which means it has already reloaded the orphan's pre-merge image from storage. A
+   * reference that still NAMES the released entry must not pay that read — nor seed the buffer cache
+   * with a superseded image — so the identity it names maps to the replacement directly.
+   * </p>
+   */
+  private final Long2ObjectOpenHashMap<PageReference> releasedHOTLeafIdentityReplacements =
       new Long2ObjectOpenHashMap<>();
 
   /**
@@ -143,12 +170,6 @@ public final class TransactionIntentLog implements AutoCloseable {
    * never all-ones.
    */
   private static final long NO_REPLACEMENT = -1L;
-
-  /**
-   * The per-scope map's default: this page key was never released. No real identity can take it
-   * either — generations count up from zero, so the high half is never {@code Integer.MIN_VALUE}.
-   */
-  private static final long ABSENT_RELEASE = Long.MIN_VALUE;
 
   // ==================== GENERATION COUNTER ====================
 
@@ -1040,41 +1061,55 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @return {@code true} iff this transaction released the leaf with that page key
    */
   public boolean namesReleasedHOTLeafPage(final long indexScope, final long pageKey) {
-    return releasedHOTLeafReplacement(indexScope, pageKey) != ABSENT_RELEASE;
+    if (releasedHOTLeafReplacements.isEmpty()) {
+      return false;
+    }
+    final Long2ObjectOpenHashMap<PageReference> released = releasedHOTLeafReplacements.get(indexScope);
+    // containsKey, not a null test: a merge that named no replacement still released the page, and
+    // serving its pre-merge image is exactly what this test exists to prevent.
+    return released != null && released.containsKey(pageKey);
   }
 
   /**
-   * The page that absorbed the entries of the released leaf with page key {@code pageKey}.
+   * The reference of the page that absorbed the entries of the released leaf with page key
+   * {@code pageKey}.
    *
    * <p>
    * Refusing the pre-merge image answers "not this one" but leaves the descent with nowhere to go,
    * and the write path reads "nowhere" as "empty slot" — it fabricates a fresh empty leaf over the
    * reference, and from then on that slot routes its whole partial away from the leaf that actually
-   * holds those keys. The container returned here is where the entries went, so a stale reference
+   * holds those keys. The reference returned here names where the entries went, so a stale reference
    * copy keeps routing correctly instead.
    * </p>
    *
    * @param indexScope the page-key namespace to look in, from {@link #indexScope}
    * @param pageKey the page key of a page resolved from durable storage
-   * @return the replacement's container, or {@code null} when the page was not released or the merge
-   *         named no resolvable replacement
+   * @return the replacement's reference, or {@code null} when the page was not released or the merge
+   *         named no replacement
    */
-  public @Nullable PageContainer releasedHOTLeafReplacementContainer(final long indexScope, final long pageKey) {
-    final long replacement = releasedHOTLeafReplacement(indexScope, pageKey);
-    return replacement == ABSENT_RELEASE || replacement == NO_REPLACEMENT
+  public @Nullable PageReference releasedHOTLeafReplacementReference(final long indexScope, final long pageKey) {
+    if (releasedHOTLeafReplacements.isEmpty()) {
+      return null;
+    }
+    final Long2ObjectOpenHashMap<PageReference> released = releasedHOTLeafReplacements.get(indexScope);
+    return released == null
         ? null
-        : resolvePackedIdentity(replacement);
+        : released.get(pageKey);
   }
 
-  /** {@link #ABSENT_RELEASE} when the page was never released, else its packed replacement. */
-  private long releasedHOTLeafReplacement(final long indexScope, final long pageKey) {
-    if (releasedHOTLeafReplacements.isEmpty()) {
-      return ABSENT_RELEASE;
+  /**
+   * The same replacement, for a reference that still names the released entry.
+   *
+   * @param logKey the log key the reference names
+   * @param generation the generation the reference names
+   * @return the replacement's reference, or {@code null} when that identity names no released leaf or
+   *         the merge named no replacement
+   */
+  public @Nullable PageReference releasedHOTLeafReplacementReference(final int logKey, final int generation) {
+    if (logKey < 0 || releasedHOTLeafIdentityReplacements.isEmpty()) {
+      return null;
     }
-    final Long2LongOpenHashMap released = releasedHOTLeafReplacements.get(indexScope);
-    return released == null
-        ? ABSENT_RELEASE
-        : released.get(pageKey);
+    return releasedHOTLeafIdentityReplacements.get(((long) generation << 32) | (logKey & 0xFFFFFFFFL));
   }
 
   /** Resolve a packed {@code (generation, logKey)} through the same regions {@link #get} uses. */
@@ -1914,6 +1949,7 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Released page keys are scoped to the transaction that merged those leaves away; the next one
     // starts from the committed trie, where nothing is missing.
     releasedHOTLeafReplacements.clear();
+    releasedHOTLeafIdentityReplacements.clear();
     rethrowFailure(closeFailure);
   }
 
@@ -2277,8 +2313,15 @@ public final class TransactionIntentLog implements AutoCloseable {
       final int owner = ref.getActiveTilGeneration() == PINNED_GENERATION
           ? encodePinnedOwner(logKey)
           : logKey;
-      forwardReleasedIdentity(((long) ref.getActiveTilGeneration() << 32) | (logKey & 0xFFFFFFFFL),
-          replacementIdentity);
+      final long orphanIdentity = ((long) ref.getActiveTilGeneration() << 32) | (logKey & 0xFFFFFFFFL);
+      forwardReleasedIdentity(orphanIdentity, replacementIdentity);
+      // The identity-keyed forwarding is what a reference that still names this entry follows, and
+      // unlike the packed identity above it stays valid after the replacement has spilled to a
+      // durable offset or its generation has been retired. Self-forwarding is refused for the same
+      // reason as above: a merge re-using the orphan's own slot would install a cycle.
+      if (replacement != null && replacement != ref) {
+        releasedHOTLeafIdentityReplacements.put(orphanIdentity, replacement);
+      }
       if (container.getModified() instanceof HOTLeafPage leaf) {
         closeable.putIfAbsent(leaf, owner);
       }
@@ -2309,7 +2352,7 @@ public final class TransactionIntentLog implements AutoCloseable {
         unshareIfElsewhere(entry.getModified(), i, closeable);
       }
     }
-    Long2LongOpenHashMap releasedForScope = null;
+    Long2ObjectOpenHashMap<PageReference> releasedForScope = null;
     for (final HOTLeafPage leaf : closeable.keySet()) {
       // A leaf held by a pinned entry other than its own is shared and must keep its frame.
       if (!leaf.isClosed() && !isPinnedElsewhere(leaf, decodePinnedOwner(closeable.getInt(leaf)))
@@ -2321,12 +2364,11 @@ public final class TransactionIntentLog implements AutoCloseable {
         if (releasedForScope == null) {
           releasedForScope = releasedHOTLeafReplacements.get(indexScope);
           if (releasedForScope == null) {
-            releasedForScope = new Long2LongOpenHashMap();
-            releasedForScope.defaultReturnValue(ABSENT_RELEASE);
+            releasedForScope = new Long2ObjectOpenHashMap<>();
             releasedHOTLeafReplacements.put(indexScope, releasedForScope);
           }
         }
-        releasedForScope.put(leaf.getPageKey(), replacementIdentity);
+        releasedForScope.put(leaf.getPageKey(), replacement);
         leaf.close();
       }
     }
