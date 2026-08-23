@@ -1966,16 +1966,25 @@ public final class TransactionIntentLog implements AutoCloseable {
       if (logKey < 0) {
         continue;
       }
-      // Resolve through the region the reference names. A pinned log key indexes a DIFFERENT
-      // array, so reading entries[logKey] for one would pick an unrelated container and close a
-      // live page — the log key alone stopped naming an entry when the pinned region appeared.
+      // Resolve through the region AND the generation the reference names. A pinned log key indexes
+      // a DIFFERENT array, so reading entries[logKey] for one would pick an unrelated container and
+      // close a live page — the log key alone stopped naming an entry when the pinned region
+      // appeared. A PRIOR generation's log key is the same hazard one epoch removed: snapshot()
+      // installs fresh generation-scoped arrays and restarts log keys at zero, so index k of the
+      // current generation holds an unrelated container, and reference COPIES (every indirect-page
+      // CoW deep-copies its child references) keep the raw identity their original was rebound away
+      // from. Resolving one of those against the live array picked a foreign container and freed the
+      // 64 KB frame of a page the trie still pointed at; the next write to it then dead-ended in the
+      // HOT writer's copy-on-write guard. Only the current generation's own log keys name an entry
+      // here — anything else keeps its frame until commit, the leak-never-free direction this whole
+      // method is built on.
       final PageContainer container;
       if (ref.getActiveTilGeneration() == PINNED_GENERATION) {
         container = isLivePinnedSlot(logKey)
             ? pinnedEntries[logKey]
             : null;
       } else {
-        container = logKey < size
+        container = ref.getActiveTilGeneration() == currentGeneration && logKey < size
             ? entries[logKey]
             : null;
       }
