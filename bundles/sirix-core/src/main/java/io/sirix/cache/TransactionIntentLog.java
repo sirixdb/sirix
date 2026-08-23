@@ -522,18 +522,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     // final, so this resolves for the rest of the transaction with no generation comparison.
     if (generation == PINNED_GENERATION) {
       return isLivePinnedSlot(logKey)
-          ? pinnedEntries[logKey]
+          ? resolvableContainer(pinnedEntries[logKey])
           : null;
     }
 
     // Layer 1: Current TIL (fast path)
     if (generation == currentGeneration && logKey < size) {
-      return entries[logKey];
+      return resolvableContainer(entries[logKey]);
     }
 
     // Layer 2: Active snapshot (if any)
     if (snapshotEntries != null && generation == snapshotGeneration && logKey < snapshotSize) {
-      return snapshotEntries[logKey];
+      return resolvableContainer(snapshotEntries[logKey]);
     }
 
     // Layer 2.5: Forwarding chain for superseded identities (#1077). A frozen page that was
@@ -558,18 +558,18 @@ public final class TransactionIntentLog implements AutoCloseable {
           // Terminal identity is a pinned slot — rebind so this copy never walks the chain again.
           ref.setLogKey(logKey);
           ref.setActiveTilGeneration(PINNED_GENERATION);
-          return pinnedEntries[logKey];
+          return resolvableContainer(pinnedEntries[logKey]);
         }
         if (generation == currentGeneration && logKey < size) {
           // Rebind the stale copy to its terminal identity so later lookups take the fast path.
           ref.setLogKey(logKey);
           ref.setActiveTilGeneration(generation);
-          return entries[logKey];
+          return resolvableContainer(entries[logKey]);
         }
         if (snapshotEntries != null && generation == snapshotGeneration && logKey < snapshotSize) {
           ref.setLogKey(logKey);
           ref.setActiveTilGeneration(generation);
-          return snapshotEntries[logKey];
+          return resolvableContainer(snapshotEntries[logKey]);
         }
         // Fall through to Layer 3 with the terminal identity (the newest flushed version).
       }
@@ -847,6 +847,60 @@ public final class TransactionIntentLog implements AutoCloseable {
       entries = Arrays.copyOf(entries, newCap);
       entryRefs = Arrays.copyOf(entryRefs, newCap);
     }
+  }
+
+  /**
+   * The container a resolution may hand out, or {@code null} once every page it holds has been
+   * released.
+   *
+   * <p>
+   * Releasing a merged-away HOT leaf ({@link #releaseOrphanedHOTLeaves(List)}) frees its 64 KB
+   * off-heap frame but deliberately leaves the container in place — the commit path iterates the log
+   * by index, so a hole is not a state it may see. Without this filter the entry stayed RESOLVABLE:
+   * every reference naming it — including the copies each indirect-page copy-on-write deep-copies —
+   * got the freed page back, because both {@code loadHOTPage} implementations hand a container's page
+   * straight to their caller. The HOT writer then dead-ended in {@code cowHOTLeafForModification}:
+   * {@code acquireGuard()} can never succeed on a released page and re-resolution keeps producing
+   * that same instance, so its retry could not win on ANY schedule. That is the
+   * {@code windows-latest / query} lane's "HOT leaf disappeared while acquiring a copy-on-write
+   * guard"; the same producer merely spins instead when the teardown is still deferred. Resolving to
+   * nothing sends the caller to the durable/reload path instead of into dead memory.
+   * </p>
+   *
+   * <p>
+   * {@link HOTLeafPage#isOrphaned()} and not only {@link HOTLeafPage#isClosed()} is the predicate:
+   * {@code close()} always orphans the page but defers the actual teardown to the last
+   * {@code releaseGuard()} while a reader still holds it. In that window the page is already unusable
+   * — {@code acquireGuard()} refuses it — while {@code isClosed()} still reads false, and that window
+   * is precisely the one the writer used to spin in.
+   * </p>
+   *
+   * @param container the container an entry holds, possibly {@code null}
+   * @return {@code container}, or {@code null} if none of its pages can serve a resolution
+   */
+  private static @Nullable PageContainer resolvableContainer(final @Nullable PageContainer container) {
+    if (container == null) {
+      return null;
+    }
+    final Page complete = container.getComplete();
+    final Page modified = container.getModified();
+    // Two class checks on the hottest read path in the engine: record-page and structural containers
+    // are never affected and leave immediately.
+    if (!(complete instanceof HOTLeafPage) && !(modified instanceof HOTLeafPage)) {
+      return container;
+    }
+    if (servesResolution(complete) || (modified != complete && servesResolution(modified))) {
+      return container;
+    }
+    return null;
+  }
+
+  /** Whether {@code page} can still serve a resolution — absent and released HOT leaves cannot. */
+  private static boolean servesResolution(final @Nullable Page page) {
+    if (page == null) {
+      return false;
+    }
+    return !(page instanceof HOTLeafPage leaf) || (!leaf.isClosed() && !leaf.isOrphaned());
   }
 
   /**
