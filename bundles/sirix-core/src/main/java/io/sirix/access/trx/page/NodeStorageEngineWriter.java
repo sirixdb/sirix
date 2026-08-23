@@ -2154,6 +2154,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private synchronized void recordAsyncFlushFailure(final Throwable cause) {
     if (asyncFlushError == null) {
       asyncFlushError = cause;
+      // Log exactly once, on the cause that wins, passing the throwable as the throwable argument so
+      // its stack trace survives. Several poisoning sites (stall timeout, no-progress timeout,
+      // incomplete snapshot, executor shutdown) report nowhere else, which left the fault invisible
+      // whenever the foreground exception was later stripped of its cause.
+      LOGGER.error("Async snapshot flush poisoned the writer - transaction is now in terminal failure state", cause);
     }
     asyncTerminalFailure = true;
   }

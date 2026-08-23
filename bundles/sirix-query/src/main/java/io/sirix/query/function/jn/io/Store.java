@@ -123,7 +123,10 @@ public final class Store extends AbstractFunction {
 
       return null;
     } catch (final Exception e) {
-      throw new QueryException(new QNm(e.getMessage()), e);
+      // (Throwable, QNm) is the cause-attaching overload. The (QNm, Object) one this used to bind
+      // to renders the throwable into the message and drops it, so a failing store — an async-flush
+      // SirixIOException, say — arrived with no `Caused by:` chain and was undiagnosable.
+      throw new QueryException(e, new QNm(e.getMessage()));
     }
   }
 
@@ -133,7 +136,7 @@ public final class Store extends AbstractFunction {
       try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
         collection.add(resourceName, reader, options);
       } catch (final Exception e) {
-        throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+        throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
       }
     } else if (nodes instanceof final FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
@@ -143,7 +146,7 @@ public final class Store extends AbstractFunction {
           try (final JsonReader reader = JsonShredder.createStringReader(((Str) item).stringValue())) {
             collection.add("resource" + size++, reader, options);
           } catch (final Exception e) {
-            throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+            throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
           }
         }
       }
@@ -159,7 +162,7 @@ public final class Store extends AbstractFunction {
         try (final JsonReader reader = JsonShredder.createStringReader(((Str) nodes).stringValue())) {
           store.create(collectionName, resourceName, reader, options);
         } catch (final Exception e) {
-          throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
+          throw new QueryException(e, new QNm("Failed to insert subtree: " + e.getMessage()));
         }
       }
     } else if (nodes instanceof final FunctionConversionSequence seq) {
