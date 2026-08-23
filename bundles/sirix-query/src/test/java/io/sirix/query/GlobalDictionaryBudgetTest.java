@@ -95,18 +95,41 @@ final class GlobalDictionaryBudgetTest {
     return sb.append(']').toString();
   }
 
+  /**
+   * A corpus whose leading leaves elect a resource-wide dictionary and whose tail then offers a
+   * value the V0 entry layout cannot hold.
+   *
+   * <p>
+   * The trigger is the VALUE-LENGTH ceiling rather than the interner's distinct-entry ceiling,
+   * because the streaming build flushes a dictionary generation at every drain and starts the next
+   * one with an empty interner: the per-append entry limit therefore resets long before any
+   * realistic corpus reaches it, and a dataset sized to cross it would exercise nothing. The
+   * length ceiling is per VALUE, so it is reachable at any point in any generation — and it is
+   * genuinely a RUNTIME refusal, because election samples only the leading leaves and this value is
+   * not among them.
+   * </p>
+   */
   private static String runtimeCapDataset() {
     final int sampledRows = 16 * ProjectionIndexRowGroupPage.MAX_ROWS;
-    final int novelRows = GlobalValueDictionaryWriter.MAX_DISTINCT_ENTRIES_PER_APPEND
-        - ProjectionIndexRowGroupPage.MAX_ROWS + 1;
-    final StringBuilder sb = new StringBuilder((sampledRows + novelRows) * 64).append('[');
+    final int novelRows = 3 * ProjectionIndexRowGroupPage.MAX_ROWS;
+    // One byte past the ceiling: the refusal must come from the bound itself, not from a value so
+    // extreme that some earlier layer could have rejected it first.
+    final int oversizedRow = sampledRows + ProjectionIndexRowGroupPage.MAX_ROWS;
+    final String oversized = "x".repeat(GlobalValueDictionaryWriter.MAX_VALUE_BYTES + 1);
+    final StringBuilder sb = new StringBuilder((sampledRows + novelRows) * 64
+        + GlobalValueDictionaryWriter.MAX_VALUE_BYTES).append('[');
     for (int i = 0; i < sampledRows + novelRows; i++) {
       if (i > 0) {
         sb.append(',');
       }
-      final String value = i < sampledRows
-          ? "sample-" + (i % ProjectionIndexRowGroupPage.MAX_ROWS)
-          : "novel-" + (i - sampledRows);
+      final String value;
+      if (i == oversizedRow) {
+        value = oversized;
+      } else if (i < sampledRows) {
+        value = "sample-" + (i % ProjectionIndexRowGroupPage.MAX_ROWS);
+      } else {
+        value = "novel-" + (i - sampledRows);
+      }
       sb.append("{\"id\":").append(i).append(",\"url\":\"").append(value).append("\"}");
     }
     return sb.append(']').toString();
@@ -219,9 +242,10 @@ final class GlobalDictionaryBudgetTest {
   @Test
   @DisplayName("An unhinted load whose dictionary blows its cap ABANDONS the projection and still completes")
   void runtimeCapAbandonsTheProjectionButNotTheLoad() throws IOException {
-    // The first 16 leaves repeat the same 1,024 values, so AUTO safely elects a global dictionary.
-    // Later rows introduce enough novel values to reach id 16,385 after election. That is a genuine
-    // runtime structural refusal rather than an election-time budget decline.
+    // The first 16 leaves repeat the same 1,024 short values, so AUTO safely elects a global
+    // dictionary and the election-time value-length check passes. A later row — past the sample,
+    // and therefore invisible to the election — carries a value one byte above the safe V0 limit.
+    // That is a genuine runtime structural refusal rather than an election-time decline.
     System.setProperty(BUDGET_PROPERTY, String.valueOf(64L << 20));
     assertEquals(1, loadAndCountGlobalColumns("runtime-control", -1L),
         "the completed control must establish the last-successful-build diagnostic");

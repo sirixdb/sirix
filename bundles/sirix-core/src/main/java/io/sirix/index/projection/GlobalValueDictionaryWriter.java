@@ -774,6 +774,41 @@ public final class GlobalValueDictionaryWriter implements GlobalValueDictionaryE
     throw decline;
   }
 
+  /**
+   * The same policy-correct refusal {@link #refuseAdmission} raises, for encoders that reject a
+   * value BEFORE any generation writer exists to raise it themselves.
+   *
+   * <p>
+   * The V0 value-length ceiling is an admission decision like every other bound here, so it has to
+   * honour the same {@link AdmissionPolicy}: an AUTO build receives the typed decline and abandons
+   * its optional projection while the ingest completes, and only a forced dictionary fails the
+   * owning operation. Raising a bare {@code IllegalStateException} instead would kill a legal load
+   * over an optional index.
+   * </p>
+   *
+   * @param column the column whose dictionary refused the value
+   * @param length the refused UTF-8 length, in bytes
+   * @param retainedBytes bytes the dictionary retains at the point of refusal
+   * @param budgetBytes the configured aggregate budget
+   * @param entryCount distinct values admitted before the refusal
+   * @param admissionPolicy the refusing dictionary's policy
+   * @return the exception to throw; never {@code null}
+   */
+  static RuntimeException oversizedValueRefusal(final int column, final int length,
+      final long retainedBytes, final long budgetBytes, final int entryCount,
+      final AdmissionPolicy admissionPolicy) {
+    final String detail = "value length " + length + " exceeds the safe V0 limit of "
+        + MAX_VALUE_BYTES + " bytes";
+    final GlobalDictionaryBudgetExceededException decline =
+        new GlobalDictionaryBudgetExceededException(column, retainedBytes, budgetBytes, entryCount,
+            detail);
+    if (admissionPolicy == AdmissionPolicy.FAIL_CLOSED) {
+      return new IllegalStateException("Forced global value dictionary for column " + column
+          + " cannot continue safely: " + detail, decline);
+    }
+    return decline;
+  }
+
   long logicalPersistedBytes() {
     return saturatedAdd(arenaLength, (long) entryCount * 64L);
   }

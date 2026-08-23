@@ -911,10 +911,15 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("slicedgroup.jn");
-      // Generic (no executor): the parity oracle, computed BEFORE the executor exists so the
-      // auto-wiring cannot silently serve this leg too.
-      final String generic = evaluateQuery(chain, ctx, topKQuery);
-      final String genericStrlen = evaluateQuery(chain, ctx, strlenQuery);
+      // Generic: the parity oracle. It MUST run on a chain that cannot auto-wire an executor —
+      // createWithJsonStore auto-wires per query, so computing the oracle on `chain` served it from
+      // the projection too, which both made the equality below compare served-to-served and spent
+      // this handle's promotion budget before the measured pair ever ran. Deliberately NOT closed:
+      // SirixCompileChain#close tears down the SHARED store's sessions, which the measured legs and
+      // the enclosing try-with-resources still need.
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String generic = evaluateQuery(genericChain, ctx, topKQuery);
+      final String genericStrlen = evaluateQuery(genericChain, ctx, strlenQuery);
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);
@@ -1004,8 +1009,11 @@ public final class ProjectionIndexCatalogServingTest extends AbstractJsonTest {
         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final JsonDBCollection collection = (JsonDBCollection) store.lookup("json-path1");
       final JsonResourceSession session = collection.getDatabase().beginResourceSession("slicedgroupstr.jn");
-      final String genericTopK = evaluateQuery(chain, ctx, topKQuery);
-      final String genericRegex = evaluateQuery(chain, ctx, regexQuery);
+      // Oracle on a NON-auto-wiring chain — see the numeric twin above for why `chain` cannot be
+      // used here: it auto-wires, so the oracle would be served by the very route under test.
+      final SirixCompileChain genericChain = SirixCompileChain.createWithJsonStoreWithoutAutoWiring(store);
+      final String genericTopK = evaluateQuery(genericChain, ctx, topKQuery);
+      final String genericRegex = evaluateQuery(genericChain, ctx, regexQuery);
       final SirixVectorizedExecutor executor =
           new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), 2);
       SequentialPipelineStrategy.setVectorizedExecutor(executor);

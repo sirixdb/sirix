@@ -741,7 +741,16 @@ public final class ProjectionIndexRegistry {
     private final java.util.concurrent.atomic.AtomicInteger slicedServes =
         new java.util.concurrent.atomic.AtomicInteger();
 
-    /** Count one sliced serve attempt; returns the count BEFORE the increment. */
+    /**
+     * Count one serve that actually TOOK the sliced route; returns the count BEFORE the increment.
+     *
+     * <p>
+     * Callers must tick only once the route decision is final. Counting attempts instead would let a
+     * query that fell back to the whole-leaf kernel — because a predicate or a column was not
+     * sliceable — advance the promotion signal, so a handle could promote without ever having served
+     * a slice.
+     * </p>
+     */
     public int slicedServeTick() {
       return slicedServes.getAndIncrement();
     }

@@ -8,6 +8,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.access.DatabaseType;
 import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.NamePage;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -113,6 +114,21 @@ public final class ProjectionIndexBuilder {
   private long lastNormalRecordKey = Long.MIN_VALUE;
   private @Nullable SirixDeweyID lastOrderLabel;
   private final @Nullable LongFunction<SirixDeweyID> orderLabelResolver;
+
+  /**
+   * The label source a WALKING build resolves against when the caller supplied none — a heap-backed
+   * {@link ProjectionStructuralOrderDirectory}, installed by {@link #build} and dropped when it
+   * returns.
+   *
+   * <p>
+   * It exists so the order-label lane is a property of the DOCUMENT and not of the entry point:
+   * {@link #buildAndPersist} resolves ancestor-prefixed labels out of the persisted directory, and a
+   * builder that emitted its own flat sequence instead would produce leaves that are byte-different
+   * for the same records — and, worse, labels that no post-build insert could be placed among,
+   * because the change listener mints those with {@code fullLabel} too.
+   * </p>
+   */
+  private @Nullable LongFunction<SirixDeweyID> walkOrderLabelResolver;
 
   /**
    * How many leading leaves are held back to measure string-column cardinality on. Sixteen leaves
@@ -882,6 +898,7 @@ public final class ProjectionIndexBuilder {
           + "it never resolved a record-set root to walk");
     }
     final long restoreNodeKey = rtx.getNodeKey();
+    installWalkOrderLabelSource(rtx);
     try {
       // Optional: -Dsirix.projection.builder=generic forces the original
       // DescendantAxis walk. Used for A/B verification against the pruned
@@ -916,6 +933,7 @@ public final class ProjectionIndexBuilder {
       throw new IllegalArgumentException("XML projection record roots must resolve exclusively to element nodes");
     }
     final long restoreNodeKey = rtx.getNodeKey();
+    installWalkOrderLabelSource(rtx);
     try {
       rtx.moveToDocumentRoot();
       final DescendantAxis axis = new DescendantAxis(rtx);
@@ -1194,8 +1212,29 @@ public final class ProjectionIndexBuilder {
   }
 
   private SirixDeweyID resolveOrderLabel(final long recordKey) {
-    final LongFunction<SirixDeweyID> resolver = orderLabelResolver;
+    final LongFunction<SirixDeweyID> resolver = orderLabelResolver != null
+        ? orderLabelResolver
+        : walkOrderLabelResolver;
     return resolver == null ? nextOrderLabel() : resolver.apply(recordKey);
+  }
+
+  /**
+   * Arm the walking build's label source. A caller-supplied resolver wins — {@link #buildAndPersist}
+   * installs one over the directory it is about to persist, and mounting a second, heap-backed
+   * directory beside it would mint the same nodes twice.
+   */
+  private void installWalkOrderLabelSource(final NodeReadOnlyTrx rtx) {
+    if (orderLabelResolver != null) {
+      return;
+    }
+    final ProjectionStructuralOrderDirectory.Accessor directory =
+        ProjectionStructuralOrderDirectory.inMemory();
+    directory.seedRoot(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+    final StorageEngineReader reader = rtx.getStorageEngineReader();
+    final LongFunction<ImmutableNode> nodeLookup =
+        nodeKey -> reader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+    walkOrderLabelResolver = recordKey -> directory.fullLabel(recordKey, nodeLookup,
+        ProjectionStructuralOrderDirectory.RelabelSink.SEALED);
   }
 
   private void prepareLeafForOrderLabel(final byte[] orderLabel, final String databaseType) {
@@ -1361,9 +1400,7 @@ public final class ProjectionIndexBuilder {
       final int encodedLength = GlobalValueDictionaryEncoder.utf8LengthCapped(value,
           GlobalValueDictionaryWriter.MAX_VALUE_BYTES);
       if (encodedLength > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " cannot persist a UTF-8 value above "
-            + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+        throw refuseOversizedValue(encodedLength);
       }
       final byte[] utf8 = value.getBytes(StandardCharsets.UTF_8);
       return intern(utf8, 0, utf8.length);
@@ -1378,8 +1415,7 @@ public final class ProjectionIndexBuilder {
             + " is not bound to a streaming storage epoch");
       }
       if (length > GlobalValueDictionaryWriter.MAX_VALUE_BYTES) {
-        throw new IllegalStateException("global dictionary column " + column
-            + " cannot persist a value above " + GlobalValueDictionaryWriter.MAX_VALUE_BYTES + " bytes");
+        throw refuseOversizedValue(length);
       }
       GlobalValueDictionaryWriter generation = additions;
       if (generation != null) {
@@ -1414,6 +1450,24 @@ public final class ProjectionIndexBuilder {
         throw new IllegalStateException("global dictionary column " + column + " exhausted dictionary ids");
       }
       return (int) globalId;
+    }
+
+    /**
+     * A value the V0 layout cannot hold is an ADMISSION decision, not an encoding fault: this
+     * dictionary is optional, so under {@link GlobalValueDictionaryWriter.AdmissionPolicy#DECLINE}
+     * the build must receive the typed decline, abandon the projection and let the LOAD COMPLETE.
+     * Throwing an untyped failure here instead killed a legal ingest over an optional index — the
+     * one outcome {@link GlobalDictionaryBudgetExceededException} exists to prevent. A forced
+     * dictionary still fails closed, because there is no per-leaf fallback to retreat to.
+     */
+    private RuntimeException refuseOversizedValue(final int length) {
+      final GlobalValueDictionaryWriter generation = additions;
+      final long retainedBytes = generation == null ? 0L : generation.retainedBytes();
+      final int admitted = generation == null
+          ? baseEntryCount
+          : Math.addExact(baseEntryCount, generation.entryCount());
+      return GlobalValueDictionaryWriter.oversizedValueRefusal(column, length, retainedBytes,
+          budgetBytes, admitted, admissionPolicy);
     }
 
     long persistentProbeCount() {

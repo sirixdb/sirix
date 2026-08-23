@@ -135,8 +135,10 @@ import java.util.function.IntConsumer;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -734,7 +736,19 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * the configured scan parallelism (especially the one-thread case), while ownership gives
    * {@link #close()} a completion fence that raw daemon threads cannot provide.
    */
-  private final ExecutorService projectionWarmupPool;
+  /**
+   * The advisory projection lane — segment readahead and whole-leaf promotion.
+   *
+   * <p>
+   * Typed as a {@link ThreadPoolExecutor} rather than an {@link ExecutorService} so shutdown can
+   * drain the QUEUE without interrupting the RUNNING task. Its tasks read through a
+   * {@code FileChannel} that the storage shares with every other reader of the resource, and a
+   * {@code FileChannel} is an {@code InterruptibleChannel}: interrupting a thread blocked in one of
+   * its operations CLOSES the channel for everyone. {@code shutdownNow()} here therefore used to
+   * take a concurrent parallel scan down with a bare {@code ClosedChannelException}.
+   * </p>
+   */
+  private final ThreadPoolExecutor projectionWarmupPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
@@ -997,14 +1011,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
-    this.projectionWarmupPool = Executors.newSingleThreadExecutor(r -> {
-      final Thread thread = new Thread(r, "sirix-projection-warmup");
-      thread.setDaemon(true);
-      return thread;
-    });
+    this.projectionWarmupPool = new ThreadPoolExecutor(1, 1, 0L, TimeUnit.MILLISECONDS,
+        new LinkedBlockingQueue<>(), r -> {
+          final Thread thread = new Thread(r, "sirix-projection-warmup");
+          thread.setDaemon(true);
+          return thread;
+        });
     if (!executionLifecycle.register(this)) {
       terminallyClosed = true;
-      projectionWarmupPool.shutdownNow();
+      // Nothing was submitted yet, so there is no running read to protect and no queue to drain.
+      projectionWarmupPool.shutdown();
       workerPool.shutdownNow();
       throw new IllegalStateException("Vectorized executor lifecycle is closed");
     }
@@ -1055,7 +1071,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       if (terminal) {
         terminallyClosed = true;
       }
-      final List<Runnable> cancelledWarmups = projectionWarmupPool.shutdownNow();
+      // Drain the QUEUE, then shut down WITHOUT interrupting whatever is already running. The
+      // advisory warm-up tasks read through the resource's SHARED, striped FileChannel, and a
+      // FileChannel is an InterruptibleChannel: interrupting a thread blocked in one of its
+      // operations closes that channel — for the interrupted thread AND for every other reader
+      // borrowing the same stripe. shutdownNow() therefore killed the storage under concurrent
+      // scans, which surfaced as an intermittent ClosedChannelException in an unrelated query.
+      // Queued-but-unstarted tasks still get their cancellation hook, so the one-shot latches they
+      // guard are released exactly as before.
+      final List<Runnable> cancelledWarmups = new ArrayList<>();
+      projectionWarmupPool.getQueue().drainTo(cancelledWarmups);
+      projectionWarmupPool.shutdown();
       for (final Runnable cancelled : cancelledWarmups) {
         if (cancelled instanceof ProjectionIndexRegistry.CancellableBackgroundTask task) {
           try {
@@ -11924,23 +11950,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // only the group/aggregate/predicate columns' decoded slices instead of assembling every
       // leaf. The escape hatch flips the whole route back for A/B timing in one build.
       final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
-      // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
-      // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
-      // beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
-      final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
-          && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER;
-      if (promoteNow && !projectionWarmupPool.isShutdown()) {
-        // ASYNC promotion: materialize on the owned warm-up lane and KEEP SERVING SLICED until it
-        // lands — the synchronous form stalled the promoting query for the whole assembly
-        // (~150-250 ms mid-suite). payloadsMaterialized() flips when the future completes;
-        // subsequent queries take the byte kernels with zero stall anywhere.
-        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
-      }
+      // DECIDE THE ROUTE FIRST, then promote. Reading payloadsMaterialized() again after kicking the
+      // promotion made the promoting query race its own background materialization: on a small
+      // fixture the assembly lands inside that window and the query that asked to keep serving
+      // sliced takes the whole-leaf kernel instead. The latch below is what makes "KEEP SERVING
+      // SLICED until it lands" true of the code and not just of this comment.
       final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
           && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
+      // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
+      // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
+      // beats scattered slice reads — measured ~2x on hot 1M-row string groupings. The tick counts
+      // serves that actually TOOK the sliced route, so the promotion signal cannot be inflated by
+      // queries that fell back for an unsliceable predicate or column.
+      if (groupSliced && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER
+          && !projectionWarmupPool.isShutdown()) {
+        // ASYNC promotion: materialize on the owned warm-up lane while THIS query still serves
+        // sliced — the synchronous form stalled the promoting query for the whole assembly
+        // (~150-250 ms mid-suite). payloadsMaterialized() flips when the future completes;
+        // subsequent queries take the byte kernels with zero stall anywhere.
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
+      }
       final List<byte[]> rowGroupPayloads = groupSliced
           ? null
           : leafPayloadsOrNull(handle);
@@ -13043,14 +13075,16 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // SLICED first (regime-gated): the const-group fold reads only its operand columns —
       // this route was the suite's LAST payload materializer once the keyed arms sliced.
       final ProjectionColumnStore constStore = handle.columnStoreOrNull();
-      if (GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
-          && !projectionWarmupPool.isShutdown()
-          && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER) {
-        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
-      }
+      // Route latched BEFORE the promotion is kicked, for the same reason as the keyed arm above:
+      // re-reading payloadsMaterialized() afterwards lets the background assembly land inside the
+      // window and demote the very query that triggered it.
       final boolean constSliced =
           GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
               && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
+      if (constSliced && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER
+          && !projectionWarmupPool.isShutdown()) {
+        handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
+      }
       final List<byte[]> armPayloads = constSliced
           ? null
           : leafPayloadsOrNull(handle);

@@ -4,6 +4,7 @@
 package io.sirix.query.scan;
 
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -115,6 +116,113 @@ final class SirixVectorizedExecutorLifecycleTest {
     closer.join(5_000L);
     assertFalse(closer.isAlive());
     assertTrue(closeFailure.get() == null, () -> "close failed: " + closeFailure.get());
+  }
+
+  /**
+   * Closing an executor must never INTERRUPT a warm-up job that is already running.
+   *
+   * <p>
+   * The warm-up lane reads through the resource's striped {@code FileChannel}s, which the storage
+   * lends to every reader of that resource at once. {@code FileChannel} is an
+   * {@code InterruptibleChannel}: interrupting a thread blocked in one of its operations closes the
+   * channel — not just for that thread, but for every other borrower of the same stripe. While
+   * close used {@code shutdownNow()}, a per-query executor closing over a running segment sweep
+   * therefore took down an unrelated concurrent parallel scan with a bare
+   * {@code ClosedChannelException}: ClickBench query 20 failed that way in 2 of 8 full sweeps.
+   * </p>
+   *
+   * <p>
+   * The job below waits for close to publish the shutdown and then sleeps, so an interrupt issued
+   * by close lands inside a call that reports it. A queued-but-unstarted job is a different case
+   * and stays cancellable — {@link #closeCancelsQueuedWarmupsWithoutInterruptingTheRunningOne}
+   * pins that half.
+   * </p>
+   */
+  @Test
+  void closeMustNotInterruptARunningWarmupHoldingSharedStorageChannels() throws Exception {
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1);
+    final ExecutorService warmupPool = projectionWarmupPool(executor);
+    final CountDownLatch started = new CountDownLatch(1);
+    final CountDownLatch finished = new CountDownLatch(1);
+    final AtomicBoolean interrupted = new AtomicBoolean();
+
+    warmupPool.execute(() -> {
+      started.countDown();
+      try {
+        while (!warmupPool.isShutdown()) {
+          Thread.onSpinWait();
+        }
+        // Shutdown is published; an interrupt from close is issued immediately after it, so this
+        // sleep either completes untouched or reports the interrupt.
+        Thread.sleep(500L);
+      } catch (final InterruptedException interrupt) {
+        interrupted.set(true);
+        Thread.currentThread().interrupt();
+      } finally {
+        finished.countDown();
+      }
+    });
+    assertTrue(started.await(5, TimeUnit.SECONDS), "the warm-up job must reach the lane");
+
+    executor.close();
+
+    assertTrue(finished.await(5, TimeUnit.SECONDS), "close must await the running warm-up job");
+    assertFalse(interrupted.get(),
+        "close interrupted a running warm-up job — that closes the SHARED storage channel and fails "
+            + "every concurrent reader of the resource");
+    assertTrue(executor.isClosed());
+  }
+
+  /** The other half of the contract: a job that never started is still cancelled, not run. */
+  @Test
+  void closeCancelsQueuedWarmupsWithoutInterruptingTheRunningOne() throws Exception {
+    final SirixVectorizedExecutor executor = new SirixVectorizedExecutor(unusedSessionStub(), 1, 1);
+    final ExecutorService warmupPool = projectionWarmupPool(executor);
+    final CountDownLatch runningStarted = new CountDownLatch(1);
+    final CountDownLatch releaseRunning = new CountDownLatch(1);
+    final AtomicBoolean queuedRan = new AtomicBoolean();
+    final AtomicBoolean queuedCancelled = new AtomicBoolean();
+
+    warmupPool.execute(() -> {
+      runningStarted.countDown();
+      awaitUninterruptibly(releaseRunning);
+    });
+    assertTrue(runningStarted.await(5, TimeUnit.SECONDS));
+    // Single-threaded lane, so this one cannot start while the job above holds it.
+    warmupPool.execute(new ProjectionIndexRegistry.CancellableBackgroundTask() {
+      @Override
+      public void run() {
+        queuedRan.set(true);
+      }
+
+      @Override
+      public void cancelBeforeExecution() {
+        queuedCancelled.set(true);
+      }
+    });
+
+    final CountDownLatch closeReturned = new CountDownLatch(1);
+    final Thread closer = new Thread(() -> {
+      try {
+        executor.close();
+      } finally {
+        closeReturned.countDown();
+      }
+    }, "sirix-vectorized-close-queued-test");
+    closer.start();
+    try {
+      assertFalse(closeReturned.await(100, TimeUnit.MILLISECONDS),
+          "close must not return while the running warm-up job holds the lane");
+    } finally {
+      releaseRunning.countDown();
+    }
+    assertTrue(closeReturned.await(5, TimeUnit.SECONDS));
+    closer.join(5_000L);
+
+    assertFalse(queuedRan.get(), "a queued warm-up must not run after close");
+    assertTrue(queuedCancelled.get(),
+        "a queued warm-up must receive its cancellation hook, or the one-shot latch it guards is "
+            + "never released");
   }
 
   @Test

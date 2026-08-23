@@ -7,6 +7,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import org.jspecify.annotations.Nullable;
 
@@ -105,8 +106,85 @@ final class ProjectionStructuralOrderDirectory {
     void relabelled(long nodeKey, SirixDeweyID localLabel);
   }
 
+  /**
+   * The three slot operations the accessor needs, so the SAME minting logic backs a persisted build
+   * and a build that never touches storage.
+   *
+   * <p>
+   * Order labels are only comparable within one label space: the change listener mints every
+   * post-build record's label with {@link Accessor#fullLabel} and compares it against the labels the
+   * build wrote, so a builder that invents its own sequence produces an index whose lane cannot be
+   * extended. This seam is what makes the label space a property of the DOCUMENT rather than of the
+   * entry point that happened to build it.
+   * </p>
+   */
+  interface SlotStore {
+    /** The slot's bytes, or {@code null} when it was never written or was tombstoned. */
+    byte @Nullable [] get(long slotKey);
+
+    /** Write {@code value}, which is never empty. */
+    void put(long slotKey, byte[] value);
+
+    /** Forget the slot; a no-op when it holds nothing. */
+    void tombstone(long slotKey);
+  }
+
+  /** The persisted store: one HOT slot per labelled node, in this directory's reserved key range. */
+  private record HotSlotStore(ProjectionIndexHOTStorage storage) implements SlotStore {
+    private HotSlotStore {
+      Objects.requireNonNull(storage, "storage must not be null");
+    }
+
+    @Override
+    public byte @Nullable [] get(final long slotKey) {
+      return storage.getStructuralOrderSlot(slotKey);
+    }
+
+    @Override
+    public void put(final long slotKey, final byte[] value) {
+      storage.putStructuralOrderSlot(slotKey, value);
+    }
+
+    @Override
+    public void tombstone(final long slotKey) {
+      storage.tombstoneStructuralOrderSlot(slotKey);
+    }
+  }
+
+  /**
+   * The heap store used by a build that emits row groups without persisting them. It holds one entry
+   * per labelled node — records and their container chain — which is the same order of magnitude as
+   * the leaves such a build already accumulates in memory.
+   */
+  private static final class HeapSlotStore implements SlotStore {
+    private final Long2ObjectOpenHashMap<byte[]> slots = new Long2ObjectOpenHashMap<>();
+
+    @Override
+    public byte @Nullable [] get(final long slotKey) {
+      return slots.get(slotKey);
+    }
+
+    @Override
+    public void put(final long slotKey, final byte[] value) {
+      slots.put(slotKey, value);
+    }
+
+    @Override
+    public void tombstone(final long slotKey) {
+      slots.remove(slotKey);
+    }
+  }
+
   static Accessor open(final ProjectionIndexHOTStorage storage) {
-    return new Accessor(Objects.requireNonNull(storage));
+    return new Accessor(new HotSlotStore(storage));
+  }
+
+  /**
+   * A directory backed by the heap, for a build that emits its row groups to a caller instead of to
+   * storage. Same minting, same labels — only the slots live elsewhere.
+   */
+  static Accessor inMemory() {
+    return new Accessor(new HeapSlotStore());
   }
 
   static boolean ownsSlot(final long slotKey) {
@@ -131,10 +209,10 @@ final class ProjectionStructuralOrderDirectory {
   }
 
   static final class Accessor {
-    private final ProjectionIndexHOTStorage storage;
+    private final SlotStore store;
 
-    private Accessor(final ProjectionIndexHOTStorage storage) {
-      this.storage = storage;
+    private Accessor(final SlotStore store) {
+      this.store = Objects.requireNonNull(store, "store must not be null");
     }
 
     /** Establish the document root's label so every record's ancestry terminates in a known slot. */
@@ -146,7 +224,7 @@ final class ProjectionStructuralOrderDirectory {
     }
 
     void remove(final long nodeKey) {
-      storage.tombstoneStructuralOrderSlot(slotKey(nodeKey));
+      store.tombstone(slotKey(nodeKey));
     }
 
     /**
@@ -579,7 +657,7 @@ final class ProjectionStructuralOrderDirectory {
     }
 
     private @Nullable SirixDeweyID localLabel(final long nodeKey) {
-      final byte[] encoded = storage.getStructuralOrderSlot(slotKey(nodeKey));
+      final byte[] encoded = store.get(slotKey(nodeKey));
       if (encoded == null) {
         return null;
       }
@@ -616,7 +694,7 @@ final class ProjectionStructuralOrderDirectory {
       final byte[] encoded = new byte[Math.addExact(FORMAT_HEADER_BYTES, payload.length)];
       encoded[0] = FORMAT_VERSION;
       System.arraycopy(payload, 0, encoded, FORMAT_HEADER_BYTES, payload.length);
-      storage.putStructuralOrderSlot(slotKey(nodeKey), encoded);
+      store.put(slotKey(nodeKey), encoded);
     }
 
     /**
