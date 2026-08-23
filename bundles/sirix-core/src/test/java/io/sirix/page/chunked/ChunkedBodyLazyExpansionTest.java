@@ -8,7 +8,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.cache.Allocators;
 import io.sirix.page.ChunkedBodyConfig;
 import io.sirix.page.KeyValueLeafPage;
-import io.sirix.page.PageLayout;
 import io.sirix.page.chunked.ChunkedPageGenerator.Body;
 import io.sirix.page.chunked.ChunkedPageGenerator.Hash;
 import io.sirix.page.chunked.ChunkedPageGenerator.Names;

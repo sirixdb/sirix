@@ -5,7 +5,6 @@ import io.brackit.query.atomic.Int64;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.projection.ProjectionIndexCatalog;

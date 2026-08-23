@@ -50,9 +50,13 @@ tasks.withType(JavaCompile).configureEach {
 description = 'Sirix/Brackit binding.'
 
 def hftBuildIdentityRelativePath = 'META-INF/sirix-hft-build.properties'
-def hftBuildIdentityFile = tasks.named('compileJava', JavaCompile).flatMap {
-    it.destinationDirectory.file(hftBuildIdentityRelativePath)
-}
+// Own output directory rather than compileJava's: every project that depends on :sirix-query reads
+// that class directory as an input, so a second task writing into it is an undeclared producer and
+// Gradle fails the consumer's validation. Registering the directory on the main source set keeps the
+// attestation on the runtime classpath (and inside the jar) while giving consumers the task
+// dependency automatically.
+def hftBuildIdentityDir = layout.buildDirectory.dir('hft-identity/main')
+def hftBuildIdentityFile = hftBuildIdentityDir.map { it.file(hftBuildIdentityRelativePath) }
 def hftTestBuildIdentityFile = tasks.named('compileTestJava', JavaCompile).flatMap {
     it.destinationDirectory.file(hftBuildIdentityRelativePath)
 }
@@ -149,13 +153,15 @@ def hftWriteBuildIdentity = { outputProvider, String runtimeClasspath ->
 
 tasks.register('generateHftBuildIdentity') {
     dependsOn(tasks.named('compileJava'), tasks.named('compileKotlin'), tasks.named('processResources'))
-    outputs.file(hftBuildIdentityFile)
+    outputs.dir(hftBuildIdentityDir)
     outputs.upToDateWhen { false }
     doLast {
         hftEnsureOutputDirectories(sourceSets.main)
         hftWriteBuildIdentity(hftBuildIdentityFile, sourceSets.main.runtimeClasspath.asPath)
     }
 }
+
+sourceSets.main.output.dir(hftBuildIdentityDir, builtBy: 'generateHftBuildIdentity')
 
 tasks.register('generateHftTestBuildIdentity') {
     dependsOn(tasks.named('testClasses'))
