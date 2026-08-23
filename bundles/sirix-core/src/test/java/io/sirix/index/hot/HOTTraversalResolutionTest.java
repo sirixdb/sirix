@@ -95,7 +95,7 @@ final class HOTTraversalResolutionTest {
       // The earlier epoch flushed this leaf, so the reference can still address it on disk.
       reference.setKey(DURABLE_OFFSET);
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final HOTLeafPage preMergeImage = mock(HOTLeafPage.class);
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
@@ -180,7 +180,7 @@ final class HOTTraversalResolutionTest {
       final PageReference copy = new PageReference(reference);
       assertNull(copy.getPage(), "a copy of a logged reference must not duplicate the swizzle");
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       // The earlier epoch's spill completes: the shared handle publishes a durable offset, so both
       // the original and the copy stop naming a log entry at all.
@@ -217,7 +217,7 @@ final class HOTTraversalResolutionTest {
       final PageReference reference = new PageReference();
       log.put(reference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       // Published but NOT yet refreshed: the reference still reads as a log entry until the very
       // resolution that is about to answer for it.
@@ -305,7 +305,7 @@ final class HOTTraversalResolutionTest {
       when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
       final PageReference casReference = new PageReference();
       log.put(casReference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
-      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), null, List.of(casReference));
+      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), null, List.of(casReference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       // A PATH leaf that is perfectly alive and shares the number, because its index counts its own.
       final HOTLeafPage livePathLeaf = mock(HOTLeafPage.class);
@@ -345,7 +345,7 @@ final class HOTTraversalResolutionTest {
       final PageReference replacement = new PageReference();
       log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
       assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
@@ -375,7 +375,7 @@ final class HOTTraversalResolutionTest {
       final PageReference replacement = new PageReference();
       log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       PageReference.completeTransactionLogReference(staleCopy.transactionLogReference(), DURABLE_OFFSET);
       staleCopy.refreshTransactionLogReference();
@@ -421,7 +421,7 @@ final class HOTTraversalResolutionTest {
       assertTrue(replacement.refreshTransactionLogReference(), "the merge target must now be a disk reference");
       assertEquals(Constants.NULL_ID_INT, replacement.getLogKey());
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
       when(storageEngineWriter.loadHOTPage(
@@ -450,7 +450,7 @@ final class HOTTraversalResolutionTest {
       final PageReference orphan = new PageReference();
       log.put(orphan, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(orphan));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(orphan), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
       when(storageEngineWriter.getLog()).thenReturn(log);
@@ -523,7 +523,7 @@ final class HOTTraversalResolutionTest {
       log.put(reference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
       reference.setKey(DURABLE_OFFSET);
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
       when(storageEngineWriter.loadHOTPage(any(PageReference.class))).thenReturn(mock(HOTLeafPage.class));
@@ -598,7 +598,7 @@ final class HOTTraversalResolutionTest {
       when(closedLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
       final PageReference reference = new PageReference();
       log.put(reference, PageContainer.getInstance(closedLeaf, closedLeaf));
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference), TransactionIntentLog.RELEASE_SITE_UNKNOWN);
 
       final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
       when(storageEngineWriter.getLog()).thenReturn(log);

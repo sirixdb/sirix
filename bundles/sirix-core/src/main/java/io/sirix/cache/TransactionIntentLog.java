@@ -12,6 +12,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Reference2IntMap;
@@ -170,6 +171,48 @@ public final class TransactionIntentLog implements AutoCloseable {
    * never all-ones.
    */
   private static final long NO_REPLACEMENT = -1L;
+
+  // ==================== RELEASE-SITE TAGS (diagnostic) ====================
+
+  /** {@link #releaseOrphanedHOTLeaves} caller: the periodic leaf-consolidation sweep. */
+  public static final int RELEASE_SITE_CONSOLIDATE = 1;
+  /** {@link #releaseOrphanedHOTLeaves} caller: a scoped {@code rebuildSubtree} at the insert depth. */
+  public static final int RELEASE_SITE_REBUILD_SUBTREE = 2;
+  /** {@link #releaseOrphanedHOTLeaves} caller: {@code rebuildExistingSubtree} (self-heal / fold repair). */
+  public static final int RELEASE_SITE_REBUILD_EXISTING = 3;
+  /** {@link #releaseOrphanedHOTLeaves} caller: the Direction-1 leaf-frontier splice. */
+  public static final int RELEASE_SITE_FRONTIER_SPLICE = 4;
+  /** {@link #releaseOrphanedHOTLeaves} caller: the root-leaf rebuild. */
+  public static final int RELEASE_SITE_LEAF_REBUILD_ROOT = 5;
+
+  /** A released page key nothing tagged — pre-instrumentation state or an unknown path. */
+  public static final int RELEASE_SITE_UNKNOWN = -1;
+
+  /**
+   * Which call site released each page key, per index scope — pure diagnostics for the refusal path.
+   * Parallel to {@link #releasedHOTLeafReplacements}: same keys, written by the same loop, so the two
+   * cannot disagree about membership. Only the refusal path (which ends the transaction) reads it.
+   */
+  private final Long2ObjectOpenHashMap<Long2IntOpenHashMap> releasedHOTLeafSiteTags =
+      new Long2ObjectOpenHashMap<>();
+
+  /** The human-readable name of a {@code RELEASE_SITE_*} tag, for refusal messages. */
+  public static String releaseSiteName(final int siteTag) {
+    return switch (siteTag) {
+      case RELEASE_SITE_CONSOLIDATE -> "consolidate-sweep";
+      case RELEASE_SITE_REBUILD_SUBTREE -> "rebuild-subtree";
+      case RELEASE_SITE_REBUILD_EXISTING -> "rebuild-existing-subtree";
+      case RELEASE_SITE_FRONTIER_SPLICE -> "leaf-frontier-splice";
+      case RELEASE_SITE_LEAF_REBUILD_ROOT -> "leaf-rebuild-root";
+      default -> "unknown-site";
+    };
+  }
+
+  /** The {@code RELEASE_SITE_*} tag recorded for a released page key, or {@link #RELEASE_SITE_UNKNOWN}. */
+  public int releasedHOTLeafSiteTag(final long indexScope, final long pageKey) {
+    final Long2IntOpenHashMap tags = releasedHOTLeafSiteTags.get(indexScope);
+    return tags == null ? RELEASE_SITE_UNKNOWN : tags.getOrDefault(pageKey, RELEASE_SITE_UNKNOWN);
+  }
 
   // ==================== GENERATION COUNTER ====================
 
@@ -2355,7 +2398,7 @@ public final class TransactionIntentLog implements AutoCloseable {
    * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
    */
   public void releaseOrphanedHOTLeaves(final long indexScope, final @Nullable PageReference replacement,
-      final List<PageReference> orphanRefs) {
+      final List<PageReference> orphanRefs, final int siteTag) {
     if (orphanRefs == null || orphanRefs.isEmpty()) {
       return;
     }
@@ -2461,6 +2504,13 @@ public final class TransactionIntentLog implements AutoCloseable {
           }
         }
         releasedForScope.put(leaf.getPageKey(), replacement);
+        // Same membership as the replacement map, by construction: recorded in the same branch.
+        Long2IntOpenHashMap tagsForScope = releasedHOTLeafSiteTags.get(indexScope);
+        if (tagsForScope == null) {
+          tagsForScope = new Long2IntOpenHashMap();
+          releasedHOTLeafSiteTags.put(indexScope, tagsForScope);
+        }
+        tagsForScope.put(leaf.getPageKey(), siteTag);
         leaf.close();
       }
     }
