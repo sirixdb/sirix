@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -734,25 +735,33 @@ public final class ProjectionIndexRegistry {
     }
 
     /**
-     * Sliced group serves so far — the PROMOTION signal: a handle that keeps serving sliced is in a hot
-     * loop, where the contiguous byte-kernel scan over materialized leaves wins (~2x on 1M-row string
-     * groupings). Racy increments are benign (a promotion one serve late).
+     * Sliced group-route ARRIVALS so far — the PROMOTION signal: a handle whose group arms keep
+     * reaching the sliced route is in a hot loop, where the contiguous byte-kernel scan over
+     * materialized leaves wins (~2x on 1M-row string groupings). Racy increments are benign (a
+     * promotion one arrival late).
      */
-    private final java.util.concurrent.atomic.AtomicInteger slicedServes =
-        new java.util.concurrent.atomic.AtomicInteger();
+    private final AtomicInteger slicedRouteArrivals = new AtomicInteger();
 
     /**
-     * Count one serve that actually TOOK the sliced route; returns the count BEFORE the increment.
+     * Count one ARRIVAL at the sliced group route; returns the count BEFORE the increment.
      *
      * <p>
-     * Callers must tick only once the route decision is final. Counting attempts instead would let a
-     * query that fell back to the whole-leaf kernel — because a predicate or a column was not
-     * sliceable — advance the promotion signal, so a handle could promote without ever having served
-     * a slice.
+     * This is the promotion POLICY signal and it deliberately counts arrivals, not successful sliced
+     * serves. The policy asks "is this handle in a hot group-query loop", which route traffic
+     * answers; an arm that then declined for an unsliceable predicate does not make the handle
+     * colder, and gating the tick on a successful slice would move the promotion trigger point.
+     * </p>
+     *
+     * <p>
+     * The instrument that must not lie about REAL serves is a separate, per-kernel one:
+     * {@code SirixVectorizedExecutor.groupAggSlicedServedCount()}, incremented inside the sliced
+     * kernels themselves. That is what the regression tests assert on and what the benchmark runners
+     * report — keeping policy and instrument apart is what lets either change without silently
+     * moving the other.
      * </p>
      */
-    public int slicedServeTick() {
-      return slicedServes.getAndIncrement();
+    public int slicedRouteTick() {
+      return slicedRouteArrivals.getAndIncrement();
     }
 
     /** One-shot latch for the background whole-projection segment readahead. */

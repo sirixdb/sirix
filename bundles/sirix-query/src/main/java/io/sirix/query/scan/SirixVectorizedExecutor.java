@@ -11950,23 +11950,29 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // only the group/aggregate/predicate columns' decoded slices instead of assembling every
       // leaf. The escape hatch flips the whole route back for A/B timing in one build.
       final ProjectionColumnStore groupStore = handle.columnStoreOrNull();
-      // DECIDE THE ROUTE FIRST, then promote. Reading payloadsMaterialized() again after kicking the
-      // promotion made the promoting query race its own background materialization: on a small
-      // fixture the assembly lands inside that window and the query that asked to keep serving
-      // sliced takes the whole-leaf kernel instead. The latch below is what makes "KEEP SERVING
-      // SLICED until it lands" true of the code and not just of this comment.
+      // Regime-adaptive PROMOTION POLICY: slices exist to SKIP the whole-leaf assembly (the
+      // cold-start whale), but once some consumer already materialized the leaves the contiguous
+      // byte-kernel scan beats scattered slice reads — measured ~2x on hot 1M-row string groupings.
+      // The tick counts ROUTE ARRIVALS, under exactly the conditions it always has: slicing on, a
+      // column store, leaves not yet materialized. It deliberately does NOT read the sliceability
+      // latch below — "is this handle in a hot group loop" is a question about route traffic, and
+      // ticking only on a successful slice would move the trigger point. What must not lie about
+      // real serves is a different instrument: GROUP_AGG_SLICED_SERVED, ticked at the kernels
+      // themselves and read by groupAggSlicedServedCount().
+      final boolean promoteNow = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
+          && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
+      // Latch the ROUTE before the promotion is kicked, so the code enforces the invariant the
+      // comment below states ("KEEP SERVING SLICED until it lands") rather than re-deriving it from
+      // payloadsMaterialized() after the kick. This is hardening of a documented-but-unenforced
+      // guarantee, NOT the fix for a reproducing race: the suspected intra-query window — the
+      // background assembly landing between the kick and the re-read, demoting the very query that
+      // triggered it — did not reproduce even at -Dsirix.projection.slicedPromoteAfter=1.
       final boolean groupSliced = GROUP_SLICED_ENABLED && groupStore != null && !handle.payloadsMaterialized()
           && (tree == null
               ? predsSliceable(groupStore, preds)
               : treeSliceable(groupStore, tree))
           && allColumnsSliceable(groupStore, groupCols) && allColumnsSliceable(groupStore, aggColsFlat);
-      // Regime-adaptive: slices exist to SKIP the whole-leaf assembly (the cold-start whale).
-      // Once some consumer already materialized the leaves, the contiguous byte-kernel scan
-      // beats scattered slice reads — measured ~2x on hot 1M-row string groupings. The tick counts
-      // serves that actually TOOK the sliced route, so the promotion signal cannot be inflated by
-      // queries that fell back for an unsliceable predicate or column.
-      if (groupSliced && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER
-          && !projectionWarmupPool.isShutdown()) {
+      if (promoteNow && !projectionWarmupPool.isShutdown()) {
         // ASYNC promotion: materialize on the owned warm-up lane while THIS query still serves
         // sliced — the synchronous form stalled the promoting query for the whole assembly
         // (~150-250 ms mid-suite). payloadsMaterialized() flips when the future completes;
@@ -13075,14 +13081,17 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       // SLICED first (regime-gated): the const-group fold reads only its operand columns —
       // this route was the suite's LAST payload materializer once the keyed arms sliced.
       final ProjectionColumnStore constStore = handle.columnStoreOrNull();
-      // Route latched BEFORE the promotion is kicked, for the same reason as the keyed arm above:
-      // re-reading payloadsMaterialized() afterwards lets the background assembly land inside the
-      // window and demote the very query that triggered it.
+      // Same split as the keyed arm: the promotion POLICY ticks on ROUTE ARRIVAL, under the very
+      // conditions (and in the very order) it always did, while the route itself is latched before
+      // the kick so "keep serving sliced until it lands" is enforced by the code and not only
+      // promised by a comment. Hardening; the suspected intra-query demotion did not reproduce.
+      final boolean constPromoteNow =
+          GROUP_SLICED_ENABLED && constStore != null && !handle.payloadsMaterialized()
+              && !projectionWarmupPool.isShutdown() && handle.slicedRouteTick() >= SLICED_PROMOTE_AFTER;
       final boolean constSliced =
           GROUP_SLICED_ENABLED && constStore != null && !anyStrlenAgg && !handle.payloadsMaterialized()
               && predsSliceable(constStore, preds) && allColumnsSliceable(constStore, aggCols);
-      if (constSliced && handle.slicedServeTick() >= SLICED_PROMOTE_AFTER
-          && !projectionWarmupPool.isShutdown()) {
+      if (constPromoteNow) {
         handle.promoteInBackground(projectionWarmupPool, rowGroupMaterializer(handle));
       }
       final List<byte[]> armPayloads = constSliced
