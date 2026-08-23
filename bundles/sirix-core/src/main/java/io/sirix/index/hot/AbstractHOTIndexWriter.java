@@ -2289,59 +2289,74 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (node.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
         // betaIsDiscBit + full d* — split + dispatch decomposition
         // (docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md §4.1).
-        return branchFullNodeAtExistingBit(navResult, node, insertDepth, beta, betaValue, keySlice, valueSlice);
-      }
-      final int[] nodeDiscBits = HOTIncrementalInsert.discriminativeBits(node);
-      final int betaColumn = Arrays.binarySearch(nodeDiscBits, beta);
-      final int comboPartial = info.subtreePrefix() | (betaValue == 1
-          ? 1 << (nodeDiscBits.length - 1 - betaColumn)
-          : 0);
-      final HOTLeafPage comboLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
-      if (!comboLeaf.put(keySlice, valueSlice)) {
-        throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
-      }
-      try {
-        final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node, comboPartial,
-            swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
-        if (branchAddStrandsExisting(node, newNode, keySlice)) {
-          comboLeaf.close();
-          return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
-        }
-        if (nodeStructurallyMalformed(newNode)) {
-          comboLeaf.close();
-          BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
-          return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
-        }
-        pathRefs[insertDepth].setPage(newNode);
-        lastDispatchHandler = "h:combo-site1";
-        registerFreshSubtree(pathRefs[insertDepth]);
-        return true;
-      } catch (IllegalArgumentException c2Collision) {
-        // C2 -- comboPartial coincides with an existing child of d*. Direction 1 sub-insert
-        // into affected (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
-        // by the descent tautology; the only remaining risk is I8 (range-scan ordering) when
-        // K becomes affected's new firstKey and the trie has an MSDB-closure gap at some
-        // ancestor's mask. Pre-check via isDirectionOneI8Safe; if safe, sub-insert; else
-        // fall back to a scoped rebuildSubtree at insertDepth (cheaper than the baseline's
-        // whole-index self-heal).
-        comboLeaf.close();
-        if (isDirectionOneI8Safe(navResult, insertDepth, analysis.affectedChildIndex(), keySlice)) {
-          lastDispatchHandler = "h:d1-subinsert";
-          DIRECTION_ONE_SUBINSERT.incrementAndGet();
-          return subInsertAt(node.getChildReference(analysis.affectedChildIndex()), keySlice, keySlice.length,
-              valueSlice, valueSlice.length);
-        }
-        final int collisionSlot = findChildSlotByPartial(node, comboPartial);
-        if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot,
-            analysis.affectedChildIndex(), keySlice, valueSlice)) {
+        if (branchFullNodeAtExistingBit(navResult, node, insertDepth, beta, betaValue, keySlice, valueSlice)) {
           return true;
         }
-        DIRECTION_ONE_FALLBACK.incrementAndGet();
-        if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
-          dumpDirectionOneFallback("site1", navResult, analysis.affectedChildIndex(), analysis.insertDepth(), beta,
-              betaValue, comboPartial, keySlice);
+        // The decomposition dead-ended (§6 C1: its MSB split left K's half a LONE child, so there
+        // is no half node to fold into; or a C2 fold precondition failed). Its speculative split
+        // was never published, so the state is untouched and a different primitive may still
+        // apply. When the affected subtree is the descended leaf itself, that primitive is the
+        // generic leaf pair below: BiNode(beta, leaf, K) integrated at the leaf's depth, where
+        // integrate() decomposes the full parent whose mask already contains beta through
+        // splitIndirectWithSlotReplaceAndInsertion — the same decomposition, taken in the
+        // parent's own coordinate space, and it has no lone-child dead end. Every ordering and
+        // stranding guard on that path still applies.
+        if (info.affectedCount() != 1 || insertDepth + 1 != pathDepth) {
+          return false;
         }
-        return false;
+      } else {
+        final int[] nodeDiscBits = HOTIncrementalInsert.discriminativeBits(node);
+        final int betaColumn = Arrays.binarySearch(nodeDiscBits, beta);
+        final int comboPartial = info.subtreePrefix() | (betaValue == 1
+            ? 1 << (nodeDiscBits.length - 1 - betaColumn)
+            : 0);
+        final HOTLeafPage comboLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+        if (!comboLeaf.put(keySlice, valueSlice)) {
+          throw new SirixIOException("HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+        }
+        try {
+          final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node, comboPartial,
+              swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
+          if (branchAddStrandsExisting(node, newNode, keySlice)) {
+            comboLeaf.close();
+            return dischargeStrandViaLeafRebuild(navResult, node, newNode, insertDepth, keySlice, valueSlice);
+          }
+          if (nodeStructurallyMalformed(newNode)) {
+            comboLeaf.close();
+            BRANCH_I8_UNSAFE_REBUILD.incrementAndGet();
+            return false; // I8-unsafe combo-add -> canonical rebuildSubtree(insertDepth)
+          }
+          pathRefs[insertDepth].setPage(newNode);
+          lastDispatchHandler = "h:combo-site1";
+          registerFreshSubtree(pathRefs[insertDepth]);
+          return true;
+        } catch (IllegalArgumentException c2Collision) {
+          // C2 -- comboPartial coincides with an existing child of d*. Direction 1 sub-insert
+          // into affected (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
+          // by the descent tautology; the only remaining risk is I8 (range-scan ordering) when
+          // K becomes affected's new firstKey and the trie has an MSDB-closure gap at some
+          // ancestor's mask. Pre-check via isDirectionOneI8Safe; if safe, sub-insert; else
+          // fall back to a scoped rebuildSubtree at insertDepth (cheaper than the baseline's
+          // whole-index self-heal).
+          comboLeaf.close();
+          if (isDirectionOneI8Safe(navResult, insertDepth, analysis.affectedChildIndex(), keySlice)) {
+            lastDispatchHandler = "h:d1-subinsert";
+            DIRECTION_ONE_SUBINSERT.incrementAndGet();
+            return subInsertAt(node.getChildReference(analysis.affectedChildIndex()), keySlice, keySlice.length,
+                valueSlice, valueSlice.length);
+          }
+          final int collisionSlot = findChildSlotByPartial(node, comboPartial);
+          if (tryDirectionOneLeafPairSplice(navResult, node, insertDepth, collisionSlot,
+              analysis.affectedChildIndex(), keySlice, valueSlice)) {
+            return true;
+          }
+          DIRECTION_ONE_FALLBACK.incrementAndGet();
+          if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
+            dumpDirectionOneFallback("site1", navResult, analysis.affectedChildIndex(), analysis.insertDepth(), beta,
+                betaValue, comboPartial, keySlice);
+          }
+          return false;
+        }
       }
     }
     final boolean singleEntry = info.affectedCount() == 1;

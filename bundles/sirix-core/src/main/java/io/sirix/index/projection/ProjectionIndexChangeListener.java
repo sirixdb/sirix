@@ -966,8 +966,31 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       allColumnWords[allColumnWords.length - 1] = (1L << (columnCount % Long.SIZE)) - 1L;
     }
     final LongSet roots = pathSummary.getPCRsForPaths(Set.of(indexDef.getProjectionRootPath()));
-    for (final LongIterator it = roots.iterator(); it.hasNext();) {
-      final long pcr = it.nextLong();
+    // OUTERMOST FIRST. registerRootPcr detects an overlapping nested root by walking UP from the
+    // new root to an already-registered one, which is exact for the incremental path (a path class
+    // created now can never be the ancestor of one that already exists) but order-sensitive for a
+    // batch. The set iterates in hash order, so a nested root seeded before its ancestor would see
+    // an empty rootPcrs above it and the ancestor would never look down — the guard would fail OPEN
+    // on exactly the overlap it exists to reject. Sorting by path level restores the precondition:
+    // an ancestor has a strictly smaller level, so it is always registered first.
+    final long[] orderedRoots = roots.toLongArray();
+    if (orderedRoots.length > 1) {
+      final long savedNodeKey = pathSummary.getNodeKey();
+      final int[] levels = new int[orderedRoots.length];
+      try {
+        for (int index = 0; index < orderedRoots.length; index++) {
+          if (!pathSummary.moveTo(orderedRoots[index])) {
+            throw new IllegalStateException("Projection index " + indexDef.getID()
+                + " cannot resolve record-set path node " + orderedRoots[index]);
+          }
+          levels[index] = pathSummary.getLevel();
+        }
+      } finally {
+        pathSummary.moveTo(savedNodeKey);
+      }
+      sortRootsByLevelAscending(orderedRoots, levels);
+    }
+    for (final long pcr : orderedRoots) {
       registerRootPcr(pcr);
     }
     int column = 0;
@@ -1038,6 +1061,26 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       irrelevantPcrs.add(pathNodeKey);
     }
     return relevant;
+  }
+
+  /**
+   * Stable insertion sort of the seeded root PCRs by ascending path level, keeping the parallel
+   * level array in step. Root sets hold a handful of entries, so this beats a comparator-driven sort
+   * outright: two primitive arrays, no boxing, no allocation, and it runs once per seeding.
+   */
+  private static void sortRootsByLevelAscending(final long[] roots, final int[] levels) {
+    for (int index = 1; index < roots.length; index++) {
+      final long root = roots[index];
+      final int level = levels[index];
+      int scan = index - 1;
+      while (scan >= 0 && levels[scan] > level) {
+        roots[scan + 1] = roots[scan];
+        levels[scan + 1] = levels[scan];
+        scan--;
+      }
+      roots[scan + 1] = root;
+      levels[scan + 1] = level;
+    }
   }
 
   private void registerRootPcr(final long pathNodeKey) {
@@ -2061,6 +2104,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
 
     final LongOpenHashSet insertedOrMoved = new LongOpenHashSet(insertions);
     final LongOpenHashSet insertedVisited = new LongOpenHashSet();
+    // Captured BEFORE the loop mutates the fences: bootstrapping a document base publishes a
+    // still-unwritten leaf as the document head, so a later persisted walk would demand the
+    // descriptor this commit has not written yet (and that a retired base no longer has). An
+    // empty persisted order has no successor to any position by construction.
+    final boolean emptyPersistedOrder = fences.liveRowGroupCount() == 0;
     for (int startIndex = 0; startIndex < insertionStarts.size(); startIndex++) {
       final LongArrayList chain = new LongArrayList();
       long recordKey = insertionStarts.getLong(startIndex);
@@ -2110,8 +2158,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         insertionOffset = predecessorRow + 1;
       }
 
-      final boolean documentTail = persistedSuccessor(stablePredecessor, persistedLookup,
-          removals, locationByRecord) == NO_RECORD_KEY;
+      final boolean documentTail = emptyPersistedOrder || persistedSuccessor(stablePredecessor,
+          persistedLookup, removals, locationByRecord) == NO_RECORD_KEY;
       int offset = insertionOffset;
       for (int chainIndex = 0; chainIndex < chain.size(); chainIndex++) {
         final long key = chain.getLong(chainIndex);
