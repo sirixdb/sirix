@@ -286,14 +286,28 @@ public abstract class AbstractHOTIndexWriter<K> {
     return true;
   }
 
+  /**
+   * Why the imminent subtree rebuild was demanded — set by each caller immediately before the rebuild
+   * entry points. Cold diagnostics: the projection's refusal ends the transaction, and every other
+   * index type never reads it. Two callers and five trigger families shared one refusal message; this
+   * names them.
+   */
+  private @Nullable String pendingRebuildReason;
+
   private void requireSubtreeRebuildAllowed() {
     if (indexType == IndexType.PROJECTION) {
       PROJECTION_REBUILD_SUBTREE_ATTEMPTED.incrementAndGet();
     }
     if (!allowsSubtreeRebuild()) {
+      final String reason = pendingRebuildReason == null
+          ? "unrecorded"
+          : pendingRebuildReason;
+      pendingRebuildReason = null;
       throw new IllegalStateException(indexType + " index " + indexNumber
-          + " requires a subtree rebuild; refusing the transaction before publication");
+          + " requires a subtree rebuild; refusing the transaction before publication [" + reason + " lastHandler="
+          + lastDispatchHandler + "]");
     }
+    pendingRebuildReason = null;
   }
 
   /**
@@ -1799,6 +1813,8 @@ public abstract class AbstractHOTIndexWriter<K> {
               + " height=" + height + " atScopeRoot=" + (m.reference() == scope) + " K="
               + HexFormat.of().formatHex(keySlice) + " detail=" + m.detail());
         }
+        pendingRebuildReason = "trigger=selfheal invariant=" + m.invariant() + " round=" + round + " atScopeRoot="
+            + (m.reference() == scope);
         rebuildExistingSubtree(m.reference());
       }
     }
@@ -1815,6 +1831,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     LOG.warn("HOT self-heal did not converge in {} rounds; rebuilding the whole scope canonically.",
         MAX_PATH_DEPTH + 1);
     STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+    pendingRebuildReason = "trigger=selfheal-nonconvergent-whole-scope";
     rebuildExistingSubtree(scope);
 
     final var residual = HOTMalformedSubtreeDetector.detect(scope, this::resolveHOTPageForTraversal);
@@ -2737,6 +2754,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Recanonicalize, but scoped to the insert-depth subtree: the key branches inside it,
       // so its ancestors are unaffected -- the rebuild stays bounded and Stage 3c's
       // propagation handles ancestor height/partial refreshes without escalating.
+      pendingRebuildReason =
+          "trigger=branch-i8-unsafe insertDepth=" + analysis.insertDepth() + " pathDepth=" + navResult.pathDepth();
       rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
       return false; // rebuildSubtree output is canonical — no structural self-heal needed
     }
@@ -3540,6 +3559,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
       if (nodeStructurallyMalformed(indirect)) {
         STRUCTURAL_SELFHEAL_REBUILD.incrementAndGet();
+        pendingRebuildReason = "trigger=onpath-malformed depth=" + depth + " height=" + indirect.getHeight()
+            + " children=" + indirect.getNumChildren() + " atRoot=" + (cur == rootReference);
         rebuildExistingSubtree(cur);
         return;
       }
@@ -4354,6 +4375,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             slotLast != null && nextFirst != null && Arrays.compareUnsigned(slotLast, nextFirst) >= 0;
         if (leftViolated || rightViolated) {
           REBUILD_PROPAGATION_ORDER_FALLBACK.incrementAndGet();
+          pendingRebuildReason = "trigger=propagation-order-fallback ancestorDepth=" + ancestorDepth;
           rebuildSubtree(navResult, ancestorDepth, keySlice, valueSlice);
           return;
         }
