@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -54,8 +55,44 @@ class HOTLeafWriterGuardTest {
    * Reloads that lose the guard before the writer may keep one. Deliberately above the writer's
    * tight-loop spin budget of 256 attempts: a writer that gives up on a fixed attempt count aborts
    * the transaction here, while one bounded by a wall-clock deadline still makes progress.
+   *
+   * <p>
+   * Each reload produces a DISTINCT instance, which is what an eviction storm actually looks like:
+   * the loader publishes a fresh page and eviction retires it before the writer can guard it. Handing
+   * back the same retired instance over and over would not be a storm at all — that instance can
+   * never become guardable again, so it is a dead end, and the writer is required to say so rather
+   * than to keep retrying it.
+   * </p>
    */
   private static final int RETIRED_RELOADS = 300;
+
+  /**
+   * How long a retirement stays in flight in the starvation tests. Long enough that a writer which
+   * only spins and yields racks up attempts by the hundred thousand, short enough to keep the test
+   * quick.
+   */
+  private static final long RETIREMENT_IN_FLIGHT_MILLIS = 300L;
+
+  /** Attempts the writer spends spinning and yielding before its back-off starts parking. */
+  private static final int PRE_PARK_ATTEMPTS = 512;
+
+  /**
+   * Attempts per millisecond of waiting a PARKED writer can reach, and the whole point of the two
+   * starvation tests: the writer has to WAIT for the retiring thread, and a waiter that never gives
+   * up its core starves the thread it is waiting for.
+   *
+   * <p>
+   * Derived, not sampled. The parked back-off tops out at one attempt per 100 µs, so 10 per
+   * millisecond, doubled here so that timer granularity and a loaded runner cannot make a correct
+   * writer look like a spinning one. Measuring a RATE rather than a total is what keeps the bound
+   * honest when the runner stalls the retiring thread past {@link #RETIREMENT_IN_FLIGHT_MILLIS} — a
+   * longer wait then buys proportionally more attempts instead of failing the test. A yielding writer
+   * sits far above the rate either way: ~56 per millisecond where a yield is expensive (Linux
+   * {@code sched_yield}) and thousands where it is not ({@code SwitchToThread} with no ready thread
+   * on the core, which is the livelock this pins down).
+   * </p>
+   */
+  private static final int MAX_ATTEMPTS_PER_MILLI_WHILE_RETIRING = 20;
 
   @Test
   void trieWriterKeepsSourceGuardedAcrossPressureAndTilTransfer() {
@@ -160,13 +197,12 @@ class HOTLeafWriterGuardTest {
 
   @Test
   void trieWriterOutlastsAnEvictionStormThatKeepsRetiringTheReloadedLeaf() {
-    final LeafState retired = leafState(9L);
+    final LeafState firstRetired = retiredLeafState(9L);
     final LeafState replacement = leafState(9L);
     final HOTLeafPage modified = mock(HOTLeafPage.class);
     final PageReference reference = reference(9L);
     final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    reference.setPage(retired.page());
-    retired.page().retire();
+    reference.setPage(firstRetired.page());
 
     // Every reload loses the guard again, exactly as pressure eviction retiring each freshly
     // published instance looks to the writer. The count exceeds any fixed tight-loop attempt
@@ -176,7 +212,7 @@ class HOTLeafWriterGuardTest {
     when(replacement.page().copy()).thenReturn(modified);
     final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
     when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retiredLoads.getAndIncrement() < RETIRED_RELOADS
-        ? retired.page()
+        ? retiredLeafState(9L).page()
         : replacement.page());
 
     final PageContainer result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log,
@@ -186,7 +222,7 @@ class HOTLeafWriterGuardTest {
     assertSame(modified, result.getModified());
     assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
     assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
-    verify(retired.page(), never()).copy();
+    verify(firstRetired.page(), never()).copy();
     verify(replacement.page(), times(1)).releaseGuard();
   }
 
@@ -223,12 +259,11 @@ class HOTLeafWriterGuardTest {
 
   @Test
   void abstractIndexWriterOutlastsAnEvictionStormThatKeepsRetiringTheReloadedLeaf() {
-    final LeafState retired = leafState(10L);
+    final LeafState firstRetired = retiredLeafState(10L);
     final LeafState replacement = leafState(10L);
     final HOTLeafPage modified = mock(HOTLeafPage.class);
     final PageReference reference = reference(10L);
     final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
-    retired.page().retire();
 
     final AtomicInteger retiredLoads = new AtomicInteger();
     final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
@@ -239,13 +274,13 @@ class HOTLeafWriterGuardTest {
     when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
         ResourceConfiguration.newBuilder("hot-writer-guard-storm").versioningApproach(VersioningType.FULL).build());
     when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retiredLoads.getAndIncrement() < RETIRED_RELOADS
-        ? retired.page()
+        ? retiredLeafState(10L).page()
         : replacement.page());
 
-    assertSame(modified, invokeCow(new TestIndexWriter(storageEngineWriter), reference, retired.page()));
+    assertSame(modified, invokeCow(new TestIndexWriter(storageEngineWriter), reference, firstRetired.page()));
     assertEquals(RETIRED_RELOADS + 1, retiredLoads.get(), "every retired reload must be retried, not skipped");
     assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
-    verify(retired.page(), never()).copy();
+    verify(firstRetired.page(), never()).copy();
     verify(replacement.page(), times(1)).releaseGuard();
   }
 
@@ -391,6 +426,211 @@ class HOTLeafWriterGuardTest {
     verify(modified.page(), never()).retire();
   }
 
+  /**
+   * A HOT leaf retired while a guard is still live is neither closed nor guardable — the deferred
+   * teardown state — and resolution keeps handing that same instance back until the holder's last
+   * release closes it. The writer therefore has to WAIT for the retiring thread, and waiting means
+   * giving up the core: a retry that only yields keeps out-competing the very thread it is waiting
+   * for, which on a small runner is a livelock rather than a slow wait.
+   */
+  @Test
+  void abstractIndexWriterYieldsTheCoreToTheThreadRetiringTheLeaf() throws Exception {
+    final LeafState retiring = leafState(11L);
+    final LeafState replacement = leafState(11L);
+    final HOTLeafPage modified = mock(HOTLeafPage.class);
+    final PageReference reference = reference(11L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+
+    // Deferred teardown: retire under a live guard, so the page is orphaned but NOT closed and stays
+    // that way for as long as this test holds the guard.
+    assertTrue(retiring.page().acquireGuard());
+    retiring.page().retire();
+    assertTrue(retiring.orphaned().get());
+    assertFalse(retiring.closed().get(), "a guarded retirement must defer the close");
+
+    final AtomicInteger guardAttempts = countGuardAttempts(retiring);
+    final AtomicBoolean retirementCompleted = new AtomicBoolean();
+
+    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
+    when(replacement.page().copy()).thenReturn(modified);
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+    when(storageEngineWriter.getLog()).thenReturn(log);
+    attachCache(storageEngineWriter, cache);
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-guard-starvation")
+                             .versioningApproach(VersioningType.FULL)
+                             .build());
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retirementCompleted.get()
+        ? replacement.page()
+        : retiring.page());
+
+    final Thread retiringThread = new Thread(() -> {
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(RETIREMENT_IN_FLIGHT_MILLIS));
+      retirementCompleted.set(true);
+    }, "hot-leaf-retirement");
+    retiringThread.start();
+    final long startedNanos = System.nanoTime();
+    final long waitedMillis;
+    try {
+      assertSame(modified, invokeCow(new TestIndexWriter(storageEngineWriter), reference, retiring.page()),
+          "the writer must outlast the in-flight retirement, not abort on it");
+    } finally {
+      waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
+      retiringThread.join(TimeUnit.SECONDS.toMillis(10L));
+      retiring.page().releaseGuard();
+    }
+
+    assertTrue(retirementCompleted.get(), "the retiring thread must have been scheduled while the writer waited");
+    assertParkedRatherThanSpun(guardAttempts.get(), waitedMillis);
+    verify(retiring.page(), never()).copy();
+    assertEquals(0, replacement.guards().get(), "the writer must release its guard exactly once");
+  }
+
+  /** Same contract for the document trie's copy-on-write path. */
+  @Test
+  void trieWriterYieldsTheCoreToTheThreadRetiringTheLeaf() throws Exception {
+    final LeafState retiring = leafState(12L);
+    final LeafState replacement = leafState(12L);
+    final HOTLeafPage modified = mock(HOTLeafPage.class);
+    final PageReference reference = reference(12L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+
+    assertTrue(retiring.page().acquireGuard());
+    retiring.page().retire();
+    assertFalse(retiring.closed().get(), "a guarded retirement must defer the close");
+
+    final AtomicInteger guardAttempts = countGuardAttempts(retiring);
+    final AtomicBoolean retirementCompleted = new AtomicBoolean();
+
+    final TransactionIntentLog log = detachingLog(reference, replacement, modified, cache);
+    when(replacement.page().copy()).thenReturn(modified);
+    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> retirementCompleted.get()
+        ? replacement.page()
+        : retiring.page());
+
+    final Thread retiringThread = new Thread(() -> {
+      LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(RETIREMENT_IN_FLIGHT_MILLIS));
+      retirementCompleted.set(true);
+    }, "hot-trie-leaf-retirement");
+    retiringThread.start();
+    final long startedNanos = System.nanoTime();
+    final PageContainer result;
+    final long waitedMillis;
+    try {
+      result = new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {12},
+          IndexType.PATH, 0);
+    } finally {
+      waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedNanos);
+      retiringThread.join(TimeUnit.SECONDS.toMillis(10L));
+      retiring.page().releaseGuard();
+    }
+
+    assertSame(replacement.page(), result.getComplete(),
+        "the writer must outlast the in-flight retirement, not abort on it");
+    assertSame(modified, result.getModified());
+    assertParkedRatherThanSpun(guardAttempts.get(), waitedMillis);
+  }
+
+  /**
+   * Assert the writer waited by parking rather than by spinning, as a RATE over however long the wait
+   * actually lasted.
+   *
+   * @param attempts guard acquisitions the writer made while waiting
+   * @param waitedMillis how long the writer waited
+   */
+  private static void assertParkedRatherThanSpun(final int attempts, final long waitedMillis) {
+    final long ceiling = PRE_PARK_ATTEMPTS + MAX_ATTEMPTS_PER_MILLI_WHILE_RETIRING * Math.max(1L, waitedMillis);
+    assertTrue(attempts <= ceiling, "the writer must park rather than spin while a retirement is in flight, but made "
+        + attempts + " attempts in " + waitedMillis + " ms (ceiling " + ceiling + ")");
+  }
+
+  /**
+   * Closing is terminal, so a reload that keeps producing a CLOSED leaf can never make progress.
+   * Resolution really does hand one back — the transaction-intent log keeps containers whose HOT
+   * leaves an incremental merge already released — so the writer must report the lost leaf on the
+   * first reload instead of retrying it until the wall-clock budget runs out.
+   */
+  @Test
+  void abstractIndexWriterReportsAClosedLeafInsteadOfRetryingIt() {
+    final LeafState closedLeaf = leafState(13L);
+    closedLeaf.page().retire();
+    assertTrue(closedLeaf.closed().get(), "an unguarded retirement closes immediately");
+
+    final PageReference reference = reference(13L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final TransactionIntentLog log = mock(TransactionIntentLog.class);
+    when(log.get(reference)).thenReturn(null);
+    final AtomicInteger reloads = new AtomicInteger();
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+    when(storageEngineWriter.getLog()).thenReturn(log);
+    attachCache(storageEngineWriter, cache);
+    when(storageEngineWriter.getResourceSession().getResourceConfig()).thenReturn(
+        ResourceConfiguration.newBuilder("hot-writer-closed-reload").versioningApproach(VersioningType.FULL).build());
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> {
+      reloads.incrementAndGet();
+      return closedLeaf.page();
+    });
+
+    final IllegalStateException thrown = assertThrows(IllegalStateException.class,
+        () -> invokeCow(new TestIndexWriter(storageEngineWriter), reference, closedLeaf.page()));
+
+    assertTrue(thrown.getMessage().contains("disappeared"),
+        "a closed leaf is a lost leaf, not an exhausted retry budget: " + thrown.getMessage());
+    assertEquals(1, reloads.get(), "a closed leaf must be reported on its first reload, not retried");
+    verify(closedLeaf.page(), never()).copy();
+  }
+
+  /** Same dead end on the document trie's path, where a lost leaf is reported as a {@code null}. */
+  @Test
+  void trieWriterReportsAClosedLeafInsteadOfRetryingIt() {
+    final LeafState closedLeaf = leafState(14L);
+    closedLeaf.page().retire();
+    assertTrue(closedLeaf.closed().get(), "an unguarded retirement closes immediately");
+
+    final PageReference reference = reference(14L);
+    final ShardedPageCache<HOTLeafPage> cache = new ShardedPageCache<>(1024L * 1024L);
+    final TransactionIntentLog log = mock(TransactionIntentLog.class);
+    when(log.get(reference)).thenReturn(null);
+    final AtomicInteger reloads = new AtomicInteger();
+    final StorageEngineWriter storageEngineWriter = storageEngineWriter(log, cache);
+    when(storageEngineWriter.loadHOTPage(reference)).thenAnswer(_ -> {
+      reloads.incrementAndGet();
+      return closedLeaf.page();
+    });
+
+    assertNull(new HOTTrieWriter().prepareKeyedLeafForModification(storageEngineWriter, log, reference, new byte[] {14},
+        IndexType.PATH, 0), "a lost leaf must be reported, not retried");
+    // Trie navigation resolves the leaf, the copy-on-write path resolves it again, and the lost guard
+    // buys exactly one reload before the dead end is reported. Any spinning shows up here.
+    assertEquals(3, reloads.get(), "the closed leaf must not be retried past its first reload");
+    verify(closedLeaf.page(), never()).copy();
+  }
+
+  /**
+   * Re-stub {@code acquireGuard} so the surrounding test can count how hard the writer retries,
+   * keeping the guard semantics {@link #leafState(long)} installed.
+   *
+   * @param leaf the leaf whose guard acquisitions are counted
+   * @return the live attempt counter
+   */
+  private static AtomicInteger countGuardAttempts(final LeafState leaf) {
+    final AtomicInteger attempts = new AtomicInteger();
+    when(leaf.page().acquireGuard()).thenAnswer(_ -> {
+      attempts.incrementAndGet();
+      if (leaf.closed().get() || leaf.orphaned().get()) {
+        return false;
+      }
+      leaf.guards().incrementAndGet();
+      if (leaf.closed().get() || leaf.orphaned().get()) {
+        leaf.guards().decrementAndGet();
+        return false;
+      }
+      return true;
+    });
+    return attempts;
+  }
+
   private static TransactionIntentLog detachingLog(final PageReference reference, final LeafState source,
       final HOTLeafPage modified, final ShardedPageCache<HOTLeafPage> cache) {
     final TransactionIntentLog log = mock(TransactionIntentLog.class);
@@ -474,6 +714,20 @@ class HOTLeafWriterGuardTest {
       return null;
     }).when(page).retire();
     return new LeafState(page, guards, orphaned, closed);
+  }
+
+  /**
+   * A freshly published leaf that eviction retired before anyone could guard it — the storm's unit of
+   * work. Each call mints a distinct instance, because eviction retiring the SAME instance twice is
+   * not a storm.
+   *
+   * @param pageKey the page key the instance reports
+   * @return the retired leaf's state
+   */
+  private static LeafState retiredLeafState(final long pageKey) {
+    final LeafState leaf = leafState(pageKey);
+    leaf.page().retire();
+    return leaf;
   }
 
   private static void failGuardReleaseAfterStateTransition(final LeafState source,

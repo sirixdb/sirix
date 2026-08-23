@@ -60,6 +60,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.LongSupplier;
 
 import static java.util.Objects.requireNonNull;
@@ -100,6 +101,35 @@ public abstract class AbstractHOTIndexWriter<K> {
   private static final int HOT_LEAF_GUARD_SPIN_ATTEMPTS = 256;
 
   /**
+   * Attempts spent yielding before the guard retry starts parking.
+   *
+   * <p>
+   * A yield is only a scheduling HINT, and on some platforms an ineffective one:
+   * {@code SwitchToThread()} hands the core to a ready thread on the SAME processor and returns
+   * immediately when there is none, so a retry loop that only ever yields keeps burning its own core
+   * against the thread whose retirement it is waiting for. That is a livelock, not a slow wait, and
+   * it is why the retry has to stop yielding after a bounded number of attempts.
+   * </p>
+   */
+  private static final int HOT_LEAF_GUARD_YIELD_ATTEMPTS = HOT_LEAF_GUARD_SPIN_ATTEMPTS + 256;
+
+  /** First parked back-off once yielding is exhausted. */
+  private static final long HOT_LEAF_GUARD_PARK_MIN_NANOS = 1_000L;
+
+  /**
+   * Ceiling for the parked back-off. Also the worst-case latency this waiter adds on top of the
+   * retirement it is waiting for, which is what keeps the wait bounded rather than merely finite.
+   */
+  private static final long HOT_LEAF_GUARD_PARK_MAX_NANOS = 100_000L;
+
+  /**
+   * Doubling ceiling for the parked back-off, applied to the shift COUNT so the shifted minimum can
+   * never overflow into a negative park. Far above the handful of doublings that reach
+   * {@link #HOT_LEAF_GUARD_PARK_MAX_NANOS}.
+   */
+  private static final long HOT_LEAF_GUARD_MAX_PARK_DOUBLINGS = 32L;
+
+  /**
    * Wall-clock budget for re-resolving a HOT leaf that pressure eviction keeps retiring first.
    *
    * <p>
@@ -110,8 +140,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    * wait bounded — an unguardable leaf still fails rather than hanging — while making the retry
    * budget mean what its name says.
    * </p>
+   *
+   * <p>
+   * It is a budget of WAITING, not of spinning: a leaf that can never become guardable again (a
+   * closed one) is rejected structurally on reload, so nothing spends this budget except a retirement
+   * that is genuinely still in flight.
+   * </p>
    */
-  private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(1L);
+  private static final long HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS = TimeUnit.SECONDS.toNanos(5L);
 
   /** Inserts between periodic leaf-consolidation sweeps ({@link #consolidateSubtree}). */
   private static final int CONSOLIDATION_INTERVAL = 4096;
@@ -821,7 +857,14 @@ public abstract class AbstractHOTIndexWriter<K> {
 
       currentRef.clearPageIfSame(sourceLeaf);
       final Page reloaded = resolveHOTPageForTraversal(currentRef);
-      if (!(reloaded instanceof HOTLeafPage reloadedLeaf)) {
+      // Re-resolving THE SAME CLOSED instance is a dead end, not a race worth retrying: closing is
+      // terminal, so that instance can never become guardable, and a resolution that just produced it
+      // will keep producing it. Resolution really does — the transaction-intent log keeps containers
+      // whose HOT leaves an incremental merge already released, and a page-reference reload consults
+      // the log before storage — so without this the retry spins against a page whose off-heap slot is
+      // already gone until the wall-clock budget runs out. A DIFFERENT closed instance is a lost race
+      // with eviction and still worth another round; only standing still is fatal.
+      if (!(reloaded instanceof HOTLeafPage reloadedLeaf) || (reloadedLeaf == sourceLeaf && reloadedLeaf.isClosed())) {
         throw new IllegalStateException("HOT leaf disappeared while acquiring a copy-on-write guard");
       }
       sourceLeaf = reloadedLeaf;
@@ -830,6 +873,16 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /**
    * Pace one lost guard race and enforce the retry deadline.
+   *
+   * <p>
+   * Three stages, because the thing being waited for is another thread FINISHING a retirement, and
+   * only the last stage actually lets it: spin while the race is plausibly still in the acquire
+   * window, yield while the holder may just need the scheduler's nod, then park — releasing this core
+   * outright — for a geometrically growing slice capped at {@link #HOT_LEAF_GUARD_PARK_MAX_NANOS}.
+   * Yielding forever is what turned this retry into a livelock on a small runner, where a yield with
+   * no same-core candidate returns immediately and the waiter simply out-competes the retiring
+   * thread.
+   * </p>
    *
    * @param attempt the number of guard acquisitions already lost, counted in {@code long} so an
    *        unbounded storm can never wrap the counter back into the spin budget
@@ -851,8 +904,28 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new IllegalStateException("HOT leaf was retired before it could be guarded within "
           + TimeUnit.NANOSECONDS.toMillis(HOT_LEAF_GUARD_RETRY_DEADLINE_NANOS) + " ms and " + attempt + " attempts");
     }
-    Thread.yield();
+    if (attempt < HOT_LEAF_GUARD_YIELD_ATTEMPTS) {
+      Thread.yield();
+    } else {
+      LockSupport.parkNanos(hotLeafGuardParkNanos(attempt));
+    }
     return deadlineNanos;
+  }
+
+  /**
+   * Parked back-off for one attempt: doubles per attempt past the yield budget, capped so the wait
+   * this waiter adds stays bounded.
+   *
+   * @param attempt the number of guard acquisitions already lost
+   * @return the park duration in nanoseconds
+   */
+  private static long hotLeafGuardParkNanos(final long attempt) {
+    // Clamp the doubling count BEFORE shifting. The cap is reached within a handful of doublings, so
+    // the clamp costs nothing — but leaving it out lets a long wait shift the minimum past 2^63,
+    // where the product goes negative, Math.min picks the negative, and parkNanos returns instantly.
+    // That failure mode is silently the very spin this back-off exists to stop.
+    final long doublings = Math.min(attempt - HOT_LEAF_GUARD_YIELD_ATTEMPTS, HOT_LEAF_GUARD_MAX_PARK_DOUBLINGS);
+    return Math.min(HOT_LEAF_GUARD_PARK_MAX_NANOS, HOT_LEAF_GUARD_PARK_MIN_NANOS << doublings);
   }
 
   /**
