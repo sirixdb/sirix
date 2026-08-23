@@ -204,6 +204,16 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private PageReference selfHealScope;
 
+  /**
+   * Set by {@link #resolveHOTPageForTraversal} when it refused a released HOT leaf and had no
+   * replacement to forward the descent to. Transaction-local like every other field here (the writer
+   * is single-threaded) and cleared at the start of each {@link #prepareLeafOfTree}: the empty-slot
+   * arm has to tell "this reference never had a page" from "this reference's page is gone", and the
+   * reference itself can no longer say which (the identity erasures are what made the refusal
+   * necessary in the first place).
+   */
+  private boolean releasedLeafRefused;
+
   // ===== I8-onset localizer (opt-in, -Dhot.localize.i8=true). Pinpoints the per-insert dispatch
   // handler that first introduces an I8 (children-by-firstKey) violation under churn. Diagnostic
   // only; gated off in production. =====
@@ -474,6 +484,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // splits/merges change key ranges and leaf identities, so the cached
     // firstKey/lastKey may no longer match the resident page.
     invalidateLeafCache();
+    releasedLeafRefused = false;
 
     // Top-down CoW (task #57): the caller hands us a cached root reference taken from the
     // *original* index page (NamePage / CASPage / PathPage / ProjectionIndexPage). That instance
@@ -536,6 +547,21 @@ public abstract class AbstractHOTIndexWriter<K> {
 
     // Empty tree path: create a new leaf at currentRef (root or missing child).
     // currentRef here is owned by the CoW'd parent's children array (top-down CoW above).
+    //
+    // Only a reference that names NOTHING may be answered this way. A reference whose HOT leaf an
+    // incremental merge RELEASED is a different situation entirely, and fabricating an empty leaf
+    // over it is the worst available answer: the slot keeps its routing partial but loses its
+    // content, so every key of that partial reads as absent while the entries sit in the merge
+    // target, and the first later insert whose mismatch bit reaches an ancestor's discriminative bit
+    // fails as an unplaceable branch — which on PROJECTION, where subtree rebuilds are refused, ends
+    // the transaction. The release forwards the orphan's identity to the page that absorbed it, so
+    // this is reachable only when the merge named no replacement at all: fail loudly rather than
+    // corrupt the trie.
+    if (releasedLeafRefused) {
+      throw new IllegalStateException("HOT " + indexType + " index " + indexNumber
+          + " descent reached a released leaf with no replacement to forward to at depth " + pathDepth
+          + "; refusing to replace it with an empty leaf");
+    }
     //
     // The page key comes from the allocator, like every other page this writer creates. It used to
     // be currentRef.getKey() — a durable BYTE OFFSET — which is not in the page-key space at all:
@@ -699,9 +725,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     // the descent seeds it with a leaf whose key set contradicts the live routing, and the insert
     // dispatch reads that contradiction as a branch escape (mismatch bit at or above an ancestor's
     // discriminative bit) it cannot place incrementally — which on the projection index, where
-    // subtree rebuilds are refused outright, ends the transaction. Resolving to nothing keeps the
-    // traversal on the trie's own structure.
+    // subtree rebuilds are refused outright, ends the transaction. The merge forwarded the orphan's
+    // identity to the page that absorbed its entries, so get() has already offered the descent the
+    // one page that IS correct here; reaching this point means the merge named no replacement.
     if (namesReleasedEntry(log, ref, logKeyBeforeResolution, generationBeforeResolution)) {
+      // releaseOrphanedHOTLeaves forwards the identity, so get() already tried the replacement;
+      // reaching here means the merge named none.
+      releasedLeafRefused = true;
       return null;
     }
 
@@ -732,12 +762,28 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private @Nullable Page reloadUnlessAlreadyMergedAway(final TransactionIntentLog log, final PageReference ref) {
     final Page durable = storageEngineWriter.loadHOTPage(ref);
-    if (durable instanceof HOTLeafPage durableLeaf
-        && log.namesReleasedHOTLeafPage(indexScope(), durableLeaf.getPageKey())) {
-      ref.clearPageIfSame(durableLeaf);
-      return null;
+    if (!(durable instanceof HOTLeafPage durableLeaf)
+        || !log.namesReleasedHOTLeafPage(indexScope(), durableLeaf.getPageKey())) {
+      return durable;
     }
-    return durable;
+    ref.clearPageIfSame(durableLeaf);
+    // The merge's replacement, not nothing: the entries this image still shows went into that page,
+    // so continuing the descent there is what keeps a stale reference copy routing to them.
+    final PageContainer replacement = log.releasedHOTLeafReplacementContainer(indexScope(), durableLeaf.getPageKey());
+    final Page modified = replacement == null
+        ? null
+        : replacement.getModified();
+    if (servesTraversal(modified)) {
+      return modified;
+    }
+    final Page complete = replacement == null
+        ? null
+        : replacement.getComplete();
+    if (servesTraversal(complete)) {
+      return complete;
+    }
+    releasedLeafRefused = true;
+    return null;
   }
 
   /**
@@ -3096,7 +3142,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   private void consolidateSubtree(PageReference ref) {
     final List<PageReference> orphanedLeaves = new ArrayList<>();
     consolidateSubtree(ref, orphanedLeaves);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), orphanedLeaves);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), ref, orphanedLeaves);
   }
 
   private void consolidateSubtree(PageReference ref, List<PageReference> orphanedLeaves) {
@@ -3203,7 +3249,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), staleLeafRefs);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), subtreeRef, staleLeafRefs);
   }
 
   /**
@@ -3298,7 +3344,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     reattachSegmentRefs(built.rootPage(), segmentRefs);
     ref.setPage(built.rootPage());
     registerFreshSubtree(ref);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), staleLeafRefs);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), ref, staleLeafRefs);
   }
 
   /**
@@ -3672,7 +3718,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (nodeDepth > 0) {
         propagateRebuildUpSpine(navResult, nodeDepth, keySlice, valueSlice);
       }
-      storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), orphanedLeafRefs);
+      storageEngineWriter.getLog()
+                         .releaseOrphanedHOTLeaves(indexScope(), navResult.pathRefs()[nodeDepth], orphanedLeafRefs);
       DIRECTION_ONE_LEAF_FRONTIER_SPLICE.incrementAndGet();
       if (frontier.size() == 2) {
         DIRECTION_ONE_LEAF_PAIR_SPLICE.incrementAndGet();
@@ -3831,7 +3878,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Reuse the scoped-rebuild spine propagation: treat the leaf level as rebuiltDepth=pathDepth so
     // it refreshes the parent's height + the leaf-slot partial (and recurses on an I7 collision).
     propagateRebuildUpSpine(navResult, pathDepth, keySlice, valueSlice);
-    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), List.of(oldLeafRef));
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(indexScope(), newRef, List.of(oldLeafRef));
   }
 
   /**

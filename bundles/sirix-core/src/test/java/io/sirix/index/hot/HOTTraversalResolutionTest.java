@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doAnswer;
@@ -88,7 +90,7 @@ final class HOTTraversalResolutionTest {
       // The earlier epoch flushed this leaf, so the reference can still address it on disk.
       reference.setKey(DURABLE_OFFSET);
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
 
       final HOTLeafPage preMergeImage = mock(HOTLeafPage.class);
       final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
@@ -173,7 +175,7 @@ final class HOTTraversalResolutionTest {
       final PageReference copy = new PageReference(reference);
       assertNull(copy.getPage(), "a copy of a logged reference must not duplicate the swizzle");
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
 
       // The earlier epoch's spill completes: the shared handle publishes a durable offset, so both
       // the original and the copy stop naming a log entry at all.
@@ -210,7 +212,7 @@ final class HOTTraversalResolutionTest {
       final PageReference reference = new PageReference();
       log.put(reference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(reference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(reference));
 
       // Published but NOT yet refreshed: the reference still reads as a log entry until the very
       // resolution that is about to answer for it.
@@ -298,7 +300,7 @@ final class HOTTraversalResolutionTest {
       when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
       final PageReference casReference = new PageReference();
       log.put(casReference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
-      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), List.of(casReference));
+      log.releaseOrphanedHOTLeaves(TransactionIntentLog.indexScope(IndexType.CAS, 0), null, List.of(casReference));
 
       // A PATH leaf that is perfectly alive and shares the number, because its index counts its own.
       final HOTLeafPage livePathLeaf = mock(HOTLeafPage.class);
@@ -309,6 +311,112 @@ final class HOTTraversalResolutionTest {
 
       assertSame(livePathLeaf, resolveForTraversal(storageEngineWriter, pathReference),
           "a release in another index's page-key namespace must not refuse this leaf");
+    } finally {
+      log.close();
+    }
+  }
+
+  /**
+   * Refusing the pre-merge image is only half of the answer. The descent that reached the released
+   * reference still has to continue somewhere, and the write path reads "nowhere" as "unoccupied
+   * slot": it fabricates a fresh empty leaf over the reference, which keeps the slot's routing
+   * partial while losing every key of it — the entries are in the merge target, and the stale slot
+   * now answers them absent. The release therefore forwards the orphan's identity to the page that
+   * absorbed it, and the descent continues THERE.
+   */
+  @Test
+  void aReleasedLeafResolvesToThePageThatAbsorbedItsEntries() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage mergedAwayLeaf = newReleasableLeaf();
+      when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final PageReference orphan = new PageReference();
+      log.put(orphan, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
+
+      // A copy taken by an indirect-page copy-on-write before the merge: it keeps naming the orphan.
+      final PageReference staleCopy = new PageReference(orphan);
+
+      final HOTLeafPage mergeTarget = mock(HOTLeafPage.class);
+      final PageReference replacement = new PageReference();
+      log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
+
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+
+      final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
+      assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
+          "a stale reference to a merged-away leaf must resolve to the leaf that absorbed its entries");
+      verify(storageEngineWriter, never()).loadHOTPage(any(PageReference.class));
+    } finally {
+      log.close();
+    }
+  }
+
+  /**
+   * The same forwarding, one identity erasure later. Once the shared handle has published a durable
+   * offset the reference names no entry at all, so only the reloaded page's own key still says the
+   * leaf was merged away — and that key is what names the replacement.
+   */
+  @Test
+  void aReleasedLeafResolvesToItsReplacementAfterItsReferenceLostItsLogIdentity() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage mergedAwayLeaf = newReleasableLeaf();
+      when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final PageReference orphan = new PageReference();
+      log.put(orphan, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
+      final PageReference staleCopy = new PageReference(orphan);
+
+      final HOTLeafPage mergeTarget = mock(HOTLeafPage.class);
+      final PageReference replacement = new PageReference();
+      log.put(replacement, PageContainer.getInstance(mergeTarget, mergeTarget));
+
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, replacement, List.of(orphan));
+
+      PageReference.completeTransactionLogReference(staleCopy.transactionLogReference(), DURABLE_OFFSET);
+      staleCopy.refreshTransactionLogReference();
+      assertEquals(DURABLE_OFFSET, staleCopy.getKey());
+
+      final HOTLeafPage preMergeImage = mock(HOTLeafPage.class);
+      when(preMergeImage.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final StorageEngineWriter storageEngineWriter = storageEngineWriter(log);
+      when(storageEngineWriter.loadHOTPage(any(PageReference.class))).thenReturn(preMergeImage);
+
+      assertSame(mergeTarget, resolveForTraversal(storageEngineWriter, staleCopy),
+          "the durable pre-merge image must be replaced by the page that absorbed its entries");
+    } finally {
+      log.close();
+    }
+  }
+
+  /**
+   * And when the descent still ends on a released leaf — a merge that named no replacement — the
+   * empty-slot arm must NOT answer with a fresh leaf. Doing so is what turns a recoverable stale
+   * reference into a silently truncated trie: the slot keeps routing its partial and answers every
+   * key of it absent, and the first later insert whose mismatch bit reaches an ancestor's
+   * discriminative bit fails as an unplaceable branch.
+   */
+  @Test
+  void aDescentEndingOnAReleasedLeafRefusesToFabricateAnEmptyLeaf() {
+    final TransactionIntentLog log = newLog();
+    try {
+      final HOTLeafPage mergedAwayLeaf = newReleasableLeaf();
+      when(mergedAwayLeaf.getPageKey()).thenReturn(MERGED_AWAY_PAGE_KEY);
+      final PageReference orphan = new PageReference();
+      log.put(orphan, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
+
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(orphan));
+
+      final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class, RETURNS_DEEP_STUBS);
+      when(storageEngineWriter.getLog()).thenReturn(log);
+      when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
+      when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(mock(RevisionRootPage.class));
+      when(storageEngineWriter.getPathPage(any()).incrementAndGetMaxHotPageKey(0)).thenReturn(ALLOCATED_PAGE_KEY);
+
+      final TestIndexWriter writer = new TestIndexWriter(storageEngineWriter);
+      final IllegalStateException failure = assertThrows(IllegalStateException.class,
+          () -> writer.prepareLeafOfTreeForTest(orphan, new byte[Long.BYTES], Long.BYTES),
+          "a released leaf must not be answered with a fabricated empty leaf");
+      assertTrue(failure.getMessage().contains("released leaf"), failure.getMessage());
     } finally {
       log.close();
     }

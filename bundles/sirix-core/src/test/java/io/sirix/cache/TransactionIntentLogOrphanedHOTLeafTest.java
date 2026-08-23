@@ -67,7 +67,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       assertEquals(copyHeldByTheTrie.getLogKey(), liveReference.getLogKey(),
           "the aliasing this test is about: the new epoch reuses the stale copy's log key");
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(copyHeldByTheTrie));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(copyHeldByTheTrie));
 
       verify(liveLeaf, never()).close();
       final PageContainer live = log.get(liveReference);
@@ -91,7 +91,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       final PageReference survivingReference = new PageReference();
       log.put(survivingReference, PageContainer.getInstance(survivingLeaf, survivingLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(mergedAwayReference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(mergedAwayReference));
 
       verify(mergedAwayLeaf).close();
       verify(survivingLeaf, never()).close();
@@ -118,7 +118,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       final PageReference mergedAwayReference = new PageReference();
       log.put(mergedAwayReference, PageContainer.getInstance(mergedAwayLeaf, mergedAwayLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(mergedAwayReference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(mergedAwayReference));
 
       verify(mergedAwayLeaf).close();
       assertNull(log.get(mergedAwayReference),
@@ -146,7 +146,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       assertEquals(1, log.pinnedSize(), "an epoch rotation pins the HOT leaf container");
       assertNotNull(log.get(mergedAwayReference), "the pinned container is still the live entry");
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(mergedAwayReference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(mergedAwayReference));
 
       verify(mergedAwayLeaf).close();
       assertNull(log.get(mergedAwayReference), "a freed pinned leaf must not stay resolvable");
@@ -177,7 +177,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       final PageReference guardedReference = new PageReference();
       log.put(guardedReference, PageContainer.getInstance(guardedLeaf, guardedLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(guardedReference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(guardedReference));
 
       verify(guardedLeaf).close();
       assertNull(log.get(guardedReference), "an orphaned-but-not-yet-torn-down leaf must not stay resolvable");
@@ -197,7 +197,7 @@ final class TransactionIntentLogOrphanedHOTLeafTest {
       final PageReference otherHolder = new PageReference();
       log.put(otherHolder, PageContainer.getInstance(sharedLeaf, sharedLeaf));
 
-      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, List.of(orphanReference));
+      log.releaseOrphanedHOTLeaves(INDEX_SCOPE, null, List.of(orphanReference));
 
       verify(sharedLeaf, never()).close();
       assertSame(sharedLeaf, log.get(orphanReference).getModified(),
