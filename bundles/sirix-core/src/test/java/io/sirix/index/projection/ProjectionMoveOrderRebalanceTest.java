@@ -140,6 +140,7 @@ final class ProjectionMoveOrderRebalanceTest {
         finalRevision = session.getMostRecentRevisionNumber();
       }
       assertProjection(database, definition, finalRevision, new ArrayList<>(expectedOrder));
+      assertPersistedLabelsMatchTheDirectory(database, definition, recordKeys);
       assertEquals(0L, ProjectionIndexChangeListener.maintenanceTelemetry().fullRebuilds(),
           "the move workload must stay incremental — no complete projection rebuild");
     }
@@ -149,6 +150,44 @@ final class ProjectionMoveOrderRebalanceTest {
     Databases.clearGlobalCaches();
     try (Database<JsonResourceSession> reopened = Databases.openJsonDatabase(databasePath)) {
       assertProjection(reopened, definition, finalRevision, new ArrayList<>(expectedOrder));
+    }
+  }
+
+  /**
+   * A bounded rebalance re-spreads sibling records in the ORDER DIRECTORY; the persisted row-group
+   * lane only follows if those records are carried into the apply pass. Asserting that every
+   * persisted order label equals the label the directory now holds for that record is what catches a
+   * re-spread whose rows were stranded — a commit that succeeds while the two disagree leaves later
+   * inserts resolving their position against stale labels, i.e. wrong document order with no error.
+   */
+  private static void assertPersistedLabelsMatchTheDirectory(final Database<JsonResourceSession> database,
+      final IndexDef definition, final List<Long> recordKeys) {
+    try (JsonResourceSession session = database.beginResourceSession(RESOURCE);
+         var wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), definition.getID());
+      final ProjectionStructuralOrderDirectory.Accessor directory =
+          ProjectionStructuralOrderDirectory.open(storage);
+      final ProjectionIndexMetadata metadata = ProjectionIndexMetadata.parse(storage.getBlob(0));
+      assertNotNull(metadata, "the projection must still carry live metadata");
+      final ProjectionPersistedRecordLookup lookup = new ProjectionPersistedRecordLookup(storage,
+          ProjectionIndexFences.open(storage, metadata.rowGroupCount()), ProjectionRecordLocator.open(storage));
+
+      for (final long recordKey : recordKeys) {
+        final long location = lookup.find(recordKey);
+        assertTrue(location != ProjectionPersistedRecordLookup.ABSENT,
+            "record " + recordKey + " must still have a persisted row");
+        final byte[] persisted = lookup.keys(ProjectionPersistedRecordLookup.slot(location))
+                                       .view()
+                                       .copyOrderLabelAt(ProjectionPersistedRecordLookup.row(location));
+        final byte[] current = directory.fullLabel(recordKey,
+            nodeKey -> (io.sirix.node.interfaces.immutable.ImmutableNode) wtx.getStorageEngineWriter()
+                                                                            .getRecord(nodeKey, io.sirix.index.IndexType.DOCUMENT, -1),
+            ProjectionStructuralOrderDirectory.RelabelSink.SEALED).toBytes();
+        assertEquals(0, ProjectionIndexRowGroupPage.compareOrderLabels(persisted, 0, persisted.length,
+            current, 0, current.length),
+            "record " + recordKey + " kept a stale persisted order label after a rebalance");
+      }
     }
   }
 
