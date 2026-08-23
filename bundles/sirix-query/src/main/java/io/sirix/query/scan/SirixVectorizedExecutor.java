@@ -809,6 +809,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   private final ConcurrentHashMap<String, Long> pathNodeKeyCache = new ConcurrentHashMap<>();
 
   /**
+   * Cache of {@link #sourcePathIsPresent(String[])} verdicts, keyed by the source path alone. Stable
+   * for the executor's (session, revision) lifetime for the same reason {@link #pathNodeKeyCache} is.
+   */
+  private final ConcurrentHashMap<String, Boolean> sourcePathPresenceCache = new ConcurrentHashMap<>();
+
+  /**
    * Cache of {@link #tryPathSummaryStats(String[], String, String)} results, keyed by
    * {@code pathNodeKey + "#" + func}. The executor is bound to a single (session, revision) so each
    * PathNode's statistics are stable for its lifetime; we don't need to reopen the PathSummary for
@@ -1430,6 +1436,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String[] sourcePath, String groupField) throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return new ItemSequence();
+    }
+
     try {
       if (wtx != null) {
         // Wtx mode: projection-only, no result caches (uncommitted state is
@@ -1677,6 +1690,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
       throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return new Int64(0L);
+    }
+
     if (predicate == null)
       return null;
     // Wtx mode serves unpredicated projection queries only — predicate
@@ -1847,6 +1867,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
       String groupField) throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return new ItemSequence();
+    }
+
     if (predicate == null || groupField == null)
       return null;
     // Wtx mode serves unpredicated projection queries only — see
@@ -1926,6 +1953,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeGroupByCountMulti(QueryContext ctx, String[] sourcePath, String[] groupFields,
       String[] outNames, String countName, PredicateNode predicate) throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return new ItemSequence();
+    }
+
     if (groupFields == null || groupFields.length == 0 || outNames == null || outNames.length != groupFields.length
         || countName == null) {
       return null;
@@ -4906,6 +4940,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate, String func,
       String field) throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return statsToSequence(func, EMPTY_SOURCE_STATS);
+    }
+
     if (predicate == null || func == null)
       return null;
     // Wtx mode serves unpredicated projection queries only — see
@@ -5271,6 +5312,73 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
         return onlyMatch != -1L && hasAnonymousArrayChild(summary, onlyMatch)
             ? -1L
             : onlyMatch;
+      } finally {
+        summary.close();
+      }
+    }
+  }
+
+  /**
+   * Whether the NAMED steps of {@code sourcePath} resolve to a path node in this revision's summary
+   * — the gate every serving entry point below opens with.
+   *
+   * <p>
+   * <b>Why serving must decline when they do not.</b> {@link #resolveTargetPathNodeKey} answers
+   * {@code -1} for two very different situations: a path the summary cannot SCOPE (no summary at
+   * all, an ambiguous name, an array-valued field whose slots carry the anonymous layer's key) and a
+   * path that is provably ABSENT. Every kernel here reads {@code -1} as "unscoped" and falls back to
+   * matching the field by NAME across the whole resource, which is the right degradation for the
+   * first group and a wrong ANSWER for the second: after {@code delete json $doc.a}, a query over
+   * {@code $doc.a[]} would fold every {@code age} still living under {@code $doc.b} into a sum the
+   * source sequence says is empty. Resolving the source path separately keeps that distinction where
+   * it can still be acted on — an absent source path selects nothing, so the fast paths must not
+   * answer for it at all.
+   *
+   * <p>
+   * Declining is always safe: every caller carries the generic pipeline as its fallback, and the
+   * generic pipeline reads the same binding. A source path with no named steps ({@code /[]} — the
+   * bench shape) has nothing to resolve and is admitted without touching the summary, so the hot
+   * analytical routes pay one map probe and no I/O.
+   */
+  private boolean sourcePathIsPresent(final String[] sourcePath) {
+    final String[] named = namedAncestorChain(sourcePath);
+    if (named.length == 0) {
+      return true;
+    }
+    // No summary means no claim either way — keep the previous behaviour rather than decline
+    // every named source path on a resource that simply does not maintain one.
+    if (!session.getResourceConfig().withPathSummary) {
+      return true;
+    }
+    final String cacheKey = pathCacheKey(sourcePath, null);
+    final Boolean cached = sourcePathPresenceCache.get(cacheKey);
+    if (cached != null) {
+      return cached.booleanValue();
+    }
+    final boolean present = computeSourcePathIsPresent(named);
+    sourcePathPresenceCache.putIfAbsent(cacheKey, Boolean.valueOf(present));
+    return present;
+  }
+
+  /**
+   * Resolve {@code named} — the source path's named steps, outermost first — against the path
+   * summary. Uses the same exact-position match {@link #computeTargetPathNodeKey} applies to a
+   * field, so "present" here means the query path really exists rather than merely sharing a local
+   * name with something deeper. An ambiguous name is present (several nodes sit at that path); only
+   * "no node sits there at all" is absence.
+   */
+  private boolean computeSourcePathIsPresent(final String[] named) {
+    final String leaf = named[named.length - 1];
+    final String[] expectedAncestors = Arrays.copyOf(named, named.length - 1);
+    try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
+      try {
+        for (final PathNode candidate : summary.findPathsByLocalName(leaf)) {
+          if (candidateMatchesAncestorChain(summary, candidate, expectedAncestors)) {
+            return true;
+          }
+        }
+        return false;
       } finally {
         summary.close();
       }
@@ -10394,6 +10502,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
 
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return new Int64(0L);
+    }
+
     try {
       if (wtx != null) {
         // Wtx mode: projection-only, no result caches — see executeGroupByCount.
@@ -11016,6 +11131,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeBinaryAggregate(final QueryContext ctx, final String[] sourcePath, final String func,
       final String leftField, final String op, final String rightField) throws QueryException {
+    // An absent source path selects the empty sequence; serving it unscoped would answer
+    // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return null;
+    }
+
     if (!"sum".equals(func)) {
       return null;
     }
@@ -11156,6 +11277,13 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   @Override
   public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
       throws QueryException {
+    // An absent source path selects nothing. Brackit's VectorizedGroupByExpr treats a null
+    // return as "unsupported" and RAISES, so this mode answers for the empty source rather
+    // than declining to a fallback it does not have. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return statsToSequence(func, EMPTY_SOURCE_STATS);
+    }
+
     try {
       if (wtx != null) {
         // Wtx mode: projection-only (path-summary stats and the generic
@@ -11454,6 +11582,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
       final String[] keyCondFields, final long[] keyCondLits, final String[] keyCondElse,
       final String[] keyRegexPattern, final String[] keyRegexRepl, final long[] keyDivMod, final boolean[] keyStringify,
       final long[] having) {
+    // An absent source path selects the empty sequence; serving it unscoped would answer
+    // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return null;
+    }
+
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return declineGroupAgg("no projection available");
@@ -12833,6 +12967,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
   public Sequence executeConstGroupAggregate(final QueryContext ctx, final String[] sourcePath,
       final PredicateNode predicateOrNull, final String[] funcs, final String[] aggFields, final long[] offsets,
       final String[] outNames) {
+    // An absent source path selects the empty sequence; serving it unscoped would answer
+    // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return null;
+    }
+
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -14565,6 +14705,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   public Sequence executeRowMaterialize(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String[] fields, final String[] outNames, final int[] direct, final int[][] codes, final long[][] consts) {
+    // An absent source path selects the empty sequence; serving it unscoped would answer
+    // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return null;
+    }
+
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -14748,6 +14894,12 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    */
   public Sequence executeComputedAggregate(final String[] sourcePath, final PredicateNode predicateOrNull,
       final String func, final String[] fields, final int[] code, final long[] consts) {
+    // An absent source path selects the empty sequence; serving it unscoped would answer
+    // from same-named fields elsewhere in the resource. See sourcePathIsPresent.
+    if (!sourcePathIsPresent(sourcePath)) {
+      return null;
+    }
+
     try {
       if (projectionRegistryKey == null || !anyProjectionAvailable()) {
         return null;
@@ -15762,6 +15914,14 @@ public final class SirixVectorizedExecutor implements SirixExecutorProvider {
    * whose first four lanes are {@code [count, sum, min, max]}. Every consumer of
    * {@code tryProjectionAggregate} must come through here.
    */
+  /**
+   * The {@code [count, sum, min, max]} accumulator of a scan that visited no row — what an absent
+   * source path folds to. Shared because {@link #statsToSequence(String, long[])} only reads it:
+   * {@code count} 0 gives {@code count}/{@code sum} 0 and the empty sequence for avg|min|max, which
+   * is exactly {@code fn:sum}/{@code fn:avg} over an empty sequence.
+   */
+  private static final long[] EMPTY_SOURCE_STATS = new long[] {0L, 0L, 0L, 0L};
+
   private static Sequence statsToSequence(final String func, final long[] stats) {
     return stats.length == 6 && stats[5] == AGG128_TAG
         ? longStats128ToSequence(func, stats)
