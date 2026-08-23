@@ -1356,6 +1356,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
             orderRelabels = relabels;
           }
           relabels.add(nodeKey);
+          markDirty(nodeKey, allColumnWords);
         }
       };
       orderRelabelSink = sink;
@@ -1685,8 +1686,8 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
       failMaintenance(failure);
       throw failure;
     }
-    LongOpenHashSet dirty = dirtyRecordKeys;
-    Long2ObjectOpenHashMap<long[]> dirtyColumnWords = dirtyColumnWordsByRecord;
+    final LongOpenHashSet dirty = dirtyRecordKeys;
+    final Long2ObjectOpenHashMap<long[]> dirtyColumnWords = dirtyColumnWordsByRecord;
     final Long2ByteOpenHashMap rootProvenance = rootProvenanceByRecord;
     final ArrayList<StructuralDelta> completedStructuralDeltas = structuralDeltas;
     dirtyRecordKeys = null;
@@ -1696,23 +1697,11 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
     if (invalidated || maintenanceTrx == null) {
       return;
     }
-    // A rebalance raised by a subtree move re-spreads siblings BEFORE this pass starts and outside
-    // any dirty-marking path, so the relabels have to be taken over here — ahead of the "nothing to
-    // do" exit — or a move-only commit would leave those records' persisted order labels stale while
-    // the directory already holds the new ones.
-    if (dirty == null && orderRelabels != null && !orderRelabels.isEmpty()) {
-      dirty = new LongOpenHashSet();
-      dirtyColumnWords = new Long2ObjectOpenHashMap<>();
-    }
-    final LongOpenHashSet carriedRelabels = dirty == null
-        ? LongOpenHashSet.of()
-        : drainOrderRelabels(dirty, dirtyColumnWords);
     if (dirty == null || dirty.isEmpty()) {
       return;
     }
     try {
-      final LongOpenHashSet relabelled =
-          mintRecordOrderLabels(dirty, dirtyColumnWords, rootProvenance, carriedRelabels);
+      final LongOpenHashSet relabelled = mintRecordOrderLabels(dirty, dirtyColumnWords, rootProvenance);
       if (!applyIncremental(dirty, dirtyColumnWords, rootProvenance, completedStructuralDeltas, relabelled)) {
         throw new IllegalStateException("Projection index " + indexDef.getID()
             + " incremental maintenance found inconsistent persistent units");
@@ -1736,9 +1725,9 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
    */
   private LongOpenHashSet mintRecordOrderLabels(final LongOpenHashSet dirty,
       final Long2ObjectOpenHashMap<long[]> dirtyColumnWords,
-      final @Nullable Long2ByteOpenHashMap rootProvenance, final LongOpenHashSet carriedRelabels) {
+      final @Nullable Long2ByteOpenHashMap rootProvenance) {
     if (rootProvenance == null || rootProvenance.isEmpty()) {
-      return union(carriedRelabels, drainOrderRelabels(dirty, dirtyColumnWords));
+      return drainOrderRelabels(dirty, dirtyColumnWords);
     }
     final ProjectionStructuralOrderDirectory.Accessor directory = structuralOrderDirectory();
     final ProjectionStructuralOrderDirectory.RelabelSink sink = orderRelabelSink();
@@ -1774,18 +1763,7 @@ public final class ProjectionIndexChangeListener implements PathNodeKeyChangeLis
         minted.add(cursor);
       }
     }
-    return union(carriedRelabels, drainOrderRelabels(dirty, dirtyColumnWords));
-  }
-
-  private static LongOpenHashSet union(final LongOpenHashSet left, final LongOpenHashSet right) {
-    if (left.isEmpty()) {
-      return right;
-    }
-    if (right.isEmpty()) {
-      return left;
-    }
-    left.addAll(right);
-    return left;
+    return drainOrderRelabels(dirty, dirtyColumnWords);
   }
 
   /**
